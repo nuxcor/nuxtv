@@ -115,6 +115,9 @@ class ExoEngine(context: Context) : PlayerEngine {
     override val durationMs: Long
         get() = player.duration.takeIf { it != C.TIME_UNSET && !player.isCurrentMediaItemLive } ?: 0L
 
+    override val videoResolution: Pair<Int, Int>?
+        get() = player.videoFormat?.let { f -> (f.width to f.height).takeIf { f.height > 0 } }
+
     // --- track selection ------------------------------------------------------
 
     private fun tracksOf(trackType: Int): List<Track> =

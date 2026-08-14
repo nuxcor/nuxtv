@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -80,6 +81,7 @@ import com.nuxcor.nuxtv.MainViewModel
 import com.nuxcor.nuxtv.data.EngineChoice
 import com.nuxcor.nuxtv.data.EpgProgram
 import com.nuxcor.nuxtv.data.LiveChannel
+import com.nuxcor.nuxtv.data.QualityTag
 import com.nuxcor.nuxtv.player.ExoEngine
 import com.nuxcor.nuxtv.player.PlayerEngine
 import com.nuxcor.nuxtv.player.Track
@@ -121,6 +123,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
+    var qualityLabel by remember { mutableStateOf<String?>(null) }
 
     var controlsVisible by remember { mutableStateOf(true) }
     var interactionTick by remember { mutableIntStateOf(0) }
@@ -187,11 +190,12 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         if (resume > 0 && positionMs == 0L) statusMessage = "Resumed from ${formatTime(resume)}"
     }
 
-    // Poll position/duration for the seek bar.
+    // Poll position/duration/resolution for the seek bar and quality badge.
     LaunchedEffect(engine) {
         while (true) {
             positionMs = engine.positionMs
             durationMs = engine.durationMs
+            qualityLabel = engine.videoResolution?.let { (w, h) -> QualityTag.ofResolution(w, h) }
             delay(500)
         }
     }
@@ -292,6 +296,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             PlayerControls(
                 title = item?.title.orEmpty(),
                 subtitle = item?.subtitle,
+                qualityLabel = qualityLabel,
                 engineName = engine.name,
                 playing = playing,
                 positionMs = positionMs,
@@ -319,6 +324,19 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     engineChoice =
                         if (engineChoice == EngineChoice.EXO) EngineChoice.VLC else EngineChoice.EXO
                     poke()
+                },
+                onPip = {
+                    (context as? android.app.Activity)?.let { activity ->
+                        if (android.os.Build.VERSION.SDK_INT >= 26) {
+                            runCatching {
+                                activity.enterPictureInPictureMode(
+                                    android.app.PictureInPictureParams.Builder()
+                                        .setAspectRatio(android.util.Rational(16, 9))
+                                        .build()
+                                )
+                            }
+                        }
+                    }
                 },
                 onInteraction = { poke() },
             )
@@ -359,6 +377,7 @@ private fun PlayerBadge(text: String, color: Color) {
 private fun PlayerControls(
     title: String,
     subtitle: String?,
+    qualityLabel: String?,
     engineName: String,
     playing: Boolean,
     positionMs: Long,
@@ -378,6 +397,7 @@ private fun PlayerControls(
     onRecordToggle: () -> Unit,
     onCatchup: () -> Unit,
     onEngineSwap: () -> Unit,
+    onPip: () -> Unit,
     onInteraction: () -> Unit,
 ) {
     val playFocus = remember { FocusRequester() }
@@ -393,13 +413,32 @@ private fun PlayerControls(
                 )
                 .padding(horizontal = 32.dp, vertical = 22.dp),
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                qualityLabel?.let {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(NuxColors.Primary.copy(alpha = 0.22f))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    ) {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = NuxColors.FocusBorder,
+                        )
+                    }
+                }
+            }
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     text = subtitle,
@@ -460,6 +499,7 @@ private fun PlayerControls(
                     )
                 }
                 ControlButton(Icons.Default.Subtitles, "Audio & subtitles", onTracks)
+                ControlButton(Icons.Default.PictureInPictureAlt, "Picture in picture", onPip)
                 if (hasCatchup) ControlButton(Icons.Default.History, "Catch-up", onCatchup)
                 if (canRecord || isRecording) {
                     ControlButton(

@@ -108,6 +108,11 @@ class VlcEngine(context: Context) : PlayerEngine {
     override val positionMs: Long get() = if (released) 0 else mediaPlayer.time.coerceAtLeast(0)
     override val durationMs: Long get() = if (released) 0 else mediaPlayer.length.coerceAtLeast(0)
 
+    override val videoResolution: Pair<Int, Int>?
+        get() = if (released) null else runCatching {
+            mediaPlayer.currentVideoTrack?.let { t -> (t.width to t.height).takeIf { t.height > 0 } }
+        }.getOrNull()
+
     // --- track selection ------------------------------------------------------
 
     override fun audioTracks(): List<Track> =

@@ -147,6 +147,7 @@ fun WideItem(
     title: String,
     subtitle: String? = null,
     imageUrl: String? = null,
+    badge: String? = null,
     leading: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
     onFocus: () -> Unit = {},
@@ -202,7 +203,32 @@ fun WideItem(
                     )
                 }
             }
+            if (badge != null) MetaChip(badge, accent = true)
         }
+    }
+}
+
+/** Five-star rating bar for a 0–10 score, with optional vote count. */
+@Composable
+fun RatingStars(rating: Double, voteCount: Int? = null) {
+    val stars = (rating / 2).coerceIn(0.0, 5.0)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = buildString {
+                val full = kotlin.math.floor(stars).toInt()
+                val half = stars - full >= 0.5
+                repeat(full) { append('★') }
+                if (half) append('⯨')
+                repeat(5 - full - if (half) 1 else 0) { append('☆') }
+            },
+            style = MaterialTheme.typography.titleMedium,
+            color = NuxColors.Primary,
+        )
+        Text(
+            text = "%.1f".format(rating) + (voteCount?.let { " · ${"%,d".format(it)} votes" } ?: ""),
+            style = MaterialTheme.typography.labelMedium,
+            color = NuxColors.OnSurfaceDim,
+        )
     }
 }
 

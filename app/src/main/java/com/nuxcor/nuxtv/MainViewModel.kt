@@ -23,8 +23,11 @@ import com.nuxcor.nuxtv.recording.ActiveRecording
 import com.nuxcor.nuxtv.recording.Recording
 import com.nuxcor.nuxtv.recording.RecordingManager
 import com.nuxcor.nuxtv.recording.RecordingScheduler
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -57,6 +60,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val favorites: StateFlow<Set<String>> = playerPrefs.favorites
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
+    val hidden: StateFlow<Set<String>> = playerPrefs.hidden
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    val epgOverrideUrl: StateFlow<String?> = playerPrefs.epgOverrideUrl
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    val tmdbKey: StateFlow<String?> = playerPrefs.tmdbKey
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
     val schedules: StateFlow<List<ScheduledRecording>> = playerPrefs.schedules
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
@@ -76,13 +88,77 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     init {
         viewModelScope.launch { repo.ensureLoaded() }
         refreshRecordings()
-        // Load the guide whenever a playlist finishes loading, and make sure
-        // persisted schedules still have alarms registered.
+        // Reload the guide when a playlist loads or the EPG override changes,
+        // fill in missing channel logos, and keep schedules' alarms registered.
         viewModelScope.launch {
-            repo.content.collect { if (it is ContentState.Ready) repo.loadEpg() }
+            repo.content.collect {
+                if (it is ContentState.Ready) {
+                    repo.loadEpg(playerPrefs.epgOverrideUrl.first())
+                    repo.enrichLogos()
+                }
+            }
+        }
+        viewModelScope.launch {
+            playerPrefs.epgOverrideUrl.drop(1).collect { override ->
+                if (content.value is ContentState.Ready) repo.loadEpg(override)
+            }
+        }
+        // Auto-refresh the guide every 6 hours while the app is running.
+        viewModelScope.launch {
+            while (true) {
+                delay(6L * 3600 * 1000)
+                if (content.value is ContentState.Ready) repo.loadEpg(playerPrefs.epgOverrideUrl.first())
+            }
         }
         viewModelScope.launch {
             RecordingScheduler.rescheduleAll(getApplication(), playerPrefs)
+        }
+    }
+
+    fun setEpgOverrideUrl(url: String?) = viewModelScope.launch { playerPrefs.setEpgOverrideUrl(url) }
+
+    fun setTmdbKey(key: String?) = viewModelScope.launch { playerPrefs.setTmdbKey(key) }
+
+    fun toggleHidden(channel: LiveChannel) {
+        viewModelScope.launch { playerPrefs.toggleHidden(channel.url) }
+    }
+
+    /** Channels with the user's hidden set filtered out. */
+    fun visibleChannels(channels: List<LiveChannel>): List<LiveChannel> {
+        val hiddenSet = hidden.value
+        return if (hiddenSet.isEmpty()) channels else channels.filterNot { it.url in hiddenSet }
+    }
+
+    // --- backup / restore -----------------------------------------------------
+
+    fun exportBackup(onDone: (String?) -> Unit) {
+        viewModelScope.launch {
+            val path = runCatching {
+                val text = playerPrefs.snapshot(sources.value.orEmpty())
+                val file = java.io.File(
+                    getApplication<Application>().getExternalFilesDir(null),
+                    "dzidzi-backup.json",
+                )
+                file.writeText(text)
+                file.absolutePath
+            }.getOrNull()
+            onDone(path)
+        }
+    }
+
+    fun importBackup(onDone: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val ok = runCatching {
+                val file = java.io.File(
+                    getApplication<Application>().getExternalFilesDir(null),
+                    "dzidzi-backup.json",
+                )
+                val restoredSources = playerPrefs.restore(file.readText())
+                repo.restoreSources(restoredSources)
+                RecordingScheduler.rescheduleAll(getApplication(), playerPrefs)
+                true
+            }.getOrDefault(false)
+            onDone(ok)
         }
     }
 
@@ -146,7 +222,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun seriesById(id: String): Series? = bundle?.series?.firstOrNull { it.id == id }
     fun channelById(id: String): LiveChannel? = bundle?.channels?.firstOrNull { it.id == id }
 
-    suspend fun movieDetails(movie: Movie): Movie = repo.movieDetails(movie)
+    suspend fun movieDetails(movie: Movie): Movie = repo.movieDetails(movie, tmdbKey.value)
+    suspend fun seriesDetails(series: Series): Series = repo.seriesDetails(series, tmdbKey.value)
     suspend fun episodesFor(series: Series): List<Episode> = repo.episodesFor(series)
     suspend fun epgFor(channel: LiveChannel): List<EpgProgram> = repo.epgFor(channel)
     suspend fun catchupUrl(channel: LiveChannel, program: EpgProgram): String? =

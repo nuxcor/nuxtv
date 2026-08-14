@@ -99,6 +99,7 @@ class XtreamClient(
                 archiveDays = if (hasArchive) (obj.int("tv_archive_duration") ?: 1) else 0,
                 xtreamId = id,
                 recordUrl = "$baseUrl/live/$username/$password/$id.ts",
+                quality = obj.str("name")?.let { QualityTag.of(it) },
             )
         } ?: emptyList()
 
@@ -147,6 +148,7 @@ class XtreamClient(
                 year = obj.int("year") ?: yearFrom(obj.str("name")),
                 rating = obj.dbl("rating_5based")?.times(2) ?: obj.dbl("rating"),
                 xtreamId = id,
+                quality = obj.str("name")?.let { QualityTag.of(it) },
             )
         } ?: emptyList()
 

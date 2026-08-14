@@ -69,6 +69,7 @@ object ContentClassifier {
                     recordUrl = entry.url.takeUnless {
                         it.lowercase().substringBefore('?').endsWith(".m3u8")
                     },
+                    quality = QualityTag.of(entry.title),
                 )
 
                 Kind.MOVIE -> movies += Movie(
@@ -78,6 +79,7 @@ object ContentClassifier {
                     url = entry.url,
                     categoryId = groupId(movieGroups, entry.group),
                     year = yearOf(entry.title),
+                    quality = QualityTag.of(entry.title),
                 )
 
                 Kind.EPISODE -> {

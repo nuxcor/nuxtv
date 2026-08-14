@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit
 class ContentRepository(context: Context) {
 
     private val store = SourceStore(context.applicationContext)
+    private val appContext = context.applicationContext
 
     val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -24,6 +25,8 @@ class ContentRepository(context: Context) {
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
+
+    private val logos by lazy { LogoRepository(appContext, http) }
 
     val sources: Flow<List<PlaylistSource>> = store.sources
     val activeSource: Flow<PlaylistSource?> =
@@ -145,10 +148,13 @@ class ContentRepository(context: Context) {
 
     // --- EPG ------------------------------------------------------------------
 
-    /** Loads the XMLTV guide for the active source (Xtream xmltv.php or M3U url-tvg/epgUrl). */
-    suspend fun loadEpg() {
+    /**
+     * Loads the XMLTV guide. A user-set override URL (e.g. an epgshare01
+     * pack) wins; otherwise Xtream's xmltv.php or the M3U url-tvg/epgUrl.
+     */
+    suspend fun loadEpg(overrideUrl: String? = null) {
         val source = activeSource.first() ?: return
-        val url = when (source) {
+        val url = overrideUrl?.takeIf { it.isNotBlank() } ?: when (source) {
             is PlaylistSource.Xtream -> xtreamClient(source).xmltvUrl
             is PlaylistSource.M3u ->
                 source.epgUrl?.takeIf { it.isNotBlank() }
@@ -186,11 +192,54 @@ class ContentRepository(context: Context) {
         return byNameId?.let { data.programmes[it] } ?: emptyList()
     }
 
+    /** Fills missing channel logos from the tv-logos repo; no-op on failure. */
+    suspend fun enrichLogos() {
+        val ready = _content.value as? ContentState.Ready ?: return
+        val enriched = runCatching { logos.enrich(ready.bundle) }.getOrNull() ?: return
+        // Only publish if the playlist hasn't been swapped underneath us.
+        if (_content.value === ready) _content.value = ContentState.Ready(enriched)
+    }
+
+    /** Re-adds sources from a backup and reloads the active one. */
+    suspend fun restoreSources(sources: List<PlaylistSource>) {
+        sources.forEach { store.add(it) }
+        loadedSourceId = null
+        ensureLoaded()
+    }
+
     // --- lazy detail loading --------------------------------------------------
 
-    suspend fun movieDetails(movie: Movie): Movie {
-        val source = activeSource.first() as? PlaylistSource.Xtream ?: return movie
-        return runCatching { xtreamClient(source).movieDetails(movie) }.getOrDefault(movie)
+    suspend fun movieDetails(movie: Movie, tmdbKey: String? = null): Movie {
+        var enriched = movie
+        (activeSource.first() as? PlaylistSource.Xtream)?.let { source ->
+            enriched = runCatching { xtreamClient(source).movieDetails(enriched) }.getOrDefault(enriched)
+        }
+        if (tmdbKey != null) {
+            runCatching { TmdbClient(http, tmdbKey).lookup("movie", enriched.name, enriched.year) }
+                .getOrNull()?.let { tmdb ->
+                    enriched = enriched.copy(
+                        rating = enriched.rating ?: tmdb.rating,
+                        voteCount = tmdb.voteCount,
+                        plot = enriched.plot ?: tmdb.overview,
+                        poster = enriched.poster ?: tmdb.posterUrl,
+                        reviews = tmdb.reviews,
+                    )
+                }
+        }
+        return enriched
+    }
+
+    suspend fun seriesDetails(series: Series, tmdbKey: String? = null): Series {
+        if (tmdbKey == null) return series
+        val tmdb = runCatching { TmdbClient(http, tmdbKey).lookup("tv", series.name, series.year) }
+            .getOrNull() ?: return series
+        return series.copy(
+            rating = series.rating ?: tmdb.rating,
+            voteCount = tmdb.voteCount,
+            plot = series.plot ?: tmdb.overview,
+            poster = series.poster ?: tmdb.posterUrl,
+            reviews = tmdb.reviews,
+        )
     }
 
     suspend fun episodesFor(series: Series): List<Episode> {

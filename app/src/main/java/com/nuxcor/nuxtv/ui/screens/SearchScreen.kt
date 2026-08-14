@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,7 +42,10 @@ fun SearchTab(
     onPlay: () -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
-    val results = remember(query, vm.content.value) { vm.search(query) }
+    val hidden by vm.hidden.collectAsState()
+    val results = remember(query, vm.content.value, hidden) {
+        vm.search(query).let { it.copy(channels = vm.visibleChannels(it.channels)) }
+    }
 
     Column(
         modifier = Modifier
@@ -126,6 +130,7 @@ fun SearchTab(
                         WideItem(
                             title = channel.name,
                             subtitle = channel.number?.let { "Channel $it" },
+                            badge = channel.quality,
                             imageUrl = channel.logo,
                             onClick = {
                                 vm.playChannels(results.channels, index)

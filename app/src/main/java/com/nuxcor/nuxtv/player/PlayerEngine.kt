@@ -32,6 +32,9 @@ interface PlayerEngine {
     /** <= 0 for live streams. */
     val durationMs: Long
 
+    /** Decoded video size, or null before the first frame. */
+    val videoResolution: Pair<Int, Int>?
+
     fun audioTracks(): List<Track>
     fun textTracks(): List<Track>
     fun selectAudioTrack(id: String)

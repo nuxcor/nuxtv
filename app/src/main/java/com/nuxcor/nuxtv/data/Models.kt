@@ -49,6 +49,8 @@ data class LiveChannel(
     val xtreamId: Int? = null,
     /** Raw TS URL suitable for recording (null when the stream can't be recorded). */
     val recordUrl: String? = null,
+    /** Advertised quality parsed from the raw name (4K/FHD/HD/SD). */
+    val quality: String? = null,
 )
 
 /** One EPG programme, used for the catch-up picker. */
@@ -74,6 +76,11 @@ data class Movie(
     val durationText: String? = null,
     /** Xtream stream id, used for lazy detail lookups. */
     val xtreamId: Int? = null,
+    /** Advertised quality parsed from the raw name (4K/FHD/HD/SD). */
+    val quality: String? = null,
+    /** Review excerpts ("author — text"), populated from TMDB when a key is set. */
+    val reviews: List<String> = emptyList(),
+    val voteCount: Int? = null,
 )
 
 data class Episode(
@@ -98,6 +105,9 @@ data class Series(
     /** Present for M3U sources; null for Xtream (fetched lazily). */
     val episodes: List<Episode>? = null,
     val xtreamId: Int? = null,
+    /** Review excerpts ("author — text"), populated from TMDB when a key is set. */
+    val reviews: List<String> = emptyList(),
+    val voteCount: Int? = null,
 )
 
 data class ContentBundle(

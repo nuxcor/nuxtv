@@ -19,8 +19,14 @@ Point it at an **Xtream Codes** login or a plain **M3U playlist link** and Dzidz
 - **Full EPG grid guide** — XMLTV support for both source types (Xtream `xmltv.php`, M3U `url-tvg` header or explicit EPG URL, gzip supported). Channel-by-time grid with a live "now" highlight; click a current programme to watch, a past one for catch-up, or a future one to schedule a recording
 - **Catch-up TV** — Xtream channels with `tv_archive` expose their EPG in the player; pick any archived programme and it plays via timeshift
 - **Recording & DVR** — record raw TS live streams from the player, or schedule future recordings from the guide (AlarmManager, survives reboots, auto-stops after the programme); recordings get their own library section with playback and delete
-- **Favorites** — star channels from the player; a ★ Favorites category appears in Live TV
+- **Favorites & hidden channels** — star channels from the player (★ Favorites category in Live TV); hide unwanted channels everywhere via the channel manager
 - **Audio & subtitle tracks** — switch audio languages and subtitles on either engine from the player
+- **Auto channel logos** — channels without artwork get logos automatically from the community [tv-logo/tv-logos](https://github.com/tv-logo/tv-logos) repo (index cached for a week)
+- **EPG sources & auto-update** — one-tap [epgshare01](https://epgshare01.online/epgshare01/) country packs or any custom XMLTV URL in Settings; guides auto-refresh every 6 hours
+- **Quality badges** — advertised quality (4K/FHD/HD/SD) parsed from stream names shows on channel rows, and the player displays the real decoded resolution (e.g. "1080p FHD") live
+- **Ratings & reviews** — five-star rating bars on detail pages; add a free TMDB API key in Settings to enrich movies and series with ratings, vote counts, posters and review excerpts
+- **Picture-in-picture** — pop live TV into PiP from the player
+- **Backup & restore** — export playlists, favorites, hidden channels, schedules and settings to a JSON file and restore them on any install
 - **TV-first UI** — collapsible navigation rail, category rows with focus-scaling poster cards, immersive hero header, detail pages for movies and series, global search, D-pad friendly throughout
 - **Pro player** — custom TV controls (seek bar with ±10s D-pad seeking, transport, engine badge), live channel zapping with DPAD/CHANNEL up/down, episode binge queueing, and automatic resume for movies and episodes
 - **Multiple playlists** — add several sources and switch between them in Settings
@@ -50,7 +56,7 @@ No content is bundled — Dzidzi is a player; you bring your own playlist.
 
 ## Roadmap
 
-- Channel reordering and hidden channels
+- Channel reordering
 - Series recording rules ("record every episode")
-- Multi-view / picture-in-picture
-- Backup & restore of settings
+- Multi-view (side-by-side streams)
+- Cloud sync of profiles

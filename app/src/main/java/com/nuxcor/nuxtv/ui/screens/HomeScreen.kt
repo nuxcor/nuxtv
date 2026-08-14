@@ -214,21 +214,23 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
         return
     }
     val favorites by vm.favorites.collectAsState()
+    val hidden by vm.hidden.collectAsState()
+    val allVisible = remember(bundle, hidden) { vm.visibleChannels(bundle.channels) }
     val categories = remember(bundle, favorites) {
         buildList {
             add(Category(id = "__all__", name = "All channels"))
-            if (bundle.channels.any { it.url in favorites }) {
+            if (allVisible.any { it.url in favorites }) {
                 add(Category(id = "__fav__", name = "★ Favorites"))
             }
             addAll(bundle.liveCategories)
         }
     }
     var selectedCategory by rememberSaveable(bundle.channels.size) { mutableStateOf("__all__") }
-    val channels = remember(bundle, selectedCategory, favorites) {
+    val channels = remember(allVisible, selectedCategory, favorites) {
         when (selectedCategory) {
-            "__all__" -> bundle.channels
-            "__fav__" -> bundle.channels.filter { it.url in favorites }
-            else -> bundle.channels.filter { it.categoryId == selectedCategory }
+            "__all__" -> allVisible
+            "__fav__" -> allVisible.filter { it.url in favorites }
+            else -> allVisible.filter { it.categoryId == selectedCategory }
         }
     }
 
@@ -267,6 +269,7 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
                         channel.number?.let { "Channel $it" },
                         channel.archiveDays.takeIf { it > 0 }?.let { "$it-day catch-up" },
                     ).joinToString("  •  ").ifBlank { null },
+                    badge = channel.quality,
                     imageUrl = channel.logo,
                     onClick = {
                         vm.playChannels(channels, index)
@@ -309,89 +312,284 @@ fun CategoryItem(
 
 // --- Settings ----------------------------------------------------------------
 
+private val EPGSHARE_PACKS = listOf("US", "UK", "CA", "DE", "FR", "IN", "ZA")
+
+private fun epgshareUrl(cc: String) =
+    "https://epgshare01.online/epgshare01/epg_ripper_${cc}1.xml.gz"
+
 @Composable
 private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist: () -> Unit) {
     val sources by vm.sources.collectAsState()
     val active by vm.activeSource.collectAsState()
+    val engine by vm.engine.collectAsState()
+    val epgOverride by vm.epgOverrideUrl.collectAsState()
+    val tmdbKey by vm.tmdbKey.collectAsState()
 
+    var manageOpen by remember { mutableStateOf(false) }
+    var epgField by remember(epgOverride) { mutableStateOf(epgOverride.orEmpty()) }
+    var tmdbField by remember(tmdbKey) { mutableStateOf(tmdbKey.orEmpty()) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+
+    if (manageOpen && bundle != null) {
+        ChannelManager(vm = vm, bundle = bundle, onClose = { manageOpen = false })
+        return
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 48.dp, vertical = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(bottom = 40.dp),
+    ) {
+        item(key = "header") {
+            Column {
+                Text(
+                    "Settings",
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = NuxColors.OnSurface,
+                )
+                if (bundle != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "${bundle.channels.size} channels • ${bundle.movies.size} movies • ${bundle.series.size} series",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NuxColors.OnSurfaceDim,
+                    )
+                }
+                statusMessage?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(it, style = MaterialTheme.typography.labelMedium, color = NuxColors.Secondary)
+                }
+            }
+        }
+
+        items(sources.orEmpty(), key = { it.id }) { source ->
+            val isActive = source.id == active?.id
+            WideItem(
+                title = source.name + if (isActive) "   ●" else "",
+                subtitle = when (source) {
+                    is PlaylistSource.Xtream -> "Xtream • ${source.serverUrl}"
+                    is PlaylistSource.M3u -> "M3U • ${source.url}"
+                },
+                leading = {
+                    Icon(
+                        if (source is PlaylistSource.Xtream) Icons.Default.LiveTv else Icons.Default.Movie,
+                        contentDescription = null,
+                        tint = if (isActive) NuxColors.Primary else NuxColors.OnSurfaceDim,
+                    )
+                },
+                onClick = { if (!isActive) vm.selectSource(source.id) },
+            )
+        }
+
+        item(key = "playlist-buttons") {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = onAddPlaylist) { Text("Add playlist") }
+                OutlinedButton(onClick = { vm.refresh() }) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Refresh")
+                }
+                val activeId = active?.id
+                if (activeId != null && (sources?.size ?: 0) > 0) {
+                    OutlinedButton(onClick = { vm.removeSource(activeId) }) {
+                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Remove current")
+                    }
+                }
+                if (bundle != null) {
+                    OutlinedButton(onClick = { manageOpen = true }) { Text("Manage channels") }
+                }
+            }
+        }
+
+        item(key = "engine") {
+            Column {
+                Text(
+                    "Default player engine",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NuxColors.OnSurface,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    EngineChoice.entries.forEach { choice ->
+                        CategoryItem(
+                            name = if (choice == EngineChoice.EXO) "ExoPlayer" else "VLC",
+                            selected = engine == choice,
+                            onClick = { vm.setEngine(choice) },
+                            modifier = Modifier,
+                        )
+                    }
+                }
+            }
+        }
+
+        item(key = "epg") {
+            Column {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "EPG source",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NuxColors.OnSurface,
+                )
+                Text(
+                    "Auto uses your playlist's guide; pick an epgshare01 pack or paste any XMLTV URL. Guides refresh every 6 hours.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NuxColors.OnSurfaceDim,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CategoryItem(
+                        name = "Auto",
+                        selected = epgOverride.isNullOrBlank(),
+                        onClick = { vm.setEpgOverrideUrl(null); statusMessage = "EPG source: playlist default" },
+                        modifier = Modifier,
+                    )
+                    EPGSHARE_PACKS.forEach { cc ->
+                        CategoryItem(
+                            name = cc,
+                            selected = epgOverride == epgshareUrl(cc),
+                            onClick = {
+                                vm.setEpgOverrideUrl(epgshareUrl(cc))
+                                statusMessage = "EPG source: epgshare01 $cc pack"
+                            },
+                            modifier = Modifier,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = epgField,
+                        onValueChange = { epgField = it },
+                        label = { androidx.compose.material3.Text("Custom XMLTV URL") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        colors = settingsFieldColors(),
+                    )
+                    OutlinedButton(onClick = {
+                        vm.setEpgOverrideUrl(epgField)
+                        statusMessage = if (epgField.isBlank()) "EPG source: playlist default"
+                        else "EPG source updated"
+                    }) { Text("Apply") }
+                }
+            }
+        }
+
+        item(key = "tmdb") {
+            Column {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "TMDB ratings & reviews",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NuxColors.OnSurface,
+                )
+                Text(
+                    "Add a free themoviedb.org API key to enrich movies and series with ratings, posters and review excerpts.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NuxColors.OnSurfaceDim,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = tmdbField,
+                        onValueChange = { tmdbField = it },
+                        label = { androidx.compose.material3.Text("TMDB API key") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        colors = settingsFieldColors(),
+                    )
+                    OutlinedButton(onClick = {
+                        vm.setTmdbKey(tmdbField)
+                        statusMessage = if (tmdbField.isBlank()) "TMDB disabled" else "TMDB key saved"
+                    }) { Text("Save") }
+                }
+            }
+        }
+
+        item(key = "backup") {
+            Column {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Backup & restore",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NuxColors.OnSurface,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = {
+                        vm.exportBackup { path ->
+                            statusMessage = path?.let { "Backup saved to $it" } ?: "Backup failed"
+                        }
+                    }) { Text("Export backup") }
+                    OutlinedButton(onClick = {
+                        vm.importBackup { ok ->
+                            statusMessage = if (ok) "Backup restored" else "No backup found"
+                        }
+                    }) { Text("Import backup") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun settingsFieldColors() = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+    focusedTextColor = NuxColors.OnSurface,
+    unfocusedTextColor = NuxColors.OnSurface,
+    focusedContainerColor = NuxColors.Surface,
+    unfocusedContainerColor = NuxColors.Surface.copy(alpha = 0.6f),
+    focusedBorderColor = NuxColors.Primary,
+    unfocusedBorderColor = NuxColors.SurfaceVariant,
+    focusedLabelColor = NuxColors.Primary,
+    unfocusedLabelColor = NuxColors.OnSurfaceDim,
+    cursorColor = NuxColors.Primary,
+)
+
+@Composable
+private fun ChannelManager(vm: MainViewModel, bundle: ContentBundle, onClose: () -> Unit) {
+    val hidden by vm.hidden.collectAsState()
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 48.dp, vertical = 32.dp),
     ) {
-        Text(
-            "Playlists",
-            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
-            color = NuxColors.OnSurface,
-        )
-        if (bundle != null) {
-            Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "${bundle.channels.size} channels • ${bundle.movies.size} movies • ${bundle.series.size} series",
-                style = MaterialTheme.typography.bodySmall,
-                color = NuxColors.OnSurfaceDim,
+                "Manage channels",
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = NuxColors.OnSurface,
+                modifier = Modifier.weight(1f),
             )
+            OutlinedButton(onClick = onClose) { Text("Done") }
         }
-        Spacer(Modifier.height(20.dp))
-
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.weight(1f, fill = false),
-        ) {
-            items(sources.orEmpty(), key = { it.id }) { source ->
-                val isActive = source.id == active?.id
-                WideItem(
-                    title = source.name + if (isActive) "   ●" else "",
-                    subtitle = when (source) {
-                        is PlaylistSource.Xtream -> "Xtream • ${source.serverUrl}"
-                        is PlaylistSource.M3u -> "M3U • ${source.url}"
-                    },
-                    leading = {
-                        Icon(
-                            if (source is PlaylistSource.Xtream) Icons.Default.LiveTv else Icons.Default.Movie,
-                            contentDescription = null,
-                            tint = if (isActive) NuxColors.Primary else NuxColors.OnSurfaceDim,
-                        )
-                    },
-                    onClick = { if (!isActive) vm.selectSource(source.id) },
-                )
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-        val engine by vm.engine.collectAsState()
         Text(
-            "Default player engine",
-            style = MaterialTheme.typography.titleSmall,
-            color = NuxColors.OnSurface,
+            "Select a channel to hide or unhide it everywhere.",
+            style = MaterialTheme.typography.labelSmall,
+            color = NuxColors.OnSurfaceDim,
         )
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            EngineChoice.entries.forEach { choice ->
-                CategoryItem(
-                    name = if (choice == EngineChoice.EXO) "ExoPlayer" else "VLC",
-                    selected = engine == choice,
-                    onClick = { vm.setEngine(choice) },
-                    modifier = Modifier,
+        Spacer(Modifier.height(14.dp))
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(bottom = 32.dp),
+        ) {
+            items(bundle.channels, key = { it.id }) { channel ->
+                val isHidden = channel.url in hidden
+                WideItem(
+                    title = channel.name,
+                    subtitle = if (isHidden) "Hidden — select to unhide" else "Visible",
+                    badge = channel.quality,
+                    imageUrl = channel.logo,
+                    onClick = { vm.toggleHidden(channel) },
                 )
-            }
-        }
-
-        Spacer(Modifier.height(20.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = onAddPlaylist) { Text("Add playlist") }
-            OutlinedButton(onClick = { vm.refresh() }) {
-                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Refresh")
-            }
-            val activeId = active?.id
-            if (activeId != null && (sources?.size ?: 0) > 0) {
-                OutlinedButton(onClick = { vm.removeSource(activeId) }) {
-                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Remove current")
-                }
             }
         }
     }

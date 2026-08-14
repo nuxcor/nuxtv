@@ -44,6 +44,7 @@ import com.nuxcor.nuxtv.data.Series
 import com.nuxcor.nuxtv.ui.components.Artwork
 import com.nuxcor.nuxtv.ui.components.CenteredMessage
 import com.nuxcor.nuxtv.ui.components.MetaChip
+import com.nuxcor.nuxtv.ui.components.RatingStars
 import com.nuxcor.nuxtv.ui.components.WideItem
 import com.nuxcor.nuxtv.ui.theme.NuxColors
 
@@ -90,10 +91,14 @@ fun MovieDetailScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOfNotNull(
                     movie.year?.toString(),
-                    movie.rating?.let { "★ %.1f".format(it) },
+                    movie.quality,
                     movie.durationText,
                     movie.genre,
                 ).forEachIndexed { i, chip -> MetaChip(chip, accent = i == 0) }
+            }
+            movie.rating?.let { rating ->
+                Spacer(Modifier.height(10.dp))
+                RatingStars(rating = rating, voteCount = movie.voteCount)
             }
             if (!movie.plot.isNullOrBlank()) {
                 Spacer(Modifier.height(16.dp))
@@ -102,6 +107,22 @@ fun MovieDetailScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = NuxColors.OnSurfaceDim,
                 )
+            }
+            if (movie.reviews.isNotEmpty()) {
+                Spacer(Modifier.height(18.dp))
+                Text(
+                    "Reviews",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NuxColors.OnSurface,
+                )
+                movie.reviews.forEach { review ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "“$review”",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NuxColors.OnSurfaceDim,
+                    )
+                }
             }
             Spacer(Modifier.height(28.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -126,15 +147,17 @@ fun SeriesDetailScreen(
     onPlay: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val series: Series? = remember(seriesId) { vm.seriesById(seriesId) }
-    if (series == null) {
+    val base: Series? = remember(seriesId) { vm.seriesById(seriesId) }
+    if (base == null) {
         CenteredMessage(title = "Series not found")
         return
     }
+    var series by remember(seriesId) { mutableStateOf(base) }
+    LaunchedEffect(seriesId) { series = vm.seriesDetails(base) }
 
-    var episodes by remember(seriesId) { mutableStateOf<List<Episode>?>(series.episodes) }
+    var episodes by remember(seriesId) { mutableStateOf<List<Episode>?>(base.episodes) }
     LaunchedEffect(seriesId) {
-        if (episodes == null) episodes = vm.episodesFor(series)
+        if (episodes == null) episodes = vm.episodesFor(base)
     }
 
     val eps = episodes
@@ -165,10 +188,13 @@ fun SeriesDetailScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOfNotNull(
                         series.year?.toString(),
-                        series.rating?.let { "★ %.1f".format(it) },
                         eps?.let { "${it.size} episodes" },
                         series.genre,
                     ).forEachIndexed { i, chip -> MetaChip(chip, accent = i == 0) }
+                }
+                series.rating?.let { rating ->
+                    Spacer(Modifier.height(6.dp))
+                    RatingStars(rating = rating, voteCount = series.voteCount)
                 }
                 if (!series.plot.isNullOrBlank()) {
                     Spacer(Modifier.height(8.dp))

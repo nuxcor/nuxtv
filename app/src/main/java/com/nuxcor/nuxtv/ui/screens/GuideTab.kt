@@ -75,7 +75,9 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
         )
 
         is ContentRepository.EpgState.Ready -> {
-            if (bundle.channels.isEmpty()) {
+            val hidden by vm.hidden.collectAsState()
+            val channels = remember(bundle, hidden) { vm.visibleChannels(bundle.channels) }
+            if (channels.isEmpty()) {
                 CenteredMessage(title = "No live channels")
                 return
             }
@@ -127,7 +129,7 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                     contentPadding = PaddingValues(bottom = 28.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    items(bundle.channels, key = { it.id }) { channel ->
+                    items(channels, key = { it.id }) { channel ->
                         GuideRow(
                             vm = vm,
                             channel = channel,
@@ -135,7 +137,7 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                             windowEnd = windowEnd,
                             timelineScroll = timelineScroll,
                             onPlayChannel = {
-                                vm.playChannels(bundle.channels, bundle.channels.indexOf(channel))
+                                vm.playChannels(channels, channels.indexOf(channel))
                                 onPlay()
                             },
                             onCatchup = { program ->
