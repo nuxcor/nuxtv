@@ -134,4 +134,17 @@ class VlcEngine(context: Context) : PlayerEngine {
     override fun selectTextTrack(id: String?) {
         mediaPlayer.setSpuTrack(id?.toIntOrNull() ?: -1)
     }
+
+    override fun setScaleMode(mode: Int) {
+        if (released) return
+        mediaPlayer.videoScale = when (mode) {
+            1 -> MediaPlayer.ScaleType.SURFACE_FILL
+            2 -> MediaPlayer.ScaleType.SURFACE_FIT_SCREEN
+            else -> MediaPlayer.ScaleType.SURFACE_BEST_FIT
+        }
+    }
+
+    override fun setSpeed(speed: Float) {
+        if (!released) mediaPlayer.rate = speed
+    }
 }

@@ -69,6 +69,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val tmdbKey: StateFlow<String?> = playerPrefs.tmdbKey
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    val resumePositions: StateFlow<Map<String, Long>> = playerPrefs.resumePositions
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    val parentalPin: StateFlow<String?> = playerPrefs.parentalPin
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Locked categories stay hidden until the PIN is entered this session. */
+    var parentalUnlocked by mutableStateOf(false)
+        private set
+
+    fun tryUnlock(pin: String): Boolean {
+        val ok = pin == parentalPin.value
+        if (ok) parentalUnlocked = true
+        return ok
+    }
+
+    private val adultPattern = Regex("""(?i)(xxx|adult|porn|18\+|erotic)""")
+
+    fun isLockedCategory(name: String?): Boolean =
+        parentalPin.value != null && !parentalUnlocked &&
+            name != null && adultPattern.containsMatchIn(name)
+
     val schedules: StateFlow<List<ScheduledRecording>> = playerPrefs.schedules
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
@@ -118,6 +140,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setEpgOverrideUrl(url: String?) = viewModelScope.launch { playerPrefs.setEpgOverrideUrl(url) }
 
     fun setTmdbKey(key: String?) = viewModelScope.launch { playerPrefs.setTmdbKey(key) }
+
+    fun setParentalPin(pin: String?) = viewModelScope.launch { playerPrefs.setParentalPin(pin) }
+
+    fun scheduleReminder(channel: LiveChannel, program: EpgProgram) {
+        RecordingScheduler.scheduleReminder(getApplication(), channel.name, program)
+    }
 
     fun toggleHidden(channel: LiveChannel) {
         viewModelScope.launch { playerPrefs.toggleHidden(channel.url) }

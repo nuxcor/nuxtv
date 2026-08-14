@@ -15,6 +15,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.nuxcor.nuxtv.data.PlayableItem
 
@@ -65,12 +66,27 @@ class ExoEngine(context: Context) : PlayerEngine {
         })
     }
 
+    private var playerView: PlayerView? = null
+
     override fun createView(context: Context): View =
         PlayerView(context).apply {
             useController = false
             player = this@ExoEngine.player
             keepScreenOn = true
+            playerView = this
         }
+
+    override fun setScaleMode(mode: Int) {
+        playerView?.resizeMode = when (mode) {
+            1 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+            2 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+        }
+    }
+
+    override fun setSpeed(speed: Float) {
+        player.setPlaybackSpeed(speed)
+    }
 
     override fun prepare(items: List<PlayableItem>, startIndex: Int, startPositionMs: Long) {
         player.setMediaItems(

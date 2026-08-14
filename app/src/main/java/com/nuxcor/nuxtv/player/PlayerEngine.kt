@@ -42,6 +42,11 @@ interface PlayerEngine {
     /** null disables subtitles. */
     fun selectTextTrack(id: String?)
 
+    /** 0 = fit, 1 = fill/stretch, 2 = zoom/crop. */
+    fun setScaleMode(mode: Int)
+
+    fun setSpeed(speed: Float)
+
     var listener: Listener?
 
     interface Listener {

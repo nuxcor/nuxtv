@@ -16,7 +16,14 @@ Point it at an **Xtream Codes** login or a plain **M3U playlist link** and Dzidz
   - Everything else becomes a live channel, grouped by `group-title` categories
   - Titles are cleaned of quality noise (`1080p`, `HEVC`, `[4K]`, language prefixes)
 - **Dual playback engines** — ExoPlayer and libVLC behind one abstraction. If a stream fails on ExoPlayer it automatically retries on VLC (which handles odd TS muxing and exotic codecs); you can also swap engines from the player or set a default in Settings
-- **Full EPG grid guide** — XMLTV support for both source types (Xtream `xmltv.php`, M3U `url-tvg` header or explicit EPG URL, gzip supported). Channel-by-time grid with a live "now" highlight; click a current programme to watch, a past one for catch-up, or a future one to schedule a recording
+- **Instant start** — the parsed playlist is cached on disk, so the library appears immediately on launch and refreshes silently in the background
+- **Full EPG grid guide** — XMLTV support for both source types (Xtream `xmltv.php`, M3U `url-tvg` header or explicit EPG URL, gzip supported). A 48-hour channel-by-time grid with a live "now" highlight; click a current programme to watch, a past one for catch-up, a future one to schedule a recording — or a reminder when the stream can't be recorded
+- **In-player mini-guide** — press left while watching live TV for a TiviMate-style channel list with now/next, without interrupting playback; type a channel number on the remote to jump straight to it
+- **Now/next everywhere** — channel rows in Live TV show what's airing right now
+- **Remote-first navigation** — rail tabs and Live categories switch as focus moves (no OK needed), and BACK returns focus to the rail before exiting
+- **Continue Watching** — partially-watched movies and series surface at the top of their tabs
+- **Parental control** — set a PIN and adult-looking categories (XXX/Adult/18+) lock across Live, Movies and Series
+- **Player options** — aspect ratio (fit/stretch/zoom), playback speed for VOD, sleep timer, and automatic reconnection when a live stream drops
 - **Catch-up TV** — Xtream channels with `tv_archive` expose their EPG in the player; pick any archived programme and it plays via timeshift
 - **Recording & DVR** — record raw TS live streams from the player, or schedule future recordings from the guide (AlarmManager, survives reboots, auto-stops after the programme); recordings get their own library section with playback and delete
 - **Favorites & hidden channels** — star channels from the player (★ Favorites category in Live TV); hide unwanted channels everywhere via the channel manager
@@ -59,4 +66,5 @@ No content is bundled — Dzidzi is a player; you bring your own playlist.
 - Channel reordering
 - Series recording rules ("record every episode")
 - Multi-view (side-by-side streams)
-- Cloud sync of profiles
+- Android TV home-screen (Watch Next) integration
+- Localization

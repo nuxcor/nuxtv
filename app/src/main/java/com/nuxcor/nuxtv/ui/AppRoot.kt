@@ -20,7 +20,7 @@ import com.nuxcor.nuxtv.ui.screens.SeriesDetailScreen
 fun AppRoot(vm: MainViewModel = viewModel()) {
     val sources by vm.sources.collectAsState()
     when {
-        sources == null -> CenteredMessage(title = "NuxTV", loading = true)
+        sources == null -> CenteredMessage(title = "Dzidzi", loading = true)
         sources!!.isEmpty() -> OnboardingScreen(vm = vm, cancellable = false, onDone = {}, onCancel = {})
         else -> NuxNavHost(vm)
     }

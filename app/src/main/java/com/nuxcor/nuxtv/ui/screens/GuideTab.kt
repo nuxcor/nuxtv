@@ -87,7 +87,7 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                 val now = System.currentTimeMillis()
                 now - now % (30 * 60_000L) - 60 * 60_000L
             }
-            val windowEnd = windowStart + 24 * 3600_000L
+            val windowEnd = windowStart + 48 * 3600_000L
             val timelineScroll = rememberScrollState()
             var statusMessage by remember { mutableStateOf<String?>(null) }
 
@@ -155,7 +155,8 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                                 statusMessage = if (vm.scheduleRecording(channel, program)) {
                                     "Recording scheduled: ${program.title}"
                                 } else {
-                                    "This channel's stream can't be recorded"
+                                    vm.scheduleReminder(channel, program)
+                                    "Reminder set: ${program.title}"
                                 }
                             },
                         )
@@ -301,8 +302,7 @@ private fun ProgramCell(
             when {
                 airingNow -> onPlayLive()
                 isPast && hasArchive -> onCatchup()
-                !isPast && canRecord -> onSchedule()
-                isPast -> Unit
+                !isPast -> onSchedule() // records when possible, else sets a reminder
                 else -> Unit
             }
         },
@@ -331,7 +331,7 @@ private fun ProgramCell(
             )
             Text(
                 text = fmt.format(Date(program.startMs)) +
-                    (if (airingNow) " • Now" else if (!isPast && canRecord) " • OK to record" else ""),
+                    (if (airingNow) " • Now" else if (!isPast) (if (canRecord) " • OK to record" else " • OK to remind") else ""),
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

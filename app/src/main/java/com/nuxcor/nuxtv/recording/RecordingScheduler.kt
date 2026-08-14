@@ -57,6 +57,28 @@ object RecordingScheduler {
         }
     }
 
+    /** Posts a "programme starting" notification shortly before start. */
+    fun scheduleReminder(context: Context, channelName: String, program: com.nuxcor.nuxtv.data.EpgProgram) {
+        val intent = Intent(context, ReminderReceiver::class.java)
+            .setAction("com.nuxcor.nuxtv.REMINDER")
+            .setData(android.net.Uri.parse("dzidzi://reminder/${program.id.hashCode()}"))
+            .putExtra("title", program.title)
+            .putExtra("channel", channelName)
+        val pi = PendingIntent.getBroadcast(
+            context,
+            program.id.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val triggerAt = (program.startMs - 60_000).coerceAtLeast(System.currentTimeMillis())
+        val am = alarmManager(context)
+        if (Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()) {
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+        } else {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+        }
+    }
+
     private fun alarmManager(context: Context) =
         context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
@@ -112,5 +134,31 @@ class BootReceiver : BroadcastReceiver() {
             runCatching { RecordingScheduler.rescheduleAll(context, prefs) }
             pending.finish()
         }
+    }
+}
+
+
+class ReminderReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val title = intent.getStringExtra("title") ?: return
+        val channel = intent.getStringExtra("channel") ?: ""
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
+            as android.app.NotificationManager
+        if (Build.VERSION.SDK_INT >= 26) {
+            manager.createNotificationChannel(
+                android.app.NotificationChannel(
+                    "reminders",
+                    "Programme reminders",
+                    android.app.NotificationManager.IMPORTANCE_HIGH,
+                )
+            )
+        }
+        val notification = androidx.core.app.NotificationCompat.Builder(context, "reminders")
+            .setSmallIcon(android.R.drawable.ic_menu_recent_history)
+            .setContentTitle("Starting soon: $title")
+            .setContentText("On $channel in about a minute")
+            .setAutoCancel(true)
+            .build()
+        runCatching { manager.notify(title.hashCode(), notification) }
     }
 }

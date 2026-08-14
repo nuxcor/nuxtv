@@ -2,6 +2,7 @@
 
 package com.nuxcor.nuxtv.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
@@ -41,6 +42,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -62,6 +65,7 @@ import com.nuxcor.nuxtv.data.Movie
 import com.nuxcor.nuxtv.data.PlaylistSource
 import com.nuxcor.nuxtv.data.Series
 import com.nuxcor.nuxtv.ui.components.CenteredMessage
+import com.nuxcor.nuxtv.ui.components.PinPrompt
 import com.nuxcor.nuxtv.ui.components.WideItem
 import com.nuxcor.nuxtv.ui.components.focusBorder
 import com.nuxcor.nuxtv.ui.theme.NuxColors
@@ -87,9 +91,22 @@ fun HomeScreen(
     var tab by rememberSaveable { mutableStateOf(HomeTab.Live) }
     // Non-content tabs also work while the playlist is loading or failed.
     val contentState by vm.content.collectAsState()
+    var railFocused by remember { mutableStateOf(false) }
+    val railFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+
+    // BACK from inside the content pane jumps focus to the rail first;
+    // a second BACK (rail focused) exits as usual.
+    BackHandler(enabled = !railFocused) {
+        runCatching { railFocus.requestFocus() }
+    }
 
     Row(modifier = Modifier.fillMaxSize()) {
-        NavRail(selected = tab, onSelect = { tab = it })
+        NavRail(
+            selected = tab,
+            onSelect = { tab = it },
+            railFocus = railFocus,
+            onRailFocusChanged = { railFocused = it },
+        )
         Box(modifier = Modifier.fillMaxSize()) {
             when (val state = contentState) {
                 is ContentState.Loading -> CenteredMessage(title = state.message, loading = true)
@@ -102,8 +119,8 @@ fun HomeScreen(
                     HomeTab.Search -> SearchTab(vm, onOpenMovie, onOpenSeries, onPlay)
                     HomeTab.Live -> LiveTab(vm, state.bundle, onPlay)
                     HomeTab.Guide -> GuideTab(vm, state.bundle, onPlay)
-                    HomeTab.Movies -> MoviesTab(state.bundle, onOpenMovie)
-                    HomeTab.Series -> SeriesTab(state.bundle, onOpenSeries)
+                    HomeTab.Movies -> MoviesTab(vm, state.bundle, onOpenMovie)
+                    HomeTab.Series -> SeriesTab(vm, state.bundle, onOpenSeries)
                     HomeTab.Recordings -> RecordingsTab(vm, onPlay)
                     HomeTab.Settings -> SettingsTab(vm, state.bundle, onAddPlaylist)
                 }
@@ -138,7 +155,12 @@ private fun ErrorPane(message: String, onRetry: () -> Unit) {
 // --- navigation rail ---------------------------------------------------------
 
 @Composable
-private fun NavRail(selected: HomeTab, onSelect: (HomeTab) -> Unit) {
+private fun NavRail(
+    selected: HomeTab,
+    onSelect: (HomeTab) -> Unit,
+    railFocus: androidx.compose.ui.focus.FocusRequester,
+    onRailFocusChanged: (Boolean) -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
     val width by animateDpAsState(targetValue = if (expanded) 190.dp else 64.dp, label = "railWidth")
 
@@ -147,7 +169,10 @@ private fun NavRail(selected: HomeTab, onSelect: (HomeTab) -> Unit) {
             .fillMaxHeight()
             .width(width)
             .background(NuxColors.Surface.copy(alpha = 0.4f))
-            .onFocusChanged { expanded = it.hasFocus }
+            .onFocusChanged {
+                expanded = it.hasFocus
+                onRailFocusChanged(it.hasFocus)
+            }
             .padding(horizontal = 8.dp, vertical = 24.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -166,16 +191,28 @@ private fun NavRail(selected: HomeTab, onSelect: (HomeTab) -> Unit) {
                 selected = item == selected,
                 expanded = expanded,
                 onClick = { onSelect(item) },
+                modifier = if (item == selected) {
+                    Modifier.fillMaxWidth().focusRequester(railFocus)
+                } else {
+                    Modifier.fillMaxWidth()
+                },
             )
         }
     }
 }
 
 @Composable
-private fun RailItem(item: HomeTab, selected: Boolean, expanded: Boolean, onClick: () -> Unit) {
+private fun RailItem(
+    item: HomeTab,
+    selected: Boolean,
+    expanded: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        // Tabs switch as focus travels the rail — no OK press needed.
+        modifier = modifier.onFocusChanged { if (it.isFocused) onClick() },
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) NuxColors.Primary.copy(alpha = 0.18f) else androidx.compose.ui.graphics.Color.Transparent,
@@ -215,7 +252,14 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
     }
     val favorites by vm.favorites.collectAsState()
     val hidden by vm.hidden.collectAsState()
-    val allVisible = remember(bundle, hidden) { vm.visibleChannels(bundle.channels) }
+    var pinPromptOpen by remember { mutableStateOf(false) }
+    val pin by vm.parentalPin.collectAsState()
+    val lockedIds = remember(bundle, pin, vm.parentalUnlocked) {
+        bundle.liveCategories.filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
+    }
+    val allVisible = remember(bundle, hidden, lockedIds) {
+        vm.visibleChannels(bundle.channels).filterNot { it.categoryId in lockedIds }
+    }
     val categories = remember(bundle, favorites) {
         buildList {
             add(Category(id = "__all__", name = "All channels"))
@@ -226,14 +270,18 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
         }
     }
     var selectedCategory by rememberSaveable(bundle.channels.size) { mutableStateOf("__all__") }
-    val channels = remember(allVisible, selectedCategory, favorites) {
-        when (selectedCategory) {
+    var sortAz by rememberSaveable { mutableStateOf(false) }
+    val epgState by vm.epgState.collectAsState()
+    val channels = remember(allVisible, selectedCategory, favorites, sortAz) {
+        val filtered = when (selectedCategory) {
             "__all__" -> allVisible
             "__fav__" -> allVisible.filter { it.url in favorites }
             else -> allVisible.filter { it.categoryId == selectedCategory }
         }
+        if (sortAz) filtered.sortedBy { it.name.lowercase() } else filtered
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Row(
         modifier = Modifier
             .fillMaxSize()
@@ -247,11 +295,23 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
             verticalArrangement = Arrangement.spacedBy(4.dp),
             contentPadding = PaddingValues(bottom = 28.dp),
         ) {
-            items(categories, key = { it.id }) { category ->
+            item(key = "__sort__") {
                 CategoryItem(
-                    name = category.name,
+                    name = if (sortAz) "Sort: A–Z" else "Sort: Default",
+                    selected = sortAz,
+                    onClick = { sortAz = !sortAz },
+                )
+            }
+            items(categories, key = { it.id }) { category ->
+                val locked = category.id in lockedIds
+                CategoryItem(
+                    name = if (locked) "${category.name}  🔒" else category.name,
                     selected = category.id == selectedCategory,
-                    onClick = { selectedCategory = category.id },
+                    onClick = {
+                        if (locked) pinPromptOpen = true else selectedCategory = category.id
+                    },
+                    // Browsing the category list switches content on focus.
+                    onFocus = { if (!locked) selectedCategory = category.id },
                 )
             }
         }
@@ -263,9 +323,13 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
             contentPadding = PaddingValues(bottom = 28.dp),
         ) {
             itemsIndexed(channels, key = { _, c -> c.id }) { index, channel ->
+                val nowProgram = remember(channel.id, epgState) {
+                    val now = System.currentTimeMillis()
+                    vm.programsFor(channel).firstOrNull { now in it.startMs until it.endMs }
+                }
                 WideItem(
                     title = channel.name,
-                    subtitle = listOfNotNull(
+                    subtitle = nowProgram?.let { "Now: ${it.title}" } ?: listOfNotNull(
                         channel.number?.let { "Channel $it" },
                         channel.archiveDays.takeIf { it > 0 }?.let { "$it-day catch-up" },
                     ).joinToString("  •  ").ifBlank { null },
@@ -279,6 +343,13 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
             }
         }
     }
+    if (pinPromptOpen) {
+        PinPrompt(
+            onSubmit = { entered -> vm.tryUnlock(entered).also { ok -> if (ok) pinPromptOpen = false } },
+            onDismiss = { pinPromptOpen = false },
+        )
+    }
+    }
 }
 
 @Composable
@@ -287,10 +358,11 @@ fun CategoryItem(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier.fillMaxWidth(),
+    onFocus: () -> Unit = {},
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.onFocusChanged { if (it.isFocused) onFocus() },
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) NuxColors.Primary.copy(alpha = 0.16f) else androidx.compose.ui.graphics.Color.Transparent,
@@ -325,9 +397,11 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
     val epgOverride by vm.epgOverrideUrl.collectAsState()
     val tmdbKey by vm.tmdbKey.collectAsState()
 
+    val parentalPin by vm.parentalPin.collectAsState()
     var manageOpen by remember { mutableStateOf(false) }
     var epgField by remember(epgOverride) { mutableStateOf(epgOverride.orEmpty()) }
     var tmdbField by remember(tmdbKey) { mutableStateOf(tmdbKey.orEmpty()) }
+    var pinField by remember(parentalPin) { mutableStateOf(parentalPin.orEmpty()) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
 
     if (manageOpen && bundle != null) {
@@ -510,6 +584,40 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
                     OutlinedButton(onClick = {
                         vm.setTmdbKey(tmdbField)
                         statusMessage = if (tmdbField.isBlank()) "TMDB disabled" else "TMDB key saved"
+                    }) { Text("Save") }
+                }
+            }
+        }
+
+        item(key = "parental") {
+            Column {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Parental control",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NuxColors.OnSurface,
+                )
+                Text(
+                    "With a PIN set, adult-looking categories (XXX/Adult/18+) lock everywhere until unlocked.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NuxColors.OnSurfaceDim,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = pinField,
+                        onValueChange = { value -> pinField = value.filter { ch -> ch.isDigit() }.take(8) },
+                        label = { androidx.compose.material3.Text("PIN (blank to disable)") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        colors = settingsFieldColors(),
+                    )
+                    OutlinedButton(onClick = {
+                        vm.setParentalPin(pinField)
+                        statusMessage = if (pinField.isBlank()) "Parental lock disabled" else "Parental PIN saved"
                     }) { Text("Save") }
                 }
             }

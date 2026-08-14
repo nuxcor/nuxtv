@@ -30,7 +30,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
@@ -53,6 +56,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Arrangement as LayoutArrangement
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -129,6 +133,13 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     var interactionTick by remember { mutableIntStateOf(0) }
     var catchupOpen by remember { mutableStateOf(false) }
     var tracksOpen by remember { mutableStateOf(false) }
+    var miniGuideOpen by remember { mutableStateOf(false) }
+    var digitBuffer by remember { mutableStateOf("") }
+    var retriesLeft by remember { mutableIntStateOf(2) }
+    var sleepMinutes by remember { mutableIntStateOf(0) }
+    var scaleMode by remember { mutableIntStateOf(0) }
+    var speed by remember { mutableStateOf(1f) }
+    val scope = rememberCoroutineScope()
     val favorites by vm.favorites.collectAsState()
 
     val item = request.items.getOrNull(currentIndex)
@@ -158,12 +169,23 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             }
 
             override fun onError(message: String) {
-                if (engineChoice == EngineChoice.EXO && !autoFallbackUsed) {
-                    autoFallbackUsed = true
-                    statusMessage = "Stream failed on ExoPlayer — retrying with VLC"
-                    engineChoice = EngineChoice.VLC
-                } else {
-                    errorMessage = "Playback failed — $message"
+                when {
+                    engineChoice == EngineChoice.EXO && !autoFallbackUsed -> {
+                        autoFallbackUsed = true
+                        statusMessage = "Stream failed on ExoPlayer — retrying with VLC"
+                        engineChoice = EngineChoice.VLC
+                    }
+
+                    request.isLive && retriesLeft > 0 -> {
+                        retriesLeft--
+                        statusMessage = "Stream error — reconnecting…"
+                        scope.launch {
+                            delay(3_000)
+                            engine.playAt(engine.currentIndex)
+                        }
+                    }
+
+                    else -> errorMessage = "Playback failed — $message"
                 }
             }
         }
@@ -208,6 +230,26 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         }
     }
 
+    // Channel-number entry: digits collect briefly, then jump.
+    LaunchedEffect(digitBuffer) {
+        if (digitBuffer.isNotEmpty()) {
+            delay(1_600)
+            val n = digitBuffer.toIntOrNull()
+            digitBuffer = ""
+            if (n != null && n in 1..request.items.size) engine.playAt(n - 1)
+        }
+    }
+
+    // Sleep timer.
+    LaunchedEffect(sleepMinutes) {
+        if (sleepMinutes > 0) {
+            delay(sleepMinutes * 60_000L)
+            if (engine.isPlaying) engine.playPause()
+            statusMessage = "Sleep timer: playback paused"
+            sleepMinutes = 0
+        }
+    }
+
     // Transient status toast.
     LaunchedEffect(statusMessage) {
         if (statusMessage != null) {
@@ -222,8 +264,9 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         engine.playAt(((engine.currentIndex + delta) % count + count) % count)
     }
 
-    BackHandler(enabled = controlsVisible || catchupOpen || tracksOpen) {
+    BackHandler(enabled = controlsVisible || catchupOpen || tracksOpen || miniGuideOpen) {
         when {
+            miniGuideOpen -> miniGuideOpen = false
             tracksOpen -> tracksOpen = false
             catchupOpen -> catchupOpen = false
             else -> controlsVisible = false
@@ -233,8 +276,10 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     // When the controls hide, their focused button leaves the composition and
     // focus would be lost — park it on the root so D-pad events keep arriving.
     val rootFocus = remember { FocusRequester() }
-    LaunchedEffect(controlsVisible, catchupOpen, tracksOpen) {
-        if (!controlsVisible && !catchupOpen && !tracksOpen) runCatching { rootFocus.requestFocus() }
+    LaunchedEffect(controlsVisible, catchupOpen, tracksOpen, miniGuideOpen) {
+        if (!controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen) {
+            runCatching { rootFocus.requestFocus() }
+        }
     }
 
     Box(
@@ -250,14 +295,22 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     AndroidKeyEvent.KEYCODE_CHANNEL_DOWN -> { zap(-1); true }
                     AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { engine.playPause(); poke(); true }
                     AndroidKeyEvent.KEYCODE_DPAD_UP ->
-                        if (request.isLive && !controlsVisible && !catchupOpen && !tracksOpen) { zap(+1); true } else false
+                        if (request.isLive && !controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen) { zap(+1); true } else false
                     AndroidKeyEvent.KEYCODE_DPAD_DOWN ->
-                        if (request.isLive && !controlsVisible && !catchupOpen && !tracksOpen) { zap(-1); true } else false
+                        if (request.isLive && !controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen) { zap(-1); true } else false
                     AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER ->
-                        if (!controlsVisible && !catchupOpen && !tracksOpen) { poke(); true } else false
+                        if (!controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen) { poke(); true } else false
                     AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_DPAD_RIGHT ->
-                        if (!controlsVisible && !catchupOpen && !tracksOpen) { poke(); true } else false
-                    else -> { if (!catchupOpen && !tracksOpen) poke(); false }
+                        if (!controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen) {
+                            if (request.isLive && request.items.size > 1) miniGuideOpen = true else poke()
+                            true
+                        } else false
+                    in AndroidKeyEvent.KEYCODE_0..AndroidKeyEvent.KEYCODE_9 ->
+                        if (request.isLive && !catchupOpen && !tracksOpen && !miniGuideOpen) {
+                            digitBuffer += (event.key.nativeKeyCode - AndroidKeyEvent.KEYCODE_0).toString()
+                            true
+                        } else false
+                    else -> { if (!catchupOpen && !tracksOpen && !miniGuideOpen) poke(); false }
                 }
             }
     ) {
@@ -286,10 +339,25 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             }
             statusMessage?.let { PlayerBadge(text = it, color = NuxColors.Secondary) }
             errorMessage?.let { PlayerBadge(text = it, color = NuxColors.Error) }
+            if (digitBuffer.isNotEmpty()) {
+                PlayerBadge(text = "Channel $digitBuffer", color = NuxColors.FocusBorder)
+            }
+            if (!request.isLive && durationMs > 0 &&
+                durationMs - positionMs in 1_000..15_000 &&
+                currentIndex < request.items.size - 1
+            ) {
+                PlayerBadge(
+                    text = "Up next: ${request.items[currentIndex + 1].subtitle ?: request.items[currentIndex + 1].title}",
+                    color = NuxColors.Primary,
+                )
+            }
+            if (sleepMinutes > 0) {
+                PlayerBadge(text = "Sleep in ${sleepMinutes}m", color = NuxColors.OnSurfaceDim)
+            }
         }
 
         AnimatedVisibility(
-            visible = controlsVisible && !catchupOpen && !tracksOpen,
+            visible = controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen,
             enter = fadeIn(),
             exit = fadeOut(),
         ) {
@@ -319,6 +387,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     poke()
                 },
                 onCatchup = { catchupOpen = true },
+                onChannels = { controlsVisible = false; miniGuideOpen = true },
                 onEngineSwap = {
                     positionMs = engine.positionMs // survive the swap
                     engineChoice =
@@ -342,8 +411,31 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             )
         }
 
+        if (miniGuideOpen) {
+            MiniGuide(
+                vm = vm,
+                items = request.items,
+                currentIndex = currentIndex,
+                onSelect = { index ->
+                    miniGuideOpen = false
+                    engine.playAt(index)
+                },
+                onDismiss = { miniGuideOpen = false },
+            )
+        }
+
         if (tracksOpen) {
-            TracksOverlay(engine = engine, onDismiss = { tracksOpen = false })
+            TracksOverlay(
+                engine = engine,
+                isVod = !request.isLive,
+                scaleMode = scaleMode,
+                onScaleMode = { mode -> scaleMode = mode; engine.setScaleMode(mode) },
+                speed = speed,
+                onSpeed = { sp -> speed = sp; engine.setSpeed(sp) },
+                sleepMinutes = sleepMinutes,
+                onSleep = { minutes -> sleepMinutes = minutes },
+                onDismiss = { tracksOpen = false },
+            )
         }
 
         if (catchupOpen && channel != null) {
@@ -396,6 +488,7 @@ private fun PlayerControls(
     onNext: () -> Unit,
     onRecordToggle: () -> Unit,
     onCatchup: () -> Unit,
+    onChannels: () -> Unit,
     onEngineSwap: () -> Unit,
     onPip: () -> Unit,
     onInteraction: () -> Unit,
@@ -500,6 +593,9 @@ private fun PlayerControls(
                 }
                 ControlButton(Icons.Default.Subtitles, "Audio & subtitles", onTracks)
                 ControlButton(Icons.Default.PictureInPictureAlt, "Picture in picture", onPip)
+                if (hasPlaylist) {
+                    ControlButton(Icons.AutoMirrored.Filled.List, "Channels", onChannels)
+                }
                 if (hasCatchup) ControlButton(Icons.Default.History, "Catch-up", onCatchup)
                 if (canRecord || isRecording) {
                     ControlButton(
@@ -706,7 +802,17 @@ private fun CatchupOverlay(
 }
 
 @Composable
-private fun TracksOverlay(engine: PlayerEngine, onDismiss: () -> Unit) {
+private fun TracksOverlay(
+    engine: PlayerEngine,
+    isVod: Boolean,
+    scaleMode: Int,
+    onScaleMode: (Int) -> Unit,
+    speed: Float,
+    onSpeed: (Float) -> Unit,
+    sleepMinutes: Int,
+    onSleep: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
     var audio by remember { mutableStateOf(engine.audioTracks()) }
     var text by remember { mutableStateOf(engine.textTracks()) }
 
@@ -723,13 +829,41 @@ private fun TracksOverlay(engine: PlayerEngine, onDismiss: () -> Unit) {
     ) {
         Column {
             Text(
-                text = "Audio & subtitles",
+                text = "Playback options",
                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
                 color = Color.White,
             )
             Spacer(Modifier.height(16.dp))
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                item(key = "aspect") {
+                    OptionChips(
+                        label = "Aspect ratio",
+                        options = listOf("Fit", "Stretch", "Zoom"),
+                        selectedIndex = scaleMode,
+                        onSelect = onScaleMode,
+                    )
+                }
+                if (isVod) {
+                    item(key = "speed") {
+                        val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
+                        OptionChips(
+                            label = "Speed",
+                            options = speeds.map { if (it == 1f) "1x" else "${it}x" },
+                            selectedIndex = speeds.indexOf(speed).coerceAtLeast(0),
+                            onSelect = { onSpeed(speeds[it]) },
+                        )
+                    }
+                }
+                item(key = "sleep") {
+                    val choices = listOf(0, 30, 60, 90)
+                    OptionChips(
+                        label = "Sleep timer",
+                        options = choices.map { if (it == 0) "Off" else "${it}m" },
+                        selectedIndex = choices.indexOf(sleepMinutes).coerceAtLeast(0),
+                        onSelect = { onSleep(choices[it]) },
+                    )
+                }
                 if (audio.isNotEmpty()) {
                     item(key = "audio-header") {
                         Text(
@@ -816,6 +950,164 @@ private fun TrackRow(track: Track, onClick: () -> Unit) {
             text = (if (track.selected) "✓  " else "") + track.label,
             style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+        )
+    }
+}
+
+@Composable
+private fun OptionChips(
+    label: String,
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+) {
+    Column {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleSmall,
+            color = NuxColors.OnSurfaceDim,
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            options.forEachIndexed { index, option ->
+                Surface(
+                    onClick = { onSelect(index) },
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = if (index == selectedIndex) NuxColors.Primary.copy(alpha = 0.2f)
+                        else NuxColors.Surface.copy(alpha = 0.6f),
+                        focusedContainerColor = NuxColors.Primary,
+                        contentColor = if (index == selectedIndex) NuxColors.FocusBorder else NuxColors.OnSurface,
+                        focusedContentColor = NuxColors.OnAccent,
+                    ),
+                ) {
+                    Text(
+                        text = option,
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+/** TiviMate-style channel list overlay inside the player, with now/next. */
+@Composable
+private fun MiniGuide(
+    vm: MainViewModel,
+    items: List<com.nuxcor.nuxtv.data.PlayableItem>,
+    currentIndex: Int,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val epgState by vm.epgState.collectAsState()
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val firstFocus = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        listState.scrollToItem(currentIndex.coerceAtLeast(0))
+        runCatching { firstFocus.requestFocus() }
+    }
+
+    Row(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .width(430.dp)
+                .fillMaxHeight()
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(Color.Black.copy(alpha = 0.96f), Color.Black.copy(alpha = 0.85f))
+                    )
+                )
+                .padding(start = 22.dp, top = 22.dp, end = 14.dp)
+        ) {
+            Column {
+                Text(
+                    text = "Channels",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = Color.White,
+                )
+                Spacer(Modifier.height(10.dp))
+                androidx.compose.foundation.lazy.LazyColumn(
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.fillMaxHeight(),
+                ) {
+                    items(items.size, key = { it }) { index ->
+                        val item = items[index]
+                        val channel = item.channelId?.let { vm.channelById(it) }
+                        val nowNext = remember(channel?.id, epgState) {
+                            channel?.let { ch ->
+                                val now = System.currentTimeMillis()
+                                val programs = vm.programsFor(ch)
+                                val current = programs.firstOrNull { now in it.startMs until it.endMs }
+                                val next = programs.firstOrNull { it.startMs >= now }
+                                current to next
+                            } ?: (null to null)
+                        }
+                        Surface(
+                            onClick = { onSelect(index) },
+                            modifier = if (index == currentIndex) {
+                                Modifier.fillMaxWidth().focusRequester(firstFocus)
+                            } else {
+                                Modifier.fillMaxWidth()
+                            },
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = if (index == currentIndex) {
+                                    NuxColors.Primary.copy(alpha = 0.18f)
+                                } else Color.Transparent,
+                                focusedContainerColor = NuxColors.SurfaceVariant,
+                                contentColor = NuxColors.OnSurface,
+                                focusedContentColor = NuxColors.OnSurface,
+                            ),
+                        ) {
+                            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                Text(
+                                    text = "${index + 1}  ${item.title}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                nowNext.first?.let { now ->
+                                    Text(
+                                        text = "Now: ${now.title}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = NuxColors.FocusBorder,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                nowNext.second?.let { next ->
+                                    Text(
+                                        text = "Next: ${next.title}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = NuxColors.OnSurfaceDim,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Clicking the exposed video area closes the guide.
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown &&
+                        event.key.nativeKeyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT
+                    ) {
+                        onDismiss()
+                        true
+                    } else false
+                }
         )
     }
 }

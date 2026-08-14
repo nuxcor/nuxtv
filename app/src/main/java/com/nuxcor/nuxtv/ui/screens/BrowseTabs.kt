@@ -29,6 +29,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import androidx.compose.runtime.collectAsState
+import com.nuxcor.nuxtv.MainViewModel
 import com.nuxcor.nuxtv.data.Category
 import com.nuxcor.nuxtv.data.ContentBundle
 import com.nuxcor.nuxtv.data.Movie
@@ -109,12 +111,21 @@ fun HeroHeader(hero: HeroInfo?) {
 }
 
 @Composable
-fun MoviesTab(bundle: ContentBundle, onOpenMovie: (Movie) -> Unit) {
+fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> Unit) {
     if (bundle.movies.isEmpty()) {
         CenteredMessage(title = "No movies", subtitle = "This playlist has no movie content")
         return
     }
-    val rows = remember(bundle) { rowsOf(bundle.movieCategories, bundle.movies) { it.categoryId } }
+    val resumePositions by vm.resumePositions.collectAsState()
+    val pin by vm.parentalPin.collectAsState()
+    val rows = remember(bundle, pin, vm.parentalUnlocked) {
+        val visibleCategories = bundle.movieCategories.filterNot { vm.isLockedCategory(it.name) }
+        val lockedIds = bundle.movieCategories.filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
+        rowsOf(visibleCategories, bundle.movies.filterNot { it.categoryId in lockedIds }) { it.categoryId }
+    }
+    val continueWatching = remember(bundle, resumePositions) {
+        bundle.movies.filter { it.url in resumePositions }
+    }
     var hero by remember(bundle) { mutableStateOf(bundle.movies.firstOrNull()?.toHero()) }
 
     Column(modifier = Modifier.fillMaxSize().padding(start = 36.dp, top = 28.dp)) {
@@ -124,6 +135,28 @@ fun MoviesTab(bundle: ContentBundle, onOpenMovie: (Movie) -> Unit) {
             contentPadding = PaddingValues(bottom = 36.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
+            if (continueWatching.isNotEmpty()) {
+                item(key = "movies:continue") {
+                    Column {
+                        SectionTitle("Continue watching  ·  ${continueWatching.size}")
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            contentPadding = PaddingValues(end = 48.dp),
+                        ) {
+                            items(continueWatching.size, key = { continueWatching[it].id }) { i ->
+                                val movie = continueWatching[i]
+                                PosterCard(
+                                    title = movie.name,
+                                    subtitle = "Resume",
+                                    imageUrl = movie.poster,
+                                    onClick = { onOpenMovie(movie) },
+                                    onFocus = { hero = movie.toHero() },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             rows.forEach { (categoryName, movies) ->
                 item(key = "movies:$categoryName") {
                     Column {
@@ -151,12 +184,21 @@ fun MoviesTab(bundle: ContentBundle, onOpenMovie: (Movie) -> Unit) {
 }
 
 @Composable
-fun SeriesTab(bundle: ContentBundle, onOpenSeries: (Series) -> Unit) {
+fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -> Unit) {
     if (bundle.series.isEmpty()) {
         CenteredMessage(title = "No series", subtitle = "This playlist has no series content")
         return
     }
-    val rows = remember(bundle) { rowsOf(bundle.seriesCategories, bundle.series) { it.categoryId } }
+    val resumePositions by vm.resumePositions.collectAsState()
+    val pin by vm.parentalPin.collectAsState()
+    val rows = remember(bundle, pin, vm.parentalUnlocked) {
+        val visibleCategories = bundle.seriesCategories.filterNot { vm.isLockedCategory(it.name) }
+        val lockedIds = bundle.seriesCategories.filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
+        rowsOf(visibleCategories, bundle.series.filterNot { it.categoryId in lockedIds }) { it.categoryId }
+    }
+    val continueWatching = remember(bundle, resumePositions) {
+        bundle.series.filter { series -> series.episodes?.any { it.url in resumePositions } == true }
+    }
     var hero by remember(bundle) { mutableStateOf(bundle.series.firstOrNull()?.toHero()) }
 
     Column(modifier = Modifier.fillMaxSize().padding(start = 36.dp, top = 28.dp)) {
@@ -166,6 +208,28 @@ fun SeriesTab(bundle: ContentBundle, onOpenSeries: (Series) -> Unit) {
             contentPadding = PaddingValues(bottom = 36.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
+            if (continueWatching.isNotEmpty()) {
+                item(key = "series:continue") {
+                    Column {
+                        SectionTitle("Continue watching  ·  ${continueWatching.size}")
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            contentPadding = PaddingValues(end = 48.dp),
+                        ) {
+                            items(continueWatching.size, key = { continueWatching[it].id }) { i ->
+                                val series = continueWatching[i]
+                                PosterCard(
+                                    title = series.name,
+                                    subtitle = "Resume",
+                                    imageUrl = series.poster,
+                                    onClick = { onOpenSeries(series) },
+                                    onFocus = { hero = series.toHero() },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             rows.forEach { (categoryName, seriesList) ->
                 item(key = "series:$categoryName") {
                     Column {

@@ -30,11 +30,13 @@ sealed class PlaylistSource {
     ) : PlaylistSource()
 }
 
+@Serializable
 data class Category(
     val id: String,
     val name: String,
 )
 
+@Serializable
 data class LiveChannel(
     val id: String,
     val name: String,
@@ -63,6 +65,7 @@ data class EpgProgram(
     val hasArchive: Boolean,
 )
 
+@Serializable
 data class Movie(
     val id: String,
     val name: String,
@@ -83,6 +86,7 @@ data class Movie(
     val voteCount: Int? = null,
 )
 
+@Serializable
 data class Episode(
     val id: String,
     val title: String,
@@ -93,6 +97,7 @@ data class Episode(
     val durationText: String? = null,
 )
 
+@Serializable
 data class Series(
     val id: String,
     val name: String,
@@ -110,6 +115,7 @@ data class Series(
     val voteCount: Int? = null,
 )
 
+@Serializable
 data class ContentBundle(
     val liveCategories: List<Category> = emptyList(),
     val channels: List<LiveChannel> = emptyList(),

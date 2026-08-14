@@ -36,6 +36,7 @@ class PlayerPrefs(private val context: Context) {
     private val hiddenKey = stringPreferencesKey("hidden_channels")
     private val epgOverrideKey = stringPreferencesKey("epg_override_url")
     private val tmdbKeyKey = stringPreferencesKey("tmdb_api_key")
+    private val pinKey = stringPreferencesKey("parental_pin")
 
     val engine: Flow<EngineChoice> = context.playerDataStore.data.map { prefs ->
         runCatching { EngineChoice.valueOf(prefs[engineKey] ?: "EXO") }.getOrDefault(EngineChoice.EXO)
@@ -51,6 +52,13 @@ class PlayerPrefs(private val context: Context) {
         } ?: mutableMapOf()
 
     suspend fun resumePositionFor(url: String): Long = positions()[url] ?: 0L
+
+    /** url → position, for Continue Watching rows. */
+    val resumePositions: Flow<Map<String, Long>> = context.playerDataStore.data.map { prefs ->
+        prefs[positionsKey]?.let {
+            runCatching { json.decodeFromString<Map<String, Long>>(it) }.getOrNull()
+        } ?: emptyMap()
+    }
 
     /** Saves (or clears, when near the end) a VOD resume position. Keeps the newest 200. */
     suspend fun saveResumePosition(url: String, positionMs: Long, durationMs: Long) {
@@ -137,6 +145,16 @@ class PlayerPrefs(private val context: Context) {
 
     val tmdbKey: Flow<String?> = context.playerDataStore.data.map { prefs ->
         prefs[tmdbKeyKey]?.takeIf { it.isNotBlank() }
+    }
+
+    val parentalPin: Flow<String?> = context.playerDataStore.data.map { prefs ->
+        prefs[pinKey]?.takeIf { it.isNotBlank() }
+    }
+
+    suspend fun setParentalPin(pin: String?) {
+        context.playerDataStore.edit { prefs ->
+            if (pin.isNullOrBlank()) prefs.remove(pinKey) else prefs[pinKey] = pin.trim()
+        }
     }
 
     suspend fun setTmdbKey(key: String?) {

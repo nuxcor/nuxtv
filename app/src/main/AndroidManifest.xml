@@ -50,6 +50,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".recording.ReminderReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".recording.BootReceiver"
             android:exported="false">
             <intent-filter>

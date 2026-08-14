@@ -27,6 +27,19 @@ class ContentRepository(context: Context) {
         .build()
 
     private val logos by lazy { LogoRepository(appContext, http) }
+    private val bundleJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
+    private fun cacheFile(sourceId: String) =
+        java.io.File(appContext.filesDir, "bundle-$sourceId.json".replace("$sourceId", sourceId))
+
+    private fun readCache(sourceId: String): ContentBundle? = runCatching {
+        cacheFile(sourceId).takeIf { it.exists() }?.readText()
+            ?.let { bundleJson.decodeFromString<ContentBundle>(it) }
+    }.getOrNull()
+
+    private fun writeCache(sourceId: String, bundle: ContentBundle) {
+        runCatching { cacheFile(sourceId).writeText(bundleJson.encodeToString(bundle)) }
+    }
 
     val sources: Flow<List<PlaylistSource>> = store.sources
     val activeSource: Flow<PlaylistSource?> =
@@ -50,14 +63,25 @@ class ContentRepository(context: Context) {
 
     private var loadedSourceId: String? = null
 
-    /** Loads the active source if it isn't already loaded. */
+    /**
+     * Loads the active source. A cached copy of the parsed playlist is
+     * published instantly for fast starts, then refreshed from the network
+     * in the background.
+     */
     suspend fun ensureLoaded() {
         val source = activeSource.first() ?: run {
             _content.value = ContentState.Empty
             return
         }
         if (source.id == loadedSourceId && _content.value is ContentState.Ready) return
-        load(source)
+        val cached = withContext(Dispatchers.IO) { readCache(source.id) }
+        if (cached != null && !cached.isEmpty) {
+            loadedSourceId = source.id
+            _content.value = ContentState.Ready(cached)
+            load(source, quiet = true)
+        } else {
+            load(source)
+        }
     }
 
     suspend fun refresh() {
@@ -78,6 +102,7 @@ class ContentRepository(context: Context) {
                 store.add(source)
                 loadedSourceId = source.id
                 _content.value = ContentState.Ready(bundle)
+                withContext(Dispatchers.IO) { writeCache(source.id, bundle) }
                 Result.success(Unit)
             },
             onFailure = { e ->
@@ -95,21 +120,24 @@ class ContentRepository(context: Context) {
 
     suspend fun removeSource(sourceId: String) {
         store.remove(sourceId)
+        runCatching { cacheFile(sourceId).delete() }
         if (loadedSourceId == sourceId) {
             loadedSourceId = null
             ensureLoaded()
         }
     }
 
-    private suspend fun load(source: PlaylistSource) {
-        _content.value = ContentState.Loading("Loading ${source.name}…")
+    private suspend fun load(source: PlaylistSource, quiet: Boolean = false) {
+        if (!quiet) _content.value = ContentState.Loading("Loading ${source.name}…")
         runCatching { fetch(source) }
             .onSuccess { bundle ->
                 loadedSourceId = source.id
                 _content.value = ContentState.Ready(bundle)
+                withContext(Dispatchers.IO) { writeCache(source.id, bundle) }
             }
             .onFailure { e ->
-                _content.value = ContentState.Error(e.message ?: "Failed to load playlist")
+                // Keep serving the cached copy on background-refresh failures.
+                if (!quiet) _content.value = ContentState.Error(e.message ?: "Failed to load playlist")
             }
     }
 

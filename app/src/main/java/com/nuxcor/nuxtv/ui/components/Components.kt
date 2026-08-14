@@ -19,6 +19,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -278,6 +282,59 @@ fun CenteredMessage(
                     style = MaterialTheme.typography.bodySmall,
                     color = NuxColors.OnSurfaceDim,
                 )
+            }
+        }
+    }
+}
+
+
+/** Full-screen PIN prompt for parental-locked content. */
+@Composable
+fun PinPrompt(
+    onSubmit: (String) -> Boolean,
+    onDismiss: () -> Unit,
+) {
+    var pin by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf(false) }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(NuxColors.Scrim),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .clip(RoundedCornerShape(14.dp))
+                .background(NuxColors.Surface)
+                .padding(28.dp),
+        ) {
+            Text("Enter PIN", style = MaterialTheme.typography.titleMedium, color = NuxColors.OnSurface)
+            if (error) {
+                Spacer(Modifier.height(4.dp))
+                Text("Wrong PIN", style = MaterialTheme.typography.labelSmall, color = NuxColors.Error)
+            }
+            Spacer(Modifier.height(12.dp))
+            androidx.compose.material3.OutlinedTextField(
+                value = pin,
+                onValueChange = { value -> pin = value.filter { ch -> ch.isDigit() }.take(8); error = false },
+                singleLine = true,
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = NuxColors.OnSurface,
+                    unfocusedTextColor = NuxColors.OnSurface,
+                    focusedBorderColor = NuxColors.Primary,
+                    unfocusedBorderColor = NuxColors.SurfaceVariant,
+                    cursorColor = NuxColors.Primary,
+                ),
+                modifier = Modifier.width(180.dp),
+            )
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                androidx.tv.material3.OutlinedButton(onClick = onDismiss) { Text("Cancel") }
+                androidx.tv.material3.Button(onClick = { if (!onSubmit(pin)) error = true }) {
+                    Text("Unlock")
+                }
             }
         }
     }
