@@ -84,6 +84,7 @@ fun MovieDetailScreen(
             Text(
                 text = movie.name,
                 style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
+                color = NuxColors.OnSurface,
             )
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -158,6 +159,7 @@ fun SeriesDetailScreen(
                 Text(
                     text = series.name,
                     style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
+                    color = NuxColors.OnSurface,
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

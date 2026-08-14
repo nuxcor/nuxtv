@@ -26,12 +26,14 @@ class ContentClassifierTest {
         http://example.com/vod/5005.mp4
         #EXTINF:-1,Random Movie File (2019)
         http://example.com/files/random.mp4
+        #EXTINF:-1 group-title="VOD | Drama",Sintel (2010) 4K
+        http://example.com/files/sintel.mp4
     """.trimIndent()
 
     @Test
     fun `parses entries with attributes and commas`() {
         val entries = M3uParser.parse(samplePlaylist)
-        assertEquals(8, entries.size)
+        assertEquals(9, entries.size)
         assertEquals("CNN HD", entries[0].title)
         assertEquals("News", entries[0].group)
         assertEquals("http://logo/cnn.png", entries[0].logo)
@@ -44,9 +46,12 @@ class ContentClassifierTest {
         assertEquals(2, bundle.channels.size)
         assertEquals("CNN HD", bundle.channels[0].name)
 
-        assertEquals(2, bundle.movies.size)
+        assertEquals(3, bundle.movies.size)
         assertTrue(bundle.movies.any { it.name == "Breaking Point" && it.year == 2023 })
         assertTrue(bundle.movies.any { it.name == "Random Movie File" && it.year == 2019 })
+        // "VOD | Drama" contains both a movie keyword and a series-ish genre word —
+        // the explicit VOD marker must win.
+        assertTrue(bundle.movies.any { it.name == "Sintel" && it.year == 2010 })
 
         assertEquals(2, bundle.series.size)
         val crown = bundle.series.first { it.name == "The Crown" }

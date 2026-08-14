@@ -111,7 +111,11 @@ fun HomeScreen(
 private fun ErrorPane(message: String, onRetry: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Couldn't load your playlist", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Couldn't load your playlist",
+                style = MaterialTheme.typography.titleMedium,
+                color = NuxColors.OnSurface,
+            )
             Spacer(Modifier.height(8.dp))
             Text(message, style = MaterialTheme.typography.bodySmall, color = NuxColors.OnSurfaceDim)
             Spacer(Modifier.height(18.dp))
@@ -289,6 +293,7 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
         Text(
             "Playlists",
             style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = NuxColors.OnSurface,
         )
         if (bundle != null) {
             Spacer(Modifier.height(6.dp))

@@ -54,11 +54,11 @@ object ContentClassifier {
             return id
         }
 
-        for (entry in entries) {
+        for ((index, entry) in entries.withIndex()) {
             val kind = detectKind(entry)
             when (kind) {
                 Kind.LIVE -> channels += LiveChannel(
-                    id = "live:${entry.url.hashCode()}",
+                    id = "live:$index",
                     name = entry.title,
                     logo = entry.logo,
                     url = entry.url,
@@ -68,7 +68,7 @@ object ContentClassifier {
                 )
 
                 Kind.MOVIE -> movies += Movie(
-                    id = "movie:${entry.url.hashCode()}",
+                    id = "movie:$index",
                     name = cleanTitle(entry.title),
                     poster = entry.logo,
                     url = entry.url,
@@ -85,7 +85,7 @@ object ContentClassifier {
                     if (acc.poster == null) acc.poster = entry.logo
                     if (acc.group == null) acc.group = entry.group
                     acc.episodes += Episode(
-                        id = "ep:${entry.url.hashCode()}",
+                        id = "ep:$index",
                         title = entry.title,
                         season = season,
                         episodeNum = if (episodeNum > 0) episodeNum else acc.episodes.size + 1,
@@ -140,12 +140,13 @@ object ContentClassifier {
         val group = entry.group?.lowercase().orEmpty()
         val ext = url.substringAfterLast('.', "").substringBefore('?')
 
-        // 3. Group-title keywords.
-        if (seriesGroupKeywords.any { it in group }) return Kind.EPISODE
+        // 3. Group-title keywords. Explicit VOD/movie markers outrank genre-ish
+        //    series words ("VOD | Drama" is a movie shelf, not a series).
         if (movieGroupKeywords.any { it in group }) {
             // "movies" group but a live-format stream → still live (e.g. 24/7 movie channels).
             return if (ext in vodExtensions || ext.isEmpty()) Kind.MOVIE else Kind.LIVE
         }
+        if (seriesGroupKeywords.any { it in group }) return Kind.EPISODE
         if (liveGroupKeywords.any { it in group }) return Kind.LIVE
 
         // 4. Fall back to the stream container.

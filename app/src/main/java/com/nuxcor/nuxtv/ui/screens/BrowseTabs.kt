@@ -76,6 +76,7 @@ fun HeroHeader(hero: HeroInfo?) {
                 Text(
                     text = hero.title,
                     style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                    color = NuxColors.OnSurface,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )

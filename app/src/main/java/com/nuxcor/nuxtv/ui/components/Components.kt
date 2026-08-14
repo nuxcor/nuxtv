@@ -227,6 +227,7 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+        color = NuxColors.OnSurface,
         modifier = modifier.padding(bottom = 10.dp),
     )
 }
@@ -243,7 +244,7 @@ fun CenteredMessage(
                 CircularProgressIndicator(color = NuxColors.Primary)
                 Spacer(Modifier.height(18.dp))
             }
-            Text(text = title, style = MaterialTheme.typography.titleMedium)
+            Text(text = title, style = MaterialTheme.typography.titleMedium, color = NuxColors.OnSurface)
             if (subtitle != null) {
                 Spacer(Modifier.height(6.dp))
                 Text(
