@@ -9,6 +9,8 @@ import com.nuxcor.nuxtv.data.PlayableItem
  * backends, so the player UI is engine-agnostic and streams that one engine
  * can't decode can be retried on the other.
  */
+data class Track(val id: String, val label: String, val selected: Boolean)
+
 interface PlayerEngine {
     val name: String
 
@@ -29,6 +31,13 @@ interface PlayerEngine {
 
     /** <= 0 for live streams. */
     val durationMs: Long
+
+    fun audioTracks(): List<Track>
+    fun textTracks(): List<Track>
+    fun selectAudioTrack(id: String)
+
+    /** null disables subtitles. */
+    fun selectTextTrack(id: String?)
 
     var listener: Listener?
 

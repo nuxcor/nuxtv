@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarViewWeek
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
@@ -68,6 +69,7 @@ import com.nuxcor.nuxtv.ui.theme.NuxColors
 enum class HomeTab(val label: String, val icon: ImageVector) {
     Search("Search", Icons.Default.Search),
     Live("Live TV", Icons.Default.LiveTv),
+    Guide("Guide", Icons.Default.CalendarViewWeek),
     Movies("Movies", Icons.Default.Movie),
     Series("Series", Icons.Default.VideoLibrary),
     Recordings("Recordings", Icons.Default.Videocam),
@@ -99,6 +101,7 @@ fun HomeScreen(
                 is ContentState.Ready -> when (tab) {
                     HomeTab.Search -> SearchTab(vm, onOpenMovie, onOpenSeries, onPlay)
                     HomeTab.Live -> LiveTab(vm, state.bundle, onPlay)
+                    HomeTab.Guide -> GuideTab(vm, state.bundle, onPlay)
                     HomeTab.Movies -> MoviesTab(state.bundle, onOpenMovie)
                     HomeTab.Series -> SeriesTab(state.bundle, onOpenSeries)
                     HomeTab.Recordings -> RecordingsTab(vm, onPlay)
@@ -149,7 +152,7 @@ private fun NavRail(selected: HomeTab, onSelect: (HomeTab) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
-            text = if (expanded) "NUXTV" else "N",
+            text = if (expanded) "DZIDZI" else "D",
             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black),
             color = NuxColors.Primary,
             maxLines = 1,
@@ -178,7 +181,7 @@ private fun RailItem(item: HomeTab, selected: Boolean, expanded: Boolean, onClic
             containerColor = if (selected) NuxColors.Primary.copy(alpha = 0.18f) else androidx.compose.ui.graphics.Color.Transparent,
             focusedContainerColor = NuxColors.Primary,
             contentColor = if (selected) NuxColors.FocusBorder else NuxColors.OnSurfaceDim,
-            focusedContentColor = androidx.compose.ui.graphics.Color(0xFF14102E),
+            focusedContentColor = NuxColors.OnAccent,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
     ) {
@@ -210,13 +213,23 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
         CenteredMessage(title = "No live channels", subtitle = "This playlist has no live streams")
         return
     }
-    val categories = remember(bundle) {
-        listOf(Category(id = "__all__", name = "All channels")) + bundle.liveCategories
+    val favorites by vm.favorites.collectAsState()
+    val categories = remember(bundle, favorites) {
+        buildList {
+            add(Category(id = "__all__", name = "All channels"))
+            if (bundle.channels.any { it.url in favorites }) {
+                add(Category(id = "__fav__", name = "★ Favorites"))
+            }
+            addAll(bundle.liveCategories)
+        }
     }
     var selectedCategory by rememberSaveable(bundle.channels.size) { mutableStateOf("__all__") }
-    val channels = remember(bundle, selectedCategory) {
-        if (selectedCategory == "__all__") bundle.channels
-        else bundle.channels.filter { it.categoryId == selectedCategory }
+    val channels = remember(bundle, selectedCategory, favorites) {
+        when (selectedCategory) {
+            "__all__" -> bundle.channels
+            "__fav__" -> bundle.channels.filter { it.url in favorites }
+            else -> bundle.channels.filter { it.categoryId == selectedCategory }
+        }
     }
 
     Row(

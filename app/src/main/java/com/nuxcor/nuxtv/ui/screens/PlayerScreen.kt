@@ -35,7 +35,10 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
@@ -79,6 +82,7 @@ import com.nuxcor.nuxtv.data.EpgProgram
 import com.nuxcor.nuxtv.data.LiveChannel
 import com.nuxcor.nuxtv.player.ExoEngine
 import com.nuxcor.nuxtv.player.PlayerEngine
+import com.nuxcor.nuxtv.player.Track
 import com.nuxcor.nuxtv.player.VlcEngine
 import com.nuxcor.nuxtv.ui.theme.NuxColors
 import java.text.SimpleDateFormat
@@ -121,6 +125,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     var controlsVisible by remember { mutableStateOf(true) }
     var interactionTick by remember { mutableIntStateOf(0) }
     var catchupOpen by remember { mutableStateOf(false) }
+    var tracksOpen by remember { mutableStateOf(false) }
+    val favorites by vm.favorites.collectAsState()
 
     val item = request.items.getOrNull(currentIndex)
     val channel: LiveChannel? = item?.channelId?.let { vm.channelById(it) }
@@ -212,15 +218,19 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         engine.playAt(((engine.currentIndex + delta) % count + count) % count)
     }
 
-    BackHandler(enabled = controlsVisible || catchupOpen) {
-        if (catchupOpen) catchupOpen = false else controlsVisible = false
+    BackHandler(enabled = controlsVisible || catchupOpen || tracksOpen) {
+        when {
+            tracksOpen -> tracksOpen = false
+            catchupOpen -> catchupOpen = false
+            else -> controlsVisible = false
+        }
     }
 
     // When the controls hide, their focused button leaves the composition and
     // focus would be lost — park it on the root so D-pad events keep arriving.
     val rootFocus = remember { FocusRequester() }
-    LaunchedEffect(controlsVisible, catchupOpen) {
-        if (!controlsVisible && !catchupOpen) runCatching { rootFocus.requestFocus() }
+    LaunchedEffect(controlsVisible, catchupOpen, tracksOpen) {
+        if (!controlsVisible && !catchupOpen && !tracksOpen) runCatching { rootFocus.requestFocus() }
     }
 
     Box(
@@ -236,14 +246,14 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     AndroidKeyEvent.KEYCODE_CHANNEL_DOWN -> { zap(-1); true }
                     AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { engine.playPause(); poke(); true }
                     AndroidKeyEvent.KEYCODE_DPAD_UP ->
-                        if (request.isLive && !controlsVisible && !catchupOpen) { zap(+1); true } else false
+                        if (request.isLive && !controlsVisible && !catchupOpen && !tracksOpen) { zap(+1); true } else false
                     AndroidKeyEvent.KEYCODE_DPAD_DOWN ->
-                        if (request.isLive && !controlsVisible && !catchupOpen) { zap(-1); true } else false
+                        if (request.isLive && !controlsVisible && !catchupOpen && !tracksOpen) { zap(-1); true } else false
                     AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER ->
-                        if (!controlsVisible && !catchupOpen) { poke(); true } else false
+                        if (!controlsVisible && !catchupOpen && !tracksOpen) { poke(); true } else false
                     AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_DPAD_RIGHT ->
-                        if (!controlsVisible && !catchupOpen) { poke(); true } else false
-                    else -> { if (!catchupOpen) poke(); false }
+                        if (!controlsVisible && !catchupOpen && !tracksOpen) { poke(); true } else false
+                    else -> { if (!catchupOpen && !tracksOpen) poke(); false }
                 }
             }
     ) {
@@ -275,7 +285,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         }
 
         AnimatedVisibility(
-            visible = controlsVisible && !catchupOpen,
+            visible = controlsVisible && !catchupOpen && !tracksOpen,
             enter = fadeIn(),
             exit = fadeOut(),
         ) {
@@ -290,6 +300,10 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 canRecord = request.isLive && item?.recordUrl != null,
                 isRecording = activeRecording != null,
                 hasCatchup = request.isLive && (channel?.archiveDays ?: 0) > 0,
+                isFavoritable = request.isLive && channel != null,
+                isFavorite = channel != null && channel.url in favorites,
+                onFavoriteToggle = { channel?.let { vm.toggleFavorite(it) }; poke() },
+                onTracks = { tracksOpen = true },
                 onPlayPause = { engine.playPause(); poke() },
                 onSeekBy = { delta -> engine.seekTo(engine.positionMs + delta); poke() },
                 onPrevious = { engine.previous(); poke() },
@@ -308,6 +322,10 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 },
                 onInteraction = { poke() },
             )
+        }
+
+        if (tracksOpen) {
+            TracksOverlay(engine = engine, onDismiss = { tracksOpen = false })
         }
 
         if (catchupOpen && channel != null) {
@@ -349,6 +367,10 @@ private fun PlayerControls(
     canRecord: Boolean,
     isRecording: Boolean,
     hasCatchup: Boolean,
+    isFavoritable: Boolean,
+    isFavorite: Boolean,
+    onFavoriteToggle: () -> Unit,
+    onTracks: () -> Unit,
     onPlayPause: () -> Unit,
     onSeekBy: (Long) -> Unit,
     onPrevious: () -> Unit,
@@ -429,6 +451,15 @@ private fun PlayerControls(
 
                 Spacer(Modifier.weight(1f))
 
+                if (isFavoritable) {
+                    ControlButton(
+                        icon = if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
+                        label = if (isFavorite) "Remove favorite" else "Add favorite",
+                        onClick = onFavoriteToggle,
+                        tint = if (isFavorite) NuxColors.Primary else Color.White,
+                    )
+                }
+                ControlButton(Icons.Default.Subtitles, "Audio & subtitles", onTracks)
                 if (hasCatchup) ControlButton(Icons.Default.History, "Catch-up", onCatchup)
                 if (canRecord || isRecording) {
                     ControlButton(
@@ -462,7 +493,7 @@ private fun ControlButton(
             containerColor = if (prominent) Color.White.copy(alpha = 0.14f) else Color.Transparent,
             focusedContainerColor = NuxColors.Primary,
             contentColor = tint,
-            focusedContentColor = Color(0xFF14102E),
+            focusedContentColor = NuxColors.OnAccent,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.12f),
     ) {
@@ -620,7 +651,7 @@ private fun CatchupOverlay(
                     containerColor = NuxColors.SurfaceVariant,
                     focusedContainerColor = NuxColors.Primary,
                     contentColor = NuxColors.OnSurface,
-                    focusedContentColor = Color(0xFF14102E),
+                    focusedContentColor = NuxColors.OnAccent,
                 ),
                 modifier = Modifier.widthIn(min = 120.dp),
             ) {
@@ -631,5 +662,120 @@ private fun CatchupOverlay(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun TracksOverlay(engine: PlayerEngine, onDismiss: () -> Unit) {
+    var audio by remember { mutableStateOf(engine.audioTracks()) }
+    var text by remember { mutableStateOf(engine.textTracks()) }
+
+    fun refresh() {
+        audio = engine.audioTracks()
+        text = engine.textTracks()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.88f))
+            .padding(horizontal = 64.dp, vertical = 40.dp)
+    ) {
+        Column {
+            Text(
+                text = "Audio & subtitles",
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = Color.White,
+            )
+            Spacer(Modifier.height(16.dp))
+
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (audio.isNotEmpty()) {
+                    item(key = "audio-header") {
+                        Text(
+                            "Audio",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = NuxColors.OnSurfaceDim,
+                        )
+                    }
+                    items(audio, key = { "a:${it.id}" }) { track ->
+                        TrackRow(track = track) {
+                            engine.selectAudioTrack(track.id)
+                            refresh()
+                        }
+                    }
+                }
+                item(key = "subs-header") {
+                    Text(
+                        "Subtitles",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = NuxColors.OnSurfaceDim,
+                        modifier = Modifier.padding(top = 10.dp),
+                    )
+                }
+                item(key = "subs-off") {
+                    TrackRow(track = Track("off", "Off", selected = text.none { it.selected })) {
+                        engine.selectTextTrack(null)
+                        refresh()
+                    }
+                }
+                items(text, key = { "t:${it.id}" }) { track ->
+                    TrackRow(track = track) {
+                        engine.selectTextTrack(track.id)
+                        refresh()
+                    }
+                }
+                if (audio.isEmpty() && text.isEmpty()) {
+                    item(key = "none") {
+                        Text(
+                            "No alternate tracks in this stream.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = NuxColors.OnSurfaceDim,
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+            Surface(
+                onClick = onDismiss,
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = NuxColors.SurfaceVariant,
+                    focusedContainerColor = NuxColors.Primary,
+                    contentColor = NuxColors.OnSurface,
+                    focusedContentColor = NuxColors.OnAccent,
+                ),
+                modifier = Modifier.widthIn(min = 120.dp),
+            ) {
+                Text(
+                    "Close",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrackRow(track: Track, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (track.selected) NuxColors.Primary.copy(alpha = 0.16f)
+            else NuxColors.Surface.copy(alpha = 0.6f),
+            focusedContainerColor = NuxColors.SurfaceVariant,
+            contentColor = if (track.selected) NuxColors.FocusBorder else NuxColors.OnSurface,
+            focusedContentColor = NuxColors.OnSurface,
+        ),
+    ) {
+        Text(
+            text = (if (track.selected) "✓  " else "") + track.label,
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+        )
     }
 }

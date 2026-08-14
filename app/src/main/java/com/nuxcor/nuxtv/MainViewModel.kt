@@ -17,10 +17,12 @@ import com.nuxcor.nuxtv.data.PlayableItem
 import com.nuxcor.nuxtv.data.PlaybackRequest
 import com.nuxcor.nuxtv.data.PlayerPrefs
 import com.nuxcor.nuxtv.data.PlaylistSource
+import com.nuxcor.nuxtv.data.ScheduledRecording
 import com.nuxcor.nuxtv.data.Series
 import com.nuxcor.nuxtv.recording.ActiveRecording
 import com.nuxcor.nuxtv.recording.Recording
 import com.nuxcor.nuxtv.recording.RecordingManager
+import com.nuxcor.nuxtv.recording.RecordingScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -52,6 +54,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val engine: StateFlow<EngineChoice> = playerPrefs.engine
         .stateIn(viewModelScope, SharingStarted.Eagerly, EngineChoice.EXO)
 
+    val favorites: StateFlow<Set<String>> = playerPrefs.favorites
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    val schedules: StateFlow<List<ScheduledRecording>> = playerPrefs.schedules
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val epgState: StateFlow<ContentRepository.EpgState> = repo.epg
+
     val activeRecording: StateFlow<ActiveRecording?> = RecordingManager.active
 
     var playback by mutableStateOf<PlaybackRequest?>(null)
@@ -66,6 +76,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     init {
         viewModelScope.launch { repo.ensureLoaded() }
         refreshRecordings()
+        // Load the guide whenever a playlist finishes loading, and make sure
+        // persisted schedules still have alarms registered.
+        viewModelScope.launch {
+            repo.content.collect { if (it is ContentState.Ready) repo.loadEpg() }
+        }
+        viewModelScope.launch {
+            RecordingScheduler.rescheduleAll(getApplication(), playerPrefs)
+        }
     }
 
     fun resetAddState() {
@@ -85,12 +103,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
-    fun addM3u(name: String, url: String, onSuccess: () -> Unit) {
+    fun addM3u(name: String, url: String, epgUrl: String, onSuccess: () -> Unit) {
         addSource(
             PlaylistSource.M3u(
                 id = ContentRepository.newSourceId(),
                 name = name.ifBlank { "M3U playlist" },
                 url = url.trim(),
+                epgUrl = epgUrl.trim().takeIf { it.isNotBlank() },
             ),
             onSuccess,
         )
@@ -132,6 +151,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun epgFor(channel: LiveChannel): List<EpgProgram> = repo.epgFor(channel)
     suspend fun catchupUrl(channel: LiveChannel, program: EpgProgram): String? =
         repo.catchupUrl(channel, program)
+
+    fun programsFor(channel: LiveChannel): List<EpgProgram> = repo.programsFor(channel)
+
+    fun toggleFavorite(channel: LiveChannel) {
+        viewModelScope.launch { playerPrefs.toggleFavorite(channel.url) }
+    }
+
+    fun scheduleRecording(channel: LiveChannel, program: EpgProgram): Boolean {
+        val recordUrl = channel.recordUrl ?: return false
+        RecordingScheduler.schedule(
+            getApplication(),
+            playerPrefs,
+            ScheduledRecording(
+                id = "${channel.url}#${program.startMs}",
+                channelName = channel.name,
+                recordUrl = recordUrl,
+                title = program.title,
+                startMs = program.startMs,
+                endMs = program.endMs,
+            ),
+        )
+        return true
+    }
+
+    fun cancelSchedule(id: String) {
+        RecordingScheduler.cancel(getApplication(), playerPrefs, id)
+    }
 
     data class SearchResults(
         val channels: List<LiveChannel> = emptyList(),

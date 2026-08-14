@@ -32,6 +32,19 @@ class ContentRepository(context: Context) {
     private val _content = MutableStateFlow<ContentState>(ContentState.Empty)
     val content: StateFlow<ContentState> = _content
 
+    sealed class EpgState {
+        data object Idle : EpgState()
+        data object Loading : EpgState()
+        data class Ready(val data: XmltvData) : EpgState()
+        data class Error(val message: String) : EpgState()
+    }
+
+    private val _epg = MutableStateFlow<EpgState>(EpgState.Idle)
+    val epg: StateFlow<EpgState> = _epg
+
+    /** Raw playlist text of the last M3U load, kept to read its url-tvg header. */
+    private var lastM3uText: String? = null
+
     private var loadedSourceId: String? = null
 
     /** Loads the active source if it isn't already loaded. */
@@ -123,10 +136,54 @@ class ContentRepository(context: Context) {
                 }
             }
             if (!text.contains("#EXTINF")) throw IOException("That URL doesn't look like an M3U playlist")
+            lastM3uText = text
             withContext(Dispatchers.Default) {
                 ContentClassifier.classify(M3uParser.parse(text))
             }
         }
+    }
+
+    // --- EPG ------------------------------------------------------------------
+
+    /** Loads the XMLTV guide for the active source (Xtream xmltv.php or M3U url-tvg/epgUrl). */
+    suspend fun loadEpg() {
+        val source = activeSource.first() ?: return
+        val url = when (source) {
+            is PlaylistSource.Xtream -> xtreamClient(source).xmltvUrl
+            is PlaylistSource.M3u ->
+                source.epgUrl?.takeIf { it.isNotBlank() }
+                    ?: lastM3uText?.let { M3uParser.tvgUrl(it) }
+        }
+        if (url == null) {
+            _epg.value = EpgState.Error("No EPG source configured for this playlist")
+            return
+        }
+        _epg.value = EpgState.Loading
+        _epg.value = withContext(Dispatchers.IO) {
+            runCatching {
+                val request = Request.Builder().url(url).header("User-Agent", "NuxTV/1.0").build()
+                http.newCall(request).execute().use { resp ->
+                    if (!resp.isSuccessful) throw IOException("Guide server returned HTTP ${resp.code}")
+                    val body = resp.body ?: throw IOException("Empty guide response")
+                    EpgState.Ready(XmltvParser.parse(body.byteStream()))
+                }
+            }.getOrElse { e -> EpgState.Error(e.message ?: "Failed to load the guide") }
+        }
+    }
+
+    /**
+     * Programmes for a channel from the loaded XMLTV data, matched by tvg-id
+     * first and display name second.
+     */
+    fun programsFor(channel: LiveChannel): List<EpgProgram> {
+        val data = (_epg.value as? EpgState.Ready)?.data ?: return emptyList()
+        channel.epgId?.lowercase()?.let { id ->
+            data.programmes[id]?.let { return it }
+        }
+        val wanted = channel.name.trim().lowercase()
+        val byNameId = data.channelNames.entries
+            .firstOrNull { (_, name) -> name.trim().lowercase() == wanted }?.key?.lowercase()
+        return byNameId?.let { data.programmes[it] } ?: emptyList()
     }
 
     // --- lazy detail loading --------------------------------------------------

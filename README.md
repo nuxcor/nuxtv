@@ -1,8 +1,8 @@
-# NuxTV
+# Dzidzi
 
-A modern IPTV player for **Android TV**, built with Jetpack Compose for TV and Media3/ExoPlayer.
+A premium IPTV player for **Android TV**, built with Jetpack Compose for TV, Media3/ExoPlayer and libVLC.
 
-Point it at an **Xtream Codes** login or a plain **M3U playlist link** and NuxTV organizes everything into a real TV experience — Live channels, a Movies library, and Series with seasons and episodes.
+Point it at an **Xtream Codes** login or a plain **M3U playlist link** and Dzidzi organizes everything into a real TV experience — Live channels, a Movies library, and Series with seasons and episodes.
 
 ## Features
 
@@ -16,8 +16,11 @@ Point it at an **Xtream Codes** login or a plain **M3U playlist link** and NuxTV
   - Everything else becomes a live channel, grouped by `group-title` categories
   - Titles are cleaned of quality noise (`1080p`, `HEVC`, `[4K]`, language prefixes)
 - **Dual playback engines** — ExoPlayer and libVLC behind one abstraction. If a stream fails on ExoPlayer it automatically retries on VLC (which handles odd TS muxing and exotic codecs); you can also swap engines from the player or set a default in Settings
+- **Full EPG grid guide** — XMLTV support for both source types (Xtream `xmltv.php`, M3U `url-tvg` header or explicit EPG URL, gzip supported). Channel-by-time grid with a live "now" highlight; click a current programme to watch, a past one for catch-up, or a future one to schedule a recording
 - **Catch-up TV** — Xtream channels with `tv_archive` expose their EPG in the player; pick any archived programme and it plays via timeshift
-- **Recording** — record raw TS live streams to local storage from the player (foreground service with a stop notification); recordings get their own library section with playback and delete
+- **Recording & DVR** — record raw TS live streams from the player, or schedule future recordings from the guide (AlarmManager, survives reboots, auto-stops after the programme); recordings get their own library section with playback and delete
+- **Favorites** — star channels from the player; a ★ Favorites category appears in Live TV
+- **Audio & subtitle tracks** — switch audio languages and subtitles on either engine from the player
 - **TV-first UI** — collapsible navigation rail, category rows with focus-scaling poster cards, immersive hero header, detail pages for movies and series, global search, D-pad friendly throughout
 - **Pro player** — custom TV controls (seek bar with ±10s D-pad seeking, transport, engine badge), live channel zapping with DPAD/CHANNEL up/down, episode binge queueing, and automatic resume for movies and episodes
 - **Multiple playlists** — add several sources and switch between them in Settings
@@ -43,11 +46,11 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 | `ui/screens/` | Onboarding, Home (Live/Movies/Series/Settings tabs), detail screens, ExoPlayer screen |
 | `ui/components/` | Focus-aware TV cards, hero header, artwork with generated fallbacks |
 
-No content is bundled — NuxTV is a player; you bring your own playlist.
+No content is bundled — Dzidzi is a player; you bring your own playlist.
 
 ## Roadmap
 
-- Full EPG grid guide (XMLTV for M3U sources)
-- Favorites and channel reordering
-- Scheduled recordings
-- Subtitle & audio track selection UI
+- Channel reordering and hidden channels
+- Series recording rules ("record every episode")
+- Multi-view / picture-in-picture
+- Backup & restore of settings

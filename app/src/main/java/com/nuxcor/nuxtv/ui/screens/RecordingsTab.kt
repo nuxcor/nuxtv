@@ -41,6 +41,7 @@ import java.util.Locale
 fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit) {
     val recordings by vm.recordings.collectAsState()
     val active by vm.activeRecording.collectAsState()
+    val schedules by vm.schedules.collectAsState()
 
     LaunchedEffect(active) { vm.refreshRecordings() }
 
@@ -71,10 +72,36 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit) {
             Spacer(Modifier.height(14.dp))
         }
 
-        if (recordings.isEmpty() && rec == null) {
+        if (schedules.isNotEmpty()) {
+            Text(
+                "Scheduled",
+                style = MaterialTheme.typography.titleSmall,
+                color = NuxColors.OnSurfaceDim,
+            )
+            Spacer(Modifier.height(8.dp))
+            schedules.sortedBy { it.startMs }.forEach { schedule ->
+                WideItem(
+                    title = "${schedule.title} — ${schedule.channelName}",
+                    subtitle = dateFmt.format(Date(schedule.startMs)) +
+                        " – ${dateFmt.format(Date(schedule.endMs))}  •  select to cancel",
+                    leading = {
+                        Icon(
+                            Icons.Default.FiberManualRecord,
+                            contentDescription = null,
+                            tint = NuxColors.OnSurfaceDim,
+                        )
+                    },
+                    onClick = { vm.cancelSchedule(schedule.id) },
+                )
+                Spacer(Modifier.height(6.dp))
+            }
+            Spacer(Modifier.height(10.dp))
+        }
+
+        if (recordings.isEmpty() && rec == null && schedules.isEmpty()) {
             CenteredMessage(
                 title = "No recordings yet",
-                subtitle = "Press the record button while watching a live channel",
+                subtitle = "Record from the player, or schedule from the Guide",
             )
             return@Column
         }

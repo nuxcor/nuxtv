@@ -25,6 +25,8 @@ sealed class PlaylistSource {
         override val id: String,
         override val name: String,
         val url: String,
+        /** Optional XMLTV guide URL; falls back to the playlist's url-tvg header. */
+        val epgUrl: String? = null,
     ) : PlaylistSource()
 }
 

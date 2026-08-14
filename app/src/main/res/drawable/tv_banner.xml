@@ -12,17 +12,17 @@
                 android:endX="320"
                 android:endY="180"
                 android:type="linear">
-                <item android:offset="0" android:color="#FF241348" />
-                <item android:offset="1" android:color="#FF0B0E14" />
+                <item android:offset="0" android:color="#FF241E10" />
+                <item android:offset="1" android:color="#FF0B0C0F" />
             </gradient>
         </aapt:attr>
     </path>
     <path
-        android:fillColor="#FF7C6CFF"
+        android:fillColor="#FFE6B450"
         android:pathData="M135,58L135,122L189,90Z" />
-    <!-- N U X T V letterforms as simple strokes -->
+    <!-- D Z I D Z I letterforms as simple strokes -->
     <path
         android:strokeColor="#FFFFFFFF"
         android:strokeWidth="6"
-        android:pathData="M60,150 L60,132 L74,150 L74,132 M88,132 L88,146 Q88,150 94,150 Q100,150 100,146 L100,132 M112,132 L126,150 M126,132 L112,150 M138,132 L154,132 M146,132 L146,150 M164,132 L172,150 L180,132" />
+        android:pathData="M60,132 L60,150 M60,132 Q76,132 76,141 Q76,150 60,150 M88,132 L104,132 L88,150 L104,150 M116,132 L116,150 M128,132 L128,150 M128,132 Q144,132 144,141 Q144,150 128,150 M156,132 L172,132 L156,150 L172,150 M184,132 L184,150" />
 </vector>

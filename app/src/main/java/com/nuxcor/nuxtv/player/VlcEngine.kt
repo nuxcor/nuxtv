@@ -107,4 +107,26 @@ class VlcEngine(context: Context) : PlayerEngine {
     override val currentIndex: Int get() = index
     override val positionMs: Long get() = if (released) 0 else mediaPlayer.time.coerceAtLeast(0)
     override val durationMs: Long get() = if (released) 0 else mediaPlayer.length.coerceAtLeast(0)
+
+    // --- track selection ------------------------------------------------------
+
+    override fun audioTracks(): List<Track> =
+        if (released) emptyList()
+        else mediaPlayer.audioTracks.orEmpty()
+            .filter { it.id != -1 } // -1 is VLC's "Disable" pseudo-track
+            .map { Track(id = it.id.toString(), label = it.name, selected = it.id == mediaPlayer.audioTrack) }
+
+    override fun textTracks(): List<Track> =
+        if (released) emptyList()
+        else mediaPlayer.spuTracks.orEmpty()
+            .filter { it.id != -1 }
+            .map { Track(id = it.id.toString(), label = it.name, selected = it.id == mediaPlayer.spuTrack) }
+
+    override fun selectAudioTrack(id: String) {
+        id.toIntOrNull()?.let { mediaPlayer.setAudioTrack(it) }
+    }
+
+    override fun selectTextTrack(id: String?) {
+        mediaPlayer.setSpuTrack(id?.toIntOrNull() ?: -1)
+    }
 }

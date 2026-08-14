@@ -121,6 +121,10 @@ class XtreamClient(
         }.sortedBy { it.startMs }
     }
 
+    /** Full XMLTV guide for every channel on the server. */
+    val xmltvUrl: String
+        get() = "$baseUrl/xmltv.php?username=$username&password=$password"
+
     /** Timeshift/catch-up stream URL for an archived programme. */
     fun catchupUrl(streamId: Int, startMs: Long, durationMinutes: Long): String {
         val fmt = java.text.SimpleDateFormat("yyyy-MM-dd:HH-mm", java.util.Locale.US)

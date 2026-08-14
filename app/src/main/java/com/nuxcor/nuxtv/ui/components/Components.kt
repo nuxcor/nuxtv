@@ -50,11 +50,11 @@ fun focusBorder(): Border = Border(
 /** Deterministic accent gradient used as artwork fallback, seeded by the title. */
 private fun fallbackBrush(seed: String): Brush {
     val palette = listOf(
-        Color(0xFF3B2F80) to Color(0xFF171B2E),
-        Color(0xFF14536B) to Color(0xFF141A2C),
-        Color(0xFF5A2E6E) to Color(0xFF191627),
-        Color(0xFF2E5540) to Color(0xFF13202A),
-        Color(0xFF6E4A2E) to Color(0xFF201A26),
+        Color(0xFF6B5222) to Color(0xFF1C1810),
+        Color(0xFF14536B) to Color(0xFF12181E),
+        Color(0xFF31584B) to Color(0xFF121B18),
+        Color(0xFF5E3A2E) to Color(0xFF1D1512),
+        Color(0xFF44485E) to Color(0xFF14151C),
     )
     val (start, end) = palette[(seed.hashCode().mod(palette.size))]
     return Brush.linearGradient(listOf(start, end))

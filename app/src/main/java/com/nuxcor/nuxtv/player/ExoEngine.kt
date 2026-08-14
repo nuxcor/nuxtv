@@ -8,6 +8,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -113,4 +114,49 @@ class ExoEngine(context: Context) : PlayerEngine {
     override val positionMs: Long get() = player.currentPosition
     override val durationMs: Long
         get() = player.duration.takeIf { it != C.TIME_UNSET && !player.isCurrentMediaItemLive } ?: 0L
+
+    // --- track selection ------------------------------------------------------
+
+    private fun tracksOf(trackType: Int): List<Track> =
+        player.currentTracks.groups
+            .withIndex()
+            .filter { (_, group) -> group.type == trackType }
+            .flatMap { (groupIndex, group) ->
+                (0 until group.length).map { trackIndex ->
+                    val format = group.getTrackFormat(trackIndex)
+                    val label = listOfNotNull(
+                        format.label ?: format.language?.uppercase(),
+                        format.codecs,
+                    ).joinToString(" • ").ifBlank { "Track ${trackIndex + 1}" }
+                    Track(
+                        id = "$groupIndex:$trackIndex",
+                        label = label,
+                        selected = group.isTrackSelected(trackIndex),
+                    )
+                }
+            }
+
+    override fun audioTracks(): List<Track> = tracksOf(C.TRACK_TYPE_AUDIO)
+    override fun textTracks(): List<Track> = tracksOf(C.TRACK_TYPE_TEXT)
+
+    private fun applyOverride(trackType: Int, id: String) {
+        val (groupIndex, trackIndex) = id.split(":").map { it.toInt() }
+        val group = player.currentTracks.groups.getOrNull(groupIndex) ?: return
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(trackType, false)
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, trackIndex))
+            .build()
+    }
+
+    override fun selectAudioTrack(id: String) = applyOverride(C.TRACK_TYPE_AUDIO, id)
+
+    override fun selectTextTrack(id: String?) {
+        if (id == null) {
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .build()
+        } else {
+            applyOverride(C.TRACK_TYPE_TEXT, id)
+        }
+    }
 }

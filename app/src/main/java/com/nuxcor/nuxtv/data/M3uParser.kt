@@ -15,6 +15,15 @@ object M3uParser {
 
     private val attrRegex = Regex("""([\w.-]+)="([^"]*)"""")
 
+    /** XMLTV guide URL advertised in the playlist header (url-tvg / x-tvg-url). */
+    fun tvgUrl(text: String): String? {
+        val header = text.lineSequence().firstOrNull { it.trimStart().startsWith("#EXTM3U") } ?: return null
+        val attrs = attrRegex.findAll(header)
+            .associate { it.groupValues[1].lowercase() to it.groupValues[2] }
+        return (attrs["url-tvg"] ?: attrs["x-tvg-url"])
+            ?.split(",", " ")?.firstOrNull { it.isNotBlank() }?.trim()
+    }
+
     fun parse(text: String): List<M3uEntry> {
         val entries = mutableListOf<M3uEntry>()
         var pendingExtinf: String? = null

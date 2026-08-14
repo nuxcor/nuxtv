@@ -35,12 +35,15 @@ class RecordingService : Service() {
         const val ACTION_STOP = "com.nuxcor.nuxtv.recording.STOP"
         const val EXTRA_URL = "url"
         const val EXTRA_NAME = "name"
+        /** Optional: auto-stop after this long (scheduled recordings). */
+        const val EXTRA_DURATION_MS = "durationMs"
         private const val CHANNEL_ID = "recording"
         private const val NOTIFICATION_ID = 42
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
+    private var stopTimer: Job? = null
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -54,8 +57,9 @@ class RecordingService : Service() {
             ACTION_START -> {
                 val url = intent.getStringExtra(EXTRA_URL) ?: return START_NOT_STICKY.also { stopSelf() }
                 val name = intent.getStringExtra(EXTRA_NAME) ?: "Recording"
+                val durationMs = intent.getLongExtra(EXTRA_DURATION_MS, 0L).takeIf { it > 0 }
                 startForeground(NOTIFICATION_ID, buildNotification(name))
-                startRecording(url, name)
+                startRecording(url, name, durationMs)
             }
 
             ACTION_STOP -> stopRecording()
@@ -63,11 +67,19 @@ class RecordingService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun startRecording(url: String, name: String) {
+    private fun startRecording(url: String, name: String, durationMs: Long? = null) {
         runBlocking { job?.cancelAndJoin() }
         val safeName = name.replace(Regex("""[^\w\s.-]"""), "").trim().ifBlank { "Recording" }
         val stamp = SimpleDateFormat("yyyy-MM-dd_HH-mm", Locale.US).format(Date())
         val file = File(RecordingManager.directory(this), "$safeName $stamp.ts")
+
+        stopTimer?.cancel()
+        stopTimer = durationMs?.let { limit ->
+            scope.launch {
+                kotlinx.coroutines.delay(limit)
+                stopRecording()
+            }
+        }
 
         job = scope.launch {
             val startedAt = System.currentTimeMillis()
@@ -106,6 +118,8 @@ class RecordingService : Service() {
     }
 
     private fun stopRecording() {
+        stopTimer?.cancel()
+        stopTimer = null
         job?.cancel()
         job = null
         RecordingManager.update(null)

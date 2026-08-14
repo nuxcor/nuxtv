@@ -13,6 +13,16 @@ import kotlinx.serialization.json.Json
 
 enum class EngineChoice { EXO, VLC }
 
+@kotlinx.serialization.Serializable
+data class ScheduledRecording(
+    val id: String,
+    val channelName: String,
+    val recordUrl: String,
+    val title: String,
+    val startMs: Long,
+    val endMs: Long,
+)
+
 private val Context.playerDataStore: DataStore<Preferences> by preferencesDataStore(name = "nuxtv_player")
 
 /** Player-related preferences: default engine and VOD resume positions. */
@@ -21,6 +31,8 @@ class PlayerPrefs(private val context: Context) {
     private val json = Json { ignoreUnknownKeys = true }
     private val engineKey = stringPreferencesKey("engine")
     private val positionsKey = stringPreferencesKey("resume_positions")
+    private val favoritesKey = stringPreferencesKey("favorite_channels")
+    private val schedulesKey = stringPreferencesKey("scheduled_recordings")
 
     val engine: Flow<EngineChoice> = context.playerDataStore.data.map { prefs ->
         runCatching { EngineChoice.valueOf(prefs[engineKey] ?: "EXO") }.getOrDefault(EngineChoice.EXO)
@@ -44,5 +56,49 @@ class PlayerPrefs(private val context: Context) {
         if (positionMs < 30_000 || nearEnd) map.remove(url) else map[url] = positionMs
         val trimmed = if (map.size > 200) map.entries.drop(map.size - 200).associate { it.toPair() } else map
         context.playerDataStore.edit { it[positionsKey] = json.encodeToString(trimmed) }
+    }
+
+    // --- favorites (keyed by stream URL, stable across playlist reloads) ------
+
+    val favorites: Flow<Set<String>> = context.playerDataStore.data.map { prefs ->
+        prefs[favoritesKey]?.let {
+            runCatching { json.decodeFromString<Set<String>>(it) }.getOrNull()
+        } ?: emptySet()
+    }
+
+    suspend fun toggleFavorite(channelUrl: String) {
+        context.playerDataStore.edit { prefs ->
+            val current = prefs[favoritesKey]?.let {
+                runCatching { json.decodeFromString<Set<String>>(it) }.getOrNull()
+            } ?: emptySet()
+            val updated = if (channelUrl in current) current - channelUrl else current + channelUrl
+            prefs[favoritesKey] = json.encodeToString(updated)
+        }
+    }
+
+    // --- scheduled recordings -------------------------------------------------
+
+    val schedules: Flow<List<ScheduledRecording>> = context.playerDataStore.data.map { prefs ->
+        prefs[schedulesKey]?.let {
+            runCatching { json.decodeFromString<List<ScheduledRecording>>(it) }.getOrNull()
+        } ?: emptyList()
+    }
+
+    suspend fun addSchedule(item: ScheduledRecording) {
+        context.playerDataStore.edit { prefs ->
+            val current = prefs[schedulesKey]?.let {
+                runCatching { json.decodeFromString<List<ScheduledRecording>>(it) }.getOrNull()
+            } ?: emptyList()
+            prefs[schedulesKey] = json.encodeToString(current.filterNot { it.id == item.id } + item)
+        }
+    }
+
+    suspend fun removeSchedule(id: String) {
+        context.playerDataStore.edit { prefs ->
+            val current = prefs[schedulesKey]?.let {
+                runCatching { json.decodeFromString<List<ScheduledRecording>>(it) }.getOrNull()
+            } ?: emptyList()
+            prefs[schedulesKey] = json.encodeToString(current.filterNot { it.id == id })
+        }
     }
 }

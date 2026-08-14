@@ -64,7 +64,7 @@ fun OnboardingScreen(
             .fillMaxSize()
             .background(
                 Brush.radialGradient(
-                    colors = listOf(Color(0xFF221A4A), NuxColors.Background),
+                    colors = listOf(Color(0xFF2B2413), NuxColors.Background),
                     radius = 1600f,
                 )
             )
@@ -78,7 +78,7 @@ fun OnboardingScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = "NUXTV",
+                text = "DZIDZI",
                 style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Black),
                 color = NuxColors.Primary,
             )
@@ -107,7 +107,7 @@ fun OnboardingScreen(
 
                 Step.M3u -> M3uForm(
                     addState = addState,
-                    onSubmit = { name, url -> vm.addM3u(name, url, onSuccess = onDone) },
+                    onSubmit = { name, url, epgUrl -> vm.addM3u(name, url, epgUrl, onSuccess = onDone) },
                     onBack = { vm.resetAddState(); step = Step.Choose },
                 )
             }
@@ -207,16 +207,22 @@ private fun XtreamForm(
 @Composable
 private fun M3uForm(
     addState: AddState,
-    onSubmit: (name: String, url: String) -> Unit,
+    onSubmit: (name: String, url: String, epgUrl: String) -> Unit,
     onBack: () -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
+    var epgUrl by remember { mutableStateOf("") }
 
     FormContainer(addState = addState, onBack = onBack, submitEnabled = url.isNotBlank(),
-        onSubmit = { onSubmit(name, url) }) {
+        onSubmit = { onSubmit(name, url, epgUrl) }) {
         NuxTextField(value = name, onValueChange = { name = it }, label = "Playlist name (optional)")
         NuxTextField(value = url, onValueChange = { url = it }, label = "M3U URL  •  http://…/playlist.m3u")
+        NuxTextField(
+            value = epgUrl,
+            onValueChange = { epgUrl = it },
+            label = "EPG URL (optional, XMLTV)  •  auto-detected from url-tvg",
+        )
     }
 }
 
