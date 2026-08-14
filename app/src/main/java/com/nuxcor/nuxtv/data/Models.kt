@@ -41,6 +41,22 @@ data class LiveChannel(
     val categoryId: String?,
     val number: Int? = null,
     val epgId: String? = null,
+    /** Days of catch-up archive the provider keeps for this channel (0 = none). */
+    val archiveDays: Int = 0,
+    /** Xtream stream id, used for EPG and catch-up lookups. */
+    val xtreamId: Int? = null,
+    /** Raw TS URL suitable for recording (null when the stream can't be recorded). */
+    val recordUrl: String? = null,
+)
+
+/** One EPG programme, used for the catch-up picker. */
+data class EpgProgram(
+    val id: String,
+    val title: String,
+    val description: String?,
+    val startMs: Long,
+    val endMs: Long,
+    val hasArchive: Boolean,
 )
 
 data class Movie(
@@ -107,10 +123,16 @@ data class PlayableItem(
     val title: String,
     val subtitle: String? = null,
     val artwork: String? = null,
+    /** Channel this item came from — enables catch-up and recording from the player. */
+    val channelId: String? = null,
+    /** Raw TS URL suitable for recording (null when the stream can't be recorded). */
+    val recordUrl: String? = null,
 )
 
 data class PlaybackRequest(
     val items: List<PlayableItem>,
     val startIndex: Int,
     val isLive: Boolean,
+    /** Seekable non-live stream that isn't in the VOD library (catch-up). */
+    val isCatchup: Boolean = false,
 )

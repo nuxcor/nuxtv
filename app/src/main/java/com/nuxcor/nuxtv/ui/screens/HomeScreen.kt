@@ -27,8 +27,10 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +56,7 @@ import com.nuxcor.nuxtv.MainViewModel
 import com.nuxcor.nuxtv.data.Category
 import com.nuxcor.nuxtv.data.ContentBundle
 import com.nuxcor.nuxtv.data.ContentState
+import com.nuxcor.nuxtv.data.EngineChoice
 import com.nuxcor.nuxtv.data.Movie
 import com.nuxcor.nuxtv.data.PlaylistSource
 import com.nuxcor.nuxtv.data.Series
@@ -63,9 +66,11 @@ import com.nuxcor.nuxtv.ui.components.focusBorder
 import com.nuxcor.nuxtv.ui.theme.NuxColors
 
 enum class HomeTab(val label: String, val icon: ImageVector) {
+    Search("Search", Icons.Default.Search),
     Live("Live TV", Icons.Default.LiveTv),
     Movies("Movies", Icons.Default.Movie),
     Series("Series", Icons.Default.VideoLibrary),
+    Recordings("Recordings", Icons.Default.Videocam),
     Settings("Settings", Icons.Default.Settings),
 }
 
@@ -78,6 +83,7 @@ fun HomeScreen(
     onAddPlaylist: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(HomeTab.Live) }
+    // Non-content tabs also work while the playlist is loading or failed.
     val contentState by vm.content.collectAsState()
 
     Row(modifier = Modifier.fillMaxSize()) {
@@ -91,9 +97,11 @@ fun HomeScreen(
                     subtitle = "Add a playlist in Settings",
                 )
                 is ContentState.Ready -> when (tab) {
+                    HomeTab.Search -> SearchTab(vm, onOpenMovie, onOpenSeries, onPlay)
                     HomeTab.Live -> LiveTab(vm, state.bundle, onPlay)
                     HomeTab.Movies -> MoviesTab(state.bundle, onOpenMovie)
                     HomeTab.Series -> SeriesTab(state.bundle, onOpenSeries)
+                    HomeTab.Recordings -> RecordingsTab(vm, onPlay)
                     HomeTab.Settings -> SettingsTab(vm, state.bundle, onAddPlaylist)
                 }
             }
@@ -242,7 +250,10 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
             itemsIndexed(channels, key = { _, c -> c.id }) { index, channel ->
                 WideItem(
                     title = channel.name,
-                    subtitle = channel.number?.let { "Channel $it" },
+                    subtitle = listOfNotNull(
+                        channel.number?.let { "Channel $it" },
+                        channel.archiveDays.takeIf { it > 0 }?.let { "$it-day catch-up" },
+                    ).joinToString("  •  ").ifBlank { null },
                     imageUrl = channel.logo,
                     onClick = {
                         vm.playChannels(channels, index)
@@ -255,10 +266,15 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
 }
 
 @Composable
-fun CategoryItem(name: String, selected: Boolean, onClick: () -> Unit) {
+fun CategoryItem(
+    name: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier,
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) NuxColors.Primary.copy(alpha = 0.16f) else androidx.compose.ui.graphics.Color.Transparent,
@@ -325,6 +341,25 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
                         )
                     },
                     onClick = { if (!isActive) vm.selectSource(source.id) },
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        val engine by vm.engine.collectAsState()
+        Text(
+            "Default player engine",
+            style = MaterialTheme.typography.titleSmall,
+            color = NuxColors.OnSurface,
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            EngineChoice.entries.forEach { choice ->
+                CategoryItem(
+                    name = if (choice == EngineChoice.EXO) "ExoPlayer" else "VLC",
+                    selected = engine == choice,
+                    onClick = { vm.setEngine(choice) },
+                    modifier = Modifier,
                 )
             }
         }

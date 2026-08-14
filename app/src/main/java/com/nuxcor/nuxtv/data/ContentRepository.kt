@@ -143,6 +143,21 @@ class ContentRepository(context: Context) {
         return runCatching { xtreamClient(source).seriesEpisodes(id) }.getOrDefault(emptyList())
     }
 
+    /** EPG for a live channel; empty for M3U sources or channels without an Xtream id. */
+    suspend fun epgFor(channel: LiveChannel): List<EpgProgram> {
+        val source = activeSource.first() as? PlaylistSource.Xtream ?: return emptyList()
+        val id = channel.xtreamId ?: return emptyList()
+        return runCatching { xtreamClient(source).epg(id) }.getOrDefault(emptyList())
+    }
+
+    /** Catch-up stream URL for an archived programme, or null when unsupported. */
+    suspend fun catchupUrl(channel: LiveChannel, program: EpgProgram): String? {
+        val source = activeSource.first() as? PlaylistSource.Xtream ?: return null
+        val id = channel.xtreamId ?: return null
+        val durationMin = ((program.endMs - program.startMs) / 60_000).coerceAtLeast(1)
+        return xtreamClient(source).catchupUrl(id, program.startMs, durationMin)
+    }
+
     private fun xtreamClient(source: PlaylistSource.Xtream) =
         XtreamClient(http, source.serverUrl, source.username, source.password)
 

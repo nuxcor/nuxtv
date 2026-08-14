@@ -15,8 +15,11 @@ Point it at an **Xtream Codes** login or a plain **M3U playlist link** and NuxTV
   - Movies are detected from group keywords (VOD/Movies/Film…) and file containers (`.mkv`, `.mp4`, …), with year extraction (`Title (2023)`)
   - Everything else becomes a live channel, grouped by `group-title` categories
   - Titles are cleaned of quality noise (`1080p`, `HEVC`, `[4K]`, language prefixes)
-- **TV-first UI** — collapsible navigation rail, category rows with focus-scaling poster cards, immersive hero header, detail pages for movies and series, D-pad friendly throughout
-- **Playback** — Media3/ExoPlayer with HLS + progressive support, episode binge queueing, and live channel zapping with DPAD/CHANNEL up/down
+- **Dual playback engines** — ExoPlayer and libVLC behind one abstraction. If a stream fails on ExoPlayer it automatically retries on VLC (which handles odd TS muxing and exotic codecs); you can also swap engines from the player or set a default in Settings
+- **Catch-up TV** — Xtream channels with `tv_archive` expose their EPG in the player; pick any archived programme and it plays via timeshift
+- **Recording** — record raw TS live streams to local storage from the player (foreground service with a stop notification); recordings get their own library section with playback and delete
+- **TV-first UI** — collapsible navigation rail, category rows with focus-scaling poster cards, immersive hero header, detail pages for movies and series, global search, D-pad friendly throughout
+- **Pro player** — custom TV controls (seek bar with ±10s D-pad seeking, transport, engine badge), live channel zapping with DPAD/CHANNEL up/down, episode binge queueing, and automatic resume for movies and episodes
 - **Multiple playlists** — add several sources and switch between them in Settings
 
 ## Building
@@ -44,7 +47,7 @@ No content is bundled — NuxTV is a player; you bring your own playlist.
 
 ## Roadmap
 
-- Search across channels, movies and series
-- EPG (XMLTV) support for live guide data
-- Continue-watching / resume positions
-- Favorites
+- Full EPG grid guide (XMLTV for M3U sources)
+- Favorites and channel reordering
+- Scheduled recordings
+- Subtitle & audio track selection UI

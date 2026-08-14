@@ -87,6 +87,7 @@ class XtreamClient(
         (call("get_live_streams") as? JsonArray)?.mapNotNull { el ->
             val obj = el as? JsonObject ?: return@mapNotNull null
             val id = obj.int("stream_id") ?: return@mapNotNull null
+            val hasArchive = obj.int("tv_archive") == 1
             LiveChannel(
                 id = "live:$id",
                 name = obj.str("name") ?: "Channel $id",
@@ -95,8 +96,38 @@ class XtreamClient(
                 categoryId = obj.str("category_id"),
                 number = obj.int("num"),
                 epgId = obj.str("epg_channel_id"),
+                archiveDays = if (hasArchive) (obj.int("tv_archive_duration") ?: 1) else 0,
+                xtreamId = id,
+                recordUrl = "$baseUrl/live/$username/$password/$id.ts",
             )
         } ?: emptyList()
+
+    /** Full EPG listing for one channel; titles/descriptions arrive base64-encoded. */
+    suspend fun epg(streamId: Int): List<EpgProgram> {
+        val root = call("get_simple_data_table", mapOf("stream_id" to streamId.toString()))
+        val listings = (root as? JsonObject)?.get("epg_listings") as? JsonArray ?: return emptyList()
+        return listings.mapNotNull { el ->
+            val obj = el as? JsonObject ?: return@mapNotNull null
+            val start = obj.str("start_timestamp")?.toLongOrNull() ?: return@mapNotNull null
+            val stop = obj.str("stop_timestamp")?.toLongOrNull() ?: return@mapNotNull null
+            EpgProgram(
+                id = obj.str("id") ?: "$streamId:$start",
+                title = obj.str("title")?.fromBase64() ?: "Untitled",
+                description = obj.str("description")?.fromBase64()?.takeIf { it.isNotBlank() },
+                startMs = start * 1000,
+                endMs = stop * 1000,
+                hasArchive = obj.int("has_archive") == 1,
+            )
+        }.sortedBy { it.startMs }
+    }
+
+    /** Timeshift/catch-up stream URL for an archived programme. */
+    fun catchupUrl(streamId: Int, startMs: Long, durationMinutes: Long): String {
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd:HH-mm", java.util.Locale.US)
+        val start = fmt.format(java.util.Date(startMs))
+        return "$baseUrl/streaming/timeshift.php" +
+            "?username=$username&password=$password&stream=$streamId&start=$start&duration=$durationMinutes"
+    }
 
     suspend fun vodStreams(): List<Movie> =
         (call("get_vod_streams") as? JsonArray)?.mapNotNull { el ->
@@ -188,3 +219,8 @@ private fun JsonObject.int(key: String): Int? =
 
 private fun JsonObject.dbl(key: String): Double? =
     str(key)?.trim()?.toDoubleOrNull()?.takeIf { it > 0 }
+
+private fun String.fromBase64(): String =
+    runCatching {
+        String(android.util.Base64.decode(this, android.util.Base64.DEFAULT), Charsets.UTF_8).trim()
+    }.getOrDefault(this)

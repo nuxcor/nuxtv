@@ -65,6 +65,10 @@ object ContentClassifier {
                     categoryId = groupId(liveGroups, entry.group),
                     number = channelNumber++,
                     epgId = entry.tvgId,
+                    // Raw TS/progressive streams can be recorded by dumping bytes; HLS can't.
+                    recordUrl = entry.url.takeUnless {
+                        it.lowercase().substringBefore('?').endsWith(".m3u8")
+                    },
                 )
 
                 Kind.MOVIE -> movies += Movie(
