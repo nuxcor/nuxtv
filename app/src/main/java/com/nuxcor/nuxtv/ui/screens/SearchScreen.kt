@@ -45,9 +45,10 @@ fun SearchTab(
     var query by rememberSaveable { mutableStateOf("") }
     val hidden by vm.hidden.collectAsState()
     val contentState by vm.content.collectAsState()
+    val mergeDupes by vm.mergeDuplicates.collectAsState()
     var results by remember { mutableStateOf(MainViewModel.SearchResults()) }
     // Debounced off-main-thread search so typing stays smooth on huge playlists.
-    LaunchedEffect(query, contentState, hidden) {
+    LaunchedEffect(query, contentState, hidden, mergeDupes) {
         kotlinx.coroutines.delay(250)
         results = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             vm.search(query).let { it.copy(channels = vm.visibleChannels(it.channels)) }

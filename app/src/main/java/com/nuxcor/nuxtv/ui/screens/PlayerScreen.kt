@@ -205,6 +205,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         val startIndex = currentIndex.coerceIn(0, request.items.size - 1)
         val resume = when {
             request.isCatchup -> 0L // never inherit a position from the previous stream
+            request.isLive -> 0L // live streams restart at the live edge after a swap
             positionMs > 0 -> positionMs // engine swap mid-stream: continue where we were
             isVod ->
                 request.items.getOrNull(startIndex)?.url?.let { vm.resumePositionFor(it) } ?: 0L
@@ -422,6 +423,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     poke()
                 },
                 onPip = {
+                    inPip = true // hide chrome immediately; the poll confirms
                     (context as? android.app.Activity)?.let { activity ->
                         if (android.os.Build.VERSION.SDK_INT >= 26) {
                             runCatching {
@@ -763,7 +765,10 @@ private fun CatchupOverlay(
                     style = MaterialTheme.typography.bodyMedium,
                     color = NuxColors.OnSurfaceDim,
                 )
-                else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                else -> LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.weight(1f, fill = false),
+                ) {
                     items(programs!!, key = { it.id }) { program ->
                         Surface(
                             onClick = {
@@ -1036,10 +1041,21 @@ private fun MiniGuide(
     val epgState by vm.epgState.collectAsState()
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val firstFocus = remember { FocusRequester() }
+    var nowTick by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000)
+            nowTick = System.currentTimeMillis()
+        }
+    }
 
     LaunchedEffect(Unit) {
         listState.scrollToItem(currentIndex.coerceAtLeast(0))
-        runCatching { firstFocus.requestFocus() }
+        // The target row composes a frame after the scroll; retry briefly.
+        repeat(5) {
+            if (runCatching { firstFocus.requestFocus() }.isSuccess) return@LaunchedEffect
+            delay(60)
+        }
     }
 
     Row(modifier = Modifier.fillMaxSize()) {
@@ -1077,12 +1093,11 @@ private fun MiniGuide(
                     items(items.size, key = { it }) { index ->
                         val item = items[index]
                         val channel = item.channelId?.let { vm.channelById(it) }
-                        val nowNext = remember(channel?.id, epgState) {
+                        val nowNext = remember(channel?.id, epgState, nowTick) {
                             channel?.let { ch ->
-                                val now = System.currentTimeMillis()
                                 val programs = vm.programsFor(ch)
-                                val current = programs.firstOrNull { now in it.startMs until it.endMs }
-                                val next = programs.firstOrNull { it.startMs >= now }
+                                val current = programs.firstOrNull { nowTick in it.startMs until it.endMs }
+                                val next = programs.firstOrNull { it.startMs >= nowTick }
                                 current to next
                             } ?: (null to null)
                         }

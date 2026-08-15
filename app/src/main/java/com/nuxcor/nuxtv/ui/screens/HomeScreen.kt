@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -93,6 +94,8 @@ fun HomeScreen(
     val contentState by vm.content.collectAsState()
     var railFocused by remember { mutableStateOf(false) }
     val railFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    // Hoisted above the Ready branch so a refresh cycle doesn't wipe tab state.
+    val tabStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
 
     // BACK from inside the content pane jumps focus to the rail first;
     // a second BACK (rail focused) exits as usual.
@@ -116,15 +119,12 @@ fun HomeScreen(
                     subtitle = "Add a playlist in Settings",
                 )
                 is ContentState.Ready -> {
-                    // SaveableStateHolder keeps each tab's scroll/selection/search
-                    // state alive across tab switches.
-                    val stateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
                     androidx.compose.animation.Crossfade(
                         targetState = tab,
                         animationSpec = androidx.compose.animation.core.tween(220),
                         label = "tab",
                     ) { current ->
-                        stateHolder.SaveableStateProvider(current.name) {
+                        tabStateHolder.SaveableStateProvider(current.name) {
                             when (current) {
                                 HomeTab.Search -> SearchTab(vm, onOpenMovie, onOpenSeries, onPlay)
                                 HomeTab.Live -> LiveTab(vm, state.bundle, onPlay)
@@ -193,6 +193,7 @@ private fun NavRail(
             .onFocusChanged {
                 expanded = it.hasFocus
                 onRailFocusChanged(it.hasFocus)
+                if (!it.hasFocus) focusedItem = null // cancel pending select-on-focus
             }
             .padding(horizontal = 8.dp, vertical = 24.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -284,6 +285,13 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
     val allVisible = remember(bundle, hidden, lockedIds, mergeDupes) {
         vm.visibleChannels(bundle.channels).filterNot { it.categoryId in lockedIds }
     }
+    var nowTick by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(60_000)
+            nowTick = System.currentTimeMillis()
+        }
+    }
     val categories = remember(bundle, favorites) {
         buildList {
             add(Category(id = "__all__", name = "All channels"))
@@ -361,9 +369,8 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
             contentPadding = PaddingValues(bottom = 28.dp),
         ) {
             itemsIndexed(channels, key = { _, c -> c.id }) { index, channel ->
-                val nowProgram = remember(channel.id, epgState) {
-                    val now = System.currentTimeMillis()
-                    vm.programsFor(channel).firstOrNull { now in it.startMs until it.endMs }
+                val nowProgram = remember(channel.id, epgState, nowTick) {
+                    vm.programsFor(channel).firstOrNull { nowTick in it.startMs until it.endMs }
                 }
                 WideItem(
                     title = channel.name,
@@ -725,21 +732,28 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
                     },
                 )
                 Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                // One stable button — swapping composables per state would drop
+                // D-pad focus mid-download.
+                Button(onClick = {
                     when (update) {
                         is com.nuxcor.nuxtv.data.UpdateManager.State.Available,
                         is com.nuxcor.nuxtv.data.UpdateManager.State.Ready ->
-                            Button(onClick = { vm.downloadAndInstallUpdate() }) {
-                                Text(
-                                    if (update is com.nuxcor.nuxtv.data.UpdateManager.State.Ready) "Install"
-                                    else "Update now"
-                                )
-                            }
-                        is com.nuxcor.nuxtv.data.UpdateManager.State.Downloading -> Unit
-                        else -> OutlinedButton(onClick = { vm.checkForUpdates() }) {
-                            Text("Check for updates")
-                        }
+                            vm.downloadAndInstallUpdate()
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Downloading,
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Checking -> Unit
+                        else -> vm.checkForUpdates()
                     }
+                }) {
+                    Text(
+                        when (val u = update) {
+                            is com.nuxcor.nuxtv.data.UpdateManager.State.Available -> "Update now"
+                            is com.nuxcor.nuxtv.data.UpdateManager.State.Ready -> "Install"
+                            is com.nuxcor.nuxtv.data.UpdateManager.State.Downloading ->
+                                "Downloading… ${u.progressPercent}%"
+                            is com.nuxcor.nuxtv.data.UpdateManager.State.Checking -> "Checking…"
+                            else -> "Check for updates"
+                        }
+                    )
                 }
             }
         }

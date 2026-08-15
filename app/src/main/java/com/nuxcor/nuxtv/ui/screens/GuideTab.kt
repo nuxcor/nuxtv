@@ -77,7 +77,8 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
         is ContentRepository.EpgState.Ready -> {
             val hidden by vm.hidden.collectAsState()
             val pin by vm.parentalPin.collectAsState()
-            val channels = remember(bundle, hidden, pin, vm.parentalUnlocked) {
+            val mergeDupes by vm.mergeDuplicates.collectAsState()
+            val channels = remember(bundle, hidden, pin, vm.parentalUnlocked, mergeDupes) {
                 val lockedIds = bundle.liveCategories
                     .filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
                 vm.visibleChannels(bundle.channels).filterNot { it.categoryId in lockedIds }

@@ -124,12 +124,16 @@ object ContentClassifier {
         )
     }
 
-    private val symbolWrapped = Regex("""^[^\p{L}\p{N}]{3,}.*[^\p{L}\p{N}]{3,}$""")
+    private val hashWrapped = Regex("""^#{3,}.*#{3,}$""")
 
-    /** Providers pad playlists with separator rows like "#### SPORTS ####". */
+    /**
+     * Providers pad playlists with separator rows. Only unambiguous forms are
+     * dropped: rows with no letters/digits at all, or classic '###'-wrapped
+     * headings — decorated real channels like "*** 24/7 Movies ***" survive.
+     */
     fun isSeparator(title: String): Boolean {
         val t = title.trim()
-        return t.none { it.isLetterOrDigit() } || symbolWrapped.matches(t)
+        return t.none { it.isLetterOrDigit() } || hashWrapped.matches(t)
     }
 
     private enum class Kind { LIVE, MOVIE, EPISODE }

@@ -41,7 +41,7 @@ object M3uParser {
         var sawHeader = false
 
         for (raw in lines) {
-            val line = raw.trim()
+            val line = raw.trim().trimStart('\uFEFF').trim()
             when {
                 line.isEmpty() -> Unit
                 line.startsWith("#EXTM3U") -> {

@@ -25,7 +25,9 @@ object QualityTag {
         else -> 0
     }
 
-    private val allTags = Regex("""(?i)\b(4k|uhd|fhd|full\s?hd|hd|sd|1080p?|720p?|2160p?|480p?|576p?)\b""")
+    // Bare numbers ("Sky 1080") stay part of the identity; only explicit
+    // quality tokens are stripped for duplicate grouping.
+    private val allTags = Regex("""(?i)\b(4k|uhd|fhd|full\s?hd|hd|sd|1080p|720p|2160p|480p|576p)\b""")
 
     /** Channel name with quality tokens removed, for duplicate grouping. */
     fun baseName(name: String): String =
@@ -38,7 +40,10 @@ object QualityTag {
     fun mergeBestQuality(channels: List<LiveChannel>): List<LiveChannel> {
         val best = LinkedHashMap<String, LiveChannel>()
         for (channel in channels) {
-            val key = baseName(channel.name).lowercase()
+            // Scope by category so regional feeds with the same name don't
+            // merge; a blank base ("HD", "4K") falls back to the full name.
+            val base = baseName(channel.name).ifBlank { channel.name.trim() }.lowercase()
+            val key = "${channel.categoryId}|$base"
             val current = best[key]
             if (current == null || rank(channel.quality) > rank(current.quality)) {
                 best[key] = channel

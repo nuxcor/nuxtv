@@ -76,6 +76,7 @@ class ContentRepository(context: Context) {
     private var loadedSourceId: String? = null
 
     private val epgMutex = Mutex()
+    private val publishMutex = Mutex()
     private var lastEpgUrl: String? = null
     private var lastEpgLoadedAt: Long = 0
 
@@ -115,9 +116,11 @@ class ContentRepository(context: Context) {
         }
         return result.fold(
             onSuccess = { bundle ->
-                store.add(source)
-                loadedSourceId = source.id
-                _content.value = ContentState.Ready(bundle)
+                publishMutex.withLock {
+                    store.add(source)
+                    loadedSourceId = source.id
+                    _content.value = ContentState.Ready(bundle)
+                }
                 withContext(Dispatchers.IO) { writeCache(source.id, bundle) }
                 Result.success(Unit)
             },
@@ -147,10 +150,21 @@ class ContentRepository(context: Context) {
         if (!quiet) _content.value = ContentState.Loading("Loading ${source.name}…")
         runCatching { fetch(source) }
             .onSuccess { bundle ->
-                // Drop the result if the user switched sources while we fetched.
-                if (activeSource.first()?.id != source.id) return
-                loadedSourceId = source.id
-                _content.value = ContentState.Ready(bundle)
+                if (bundle.isEmpty) {
+                    // A server that authenticates but returns error objects for
+                    // the catalogs must not blank a working library or cache.
+                    android.util.Log.w("Dzidzi", "Refresh returned an empty catalog; keeping current library")
+                    if (!quiet && _content.value !is ContentState.Ready) {
+                        _content.value = ContentState.Error("The playlist loaded but contains no content.")
+                    }
+                    return
+                }
+                publishMutex.withLock {
+                    // Drop the result if the user switched sources while we fetched.
+                    if (activeSource.first()?.id != source.id) return
+                    loadedSourceId = source.id
+                    _content.value = ContentState.Ready(bundle)
+                }
                 withContext(Dispatchers.IO) { writeCache(source.id, bundle) }
             }
             .onFailure { e ->

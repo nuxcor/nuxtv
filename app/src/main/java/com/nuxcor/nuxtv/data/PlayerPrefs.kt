@@ -190,6 +190,7 @@ class PlayerPrefs(private val context: Context) {
         val engine: String = "EXO",
         val epgOverrideUrl: String? = null,
         val tmdbKey: String? = null,
+        val mergeDuplicates: Boolean = false,
         val schedules: List<ScheduledRecording> = emptyList(),
         val sources: List<PlaylistSource> = emptyList(),
     )
@@ -206,6 +207,7 @@ class PlayerPrefs(private val context: Context) {
             engine = prefs[engineKey] ?: "EXO",
             epgOverrideUrl = prefs[epgOverrideKey],
             tmdbKey = prefs[tmdbKeyKey],
+            mergeDuplicates = prefs[mergeDupesKey] == "true",
             schedules = prefs[schedulesKey]?.let {
                 runCatching { json.decodeFromString<List<ScheduledRecording>>(it) }.getOrNull()
             } ?: emptyList(),
@@ -223,6 +225,7 @@ class PlayerPrefs(private val context: Context) {
             prefs[engineKey] = backup.engine
             backup.epgOverrideUrl?.let { prefs[epgOverrideKey] = it } ?: prefs.remove(epgOverrideKey)
             backup.tmdbKey?.let { prefs[tmdbKeyKey] = it } ?: prefs.remove(tmdbKeyKey)
+            prefs[mergeDupesKey] = backup.mergeDuplicates.toString()
             prefs[schedulesKey] = json.encodeToString(backup.schedules)
         }
         return backup.sources

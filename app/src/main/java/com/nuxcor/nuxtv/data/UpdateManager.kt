@@ -41,8 +41,10 @@ class UpdateManager(private val context: Context, private val http: OkHttpClient
 
         /** true when [remote] (e.g. "v2.4.0") is newer than [local] ("2.3.1"). */
         fun isNewer(remote: String, local: String): Boolean {
-            fun parts(v: String) = v.removePrefix("v").split(".", "-")
-                .mapNotNull { it.toIntOrNull() }
+            // Only the numeric x.y.z triple counts; suffixes like -rc.1 are
+            // ignored so an RC never outranks the final release.
+            fun parts(v: String) = v.removePrefix("v").substringBefore("-").split(".")
+                .mapNotNull { it.toIntOrNull() }.take(3)
             val r = parts(remote)
             val l = parts(local)
             for (i in 0 until maxOf(r.size, l.size)) {
@@ -113,11 +115,18 @@ class UpdateManager(private val context: Context, private val http: OkHttpClient
             out
         }
 
-    fun install(file: File) {
-        val uri = FileProvider.getUriForFile(context, "com.nuxcor.nuxtv.fileprovider", file)
+    /** Launches the system installer; false when it can't be started. */
+    fun install(file: File): Boolean {
+        if (!file.exists() || file.length() == 0L) return false
+        val uri = if (android.os.Build.VERSION.SDK_INT >= 24) {
+            FileProvider.getUriForFile(context, "com.nuxcor.nuxtv.fileprovider", file)
+        } else {
+            // Pre-N installers can't open content:// package archives.
+            android.net.Uri.fromFile(file)
+        }
         val intent = Intent(Intent.ACTION_VIEW)
             .setDataAndType(uri, "application/vnd.android.package-archive")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
+        return runCatching { context.startActivity(intent) }.isSuccess
     }
 }

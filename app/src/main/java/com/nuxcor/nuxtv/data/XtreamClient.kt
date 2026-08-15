@@ -90,11 +90,16 @@ class XtreamClient(
             if (!resp.isSuccessful) throw IOException("Server returned HTTP ${resp.code}")
             val body = resp.body ?: throw IOException("Empty response from server")
             val out = ArrayList<T>()
-            runCatching {
+            try {
                 json.decodeToSequence<JsonElement>(
                     body.byteStream(),
                     DecodeSequenceMode.ARRAY_WRAPPED,
                 ).forEach { el -> (el as? JsonObject)?.let(map)?.let(out::add) }
+            } catch (e: Exception) {
+                // A truncated stream or an error-object response must fail the
+                // whole load — a silently partial catalog would overwrite the
+                // user's cache with a shrunken library.
+                throw IOException("Catalog download failed for $action: ${e.message}")
             }
             out
         }

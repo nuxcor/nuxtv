@@ -149,11 +149,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             RecordingScheduler.rescheduleAll(getApplication(), playerPrefs)
         }
-        // Silent update check shortly after launch.
+        // Silent update check shortly after launch. Never stomps an
+        // in-progress manual check/download.
         viewModelScope.launch {
             delay(8_000)
             val result = updateManager.check()
-            if (result is com.nuxcor.nuxtv.data.UpdateManager.State.Available) {
+            if (result is com.nuxcor.nuxtv.data.UpdateManager.State.Available &&
+                _updateState.value is com.nuxcor.nuxtv.data.UpdateManager.State.Idle
+            ) {
                 _updateState.value = result
             }
         }
@@ -167,11 +170,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun downloadAndInstallUpdate() {
-        val available = _updateState.value as? com.nuxcor.nuxtv.data.UpdateManager.State.Available
-            ?: (_updateState.value as? com.nuxcor.nuxtv.data.UpdateManager.State.Ready)?.let {
-                updateManager.install(it.file)
+        when (val current = _updateState.value) {
+            is com.nuxcor.nuxtv.data.UpdateManager.State.Downloading -> return // already running
+            is com.nuxcor.nuxtv.data.UpdateManager.State.Ready -> {
+                if (!updateManager.install(current.file)) {
+                    _updateState.value = com.nuxcor.nuxtv.data.UpdateManager.State.Error(
+                        "Couldn't start the installer — allow \"install unknown apps\" for Dzidzi, then check again"
+                    )
+                }
                 return
-            } ?: return
+            }
+            else -> Unit
+        }
+        val available = _updateState.value as? com.nuxcor.nuxtv.data.UpdateManager.State.Available
+            ?: return
         viewModelScope.launch {
             runCatching {
                 _updateState.value = com.nuxcor.nuxtv.data.UpdateManager.State.Downloading(0)
@@ -180,7 +192,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 _updateState.value =
                     com.nuxcor.nuxtv.data.UpdateManager.State.Ready(available.version, file)
-                updateManager.install(file)
+                if (!updateManager.install(file)) {
+                    _updateState.value = com.nuxcor.nuxtv.data.UpdateManager.State.Error(
+                        "Couldn't start the installer — allow \"install unknown apps\" for Dzidzi, then check again"
+                    )
+                }
             }.onFailure { e ->
                 _updateState.value =
                     com.nuxcor.nuxtv.data.UpdateManager.State.Error(e.message ?: "Download failed")
