@@ -1678,12 +1678,17 @@ private fun ChannelBanner(
             horizontalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             if (isLive && channel != null) {
+                // Fit, not the Crop default: channel logos are arbitrary aspect
+                // ratios and Crop fills the box by slicing the sides off — a
+                // wide wordmark came out reading "CTRUM EWS". Crop is right for
+                // posters, which is why it is the default, but never for logos.
                 com.nuxcor.nuxtv.ui.components.Artwork(
                     imageUrl = channel.logo,
                     title = channel.name,
                     modifier = Modifier
                         .size(width = 86.dp, height = 54.dp)
                         .clip(RoundedCornerShape(8.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
