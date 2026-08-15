@@ -55,6 +55,7 @@ object ContentClassifier {
         }
 
         for ((index, entry) in entries.withIndex()) {
+            if (isSeparator(entry.title)) continue
             val kind = detectKind(entry)
             when (kind) {
                 Kind.LIVE -> channels += LiveChannel(
@@ -121,6 +122,14 @@ object ContentClassifier {
             seriesCategories = seriesGroups.map { (id, name) -> Category(id, name) },
             series = seriesList,
         )
+    }
+
+    private val symbolWrapped = Regex("""^[^\p{L}\p{N}]{3,}.*[^\p{L}\p{N}]{3,}$""")
+
+    /** Providers pad playlists with separator rows like "#### SPORTS ####". */
+    fun isSeparator(title: String): Boolean {
+        val t = title.trim()
+        return t.none { it.isLetterOrDigit() } || symbolWrapped.matches(t)
     }
 
     private enum class Kind { LIVE, MOVIE, EPISODE }

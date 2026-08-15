@@ -76,6 +76,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val parentalPin: StateFlow<String?> = playerPrefs.parentalPin
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    val mergeDuplicates: StateFlow<Boolean> = playerPrefs.mergeDuplicates
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setMergeDuplicates(enabled: Boolean) =
+        viewModelScope.launch { playerPrefs.setMergeDuplicates(enabled) }
+
     /** Locked categories stay hidden until the PIN is entered this session. */
     var parentalUnlocked by mutableStateOf(false)
         private set
@@ -152,10 +158,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { playerPrefs.toggleHidden(channel.url) }
     }
 
-    /** Channels with the user's hidden set filtered out. */
+    /** Channels with the hidden set removed and (optionally) duplicates merged. */
     fun visibleChannels(channels: List<LiveChannel>): List<LiveChannel> {
         val hiddenSet = hidden.value
-        return if (hiddenSet.isEmpty()) channels else channels.filterNot { it.url in hiddenSet }
+        val visible =
+            if (hiddenSet.isEmpty()) channels else channels.filterNot { it.url in hiddenSet }
+        return if (mergeDuplicates.value) {
+            com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(visible)
+        } else visible
     }
 
     // --- backup / restore -----------------------------------------------------

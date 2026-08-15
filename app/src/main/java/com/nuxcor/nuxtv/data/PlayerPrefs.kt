@@ -37,6 +37,7 @@ class PlayerPrefs(private val context: Context) {
     private val epgOverrideKey = stringPreferencesKey("epg_override_url")
     private val tmdbKeyKey = stringPreferencesKey("tmdb_api_key")
     private val pinKey = stringPreferencesKey("parental_pin")
+    private val mergeDupesKey = stringPreferencesKey("merge_duplicate_channels")
 
     val engine: Flow<EngineChoice> = context.playerDataStore.data.map { prefs ->
         runCatching { EngineChoice.valueOf(prefs[engineKey] ?: "EXO") }.getOrDefault(EngineChoice.EXO)
@@ -153,6 +154,15 @@ class PlayerPrefs(private val context: Context) {
 
     val tmdbKey: Flow<String?> = context.playerDataStore.data.map { prefs ->
         prefs[tmdbKeyKey]?.takeIf { it.isNotBlank() }
+    }
+
+    /** When on, SD/HD/FHD variants of the same channel collapse to the best one. */
+    val mergeDuplicates: Flow<Boolean> = context.playerDataStore.data.map { prefs ->
+        prefs[mergeDupesKey] == "true"
+    }
+
+    suspend fun setMergeDuplicates(enabled: Boolean) {
+        context.playerDataStore.edit { it[mergeDupesKey] = enabled.toString() }
     }
 
     val parentalPin: Flow<String?> = context.playerDataStore.data.map { prefs ->

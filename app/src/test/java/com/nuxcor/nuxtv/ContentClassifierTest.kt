@@ -79,3 +79,31 @@ class ContentClassifierTest {
         assertEquals("Oppenheimer", ContentClassifier.cleanTitle("Oppenheimer [4K] HEVC"))
     }
 }
+
+class QualityMergeTest {
+    private fun ch(name: String) = com.nuxcor.nuxtv.data.LiveChannel(
+        id = name, name = name, logo = null, url = name, categoryId = null,
+        quality = com.nuxcor.nuxtv.data.QualityTag.of(name),
+    )
+
+    @org.junit.Test
+    fun `duplicates collapse to best quality`() {
+        val merged = com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(
+            listOf(ch("CNN SD"), ch("CNN FHD"), ch("CNN HD"), ch("BBC One"), ch("BBC One 4K"))
+        )
+        org.junit.Assert.assertEquals(2, merged.size)
+        org.junit.Assert.assertEquals("CNN FHD", merged[0].name)
+        org.junit.Assert.assertEquals("BBC One 4K", merged[1].name)
+    }
+
+    @org.junit.Test
+    fun `separator junk entries are dropped`() {
+        val bundle = com.nuxcor.nuxtv.data.ContentClassifier.classify(
+            com.nuxcor.nuxtv.data.M3uParser.parse(
+                "#EXTM3U\n#EXTINF:-1,##### SPORTS #####\nhttp://x/1.ts\n#EXTINF:-1,Real Channel\nhttp://x/2.ts"
+            )
+        )
+        org.junit.Assert.assertEquals(1, bundle.channels.size)
+        org.junit.Assert.assertEquals("Real Channel", bundle.channels[0].name)
+    }
+}

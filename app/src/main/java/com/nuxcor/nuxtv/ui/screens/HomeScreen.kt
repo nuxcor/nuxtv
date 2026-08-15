@@ -280,7 +280,8 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
     val lockedIds = remember(bundle, pin, vm.parentalUnlocked) {
         bundle.liveCategories.filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
     }
-    val allVisible = remember(bundle, hidden, lockedIds) {
+    val mergeDupes by vm.mergeDuplicates.collectAsState()
+    val allVisible = remember(bundle, hidden, lockedIds, mergeDupes) {
         vm.visibleChannels(bundle.channels).filterNot { it.categoryId in lockedIds }
     }
     val categories = remember(bundle, favorites) {
@@ -293,10 +294,18 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
         }
     }
     var selectedCategory by rememberSaveable(bundle.channels.size) { mutableStateOf("__all__") }
-    var sortAz by rememberSaveable { mutableStateOf(false) }
+    var sortMode by rememberSaveable { mutableStateOf(0) } // 0 default, 1 A–Z, 2 quality
     val epgState by vm.epgState.collectAsState()
-    val sortedAll = remember(allVisible, sortAz) {
-        if (sortAz) allVisible.sortedBy { it.name.lowercase() } else allVisible
+    val sortedAll = remember(allVisible, sortMode) {
+        when (sortMode) {
+            1 -> allVisible.sortedBy { it.name.lowercase() }
+            2 -> allVisible.sortedWith(
+                compareByDescending<com.nuxcor.nuxtv.data.LiveChannel> {
+                    com.nuxcor.nuxtv.data.QualityTag.rank(it.quality)
+                }.thenBy { it.name.lowercase() }
+            )
+            else -> allVisible
+        }
     }
     val channels = remember(sortedAll, selectedCategory, favorites) {
         when (selectedCategory) {
@@ -322,9 +331,13 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
         ) {
             item(key = "__sort__") {
                 CategoryItem(
-                    name = if (sortAz) "Sort: A–Z" else "Sort: Default",
-                    selected = sortAz,
-                    onClick = { sortAz = !sortAz },
+                    name = when (sortMode) {
+                        1 -> "Sort: A–Z"
+                        2 -> "Sort: Quality"
+                        else -> "Sort: Default"
+                    },
+                    selected = sortMode != 0,
+                    onClick = { sortMode = (sortMode + 1) % 3 },
                 )
             }
             items(categories, key = { it.id }) { category ->
@@ -500,6 +513,37 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
                 }
                 if (bundle != null) {
                     OutlinedButton(onClick = { manageOpen = true }) { Text("Manage channels") }
+                }
+            }
+        }
+
+        item(key = "duplicates") {
+            Column {
+                Text(
+                    "Duplicate channels",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NuxColors.OnSurface,
+                )
+                Text(
+                    "Merge SD/HD/FHD variants of the same channel and keep the best quality.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NuxColors.OnSurfaceDim,
+                )
+                Spacer(Modifier.height(8.dp))
+                val mergeDupes by vm.mergeDuplicates.collectAsState()
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CategoryItem(
+                        name = "Show all",
+                        selected = !mergeDupes,
+                        onClick = { vm.setMergeDuplicates(false) },
+                        modifier = Modifier,
+                    )
+                    CategoryItem(
+                        name = "Best quality only",
+                        selected = mergeDupes,
+                        onClick = { vm.setMergeDuplicates(true) },
+                        modifier = Modifier,
+                    )
                 }
             }
         }
