@@ -24,9 +24,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,7 +63,15 @@ fun OnboardingScreen(
     onDone: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    var step by remember { mutableStateOf(Step.Choose) }
+    var step by rememberSaveable { mutableStateOf(Step.Choose) }
+    // Hoisted + saveable: a stray BACK (or process death) must never wipe
+    // credentials the user spent hundreds of remote presses typing.
+    var name by rememberSaveable { mutableStateOf("") }
+    var server by rememberSaveable { mutableStateOf("") }
+    var user by rememberSaveable { mutableStateOf("") }
+    var pass by rememberSaveable { mutableStateOf("") }
+    var m3uUrl by rememberSaveable { mutableStateOf("") }
+    var epgUrl by rememberSaveable { mutableStateOf("") }
     val addState = vm.addState
 
     // Remote BACK mirrors the on-screen Back button: form → chooser → leave.
@@ -91,26 +101,44 @@ fun OnboardingScreen(
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            androidx.compose.foundation.Image(
-                painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_splash),
-                contentDescription = null,
-                modifier = Modifier.size(104.dp),
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = "DZIDZI",
-                style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Black),
-                color = NuxColors.Primary,
-            )
-            Text(
-                text = "Your playlists, organized like real TV",
-                style = MaterialTheme.typography.bodyMedium,
-                color = NuxColors.OnSurfaceDim,
-            )
-            Spacer(Modifier.height(32.dp))
+            // The chooser gets the full lockup; forms keep just a small mark
+            // so every field and the Connect button fit on a TV screen.
+            if (step == Step.Choose) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    androidx.compose.foundation.Image(
+                        painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_splash),
+                        contentDescription = null,
+                        modifier = Modifier.size(56.dp),
+                    )
+                    Column {
+                        Text(
+                            text = "DZIDZI",
+                            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Black),
+                            color = NuxColors.Primary,
+                        )
+                        Text(
+                            text = "Your playlists, organized like real TV",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = NuxColors.OnSurfaceDim,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(20.dp))
+            } else {
+                androidx.compose.foundation.Image(
+                    painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_splash),
+                    contentDescription = null,
+                    modifier = Modifier.size(40.dp),
+                )
+                Spacer(Modifier.height(10.dp))
+            }
 
             when (step) {
                 Step.Choose -> ChooseStep(
+                    vm = vm,
                     cancellable = cancellable,
                     onXtream = { vm.resetAddState(); step = Step.Xtream },
                     onM3u = { vm.resetAddState(); step = Step.M3u },
@@ -119,15 +147,20 @@ fun OnboardingScreen(
 
                 Step.Xtream -> XtreamForm(
                     addState = addState,
-                    onSubmit = { name, server, user, pass ->
-                        vm.addXtream(name, server, user, pass, onSuccess = onDone)
-                    },
+                    name = name, onName = { name = it },
+                    server = server, onServer = { server = it },
+                    user = user, onUser = { user = it },
+                    pass = pass, onPass = { pass = it },
+                    onSubmit = { vm.addXtream(name, server, user, pass, onSuccess = onDone) },
                     onBack = { vm.resetAddState(); step = Step.Choose },
                 )
 
                 Step.M3u -> M3uForm(
                     addState = addState,
-                    onSubmit = { name, url, epgUrl -> vm.addM3u(name, url, epgUrl, onSuccess = onDone) },
+                    name = name, onName = { name = it },
+                    url = m3uUrl, onUrl = { m3uUrl = it },
+                    epgUrl = epgUrl, onEpgUrl = { epgUrl = it },
+                    onSubmit = { vm.addM3u(name, m3uUrl, epgUrl, onSuccess = onDone) },
                     onBack = { vm.resetAddState(); step = Step.Choose },
                 )
             }
@@ -137,12 +170,13 @@ fun OnboardingScreen(
 
 @Composable
 private fun ChooseStep(
+    vm: MainViewModel,
     cancellable: Boolean,
     onXtream: () -> Unit,
     onM3u: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
         SourceOptionCard(
             title = "Xtream Codes",
             subtitle = "Sign in with server URL, username and password",
@@ -155,10 +189,37 @@ private fun ChooseStep(
             icon = { Icon(Icons.AutoMirrored.Filled.PlaylistPlay, contentDescription = null, tint = NuxColors.Primary) },
             onClick = onM3u,
         )
-        if (cancellable) {
-            Spacer(Modifier.height(4.dp))
-            OutlinedButton(onClick = onCancel, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                Text("Cancel")
+        Spacer(Modifier.height(4.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+        ) {
+            if (cancellable) {
+                OutlinedButton(onClick = onCancel) { Text("Cancel") }
+            }
+            // Updates don't need a playlist or an account — reachable here so a
+            // first-run user never has to sideload again.
+            val update by vm.updateState.collectAsState()
+            OutlinedButton(onClick = {
+                when (update) {
+                    is com.nuxcor.nuxtv.data.UpdateManager.State.Available,
+                    is com.nuxcor.nuxtv.data.UpdateManager.State.Ready ->
+                        vm.downloadAndInstallUpdate()
+                    is com.nuxcor.nuxtv.data.UpdateManager.State.Downloading,
+                    is com.nuxcor.nuxtv.data.UpdateManager.State.Checking -> Unit
+                    else -> vm.checkForUpdates()
+                }
+            }) {
+                Text(
+                    when (val u = update) {
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Available -> "Update to ${u.version}"
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Ready -> "Install update"
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Downloading -> "Downloading… ${u.progressPercent}%"
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Checking -> "Checking…"
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.UpToDate -> "Up to date"
+                        else -> "Check for updates"
+                    }
+                )
             }
         }
     }
@@ -177,26 +238,32 @@ private fun SourceOptionCard(
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = NuxColors.Surface,
-            focusedContainerColor = NuxColors.SurfaceVariant,
+            focusedContainerColor = NuxColors.SurfaceRaised,
             contentColor = NuxColors.OnSurface,
             focusedContentColor = NuxColors.OnSurface,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
-        border = ClickableSurfaceDefaults.border(focusedBorder = focusBorder()),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.0f),
+        border = ClickableSurfaceDefaults.border(
+            border = androidx.tv.material3.Border(
+                androidx.compose.foundation.BorderStroke(1.dp, NuxColors.Stroke),
+                shape = RoundedCornerShape(14.dp),
+            ),
+            focusedBorder = focusBorder(),
+        ),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) { icon() }
+            Box(modifier = Modifier.size(32.dp), contentAlignment = Alignment.Center) { icon() }
             Column {
                 Text(title, style = MaterialTheme.typography.titleMedium)
                 Text(
                     subtitle,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = NuxColors.OnSurfaceDim,
                 )
             }
@@ -207,25 +274,44 @@ private fun SourceOptionCard(
 @Composable
 private fun XtreamForm(
     addState: AddState,
-    onSubmit: (name: String, server: String, user: String, pass: String) -> Unit,
+    name: String, onName: (String) -> Unit,
+    server: String, onServer: (String) -> Unit,
+    user: String, onUser: (String) -> Unit,
+    pass: String, onPass: (String) -> Unit,
+    onSubmit: () -> Unit,
     onBack: () -> Unit,
 ) {
-    var name by remember { mutableStateOf("") }
-    var server by remember { mutableStateOf("") }
-    var user by remember { mutableStateOf("") }
-    var pass by remember { mutableStateOf("") }
-
     val connectFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    var revealPassword by rememberSaveable { mutableStateOf(false) }
     FormContainer(addState = addState, onBack = onBack, submitEnabled = server.isNotBlank() && user.isNotBlank(),
-        onSubmit = { onSubmit(name, server, user, pass) }, connectFocus = connectFocus) {
-        NuxTextField(value = name, onValueChange = { name = it }, label = "Playlist name (optional)")
-        NuxTextField(value = server, onValueChange = { server = it }, label = "Server URL  •  http://host:port")
-        NuxTextField(value = user, onValueChange = { user = it }, label = "Username")
+        onSubmit = onSubmit, connectFocus = connectFocus) {
+        // Credentials first; the optional name last.
+        NuxTextField(value = server, onValueChange = onServer, label = "Server URL  •  http://host:port")
+        NuxTextField(value = user, onValueChange = onUser, label = "Username")
         NuxTextField(
             value = pass,
-            onValueChange = { pass = it },
+            onValueChange = onPass,
             label = "Password",
-            password = true,
+            password = !revealPassword,
+            onAdvance = { runCatching { connectFocus.requestFocus() } },
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedButton(onClick = { revealPassword = !revealPassword }) {
+                Text(if (revealPassword) "Hide password" else "Show password")
+            }
+            Text(
+                "Typing is easier with the Google TV app's remote keyboard",
+                style = MaterialTheme.typography.labelSmall,
+                color = NuxColors.OnSurfaceDim,
+            )
+        }
+        NuxTextField(
+            value = name,
+            onValueChange = onName,
+            label = "Playlist name (optional)",
             isLast = true,
             onAdvance = { runCatching { connectFocus.requestFocus() } },
         )
@@ -235,21 +321,20 @@ private fun XtreamForm(
 @Composable
 private fun M3uForm(
     addState: AddState,
-    onSubmit: (name: String, url: String, epgUrl: String) -> Unit,
+    name: String, onName: (String) -> Unit,
+    url: String, onUrl: (String) -> Unit,
+    epgUrl: String, onEpgUrl: (String) -> Unit,
+    onSubmit: () -> Unit,
     onBack: () -> Unit,
 ) {
-    var name by remember { mutableStateOf("") }
-    var url by remember { mutableStateOf("") }
-    var epgUrl by remember { mutableStateOf("") }
-
     val connectFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     FormContainer(addState = addState, onBack = onBack, submitEnabled = url.isNotBlank(),
-        onSubmit = { onSubmit(name, url, epgUrl) }, connectFocus = connectFocus) {
-        NuxTextField(value = name, onValueChange = { name = it }, label = "Playlist name (optional)")
-        NuxTextField(value = url, onValueChange = { url = it }, label = "M3U URL  •  http://…/playlist.m3u")
+        onSubmit = onSubmit, connectFocus = connectFocus) {
+        NuxTextField(value = url, onValueChange = onUrl, label = "M3U URL  •  http://…/playlist.m3u")
+        NuxTextField(value = name, onValueChange = onName, label = "Playlist name (optional)")
         NuxTextField(
             value = epgUrl,
-            onValueChange = { epgUrl = it },
+            onValueChange = onEpgUrl,
             label = "EPG URL (optional, XMLTV)  •  auto-detected from url-tvg",
             isLast = true,
             onAdvance = { runCatching { connectFocus.requestFocus() } },
@@ -268,7 +353,7 @@ private fun FormContainer(
     fields: @Composable () -> Unit,
 ) {
     val loading = addState is AddState.Loading
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         fields()
         if (addState is AddState.Error) {
             Text(
@@ -277,7 +362,6 @@ private fun FormContainer(
                 color = NuxColors.Error,
             )
         }
-        Spacer(Modifier.height(4.dp))
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,

@@ -115,6 +115,15 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
 
     val context = LocalContext.current
     var inPip by remember { mutableStateOf(false) }
+    // Track PiP from the activity callback, not a poll.
+    DisposableEffect(context) {
+        val activity = context as? androidx.activity.ComponentActivity
+        val listener = androidx.core.util.Consumer<androidx.core.app.PictureInPictureModeChangedInfo> { info ->
+            inPip = info.isInPictureInPictureMode
+        }
+        activity?.addOnPictureInPictureModeChangedListener(listener)
+        onDispose { activity?.removeOnPictureInPictureModeChangedListener(listener) }
+    }
     val defaultEngine by vm.engine.collectAsState()
     val activeRecording by vm.activeRecording.collectAsState()
 
@@ -130,7 +139,9 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     var durationMs by remember { mutableLongStateOf(0L) }
     var qualityLabel by remember { mutableStateOf<String?>(null) }
 
-    var controlsVisible by remember { mutableStateOf(true) }
+    var controlsVisible by remember { mutableStateOf(false) } // banner first, not the transport bar
+    var bannerTick by remember { mutableIntStateOf(0) }
+    var previousIndex by remember { mutableIntStateOf(-1) }
     var interactionTick by remember { mutableIntStateOf(0) }
     var catchupOpen by remember { mutableStateOf(false) }
     var tracksOpen by remember { mutableStateOf(false) }
@@ -218,14 +229,13 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         if (resume > 0 && positionMs == 0L) statusMessage = "Resumed from ${formatTime(resume)}"
     }
 
-    // Poll position/duration/resolution for the seek bar and quality badge.
-    LaunchedEffect(engine) {
-        while (true) {
+    // Poll only while the chrome that displays these values is on screen;
+    // a permanent 2Hz poll recomposes the whole player during playback.
+    LaunchedEffect(engine, controlsVisible, miniGuideOpen) {
+        while (controlsVisible || miniGuideOpen) {
             positionMs = engine.positionMs
             durationMs = engine.durationMs
             qualityLabel = engine.videoResolution?.let { (w, h) -> QualityTag.ofResolution(w, h) }
-            inPip = android.os.Build.VERSION.SDK_INT >= 24 &&
-                (context as? android.app.Activity)?.isInPictureInPictureMode == true
             delay(500)
         }
     }
@@ -253,13 +263,34 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         }
     }
 
+    fun zap(delta: Int) {
+        val count = request.items.size
+        if (count <= 1) return
+        previousIndex = engine.currentIndex
+        engine.playAt(((engine.currentIndex + delta) % count + count) % count)
+        bannerTick++
+    }
+
+    fun jumpTo(index: Int) {
+        if (index !in request.items.indices) return
+        previousIndex = engine.currentIndex
+        engine.playAt(index)
+        bannerTick++
+    }
+
     // Channel-number entry: digits collect briefly, then jump.
     LaunchedEffect(digitBuffer) {
         if (digitBuffer.isNotEmpty()) {
             delay(1_600)
             val n = digitBuffer.toIntOrNull()
             digitBuffer = ""
-            if (n != null && n in 1..request.items.size) engine.playAt(n - 1)
+            if (n != null) {
+                // Match the channel number shown in the lists; fall back to position.
+                val byNumber = request.items.indexOfFirst { item ->
+                    item.channelId?.let { id -> vm.channelById(id)?.number } == n
+                }
+                jumpTo(if (byNumber >= 0) byNumber else n - 1)
+            }
         }
     }
 
@@ -279,12 +310,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             delay(4_000)
             statusMessage = null
         }
-    }
-
-    fun zap(delta: Int) {
-        val count = request.items.size
-        if (count <= 1) return
-        engine.playAt(((engine.currentIndex + delta) % count + count) % count)
     }
 
     BackHandler(enabled = controlsVisible || catchupOpen || tracksOpen || miniGuideOpen) {
@@ -318,6 +343,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         if (!catchupOpen && !tracksOpen && !miniGuideOpen) { zap(+1); true } else false
                     AndroidKeyEvent.KEYCODE_CHANNEL_DOWN ->
                         if (!catchupOpen && !tracksOpen && !miniGuideOpen) { zap(-1); true } else false
+                    AndroidKeyEvent.KEYCODE_INFO ->
+                        if (!catchupOpen && !tracksOpen && !miniGuideOpen) { bannerTick++; true } else false
                     AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ->
                         if (!catchupOpen && !tracksOpen && !miniGuideOpen) {
                             engine.playPause(); poke(); true
@@ -326,6 +353,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         if (request.isLive && !controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen) { zap(+1); true } else false
                     AndroidKeyEvent.KEYCODE_DPAD_DOWN ->
                         if (request.isLive && !controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen) { zap(-1); true } else false
+                    AndroidKeyEvent.KEYCODE_LAST_CHANNEL, AndroidKeyEvent.KEYCODE_PROG_RED ->
+                        if (request.isLive && previousIndex >= 0) { jumpTo(previousIndex); true } else false
                     AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER ->
                         if (!controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen) { poke(); true } else false
                     AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_DPAD_RIGHT ->
@@ -342,7 +371,12 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 }
             }
     ) {
-        AndroidView(modifier = Modifier.fillMaxSize(), factory = { engine.createView(it) })
+        // key() forces a fresh surface when the engine is swapped — AndroidView's
+        // factory runs once per node, so without this the new engine would render
+        // into a view that was already released (black screen after fallback).
+        androidx.compose.runtime.key(engineChoice) {
+            AndroidView(modifier = Modifier.fillMaxSize(), factory = { engine.createView(it) })
+        }
 
         if (buffering && errorMessage == null) {
             CircularProgressIndicator(
@@ -447,7 +481,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 currentIndex = currentIndex,
                 onSelect = { index ->
                     miniGuideOpen = false
-                    engine.playAt(index)
+                    jumpTo(index)
                 },
                 onDismiss = { miniGuideOpen = false },
             )
@@ -1163,5 +1197,143 @@ private fun MiniGuide(
                     } else false
                 }
         )
+    }
+}
+
+/**
+ * TiviMate-style channel banner: what you're watching, what's on now with a
+ * progress bar, and what's next. Shown on every channel change so zapping is
+ * never blind.
+ */
+@Composable
+private fun ChannelBanner(
+    vm: MainViewModel,
+    item: com.nuxcor.nuxtv.data.PlayableItem?,
+    channel: LiveChannel?,
+    isLive: Boolean,
+    qualityLabel: String?,
+    engineName: String,
+    liftAboveControls: Boolean,
+) {
+    val epgState by vm.epgState.collectAsState()
+    val favorites by vm.favorites.collectAsState()
+    var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000)
+            nowMs = System.currentTimeMillis()
+        }
+    }
+    val nowNext = remember(channel?.id, epgState, nowMs) {
+        channel?.let { ch ->
+            val programs = vm.programsFor(ch)
+            val current = programs.firstOrNull { nowMs in it.startMs until it.endMs }
+            val next = programs.firstOrNull { it.startMs >= nowMs }
+            current to next
+        } ?: (null to null)
+    }
+    val timeFmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 40.dp, end = 40.dp, bottom = if (liftAboveControls) 150.dp else 44.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color.Black.copy(alpha = 0.82f))
+                .padding(horizontal = 20.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            if (isLive && channel != null) {
+                com.nuxcor.nuxtv.ui.components.Artwork(
+                    imageUrl = channel.logo,
+                    title = channel.name,
+                    modifier = Modifier
+                        .size(width = 86.dp, height = 54.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    channel?.number?.let { number ->
+                        Text(
+                            text = number.toString(),
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = NuxColors.Primary,
+                        )
+                    }
+                    Text(
+                        text = channel?.name ?: item?.title.orEmpty(),
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (channel != null && channel.url in favorites) {
+                        Text("★", style = MaterialTheme.typography.titleMedium, color = NuxColors.Primary)
+                    }
+                    qualityLabel?.let {
+                        com.nuxcor.nuxtv.ui.components.MetaChip(it, accent = true)
+                    }
+                }
+                val current = nowNext.first
+                if (current != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "${timeFmt.format(Date(current.startMs))}  ${current.title}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    val progress = ((nowMs - current.startMs).toFloat() /
+                        (current.endMs - current.startMs).coerceAtLeast(1)).coerceIn(0f, 1f)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Color.White.copy(alpha = 0.22f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(progress)
+                                .background(NuxColors.Primary)
+                        )
+                    }
+                } else if (!item?.subtitle.isNullOrBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = item?.subtitle.orEmpty(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = NuxColors.OnSurfaceDim,
+                        maxLines = 1,
+                    )
+                }
+                nowNext.second?.let { next ->
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "Next  ${timeFmt.format(Date(next.startMs))}  ${next.title}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = NuxColors.OnSurfaceDim,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Text(
+                text = engineName,
+                style = MaterialTheme.typography.labelSmall,
+                color = NuxColors.OnSurfaceDim,
+            )
+        }
     }
 }

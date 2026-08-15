@@ -14,12 +14,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -66,46 +69,44 @@ data class HeroInfo(
 
 @Composable
 fun HeroHeader(hero: HeroInfo?) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(190.dp)
-            .padding(bottom = 12.dp)
-    ) {
-        if (hero == null) return@Box
-        Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-            Column(modifier = Modifier.weight(1f)) {
+    if (hero == null) return
+    // Debounced so travelling a poster row doesn't hard-cut the text 5x/second.
+    var shown by remember { mutableStateOf(hero) }
+    LaunchedEffect(hero) {
+        kotlinx.coroutines.delay(180)
+        shown = hero
+    }
+    androidx.compose.animation.AnimatedContent(
+        targetState = shown,
+        transitionSpec = {
+            androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(280)) togetherWith
+                androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120))
+        },
+        label = "hero",
+    ) { current ->
+        Column(modifier = Modifier.padding(bottom = 8.dp)) {
+            Text(
+                text = current.title,
+                style = MaterialTheme.typography.displaySmall,
+                color = NuxColors.OnSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                current.chips.take(4).forEachIndexed { i, chip -> MetaChip(chip, accent = i == 0) }
+            }
+            if (!current.plot.isNullOrBlank()) {
+                Spacer(Modifier.height(12.dp))
                 Text(
-                    text = hero.title,
-                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                    color = NuxColors.OnSurface,
+                    text = current.plot,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = NuxColors.OnSurfaceDim,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 620.dp),
                 )
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    hero.chips.forEachIndexed { i, chip -> MetaChip(chip, accent = i == 0) }
-                }
-                if (!hero.plot.isNullOrBlank()) {
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        text = hero.plot,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = NuxColors.OnSurfaceDim,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.width(520.dp),
-                    )
-                }
             }
-            Artwork(
-                imageUrl = hero.poster,
-                title = hero.title,
-                modifier = Modifier
-                    .width(118.dp)
-                    .height(172.dp)
-                    .clip(RoundedCornerShape(10.dp)),
-            )
         }
     }
 }
@@ -128,27 +129,28 @@ fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> 
     }
     var hero by remember(bundle) { mutableStateOf(bundle.movies.firstOrNull()?.toHero()) }
 
-    Column(modifier = Modifier.fillMaxSize().padding(start = 36.dp, top = 28.dp)) {
-        HeroHeader(hero)
+    Column(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(22.dp),
+            verticalArrangement = Arrangement.spacedBy(32.dp),
             contentPadding = PaddingValues(bottom = 36.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
+            item(key = "hero") { HeroHeader(hero) }
             if (continueWatching.isNotEmpty()) {
                 item(key = "movies:continue") {
                     Column {
-                        SectionTitle("Continue watching  ·  ${continueWatching.size}")
+                        SectionTitle("Continue watching", continueWatching.size)
                         LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            contentPadding = PaddingValues(end = 48.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            contentPadding = PaddingValues(end = 24.dp),
                         ) {
                             items(continueWatching.size, key = { continueWatching[it].id }) { i ->
                                 val movie = continueWatching[i]
                                 PosterCard(
                                     title = movie.name,
-                                    subtitle = "Resume",
+                                    subtitle = movie.year?.toString(),
                                     imageUrl = movie.poster,
+                                    progress = 0.35f,
                                     onClick = { onOpenMovie(movie) },
                                     onFocus = { hero = movie.toHero() },
                                 )
@@ -160,10 +162,10 @@ fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> 
             rows.forEach { (categoryName, movies) ->
                 item(key = "movies:$categoryName") {
                     Column {
-                        SectionTitle("$categoryName  ·  ${movies.size}")
+                        SectionTitle(categoryName, movies.size)
                         LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            contentPadding = PaddingValues(end = 48.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            contentPadding = PaddingValues(end = 24.dp),
                         ) {
                             items(movies.size, key = { movies[it].id }) { i ->
                                 val movie = movies[i]
@@ -201,27 +203,28 @@ fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -
     }
     var hero by remember(bundle) { mutableStateOf(bundle.series.firstOrNull()?.toHero()) }
 
-    Column(modifier = Modifier.fillMaxSize().padding(start = 36.dp, top = 28.dp)) {
-        HeroHeader(hero)
+    Column(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(22.dp),
+            verticalArrangement = Arrangement.spacedBy(32.dp),
             contentPadding = PaddingValues(bottom = 36.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
+            item(key = "hero") { HeroHeader(hero) }
             if (continueWatching.isNotEmpty()) {
                 item(key = "series:continue") {
                     Column {
-                        SectionTitle("Continue watching  ·  ${continueWatching.size}")
+                        SectionTitle("Continue watching", continueWatching.size)
                         LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            contentPadding = PaddingValues(end = 48.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            contentPadding = PaddingValues(end = 24.dp),
                         ) {
                             items(continueWatching.size, key = { continueWatching[it].id }) { i ->
                                 val series = continueWatching[i]
                                 PosterCard(
                                     title = series.name,
-                                    subtitle = "Resume",
+                                    subtitle = series.year?.toString(),
                                     imageUrl = series.poster,
+                                    progress = 0.35f,
                                     onClick = { onOpenSeries(series) },
                                     onFocus = { hero = series.toHero() },
                                 )
@@ -233,10 +236,10 @@ fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -
             rows.forEach { (categoryName, seriesList) ->
                 item(key = "series:$categoryName") {
                     Column {
-                        SectionTitle("$categoryName  ·  ${seriesList.size}")
+                        SectionTitle(categoryName, seriesList.size)
                         LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            contentPadding = PaddingValues(end = 48.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            contentPadding = PaddingValues(end = 24.dp),
                         ) {
                             items(seriesList.size, key = { seriesList[it].id }) { i ->
                                 val series = seriesList[i]

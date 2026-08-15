@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -55,9 +56,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** 3dp per minute → an hour is 180dp wide. */
-private val DP_PER_MINUTE = 3.dp
-private val CHANNEL_COLUMN_WIDTH = 190.dp
-private val ROW_HEIGHT = 64.dp
+private val DP_PER_MINUTE = 4.dp
+private val CHANNEL_COLUMN_WIDTH = 168.dp
+private val ROW_HEIGHT = 72.dp
 
 @Composable
 fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
@@ -122,24 +123,17 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                 )
             }
 
-            Column(modifier = Modifier.fillMaxSize().padding(start = 24.dp, top = 20.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "Guide",
-                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = NuxColors.OnSurface,
-                    )
-                    Spacer(Modifier.width(16.dp))
-                    statusMessage?.let {
-                        Text(it, style = MaterialTheme.typography.labelMedium, color = NuxColors.Secondary)
-                    }
+            Column(modifier = Modifier.fillMaxSize()) {
+                statusMessage?.let {
+                    Text(it, style = MaterialTheme.typography.labelLarge, color = NuxColors.Secondary)
+                    Spacer(Modifier.height(6.dp))
                 }
-                Spacer(Modifier.height(12.dp))
 
                 TimeRuler(windowStart, windowEnd, timelineScroll)
 
+                Box(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                     contentPadding = PaddingValues(bottom = 28.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
@@ -177,6 +171,20 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                         )
                     }
                 }
+                // The NOW marker — the defining element of an EPG.
+                val nowOffset = DP_PER_MINUTE * ((nowTick - windowStart) / 60_000f)
+                val scrolled = with(LocalDensity.current) { timelineScroll.value.toDp() }
+                val markerX = CHANNEL_COLUMN_WIDTH + 8.dp + nowOffset - scrolled
+                if (markerX > CHANNEL_COLUMN_WIDTH) {
+                    Box(
+                        modifier = Modifier
+                            .padding(start = markerX)
+                            .width(2.dp)
+                            .fillMaxHeight()
+                            .background(NuxColors.Primary)
+                    )
+                }
+                }
             }
         }
     }
@@ -196,7 +204,7 @@ private fun TimeRuler(
             while (t < windowEnd) {
                 Text(
                     text = fmt.format(Date(t)),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = NuxColors.OnSurfaceDim,
                     modifier = Modifier.width(DP_PER_MINUTE * 30),
                 )
@@ -231,9 +239,16 @@ private fun GuideRow(
             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = NuxColors.Surface,
-                focusedContainerColor = NuxColors.SurfaceVariant,
+                focusedContainerColor = NuxColors.SurfaceRaised,
                 contentColor = NuxColors.OnSurface,
                 focusedContentColor = NuxColors.OnSurface,
+            ),
+            border = ClickableSurfaceDefaults.border(
+                border = androidx.tv.material3.Border(
+                    androidx.compose.foundation.BorderStroke(1.dp, NuxColors.Stroke),
+                    shape = RoundedCornerShape(8.dp),
+                ),
+                focusedBorder = com.nuxcor.nuxtv.ui.theme.NuxFocus.ring,
             ),
         ) {
             Row(
@@ -244,11 +259,13 @@ private fun GuideRow(
                 Artwork(
                     imageUrl = channel.logo,
                     title = channel.name,
-                    modifier = Modifier.size(width = 52.dp, height = 34.dp).clip(RoundedCornerShape(5.dp)),
+                    modifier = Modifier.size(width = 64.dp, height = 40.dp).clip(RoundedCornerShape(8.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    monogramStyle = MaterialTheme.typography.labelMedium,
                 )
                 Text(
                     text = channel.name,
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -281,7 +298,7 @@ private fun GuideRow(
                 programs.forEach { program ->
                     val start = program.startMs.coerceIn(cursor, windowEnd)
                     val end = program.endMs.coerceIn(start, windowEnd)
-                    if (end <= start) return@forEach
+                    if (end - start < 60_000) { cursor = end; return@forEach }
                     val gapMinutes = (start - cursor) / 60_000f
                     if (gapMinutes > 0f) Spacer(Modifier.width(DP_PER_MINUTE * gapMinutes))
                     ProgramCell(
@@ -326,32 +343,41 @@ private fun ProgramCell(
             }
         },
         modifier = Modifier
-            .width((DP_PER_MINUTE * widthMinutes).coerceAtLeast(6.dp))
+            // No minimum width: widening a cell without consuming time would
+            // push the rest of the row out of sync with the ruler above.
+            .width(DP_PER_MINUTE * widthMinutes)
             .height(ROW_HEIGHT)
             .padding(end = 2.dp, top = 6.dp, bottom = 6.dp),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+        border = ClickableSurfaceDefaults.border(
+            border = androidx.tv.material3.Border(
+                androidx.compose.foundation.BorderStroke(1.dp, NuxColors.Stroke),
+                shape = RoundedCornerShape(8.dp),
+            ),
+            focusedBorder = com.nuxcor.nuxtv.ui.theme.NuxFocus.ring,
+        ),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = when {
-                airingNow -> NuxColors.Primary.copy(alpha = 0.16f)
-                isPast -> NuxColors.Surface.copy(alpha = 0.45f)
+                airingNow -> NuxColors.SurfaceVariant
+                isPast -> NuxColors.Surface
                 else -> NuxColors.Surface
             },
-            focusedContainerColor = NuxColors.Primary,
+            focusedContainerColor = NuxColors.SurfaceRaised,
             contentColor = if (isPast && !airingNow) NuxColors.OnSurfaceDim else NuxColors.OnSurface,
-            focusedContentColor = NuxColors.OnAccent,
+            focusedContentColor = NuxColors.OnSurface,
         ),
     ) {
         Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
             Text(
                 text = program.title,
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = fmt.format(Date(program.startMs)) +
                     (if (airingNow) " • Now" else if (!isPast) (if (canRecord) " • OK to record" else " • OK to remind") else ""),
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

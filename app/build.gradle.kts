@@ -15,8 +15,8 @@ android {
         applicationId = "com.nuxcor.nuxtv"
         minSdk = 23
         targetSdk = 36
-        versionCode = 12
-        versionName = "2.4.0"
+        versionCode = 13
+        versionName = "2.5.0"
 
         // One APK for every real device: both ARM ABIs, no x86 (emulators only).
         ndk {

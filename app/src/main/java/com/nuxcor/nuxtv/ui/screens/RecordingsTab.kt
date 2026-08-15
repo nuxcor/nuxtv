@@ -48,9 +48,7 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit) {
     val dateFmt = SimpleDateFormat("EEE d MMM, HH:mm", Locale.getDefault())
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 48.dp, vertical = 32.dp),
+        modifier = Modifier.fillMaxSize(),
     ) {
         Text(
             "Recordings",

@@ -56,9 +56,7 @@ fun SearchTab(
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 40.dp, vertical = 28.dp),
+        modifier = Modifier.fillMaxSize(),
     ) {
         OutlinedTextField(
             value = query,
@@ -101,7 +99,7 @@ fun SearchTab(
                 if (results.movies.isNotEmpty()) {
                     item(key = "movies") {
                         Column {
-                            SectionTitle("Movies  ·  ${results.movies.size}")
+                            SectionTitle("Movies", results.movies.size)
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                 itemsIndexed(results.movies, key = { _, m -> m.id }) { _, movie ->
                                     PosterCard(
@@ -118,7 +116,7 @@ fun SearchTab(
                 if (results.series.isNotEmpty()) {
                     item(key = "series") {
                         Column {
-                            SectionTitle("Series  ·  ${results.series.size}")
+                            SectionTitle("Series", results.series.size)
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                 itemsIndexed(results.series, key = { _, s -> s.id }) { _, series ->
                                     PosterCard(
@@ -133,7 +131,7 @@ fun SearchTab(
                     }
                 }
                 if (results.channels.isNotEmpty()) {
-                    item(key = "channels-title") { SectionTitle("Live channels  ·  ${results.channels.size}") }
+                    item(key = "channels-title") { SectionTitle("Live channels", results.channels.size) }
                     itemsIndexed(results.channels, key = { _, c -> c.id }) { index, channel ->
                         WideItem(
                             title = channel.name,

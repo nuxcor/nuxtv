@@ -39,7 +39,7 @@ private fun TvSafe(content: @Composable () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 14.dp)
+            .padding(horizontal = 48.dp, vertical = 27.dp)
     ) { content() }
 }
 
@@ -50,7 +50,7 @@ fun AppRoot(vm: MainViewModel = viewModel()) {
     // Hold the boot animation long enough to play out even on instant starts.
     var bootElapsed by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        delay(1_600)
+        delay(900)
         bootElapsed = true
     }
 
@@ -60,7 +60,7 @@ fun AppRoot(vm: MainViewModel = viewModel()) {
         else -> RootScreen.Main
     }
 
-    Crossfade(targetState = screen, animationSpec = tween(450), label = "root") { target ->
+    Crossfade(targetState = screen, animationSpec = tween(260), label = "root") { target ->
         when (target) {
             RootScreen.Boot -> BootScreen()
             RootScreen.Onboarding -> TvSafe {
@@ -76,7 +76,6 @@ private fun NuxNavHost(vm: MainViewModel) {
     val nav: NavHostController = rememberNavController()
     NavHost(navController = nav, startDestination = "home") {
         composable("home") {
-            TvSafe {
             HomeScreen(
                 vm = vm,
                 onOpenMovie = { nav.navigate("movie/${it.id}") },
@@ -84,7 +83,6 @@ private fun NuxNavHost(vm: MainViewModel) {
                 onPlay = { nav.navigate("player") },
                 onAddPlaylist = { nav.navigate("onboarding") },
             )
-            }
         }
         composable("onboarding") {
             TvSafe {

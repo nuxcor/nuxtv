@@ -70,6 +70,7 @@ import com.nuxcor.nuxtv.ui.components.PinPrompt
 import com.nuxcor.nuxtv.ui.components.WideItem
 import com.nuxcor.nuxtv.ui.components.focusBorder
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import com.nuxcor.nuxtv.ui.theme.Space
 
 enum class HomeTab(val label: String, val icon: ImageVector) {
     Search("Search", Icons.Default.Search),
@@ -114,14 +115,18 @@ fun HomeScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-    Row(modifier = Modifier.fillMaxSize()) {
-        NavRail(
-            selected = tab,
-            onSelect = { tab = it },
-            railFocus = railFocus,
-            onRailFocusChanged = { railFocused = it },
-        )
-        Box(modifier = Modifier.fillMaxSize()) {
+    // Content keeps a fixed 64dp lane for the collapsed rail; the expanded
+    // rail draws over it so nothing reflows when focus enters the rail.
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(start = 64.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = Space.gutter, end = Space.gutter, top = Space.gutterVertical, bottom = Space.gutterVertical)
+        ) {
             when (val state = contentState) {
                 is ContentState.Loading -> CenteredMessage(title = state.message, loading = true)
                 is ContentState.Error -> ErrorPane(message = state.message, onRetry = { vm.refresh() })
@@ -130,11 +135,10 @@ fun HomeScreen(
                     subtitle = "Add a playlist in Settings",
                 )
                 is ContentState.Ready -> {
-                    androidx.compose.animation.Crossfade(
-                        targetState = tab,
-                        animationSpec = androidx.compose.animation.core.tween(220),
-                        label = "tab",
-                    ) { current ->
+                    // No Crossfade: it keeps both tab trees composed and drawn
+                    // into offscreen layers — a visible hitch on TV hardware.
+                    run {
+                        val current = tab
                         tabStateHolder.SaveableStateProvider(current.name) {
                             when (current) {
                                 HomeTab.Search -> SearchTab(vm, onOpenMovie, onOpenSeries, onPlay)
@@ -157,6 +161,12 @@ fun HomeScreen(
             }
         }
     }
+    NavRail(
+        selected = tab,
+        onSelect = { tab = it },
+        railFocus = railFocus,
+        onRailFocusChanged = { railFocused = it },
+    )
     if (exitArmed) {
         Box(
             modifier = Modifier
@@ -216,14 +226,22 @@ private fun NavRail(
         modifier = Modifier
             .fillMaxHeight()
             .width(width)
-            .background(NuxColors.Surface.copy(alpha = 0.4f))
+            .background(
+                androidx.compose.ui.graphics.Brush.horizontalGradient(
+                    listOf(
+                        NuxColors.Background,
+                        NuxColors.Background,
+                        NuxColors.Background.copy(alpha = if (expanded) 0.92f else 1f),
+                    )
+                )
+            )
             .onFocusChanged {
                 expanded = it.hasFocus
                 onRailFocusChanged(it.hasFocus)
                 if (!it.hasFocus) focusedItem = null // cancel pending select-on-focus
             }
-            .padding(horizontal = 8.dp, vertical = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(horizontal = Space.s, vertical = Space.gutterVertical),
+        verticalArrangement = Arrangement.spacedBy(Space.xs),
     ) {
         Text(
             text = if (expanded) "DZIDZI" else "D",
@@ -267,21 +285,28 @@ private fun RailItem(
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) NuxColors.Primary.copy(alpha = 0.18f) else androidx.compose.ui.graphics.Color.Transparent,
-            focusedContainerColor = NuxColors.Primary,
-            contentColor = if (selected) NuxColors.FocusBorder else NuxColors.OnSurfaceDim,
-            focusedContentColor = NuxColors.OnAccent,
+            focusedContainerColor = NuxColors.SurfaceRaised,
+            contentColor = if (selected) NuxColors.Primary else NuxColors.OnSurfaceDim,
+            focusedContentColor = NuxColors.OnSurface,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.0f),
+        border = ClickableSurfaceDefaults.border(focusedBorder = com.nuxcor.nuxtv.ui.theme.NuxFocus.ring),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Icon(item.icon, contentDescription = item.label, modifier = Modifier.size(22.dp))
-            if (expanded) {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = expanded,
+                enter = androidx.compose.animation.fadeIn(
+                    androidx.compose.animation.core.tween(160, delayMillis = 120)
+                ),
+                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(80)),
+            ) {
                 Text(
                     text = item.label,
                     style = MaterialTheme.typography.labelLarge,
@@ -352,17 +377,15 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
 
     Box(modifier = Modifier.fillMaxSize()) {
     Row(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(start = 28.dp, end = 48.dp, top = 28.dp),
-        horizontalArrangement = Arrangement.spacedBy(24.dp),
+        modifier = Modifier.fillMaxSize(),
+        horizontalArrangement = Arrangement.spacedBy(Space.l),
     ) {
         LazyColumn(
             modifier = Modifier
-                .width(230.dp)
+                .width(210.dp)
                 .fillMaxHeight(),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-            contentPadding = PaddingValues(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(Space.xs),
+            contentPadding = PaddingValues(bottom = Space.l),
         ) {
             item(key = "__sort__") {
                 CategoryItem(
@@ -392,8 +415,8 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight(),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            contentPadding = PaddingValues(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(Space.s),
+            contentPadding = PaddingValues(bottom = Space.l),
         ) {
             itemsIndexed(channels, key = { _, c -> c.id }) { index, channel ->
                 val nowProgram = remember(channel.id, epgState, nowTick) {
@@ -438,18 +461,19 @@ fun CategoryItem(
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) NuxColors.Primary.copy(alpha = 0.16f) else androidx.compose.ui.graphics.Color.Transparent,
-            focusedContainerColor = NuxColors.SurfaceVariant,
-            contentColor = if (selected) NuxColors.FocusBorder else NuxColors.OnSurfaceDim,
-            focusedContentColor = NuxColors.OnSurface,
+            focusedContainerColor = NuxColors.SurfaceRaised,
+            // Selected stays gold even while focused.
+            contentColor = if (selected) NuxColors.Primary else NuxColors.OnSurfaceDim,
+            focusedContentColor = if (selected) NuxColors.Primary else NuxColors.OnSurface,
         ),
         border = ClickableSurfaceDefaults.border(focusedBorder = focusBorder()),
     ) {
         Text(
             text = name,
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.titleSmall,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
         )
     }
 }
@@ -482,11 +506,9 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
     }
 
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 48.dp, vertical = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = PaddingValues(bottom = 40.dp),
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(Space.m),
+        contentPadding = PaddingValues(bottom = Space.xxl),
     ) {
         item(key = "header") {
             Column {
@@ -827,11 +849,7 @@ private fun settingsFieldColors() = androidx.compose.material3.OutlinedTextField
 @Composable
 private fun ChannelManager(vm: MainViewModel, bundle: ContentBundle, onClose: () -> Unit) {
     val hidden by vm.hidden.collectAsState()
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 48.dp, vertical = 32.dp),
-    ) {
+    Column(modifier = Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 "Manage channels",
