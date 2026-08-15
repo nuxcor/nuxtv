@@ -175,10 +175,6 @@ class PlayerPrefs(private val context: Context) {
         }
     }
 
-    val tmdbKey: Flow<String?> = context.playerDataStore.data.map { prefs ->
-        prefs[tmdbKeyKey]?.takeIf { it.isNotBlank() }
-    }
-
     /** When on, SD/HD/FHD variants of the same channel collapse to the best one. */
     val mergeDuplicates: Flow<Boolean> = context.playerDataStore.data.map { prefs ->
         prefs[mergeDupesKey] == "true"
@@ -221,11 +217,6 @@ class PlayerPrefs(private val context: Context) {
         }
     }
 
-    suspend fun setTmdbKey(key: String?) {
-        context.playerDataStore.edit { prefs ->
-            if (key.isNullOrBlank()) prefs.remove(tmdbKeyKey) else prefs[tmdbKeyKey] = key.trim()
-        }
-    }
 
     // --- backup / restore -----------------------------------------------------
 
@@ -235,6 +226,8 @@ class PlayerPrefs(private val context: Context) {
         val hidden: Set<String> = emptySet(),
         val engine: String = "EXO",
         val epgOverrideUrl: String? = null,
+        // Retained so backups written before the key was bundled still restore.
+        // Nothing reads the restored value — the key comes from BuildConfig now.
         val tmdbKey: String? = null,
         val mergeDuplicates: Boolean = false,
         val channelOrder: Int = 0,

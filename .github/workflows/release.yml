@@ -97,6 +97,9 @@ jobs:
           DZIDZI_KEYSTORE_PASS: ${{ secrets.DZIDZI_KEYSTORE_PASS }}
           DZIDZI_KEY_ALIAS: ${{ secrets.DZIDZI_KEY_ALIAS }}
           DZIDZI_KEY_PASS: ${{ secrets.DZIDZI_KEY_PASS }}
+          # Absent secret builds fine — enrichment just falls back to the
+          # Settings field, as it did before the key was bundled.
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: ./gradlew assembleRelease
 
       - name: Rename APK

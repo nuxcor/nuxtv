@@ -1,4 +1,16 @@
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+/**
+ * Bundled TMDB key, so ratings and artwork work out of the box instead of
+ * asking every viewer to register for one. Read from local.properties (which
+ * is gitignored) or the environment for CI — never committed. Builds fine
+ * without it: the key is then empty and enrichment stays opt-in via Settings.
+ */
+val tmdbApiKey: String = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.exists() }
+        ?.inputStream()?.use { load(it) }
+}.getProperty("TMDB_API_KEY") ?: System.getenv("TMDB_API_KEY") ?: ""
 
 plugins {
     alias(libs.plugins.android.application)
@@ -15,8 +27,10 @@ android {
         applicationId = "com.nuxcor.nuxtv"
         minSdk = 23
         targetSdk = 36
-        versionCode = 23
-        versionName = "2.9.5"
+        versionCode = 24
+        versionName = "2.9.6"
+
+        buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
 
         // One APK for every real device: both ARM ABIs, no x86 (emulators only).
         ndk {

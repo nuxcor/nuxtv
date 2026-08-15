@@ -619,12 +619,10 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
     val active by vm.activeSource.collectAsState()
     val engine by vm.engine.collectAsState()
     val epgOverride by vm.epgOverrideUrl.collectAsState()
-    val tmdbKey by vm.tmdbKey.collectAsState()
 
     val parentalPin by vm.parentalPin.collectAsState()
     var manageOpen by remember { mutableStateOf(false) }
     var epgField by remember(epgOverride) { mutableStateOf(epgOverride.orEmpty()) }
-    var tmdbField by remember(tmdbKey) { mutableStateOf(tmdbKey.orEmpty()) }
     var pinField by remember(parentalPin) { mutableStateOf(parentalPin.orEmpty()) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var confirmRemoveSource by remember { mutableStateOf<String?>(null) }
@@ -905,40 +903,6 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
                         statusMessage = if (epgField.isBlank()) "EPG source: playlist default"
                         else "EPG source updated"
                     }) { Text("Apply") }
-                }
-            }
-        }
-
-        item(key = "tmdb") {
-            Column {
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "TMDB ratings & reviews",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = NuxColors.OnSurface,
-                )
-                Text(
-                    "Add a free themoviedb.org API key to enrich movies and series with ratings, posters and review excerpts.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = NuxColors.OnSurfaceDim,
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    androidx.compose.material3.OutlinedTextField(
-                        value = tmdbField,
-                        onValueChange = { tmdbField = it },
-                        label = { androidx.compose.material3.Text("TMDB API key") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f).dpadFieldNavigation(),
-                        colors = settingsFieldColors(),
-                    )
-                    OutlinedButton(onClick = {
-                        vm.setTmdbKey(tmdbField)
-                        statusMessage = if (tmdbField.isBlank()) "TMDB disabled" else "TMDB key saved"
-                    }) { Text("Save") }
                 }
             }
         }
