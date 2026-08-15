@@ -37,6 +37,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.nativeKeyCode
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -66,6 +70,42 @@ private val RestingBorder = Border(CardStroke, shape = CardShape)
 
 @Composable
 fun focusBorder(): Border = NuxFocus.ring
+
+/**
+ * Material3's TextField consumes D-pad keys for cursor movement, which on a
+ * remote strands focus inside the field with no way out. This routes them back
+ * to focus travel instead — on TV the on-screen keyboard owns text editing, so
+ * nothing is lost. Every text field in the app must carry this.
+ */
+@Composable
+fun Modifier.dpadFieldNavigation(
+    onDown: (() -> Unit)? = null,
+    onUp: (() -> Unit)? = null,
+): Modifier {
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    return this.onPreviewKeyEvent { event ->
+        if (event.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) {
+            return@onPreviewKeyEvent false
+        }
+        val move = { direction: androidx.compose.ui.focus.FocusDirection ->
+            focusManager.moveFocus(direction)
+            true
+        }
+        when (event.key.nativeKeyCode) {
+            android.view.KeyEvent.KEYCODE_DPAD_DOWN ->
+                if (onDown != null) { onDown(); true }
+                else move(androidx.compose.ui.focus.FocusDirection.Down)
+            android.view.KeyEvent.KEYCODE_DPAD_UP ->
+                if (onUp != null) { onUp(); true }
+                else move(androidx.compose.ui.focus.FocusDirection.Up)
+            android.view.KeyEvent.KEYCODE_DPAD_LEFT ->
+                move(androidx.compose.ui.focus.FocusDirection.Left)
+            android.view.KeyEvent.KEYCODE_DPAD_RIGHT ->
+                move(androidx.compose.ui.focus.FocusDirection.Right)
+            else -> false
+        }
+    }
+}
 
 /**
  * Artwork with a neutral fallback. Logos use [ContentScale.Fit] on a neutral
@@ -178,11 +218,27 @@ fun PosterCard(
     }
 }
 
-/** Fade + rise used to stagger list items into view. */
+/** Timestamp marking when a list appeared; see [itemEntrance]. */
 @Composable
-fun Modifier.itemEntrance(index: Int): Modifier {
-    val progress = remember { androidx.compose.animation.core.Animatable(0f) }
+fun rememberListEntrance(key: Any?): Long =
+    remember(key) { android.os.SystemClock.uptimeMillis() }
+
+/**
+ * Fade + rise used to stagger a list into view.
+ *
+ * Only items composed in the first moments of the list's life animate. A lazy
+ * list composes rows as they scroll in, so animating unconditionally means the
+ * row the D-pad just moved to is still transparent and sliding — the list
+ * reads as laggy exactly when the viewer is moving fastest.
+ */
+@Composable
+fun Modifier.itemEntrance(index: Int, listStartedAtMs: Long): Modifier {
+    val animate = remember {
+        android.os.SystemClock.uptimeMillis() - listStartedAtMs < 300
+    }
+    val progress = remember { androidx.compose.animation.core.Animatable(if (animate) 0f else 1f) }
     LaunchedEffect(Unit) {
+        if (!animate) return@LaunchedEffect
         kotlinx.coroutines.delay((index.coerceAtMost(8) * 28).toLong())
         progress.animateTo(1f, androidx.compose.animation.core.tween(260))
     }
@@ -441,7 +497,8 @@ fun PinPrompt(
                 ),
                 modifier = Modifier
                     .width(200.dp)
-                    .focusRequester(fieldFocus),
+                    .focusRequester(fieldFocus)
+                    .dpadFieldNavigation(),
             )
             Spacer(Modifier.height(Space.m))
             Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {

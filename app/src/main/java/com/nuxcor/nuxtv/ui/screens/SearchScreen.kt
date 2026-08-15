@@ -31,6 +31,7 @@ import androidx.tv.material3.Text
 import com.nuxcor.nuxtv.MainViewModel
 import com.nuxcor.nuxtv.data.Movie
 import com.nuxcor.nuxtv.data.Series
+import com.nuxcor.nuxtv.ui.components.dpadFieldNavigation
 import com.nuxcor.nuxtv.ui.components.PosterCard
 import com.nuxcor.nuxtv.ui.components.SectionTitle
 import com.nuxcor.nuxtv.ui.components.WideItem
@@ -65,7 +66,7 @@ fun SearchTab(
             onValueChange = { query = it },
             label = { androidx.compose.material3.Text("Search channels, movies and series") },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().dpadFieldNavigation(),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedTextColor = NuxColors.OnSurface,
                 unfocusedTextColor = NuxColors.OnSurface,

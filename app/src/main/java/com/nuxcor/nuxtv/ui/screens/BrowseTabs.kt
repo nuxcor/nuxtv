@@ -119,6 +119,7 @@ fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> 
         return
     }
     val resumePositions by vm.resumePositions.collectAsState()
+    val resumeProgress by vm.resumeProgress.collectAsState()
     val pin by vm.parentalPin.collectAsState()
     val rows = remember(bundle, pin, vm.parentalUnlocked) {
         val visibleCategories = bundle.movieCategories.filterNot { vm.isLockedCategory(it.name) }
@@ -152,7 +153,7 @@ fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> 
                                     title = movie.name,
                                     subtitle = movie.year?.toString(),
                                     imageUrl = movie.poster,
-                                    progress = 0.35f,
+                                    progress = resumeProgress[movie.url],
                                     onClick = { onOpenMovie(movie) },
                                     onFocus = { hero = movie.toHero() },
                                 )
@@ -195,6 +196,7 @@ fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -
         return
     }
     val resumePositions by vm.resumePositions.collectAsState()
+    val resumeProgress by vm.resumeProgress.collectAsState()
     val pin by vm.parentalPin.collectAsState()
     val rows = remember(bundle, pin, vm.parentalUnlocked) {
         val visibleCategories = bundle.seriesCategories.filterNot { vm.isLockedCategory(it.name) }
@@ -228,7 +230,9 @@ fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -
                                     title = series.name,
                                     subtitle = series.year?.toString(),
                                     imageUrl = series.poster,
-                                    progress = 0.35f,
+                                    // The episode the viewer is actually part-way through.
+                                    progress = series.episodes
+                                        ?.firstNotNullOfOrNull { resumeProgress[it.url] },
                                     onClick = { onOpenSeries(series) },
                                     onFocus = { hero = series.toHero() },
                                 )

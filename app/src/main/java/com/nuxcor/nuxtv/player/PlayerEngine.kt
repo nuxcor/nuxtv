@@ -9,7 +9,29 @@ import com.nuxcor.nuxtv.data.PlayableItem
  * backends, so the player UI is engine-agnostic and streams that one engine
  * can't decode can be retried on the other.
  */
+/** Some providers gate on a known UA, so both engines send the same one. */
+internal const val USER_AGENT = "Dzidzi/2.9"
+
 data class Track(val id: String, val label: String, val selected: Boolean)
+
+/**
+ * "1080p FHD • 5.4 Mbps" — the vocabulary viewers actually recognise, used for
+ * both the video-rendition picker and the live resolution readout.
+ * Width/height of 0 or less means the engine hasn't decoded a frame yet.
+ */
+fun qualityLabel(width: Int, height: Int, bitrate: Int = -1): String {
+    val tier = when {
+        height <= 0 -> null
+        height >= 2000 -> "4K"
+        height >= 1400 -> "2K"
+        height >= 1000 -> "FHD"
+        height >= 700 -> "HD"
+        else -> "SD"
+    }
+    val resolution = if (height > 0) "${height}p" else "Unknown"
+    val mbps = if (bitrate > 0) " • %.1f Mbps".format(bitrate / 1_000_000f) else ""
+    return listOfNotNull(resolution, tier).joinToString(" ") + mbps
+}
 
 interface PlayerEngine {
     val name: String
@@ -37,10 +59,20 @@ interface PlayerEngine {
 
     fun audioTracks(): List<Track>
     fun textTracks(): List<Track>
+
+    /**
+     * Selectable video renditions. Adaptive sources (HLS/DASH) expose one per
+     * bitrate ladder rung; single-rendition streams return an empty list.
+     */
+    fun videoTracks(): List<Track>
+
     fun selectAudioTrack(id: String)
 
     /** null disables subtitles. */
     fun selectTextTrack(id: String?)
+
+    /** null restores adaptive selection ("Auto"). */
+    fun selectVideoTrack(id: String?)
 
     /** 0 = fit, 1 = fill/stretch, 2 = zoom/crop. */
     fun setScaleMode(mode: Int)

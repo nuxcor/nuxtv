@@ -81,6 +81,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val resumePositions: StateFlow<Map<String, Long>> = playerPrefs.resumePositions
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
+    /**
+     * url → how far through it the viewer is, 0..1. Only contains entries whose
+     * duration is known, so a Continue Watching card either shows a true
+     * progress bar or none at all — never an invented one.
+     */
+    val resumeProgress: StateFlow<Map<String, Float>> =
+        kotlinx.coroutines.flow.combine(
+            playerPrefs.resumePositions,
+            playerPrefs.resumeDurations,
+        ) { positions, durations ->
+            positions.mapNotNull { (url, position) ->
+                val duration = durations[url] ?: return@mapNotNull null
+                if (duration <= 0) null else url to (position.toFloat() / duration).coerceIn(0f, 1f)
+            }.toMap()
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
     val parentalPin: StateFlow<String?> = playerPrefs.parentalPin
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
@@ -536,7 +552,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
-    fun playMovie(movie: Movie) {
+    fun playMovie(movie: Movie, startOver: Boolean = false) {
         playback = PlaybackRequest(
             items = listOf(
                 PlayableItem(
@@ -548,10 +564,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             ),
             startIndex = 0,
             isLive = false,
+            ignoreResume = startOver,
         )
     }
 
-    fun playEpisodes(series: Series, episodes: List<Episode>, startIndex: Int) {
+    fun playEpisodes(
+        series: Series,
+        episodes: List<Episode>,
+        startIndex: Int,
+        startOver: Boolean = false,
+    ) {
         playback = PlaybackRequest(
             items = episodes.map {
                 PlayableItem(
@@ -563,6 +585,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             },
             startIndex = startIndex.coerceIn(0, (episodes.size - 1).coerceAtLeast(0)),
             isLive = false,
+            ignoreResume = startOver,
         )
     }
 

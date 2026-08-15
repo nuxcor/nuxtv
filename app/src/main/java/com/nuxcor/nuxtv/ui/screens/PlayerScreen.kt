@@ -141,6 +141,12 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
 
     var controlsVisible by remember { mutableStateOf(false) } // banner first, not the transport bar
     var bannerTick by remember { mutableIntStateOf(0) }
+    var bannerVisible by remember { mutableStateOf(false) }
+    var videoSize by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    // Set when a long-press on OK has already acted, so the release doesn't
+    // also fire the tap action.
+    var centerConsumed by remember { mutableStateOf(false) }
+    var exitArmed by remember { mutableStateOf(false) }
     var previousIndex by remember { mutableIntStateOf(-1) }
     var interactionTick by remember { mutableIntStateOf(0) }
     var catchupOpen by remember { mutableStateOf(false) }
@@ -217,6 +223,9 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         val resume = when {
             request.isCatchup -> 0L // never inherit a position from the previous stream
             request.isLive -> 0L // live streams restart at the live edge after a swap
+            // "Start over" only suppresses the *initial* lookup; an engine swap
+            // mid-playback still continues from where we were.
+            request.ignoreResume && positionMs == 0L -> 0L
             positionMs > 0 -> positionMs // engine swap mid-stream: continue where we were
             isVod ->
                 request.items.getOrNull(startIndex)?.url?.let { vm.resumePositionFor(it) } ?: 0L
@@ -231,12 +240,22 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
 
     // Poll only while the chrome that displays these values is on screen;
     // a permanent 2Hz poll recomposes the whole player during playback.
-    LaunchedEffect(engine, controlsVisible, miniGuideOpen) {
-        while (controlsVisible || miniGuideOpen) {
+    LaunchedEffect(engine, controlsVisible, miniGuideOpen, bannerVisible, tracksOpen) {
+        while (controlsVisible || miniGuideOpen || bannerVisible || tracksOpen) {
             positionMs = engine.positionMs
             durationMs = engine.durationMs
+            videoSize = engine.videoResolution
             delay(500)
         }
+    }
+
+    // The channel banner: shown on every zap, on the INFO key, and once when a
+    // live stream starts, so changing channel is never blind.
+    LaunchedEffect(bannerTick, currentIndex, engine) {
+        if (!request.isLive) return@LaunchedEffect
+        bannerVisible = true
+        delay(5_000)
+        bannerVisible = false
     }
 
     // Pause when the app leaves the foreground, unless we're in PiP —
@@ -311,14 +330,29 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         }
     }
 
+    // The exit prompt lapses, so a BACK pressed minutes later reopens the
+    // channel list rather than dropping the viewer out of the player.
+    LaunchedEffect(exitArmed) {
+        if (exitArmed) {
+            delay(3_000)
+            exitArmed = false
+        }
+    }
+
     // Real IPTV back behaviour: close whatever is open; on live TV the first
-    // BACK from bare playback opens the channel list, the next one exits.
+    // BACK from bare playback opens the channel list, closing it again arms the
+    // exit, and the next BACK leaves. Without that latch the channel list and
+    // bare playback just toggle forever and the player has no exit at all.
     BackHandler {
         when {
-            miniGuideOpen -> miniGuideOpen = false
+            miniGuideOpen -> {
+                miniGuideOpen = false
+                if (request.isLive) exitArmed = true
+            }
             tracksOpen -> tracksOpen = false
             catchupOpen -> catchupOpen = false
             controlsVisible -> controlsVisible = false
+            exitArmed -> onExit()
             request.isLive && request.items.size > 1 -> miniGuideOpen = true
             else -> onExit()
         }
@@ -340,43 +374,69 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             .focusRequester(rootFocus)
             .focusable()
             .onPreviewKeyEvent { event ->
+                val code = event.key.nativeKeyCode
+                val overlayOpen = catchupOpen || tracksOpen || miniGuideOpen
+                val isCenter = code == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+                    code == AndroidKeyEvent.KEYCODE_ENTER
+
+                // Once a hold has been acted on, swallow the rest of that press
+                // — the repeats and the release. Otherwise the release lands on
+                // the control button the hold just brought up and focused, and
+                // instantly activates it.
+                if (isCenter && centerConsumed) {
+                    if (event.type == KeyEventType.KeyUp) centerConsumed = false
+                    return@onPreviewKeyEvent true
+                }
+
+                // OK carries two meanings on bare playback, so it resolves on
+                // release: a tap opens the channel list, a hold opens the
+                // options bar. Without the hold, Record/Catch-up/PiP/subtitles
+                // are reachable only via MENU — a key most TV remotes lack.
+                if (isCenter && !controlsVisible && !overlayOpen) {
+                    when {
+                        event.type == KeyEventType.KeyUp -> {
+                            if (request.isLive && request.items.size > 1) miniGuideOpen = true
+                            else poke()
+                        }
+                        event.nativeKeyEvent.repeatCount > 0 -> {
+                            centerConsumed = true
+                            poke()
+                        }
+                    }
+                    return@onPreviewKeyEvent true
+                }
+
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when (event.key.nativeKeyCode) {
+                when (code) {
                     AndroidKeyEvent.KEYCODE_CHANNEL_UP ->
-                        if (!catchupOpen && !tracksOpen && !miniGuideOpen) { zap(+1); true } else false
+                        if (!overlayOpen) { zap(+1); true } else false
                     AndroidKeyEvent.KEYCODE_CHANNEL_DOWN ->
-                        if (!catchupOpen && !tracksOpen && !miniGuideOpen) { zap(-1); true } else false
+                        if (!overlayOpen) { zap(-1); true } else false
                     AndroidKeyEvent.KEYCODE_INFO ->
-                        if (!catchupOpen && !tracksOpen && !miniGuideOpen) { bannerTick++; true } else false
+                        if (!overlayOpen) { bannerTick++; true } else false
                     AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ->
-                        if (!catchupOpen && !tracksOpen && !miniGuideOpen) {
+                        if (!overlayOpen) {
                             engine.playPause(); poke(); true
                         } else false
                     AndroidKeyEvent.KEYCODE_DPAD_UP ->
-                        if (request.isLive && !controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen) { zap(+1); true } else false
+                        if (request.isLive && !controlsVisible && !overlayOpen) { zap(+1); true } else false
                     AndroidKeyEvent.KEYCODE_DPAD_DOWN ->
-                        if (request.isLive && !controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen) { zap(-1); true } else false
+                        if (request.isLive && !controlsVisible && !overlayOpen) { zap(-1); true } else false
                     AndroidKeyEvent.KEYCODE_LAST_CHANNEL, AndroidKeyEvent.KEYCODE_PROG_RED ->
                         if (request.isLive && previousIndex >= 0) { jumpTo(previousIndex); true } else false
-                    AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER ->
-                        if (!controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen) {
-                            // Live TV: OK is the channel list. VOD: OK is the transport bar.
-                            if (request.isLive && request.items.size > 1) miniGuideOpen = true else poke()
-                            true
-                        } else false
                     AndroidKeyEvent.KEYCODE_MENU ->
-                        if (!catchupOpen && !tracksOpen && !miniGuideOpen) { poke(); true } else false
+                        if (!overlayOpen) { poke(); true } else false
                     AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_DPAD_RIGHT ->
-                        if (!controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen) {
+                        if (!controlsVisible && !overlayOpen) {
                             if (request.isLive && request.items.size > 1) miniGuideOpen = true else poke()
                             true
                         } else false
                     in AndroidKeyEvent.KEYCODE_0..AndroidKeyEvent.KEYCODE_9 ->
-                        if (request.isLive && !catchupOpen && !tracksOpen && !miniGuideOpen) {
-                            digitBuffer += (event.key.nativeKeyCode - AndroidKeyEvent.KEYCODE_0).toString()
+                        if (request.isLive && !overlayOpen) {
+                            digitBuffer += (code - AndroidKeyEvent.KEYCODE_0).toString()
                             true
                         } else false
-                    else -> { if (!catchupOpen && !tracksOpen && !miniGuideOpen) poke(); false }
+                    else -> { if (!overlayOpen) poke(); false }
                 }
             }
     ) {
@@ -423,6 +483,41 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             }
             if (sleepMinutes > 0) {
                 PlayerBadge(text = "Sleep in ${sleepMinutes}m", color = NuxColors.OnSurfaceDim)
+            }
+        }
+
+        // Channel banner: sits above the transport bar when both are up.
+        AnimatedVisibility(
+            visible = bannerVisible && !catchupOpen && !tracksOpen && !miniGuideOpen &&
+                !inPip && errorMessage == null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            ChannelBanner(
+                vm = vm,
+                item = item,
+                channel = channel,
+                isLive = request.isLive,
+                resolution = videoSize,
+                liftAboveControls = controlsVisible,
+            )
+        }
+
+        if (exitArmed && !inPip) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 28.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(NuxColors.Scrim)
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
+            ) {
+                Text(
+                    "Press BACK again to leave the player",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = NuxColors.OnSurface,
+                )
             }
         }
 
@@ -905,12 +1000,27 @@ private fun TracksOverlay(
 ) {
     var audio by remember { mutableStateOf(engine.audioTracks()) }
     var text by remember { mutableStateOf(engine.textTracks()) }
+    var video by remember { mutableStateOf(engine.videoTracks()) }
+    var decoded by remember { mutableStateOf(engine.videoResolution) }
     val initialFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { initialFocus.requestFocus() } }
+
+    // Tracks appear a beat after the stream opens, so keep looking while the
+    // sheet is up rather than showing "no alternate tracks" forever.
+    LaunchedEffect(engine) {
+        repeat(20) {
+            delay(500)
+            audio = engine.audioTracks()
+            text = engine.textTracks()
+            video = engine.videoTracks()
+            decoded = engine.videoResolution
+        }
+    }
 
     fun refresh() {
         audio = engine.audioTracks()
         text = engine.textTracks()
+        video = engine.videoTracks()
     }
 
     Box(
@@ -926,9 +1036,40 @@ private fun TracksOverlay(
                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
                 color = Color.White,
             )
+            decoded?.let { (w, h) ->
+                Text(
+                    text = "Now decoding ${com.nuxcor.nuxtv.player.qualityLabel(w, h)}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = NuxColors.OnSurfaceDim,
+                )
+            }
             Spacer(Modifier.height(16.dp))
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (video.isNotEmpty()) {
+                    item(key = "video-header") {
+                        Text(
+                            "Video quality",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = NuxColors.OnSurfaceDim,
+                        )
+                    }
+                    item(key = "video-auto") {
+                        TrackRow(
+                            track = Track("auto", "Auto — adapt to bandwidth", video.none { it.selected })
+                        ) {
+                            engine.selectVideoTrack(null)
+                            refresh()
+                        }
+                    }
+                    items(video, key = { "v:${it.id}" }) { track ->
+                        TrackRow(track = track) {
+                            engine.selectVideoTrack(track.id)
+                            refresh()
+                        }
+                    }
+                    item(key = "video-gap") { Spacer(Modifier.height(10.dp)) }
+                }
                 item(key = "aspect") {
                     OptionChips(
                         label = "Aspect ratio",
@@ -992,7 +1133,7 @@ private fun TracksOverlay(
                         refresh()
                     }
                 }
-                if (audio.isEmpty() && text.isEmpty()) {
+                if (audio.isEmpty() && text.isEmpty() && video.isEmpty()) {
                     item(key = "none") {
                         Text(
                             "No alternate tracks in this stream.",
@@ -1164,7 +1305,9 @@ private fun MiniGuide(
                         ) {
                             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                                 Text(
-                                    text = "${index + 1}  ${item.title}",
+                                    // Same number the keypad matches on, so
+                                    // typing what you see always lands here.
+                                    text = "${channel?.number ?: (index + 1)}  ${item.title}",
                                     style = MaterialTheme.typography.titleSmall,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -1221,6 +1364,7 @@ private fun ChannelBanner(
     item: com.nuxcor.nuxtv.data.PlayableItem?,
     channel: LiveChannel?,
     isLive: Boolean,
+    resolution: Pair<Int, Int>?,
     liftAboveControls: Boolean,
 ) {
     val nowNextMap by vm.nowNext.collectAsState()
@@ -1278,6 +1422,14 @@ private fun ChannelBanner(
                     )
                     if (channel != null && channel.url in favorites) {
                         Text("★", style = MaterialTheme.typography.titleMedium, color = NuxColors.Primary)
+                    }
+                    // What is actually being decoded, not what the stream name
+                    // advertises — the two disagree more often than not.
+                    resolution?.let { (w, h) ->
+                        com.nuxcor.nuxtv.ui.components.MetaChip(
+                            com.nuxcor.nuxtv.player.qualityLabel(w, h),
+                            accent = true,
+                        )
                     }
                 }
                 val current = nowNext?.now

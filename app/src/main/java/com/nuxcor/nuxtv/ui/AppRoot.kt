@@ -26,20 +26,22 @@ import com.nuxcor.nuxtv.ui.screens.MovieDetailScreen
 import com.nuxcor.nuxtv.ui.screens.OnboardingScreen
 import com.nuxcor.nuxtv.ui.screens.PlayerScreen
 import com.nuxcor.nuxtv.ui.screens.SeriesDetailScreen
+import com.nuxcor.nuxtv.ui.theme.Space
 import kotlinx.coroutines.delay
 
 private enum class RootScreen { Boot, Onboarding, Main }
 
 /**
  * Real TVs crop the frame edges (overscan). Browsing screens keep this safe
- * inset; the player stays full-bleed.
+ * inset; the player stays full-bleed. Uses the same [Space] gutters as Home so
+ * content doesn't shift when you open a detail page.
  */
 @Composable
 private fun TvSafe(content: @Composable () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 48.dp, vertical = 27.dp)
+            .padding(horizontal = Space.gutter, vertical = Space.gutterVertical)
     ) { content() }
 }
 

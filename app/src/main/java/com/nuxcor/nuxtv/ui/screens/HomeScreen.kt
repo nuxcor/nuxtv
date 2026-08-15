@@ -49,6 +49,10 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.nativeKeyCode
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -73,8 +77,10 @@ import com.nuxcor.nuxtv.ui.components.ContextMenu
 import com.nuxcor.nuxtv.ui.components.MenuAction
 import com.nuxcor.nuxtv.ui.components.SegmentedControl
 import com.nuxcor.nuxtv.ui.components.itemEntrance
+import com.nuxcor.nuxtv.ui.components.rememberListEntrance
 import com.nuxcor.nuxtv.ui.components.PinPrompt
 import com.nuxcor.nuxtv.ui.components.WideItem
+import com.nuxcor.nuxtv.ui.components.dpadFieldNavigation
 import com.nuxcor.nuxtv.ui.components.focusBorder
 import com.nuxcor.nuxtv.ui.theme.NuxColors
 import com.nuxcor.nuxtv.ui.theme.Space
@@ -117,6 +123,16 @@ fun HomeScreen(
             exitArmed = false
         }
     }
+    // Without this the first D-pad press lands wherever Compose's focus search
+    // happens to go. Park it on the rail so the app always starts somewhere
+    // predictable — and retry, since the rail composes a frame later.
+    LaunchedEffect(Unit) {
+        repeat(5) {
+            if (runCatching { railFocus.requestFocus() }.isSuccess) return@LaunchedEffect
+            kotlinx.coroutines.delay(60)
+        }
+    }
+
     BackHandler(enabled = !railFocused) {
         runCatching { railFocus.requestFocus() }
     }
@@ -364,12 +380,41 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
         }
     }
     var selectedCategory by rememberSaveable(bundle.channels.size) { mutableStateOf("__all__") }
+    // Same rest-before-select rule as the nav rail: travelling the category
+    // list would otherwise re-filter the entire channel set on every step.
+    var focusedCategory by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(focusedCategory) {
+        val id = focusedCategory ?: return@LaunchedEffect
+        kotlinx.coroutines.delay(250)
+        selectedCategory = id
+    }
     // Ordering is applied in the ViewModel from the Settings preference.
     val channels = remember(allVisible, selectedCategory, favorites) {
         when (selectedCategory) {
             "__all__" -> allVisible
             "__fav__" -> allVisible.filter { it.url in favorites }
             else -> allVisible.filter { it.categoryId == selectedCategory }
+        }
+    }
+
+    // Restarts the stagger when the visible set changes (category switch), so
+    // the new list animates in but scrolling within it never does.
+    val listEntrance = rememberListEntrance(channels)
+
+    // Number entry: the only practical way to cross a few thousand channels
+    // with a remote. Mirrors the player's keypad jump, including the
+    // number-first / position-fallback rule.
+    val channelListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    var digitBuffer by remember { mutableStateOf("") }
+    LaunchedEffect(digitBuffer) {
+        if (digitBuffer.isEmpty()) return@LaunchedEffect
+        kotlinx.coroutines.delay(1_200)
+        val typed = digitBuffer.toIntOrNull()
+        digitBuffer = ""
+        if (typed != null) {
+            val target = channels.indexOfFirst { it.number == typed }
+                .takeIf { it >= 0 } ?: (typed - 1)
+            if (target in channels.indices) channelListState.scrollToItem(target)
         }
     }
 
@@ -395,28 +440,41 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
                     onClick = {
                         if (locked) pinPromptOpen = true else selectedCategory = category.id
                     },
-                    // Browsing the category list switches content on focus.
-                    onFocus = { if (!locked) selectedCategory = category.id },
+                    // Browsing the category list switches content once focus rests.
+                    onFocus = { if (!locked) focusedCategory = category.id },
                 )
             }
         }
         Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
         LazyColumn(
+            state = channelListState,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .focusRestorer(),
+                .focusRestorer()
+                .onPreviewKeyEvent { event ->
+                    if (event.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) {
+                        return@onPreviewKeyEvent false
+                    }
+                    val code = event.key.nativeKeyCode
+                    if (code in android.view.KeyEvent.KEYCODE_0..android.view.KeyEvent.KEYCODE_9) {
+                        digitBuffer += (code - android.view.KeyEvent.KEYCODE_0).toString()
+                        true
+                    } else false
+                },
             verticalArrangement = Arrangement.spacedBy(6.dp),
             contentPadding = PaddingValues(bottom = Space.l),
         ) {
             itemsIndexed(channels, key = { _, c -> c.id }) { index, channel ->
                 val nowProgram = nowNextMap[channel.id]?.now
                 val nowMs = System.currentTimeMillis()
-                Box(modifier = Modifier.itemEntrance(index)) {
+                Box(modifier = Modifier.itemEntrance(index, listEntrance)) {
                 WideItem(
                     title = channel.name,
                     subtitle = nowProgram?.let { "Now: ${it.title}" } ?: listOfNotNull(
-                        channel.number?.let { "Channel $it" },
+                        // Falls back to position so the number shown here is
+                        // always the one the remote's keypad will jump to.
+                        "Channel ${channel.number ?: (index + 1)}",
                         channel.archiveDays.takeIf { it > 0 }?.let { "$it-day catch-up" },
                     ).joinToString("  •  ").ifBlank { null },
                     badge = channel.quality,
@@ -435,6 +493,20 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
                 }
             }
         }
+        }
+    }
+    if (digitBuffer.isNotEmpty()) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .background(NuxColors.Scrim, RoundedCornerShape(10.dp))
+                .padding(horizontal = 18.dp, vertical = 10.dp),
+        ) {
+            Text(
+                "Channel $digitBuffer",
+                style = MaterialTheme.typography.titleMedium,
+                color = NuxColors.Primary,
+            )
         }
     }
     menuChannel?.let { channel ->
@@ -774,7 +846,7 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
                         onValueChange = { epgField = it },
                         label = { androidx.compose.material3.Text("Custom XMLTV URL") },
                         singleLine = true,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).dpadFieldNavigation(),
                         colors = settingsFieldColors(),
                     )
                     OutlinedButton(onClick = {
@@ -809,7 +881,7 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
                         onValueChange = { tmdbField = it },
                         label = { androidx.compose.material3.Text("TMDB API key") },
                         singleLine = true,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).dpadFieldNavigation(),
                         colors = settingsFieldColors(),
                     )
                     OutlinedButton(onClick = {
@@ -843,7 +915,7 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
                         onValueChange = { value -> pinField = value.filter { ch -> ch.isDigit() }.take(8) },
                         label = { androidx.compose.material3.Text("PIN (blank to disable)") },
                         singleLine = true,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).dpadFieldNavigation(),
                         colors = settingsFieldColors(),
                     )
                     OutlinedButton(onClick = {

@@ -57,10 +57,13 @@ import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** 3dp per minute → an hour is 180dp wide. */
+/** 4dp per minute → an hour is 240dp wide. */
 private val DP_PER_MINUTE = 4.dp
 private val CHANNEL_COLUMN_WIDTH = 200.dp
 private val ROW_HEIGHT = 72.dp
+
+/** 16 min ≈ 64dp: the narrowest cell that still shows a title and a focus ring. */
+private const val MIN_CELL_MINUTES = 16f
 
 @Composable
 fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
@@ -345,18 +348,41 @@ private fun GuideRow(
                     )
                 }
             } else {
-                // Exact fractional-minute widths keep every row aligned with the
-                // ruler; overlapping programmes are clamped to the cursor.
+                // Widths are fractional minutes so rows line up with the ruler,
+                // but a cell narrower than MIN_CELL_MINUTES is an unreadable
+                // sliver and an near-invisible focus target. Short programmes
+                // borrow width from what follows and the debt is repaid out of
+                // the next long programme or gap, so the row re-syncs with the
+                // ruler within a slot or two instead of drifting.
                 var cursor = windowStart
+                var borrowedMinutes = 0f
                 programs.forEach { program ->
                     val start = program.startMs.coerceIn(cursor, windowEnd)
                     val end = program.endMs.coerceIn(start, windowEnd)
                     if (end - start < 60_000) { cursor = end; return@forEach }
-                    val gapMinutes = (start - cursor) / 60_000f
-                    if (gapMinutes > 0f) Spacer(Modifier.width(DP_PER_MINUTE * gapMinutes))
+
+                    var gapMinutes = (start - cursor) / 60_000f
+                    if (gapMinutes > 0f) {
+                        val repaid = minOf(gapMinutes, borrowedMinutes)
+                        gapMinutes -= repaid
+                        borrowedMinutes -= repaid
+                        if (gapMinutes > 0f) Spacer(Modifier.width(DP_PER_MINUTE * gapMinutes))
+                    }
+
+                    val naturalMinutes = (end - start) / 60_000f
+                    val widthMinutes: Float
+                    if (naturalMinutes >= MIN_CELL_MINUTES) {
+                        val repaid = minOf(borrowedMinutes, naturalMinutes - MIN_CELL_MINUTES)
+                        widthMinutes = naturalMinutes - repaid
+                        borrowedMinutes -= repaid
+                    } else {
+                        widthMinutes = MIN_CELL_MINUTES
+                        borrowedMinutes += MIN_CELL_MINUTES - naturalMinutes
+                    }
+
                     ProgramCell(
                         program = program,
-                        widthMinutes = (end - start) / 60_000f,
+                        widthMinutes = widthMinutes,
                         nowMs = nowMs,
                         hasArchive = channel.archiveDays > 0,
                         canRecord = channel.recordUrl != null,
@@ -366,6 +392,13 @@ private fun GuideRow(
                     )
                     cursor = end
                 }
+
+                // Every row must end up the same total width. All rows share one
+                // ScrollState, so a short row (a channel whose guide data stops
+                // early) would otherwise set a smaller maxValue and clamp the
+                // scroll for every other row.
+                val tailMinutes = ((windowEnd - cursor) / 60_000f) - borrowedMinutes
+                if (tailMinutes > 0f) Spacer(Modifier.width(DP_PER_MINUTE * tailMinutes))
             }
         }
     }
@@ -396,8 +429,7 @@ private fun ProgramCell(
             }
         },
         modifier = Modifier
-            // No minimum width: widening a cell without consuming time would
-            // push the rest of the row out of sync with the ruler above.
+            // Caller has already reconciled this against the ruler; see GuideRow.
             .width(DP_PER_MINUTE * widthMinutes)
             .height(ROW_HEIGHT)
             .padding(end = 2.dp, top = 6.dp, bottom = 6.dp),
