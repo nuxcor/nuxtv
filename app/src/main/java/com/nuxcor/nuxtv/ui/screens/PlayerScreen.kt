@@ -281,18 +281,27 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         }
     }
 
+    // Both set currentIndex up front rather than waiting for the engine's
+    // transition callback. We already know the target, and the callback lands a
+    // frame or two later — long enough for the banner to appear captioned with
+    // the channel you just left. The callback then confirms the same value.
     fun zap(delta: Int) {
         val count = request.items.size
         if (count <= 1) return
         previousIndex = engine.currentIndex
-        engine.playAt(((engine.currentIndex + delta) % count + count) % count)
+        val target = ((engine.currentIndex + delta) % count + count) % count
+        currentIndex = target
+        engine.playAt(target)
+        videoSize = null // the old stream's resolution isn't this channel's
         bannerTick++
     }
 
     fun jumpTo(index: Int) {
         if (index !in request.items.indices) return
         previousIndex = engine.currentIndex
+        currentIndex = index
         engine.playAt(index)
+        videoSize = null
         bannerTick++
     }
 

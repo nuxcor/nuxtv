@@ -126,20 +126,31 @@ fun Artwork(
         modifier = modifier.background(NuxColors.SurfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
-        if (imageUrl.isNullOrBlank()) {
-            Text(text = monogram, style = monogramStyle, color = NuxColors.OnSurfaceDim)
-        } else {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(imageUrl)
-                    .crossfade(220)
-                    .build(),
-                contentDescription = title,
-                contentScale = contentScale,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(if (contentScale == ContentScale.Fit) 6.dp else 0.dp),
-            )
+        // key(): reusing one AsyncImage node across URL changes lets Coil keep
+        // painting the *previous* bitmap until the new request resolves — and
+        // with no error painter, a logo that 404s (routine for provider logo
+        // URLs) leaves the old channel's logo up for good. Zapping CNN→BBC
+        // showed BBC's logo on CNN. A fresh node per URL can't inherit pixels.
+        androidx.compose.runtime.key(imageUrl) {
+            var failed by remember { mutableStateOf(false) }
+            if (imageUrl.isNullOrBlank() || failed) {
+                Text(text = monogram, style = monogramStyle, color = NuxColors.OnSurfaceDim)
+            } else {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(imageUrl)
+                        .crossfade(220)
+                        .build(),
+                    contentDescription = title,
+                    contentScale = contentScale,
+                    // A stale logo is worse than no logo: it mislabels what the
+                    // viewer is watching. Fall back to the monogram instead.
+                    onError = { failed = true },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(if (contentScale == ContentScale.Fit) 6.dp else 0.dp),
+                )
+            }
         }
     }
 }
