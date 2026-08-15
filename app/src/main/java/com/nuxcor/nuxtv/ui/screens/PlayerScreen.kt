@@ -606,6 +606,14 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     miniGuideOpen = false
                     jumpTo(index)
                 },
+                // Picking from another category replaces the zap playlist, so
+                // CH+/- then cycles that category rather than the old one.
+                onSelectChannels = { channels, index ->
+                    miniGuideOpen = false
+                    previousIndex = -1 // the old playlist's index no longer means anything
+                    positionMs = 0
+                    vm.playChannels(channels, index)
+                },
                 onDismiss = { miniGuideOpen = false },
             )
         }
@@ -1234,22 +1242,154 @@ private fun MiniGuide(
     items: List<com.nuxcor.nuxtv.data.PlayableItem>,
     currentIndex: Int,
     onSelect: (Int) -> Unit,
+    onSelectChannels: (List<LiveChannel>, Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val nowNextMap by vm.nowNext.collectAsState()
+    val contentState by vm.content.collectAsState()
+    val allChannels by vm.displayChannels.collectAsState()
+    val favorites by vm.favorites.collectAsState()
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val firstFocus = remember { FocusRequester() }
-
+    val categoryFocus = remember { FocusRequester() }
+    // Drives the "Nm left" countdown and the progress fill.
+    var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
-        listState.scrollToItem(currentIndex.coerceAtLeast(0))
+        while (true) {
+            delay(30_000)
+            nowMs = System.currentTimeMillis()
+        }
+    }
+
+    // LEFT walks outward: video → channels → categories. RIGHT walks back in.
+    var categoriesOpen by remember { mutableStateOf(false) }
+    // null means "whatever playlist is already playing", so opening the guide
+    // never silently reshuffles what CH+/- cycles through.
+    var categoryId by remember { mutableStateOf<String?>(null) }
+
+    val bundle = (contentState as? com.nuxcor.nuxtv.data.ContentState.Ready)?.bundle
+    val categories = remember(bundle, allChannels, favorites) {
+        buildList {
+            add(com.nuxcor.nuxtv.data.Category("__all__", "All channels"))
+            if (allChannels.any { it.url in favorites }) {
+                add(com.nuxcor.nuxtv.data.Category("__fav__", "★ Favorites"))
+            }
+            addAll(bundle?.liveCategories.orEmpty())
+        }
+    }
+    val categoryChannels = remember(categoryId, allChannels, favorites) {
+        when (categoryId) {
+            null -> emptyList()
+            "__all__" -> allChannels
+            "__fav__" -> allChannels.filter { it.url in favorites }
+            else -> allChannels.filter { it.categoryId == categoryId }
+        }
+    }
+    val browsingCategory = categoryId != null
+
+    LaunchedEffect(categoryId) {
+        listState.scrollToItem(if (browsingCategory) 0 else currentIndex.coerceAtLeast(0))
         // The target row composes a frame after the scroll; retry briefly.
         repeat(5) {
             if (runCatching { firstFocus.requestFocus() }.isSuccess) return@LaunchedEffect
             delay(60)
         }
     }
+    LaunchedEffect(categoriesOpen) {
+        if (!categoriesOpen) return@LaunchedEffect
+        repeat(5) {
+            if (runCatching { categoryFocus.requestFocus() }.isSuccess) return@LaunchedEffect
+            delay(60)
+        }
+    }
+
+    // BACK walks back in one level, the same way RIGHT does, instead of
+    // collapsing the whole guide from the outermost panel. Composed deeper than
+    // the player's handler, so it wins while the category column is open.
+    BackHandler(enabled = categoriesOpen) {
+        categoriesOpen = false
+        runCatching { firstFocus.requestFocus() }
+    }
 
     Row(modifier = Modifier.fillMaxSize()) {
+        // --- category column (second level, revealed by LEFT) ---------------
+        androidx.compose.animation.AnimatedVisibility(
+            visible = categoriesOpen,
+            enter = androidx.compose.animation.expandHorizontally() + fadeIn(),
+            exit = androidx.compose.animation.shrinkHorizontally() + fadeOut(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(300.dp)
+                    .fillMaxHeight()
+                    .background(Color.Black.copy(alpha = 0.97f))
+                    .focusGroup()
+                    .onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (event.key.nativeKeyCode) {
+                            // RIGHT walks back in towards the video.
+                            AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                categoriesOpen = false
+                                runCatching { firstFocus.requestFocus() }
+                                true
+                            }
+                            // Already at the outermost level; swallow so focus
+                            // can't escape sideways into the video area.
+                            AndroidKeyEvent.KEYCODE_DPAD_LEFT -> true
+                            else -> false
+                        }
+                    }
+                    .padding(start = 22.dp, top = 22.dp, end = 14.dp)
+            ) {
+                Column {
+                    Text(
+                        text = "Categories",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color.White,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    androidx.compose.foundation.lazy.LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxHeight(),
+                    ) {
+                        items(categories.size, key = { categories[it].id }) { index ->
+                            val category = categories[index]
+                            val selected = category.id == categoryId
+                            Surface(
+                                onClick = {
+                                    categoryId = category.id
+                                    categoriesOpen = false
+                                },
+                                modifier = if (index == 0) {
+                                    Modifier.fillMaxWidth().focusRequester(categoryFocus)
+                                } else {
+                                    Modifier.fillMaxWidth()
+                                },
+                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = if (selected) {
+                                        NuxColors.Primary.copy(alpha = 0.18f)
+                                    } else Color.Transparent,
+                                    focusedContainerColor = NuxColors.SurfaceVariant,
+                                    contentColor = if (selected) NuxColors.Primary else NuxColors.OnSurface,
+                                    focusedContentColor = NuxColors.OnSurface,
+                                ),
+                            ) {
+                                Text(
+                                    text = category.name,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- channel column (first level) -----------------------------------
         Box(
             modifier = Modifier
                 .width(430.dp)
@@ -1261,20 +1401,30 @@ private fun MiniGuide(
                 )
                 .focusGroup()
                 .onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown &&
-                        event.key.nativeKeyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT
-                    ) {
-                        onDismiss()
-                        true
-                    } else false
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (event.key.nativeKeyCode) {
+                        AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> { onDismiss(); true }
+                        // LEFT keeps walking outward instead of dead-ending.
+                        AndroidKeyEvent.KEYCODE_DPAD_LEFT -> { categoriesOpen = true; true }
+                        else -> false
+                    }
                 }
                 .padding(start = 22.dp, top = 22.dp, end = 14.dp)
         ) {
             Column {
                 Text(
-                    text = "Channels",
+                    text = if (browsingCategory) {
+                        categories.firstOrNull { it.id == categoryId }?.name ?: "Channels"
+                    } else "Channels",
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
                     color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "‹ Categories",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = NuxColors.OnSurfaceDim,
                 )
                 Spacer(Modifier.height(10.dp))
                 androidx.compose.foundation.lazy.LazyColumn(
@@ -1282,20 +1432,36 @@ private fun MiniGuide(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.fillMaxHeight(),
                 ) {
-                    items(items.size, key = { it }) { index ->
-                        val item = items[index]
-                        val channel = item.channelId?.let { vm.channelById(it) }
+                    val rowCount = if (browsingCategory) categoryChannels.size else items.size
+                    items(rowCount, key = { it }) { index ->
+                        // Browsing a category shows that category's channels and
+                        // selecting one makes it the new zap playlist; otherwise
+                        // the rows are the playlist already playing.
+                        val channel: LiveChannel? = if (browsingCategory) {
+                            categoryChannels[index]
+                        } else {
+                            items[index].channelId?.let { vm.channelById(it) }
+                        }
+                        val title = if (browsingCategory) {
+                            channel?.name.orEmpty()
+                        } else {
+                            items[index].title
+                        }
+                        val isCurrent = !browsingCategory && index == currentIndex
                         val nowNext = channel?.id?.let { nowNextMap[it] }
                         Surface(
-                            onClick = { onSelect(index) },
-                            modifier = if (index == currentIndex) {
+                            onClick = {
+                                if (browsingCategory) onSelectChannels(categoryChannels, index)
+                                else onSelect(index)
+                            },
+                            modifier = if (index == if (browsingCategory) 0 else currentIndex) {
                                 Modifier.fillMaxWidth().focusRequester(firstFocus)
                             } else {
                                 Modifier.fillMaxWidth()
                             },
                             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                             colors = ClickableSurfaceDefaults.colors(
-                                containerColor = if (index == currentIndex) {
+                                containerColor = if (isCurrent) {
                                     NuxColors.Primary.copy(alpha = 0.18f)
                                 } else Color.Transparent,
                                 focusedContainerColor = NuxColors.SurfaceVariant,
@@ -1303,32 +1469,83 @@ private fun MiniGuide(
                                 focusedContentColor = NuxColors.OnSurface,
                             ),
                         ) {
-                            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                Text(
-                                    // Same number the keypad matches on, so
-                                    // typing what you see always lands here.
-                                    text = "${channel?.number ?: (index + 1)}  ${item.title}",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                com.nuxcor.nuxtv.ui.components.Artwork(
+                                    imageUrl = channel?.logo,
+                                    title = title,
+                                    modifier = Modifier
+                                        .size(width = 52.dp, height = 32.dp)
+                                        .clip(RoundedCornerShape(6.dp)),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                                    monogramStyle = MaterialTheme.typography.labelSmall,
                                 )
-                                nowNext?.now?.let { now ->
-                                    Text(
-                                        text = "Now: ${now.title}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = NuxColors.FocusBorder,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                                nowNext?.next?.let { next ->
-                                    Text(
-                                        text = "Next: ${next.title}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = NuxColors.OnSurfaceDim,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Text(
+                                            // Same number the keypad matches on,
+                                            // so typing what you see lands here.
+                                            text = "${channel?.number ?: (index + 1)}",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = NuxColors.Primary,
+                                        )
+                                        Text(
+                                            text = title,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    // What's on, how far through it is, and how
+                                    // long is left — the three things you need to
+                                    // decide whether to stop here. "Next" belongs
+                                    // in the full guide, not in a zapping list.
+                                    nowNext?.now?.let { now ->
+                                        Text(
+                                            text = now.title,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = NuxColors.OnSurfaceDim,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Spacer(Modifier.height(4.dp))
+                                        val span = (now.endMs - now.startMs).coerceAtLeast(1)
+                                        val progress =
+                                            ((nowMs - now.startMs).toFloat() / span).coerceIn(0f, 1f)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .height(3.dp)
+                                                    .clip(RoundedCornerShape(2.dp))
+                                                    .background(Color.White.copy(alpha = 0.22f))
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxHeight()
+                                                        .fillMaxWidth(progress)
+                                                        .background(NuxColors.Primary)
+                                                )
+                                            }
+                                            val minutesLeft = ((now.endMs - nowMs) / 60_000L)
+                                                .coerceAtLeast(0)
+                                            Text(
+                                                text = "${minutesLeft}m left",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = NuxColors.OnSurfaceDim,
+                                                maxLines = 1,
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
