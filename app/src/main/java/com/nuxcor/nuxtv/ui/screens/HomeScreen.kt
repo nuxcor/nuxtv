@@ -1065,6 +1065,10 @@ private fun settingsFieldColors() = androidx.compose.material3.OutlinedTextField
 @Composable
 private fun ChannelManager(vm: MainViewModel, bundle: ContentBundle, onClose: () -> Unit) {
     val hidden by vm.hidden.collectAsState()
+    // Without this, BACK falls through to Home's handlers and starts the
+    // app-exit sequence while the manager is still open — the one place left
+    // in the app where BACK didn't mean "go back".
+    BackHandler(onBack = onClose)
     Column(modifier = Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
