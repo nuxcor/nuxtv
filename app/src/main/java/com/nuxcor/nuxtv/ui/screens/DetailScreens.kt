@@ -34,6 +34,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -48,6 +50,8 @@ import com.nuxcor.nuxtv.data.Movie
 import com.nuxcor.nuxtv.data.Series
 import com.nuxcor.nuxtv.ui.components.Artwork
 import com.nuxcor.nuxtv.ui.components.CenteredMessage
+import com.nuxcor.nuxtv.ui.components.ContextMenu
+import com.nuxcor.nuxtv.ui.components.MenuAction
 import com.nuxcor.nuxtv.ui.components.MetaChip
 import com.nuxcor.nuxtv.ui.components.RatingStars
 import com.nuxcor.nuxtv.ui.components.WideItem
@@ -68,6 +72,18 @@ fun MovieDetailScreen(
     }
     var movie by remember(movieId) { mutableStateOf(base) }
     LaunchedEffect(movieId) { movie = vm.movieDetails(base) }
+
+    val resumePositions by vm.resumePositions.collectAsState()
+    val resumeMs = resumePositions[movie.url] ?: 0L
+
+    // Focus the primary action on arrival so the page is one press from playing.
+    val playFocus = remember { FocusRequester() }
+    LaunchedEffect(movieId) {
+        repeat(5) {
+            if (runCatching { playFocus.requestFocus() }.isSuccess) return@LaunchedEffect
+            kotlinx.coroutines.delay(60)
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
     movie.backdrop?.let { backdrop ->
@@ -131,6 +147,35 @@ fun MovieDetailScreen(
                 Spacer(Modifier.height(10.dp))
                 RatingStars(rating = rating, voteCount = movie.voteCount)
             }
+
+            // Actions sit above the synopsis: they are why the page exists, and
+            // below the fold the first D-pad press would scroll the title away.
+            Spacer(Modifier.height(20.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = {
+                        vm.playMovie(movie)
+                        onPlay()
+                    },
+                    modifier = Modifier.focusRequester(playFocus),
+                ) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (resumeMs > 0) "Resume from ${formatOffset(resumeMs)}" else "Play")
+                }
+                if (resumeMs > 0) {
+                    OutlinedButton(onClick = {
+                        vm.playMovie(movie, startOver = true)
+                        onPlay()
+                    }) { Text("Start over") }
+                }
+                OutlinedButton(onClick = onBack) { Text("Back") }
+            }
+
             if (!movie.plot.isNullOrBlank()) {
                 Spacer(Modifier.height(16.dp))
                 Text(
@@ -156,20 +201,17 @@ fun MovieDetailScreen(
                 }
             }
             Spacer(Modifier.height(28.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = {
-                    vm.playMovie(movie)
-                    onPlay()
-                }) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = "Play", modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Play")
-                }
-                OutlinedButton(onClick = onBack) { Text("Back") }
-            }
         }
     }
     }
+}
+
+/** "1h 12m" — a resume offset a viewer can recognise at a glance. */
+private fun formatOffset(ms: Long): String {
+    val totalMinutes = (ms / 60_000).coerceAtLeast(0)
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
+    return if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
 }
 
 @Composable
@@ -192,6 +234,10 @@ fun SeriesDetailScreen(
     LaunchedEffect(seriesId) {
         if (episodes == null) episodes = vm.episodesFor(base)
     }
+
+    val resumePositions by vm.resumePositions.collectAsState()
+    val resumeProgress by vm.resumeProgress.collectAsState()
+    var menuEpisode by remember { mutableStateOf<Pair<Episode, Int>?>(null) }
 
     val eps = episodes
     Column(modifier = Modifier.fillMaxSize()) {
@@ -267,16 +313,42 @@ fun SeriesDetailScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     itemsIndexed(seasonEpisodes, key = { _, e -> e.id }) { index, episode ->
+                        val watchedTo = resumePositions[episode.url] ?: 0L
                         WideItem(
                             title = "${episode.episodeNum}. ${episode.title}",
-                            subtitle = episode.durationText ?: "Season ${episode.season}",
+                            subtitle = if (watchedTo > 0) {
+                                "Resume from ${formatOffset(watchedTo)}"
+                            } else {
+                                episode.durationText ?: "Season ${episode.season}"
+                            },
                             imageUrl = episode.poster ?: series.poster,
+                            progress = resumeProgress[episode.url],
                             onClick = {
                                 vm.playEpisodes(series, seasonEpisodes, index)
                                 onPlay()
                             },
+                            onLongClick = if (watchedTo > 0) {
+                                { menuEpisode = episode to index }
+                            } else null,
                         )
                     }
+                }
+
+                menuEpisode?.let { (episode, index) ->
+                    ContextMenu(
+                        title = "${episode.episodeNum}. ${episode.title}",
+                        actions = listOf(
+                            MenuAction("Resume") {
+                                vm.playEpisodes(series, seasonEpisodes, index)
+                                onPlay()
+                            },
+                            MenuAction("Start over") {
+                                vm.playEpisodes(series, seasonEpisodes, index, startOver = true)
+                                onPlay()
+                            },
+                        ),
+                        onDismiss = { menuEpisode = null },
+                    )
                 }
             }
         }

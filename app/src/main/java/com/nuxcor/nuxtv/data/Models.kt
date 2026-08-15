@@ -157,4 +157,6 @@ data class PlaybackRequest(
     val isLive: Boolean,
     /** Seekable non-live stream that isn't in the VOD library (catch-up). */
     val isCatchup: Boolean = false,
+    /** Set by "Start over" so a saved resume position is ignored this once. */
+    val ignoreResume: Boolean = false,
 )

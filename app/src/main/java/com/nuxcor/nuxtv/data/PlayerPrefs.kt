@@ -39,6 +39,7 @@ class PlayerPrefs(private val context: Context) {
     private val pinKey = stringPreferencesKey("parental_pin")
     private val mergeDupesKey = stringPreferencesKey("merge_duplicate_channels")
     private val channelOrderKey = stringPreferencesKey("channel_order")
+    private val durationsKey = stringPreferencesKey("resume_durations")
 
     val engine: Flow<EngineChoice> = context.playerDataStore.data.map { prefs ->
         runCatching { EngineChoice.valueOf(prefs[engineKey] ?: "EXO") }.getOrDefault(EngineChoice.EXO)
@@ -62,6 +63,18 @@ class PlayerPrefs(private val context: Context) {
         } ?: emptyMap()
     }
 
+    /**
+     * url → total duration, written alongside the position. Kept in its own
+     * entry rather than folded into [resumePositions] so existing installs
+     * don't fail to decode their saved positions and lose them; entries
+     * predating this simply have no duration and show no progress bar.
+     */
+    val resumeDurations: Flow<Map<String, Long>> = context.playerDataStore.data.map { prefs ->
+        prefs[durationsKey]?.let {
+            runCatching { json.decodeFromString<Map<String, Long>>(it) }.getOrNull()
+        } ?: emptyMap()
+    }
+
     /** Saves (or clears, when near the end) a VOD resume position. Keeps the newest 200. */
     suspend fun saveResumePosition(url: String, positionMs: Long, durationMs: Long) {
         context.playerDataStore.edit { prefs ->
@@ -76,6 +89,14 @@ class PlayerPrefs(private val context: Context) {
             val trimmed =
                 if (map.size > 200) map.entries.drop(map.size - 200).associate { it.toPair() } else map
             prefs[positionsKey] = json.encodeToString(trimmed)
+
+            // Durations track the same key set so the two never drift.
+            val durations = prefs[durationsKey]?.let {
+                runCatching { json.decodeFromString<MutableMap<String, Long>>(it) }.getOrNull()
+            } ?: mutableMapOf()
+            if (durationMs > 0 && trimmed.containsKey(url)) durations[url] = durationMs
+            durations.keys.retainAll(trimmed.keys)
+            prefs[durationsKey] = json.encodeToString(durations)
         }
     }
 

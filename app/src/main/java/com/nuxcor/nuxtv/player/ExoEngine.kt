@@ -6,18 +6,37 @@ import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.nuxcor.nuxtv.data.PlayableItem
+
+/**
+ * IPTV URLs are frequently extensionless (`/live/user/pass/1234`) or lie about
+ * their container, and ExoPlayer's sniffing then falls back to progressive.
+ * A MIME hint lets it pick the right media source up front.
+ */
+private fun mimeHintFor(url: String): String? {
+    val path = url.substringBefore('?').lowercase()
+    return when {
+        path.endsWith(".m3u8") || path.contains("/hls/") -> MimeTypes.APPLICATION_M3U8
+        path.endsWith(".mpd") -> MimeTypes.APPLICATION_MPD
+        path.endsWith(".ism") || path.contains("/manifest") -> MimeTypes.APPLICATION_SS
+        url.startsWith("rtsp://", true) -> MimeTypes.APPLICATION_RTSP
+        else -> null
+    }
+}
 
 @OptIn(UnstableApi::class)
 class ExoEngine(context: Context) : PlayerEngine {
@@ -25,18 +44,53 @@ class ExoEngine(context: Context) : PlayerEngine {
     override val name = "ExoPlayer"
     override var listener: PlayerEngine.Listener? = null
 
+    private val trackSelector = DefaultTrackSelector(context).apply {
+        parameters = buildUponParameters()
+            // The default caps adaptive selection to the *reported* display
+            // size. TV boxes routinely under-report (1080p surface on a 4K
+            // panel, or 720p before the first frame), which silently pins an
+            // HLS ladder to a low rung. On a TV we always want the top rung.
+            .clearViewportSizeConstraints()
+            .clearVideoSizeConstraints()
+            .setForceHighestSupportedBitrate(false) // Auto by default; user can pin
+            .build()
+    }
+
     private val player: ExoPlayer = run {
         val httpFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent("Dzidzi/2.1")
+            .setUserAgent(USER_AGENT)
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(15_000)
         val renderers = DefaultRenderersFactory(context)
-            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
-        // Wrap the HTTP factory so file:// URIs (recordings) also resolve.
+            // ON, not PREFER: hardware decoders first, software only as a
+            // fallback. PREFER puts software ahead of MediaCodec, which drops
+            // frames on TV silicon the moment a decoder extension is present.
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+            // A stream whose hardware decoder refuses to initialise retries on
+            // another decoder instead of failing the whole item.
+            .setEnableDecoderFallback(true)
+        // Wraps the HTTP factory so file:// (recordings) resolves, and picks up
+        // the RTMP data source reflectively now that the module is on the
+        // classpath. DefaultMediaSourceFactory does the same for the HLS, DASH,
+        // SmoothStreaming and RTSP media sources.
         val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
         ExoPlayer.Builder(context, renderers)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setTrackSelector(trackSelector)
+            .setLoadControl(
+                DefaultLoadControl.Builder()
+                    // IPTV feeds are bursty. A deeper buffer rides out the
+                    // provider hiccups that otherwise read as "bad quality".
+                    .setBufferDurationsMs(
+                        /* minBufferMs = */ 15_000,
+                        /* maxBufferMs = */ 60_000,
+                        /* bufferForPlaybackMs = */ 1_500,
+                        /* bufferForPlaybackAfterRebufferMs = */ 3_000,
+                    )
+                    .setPrioritizeTimeOverSizeThresholds(true)
+                    .build()
+            )
             .build()
     }
 
@@ -93,6 +147,7 @@ class ExoEngine(context: Context) : PlayerEngine {
             items.map { item ->
                 MediaItem.Builder()
                     .setUri(item.url)
+                    .apply { mimeHintFor(item.url)?.let { setMimeType(it) } }
                     .setMediaMetadata(
                         MediaMetadata.Builder().setTitle(item.title).setArtist(item.subtitle).build()
                     )
@@ -157,6 +212,43 @@ class ExoEngine(context: Context) : PlayerEngine {
 
     override fun audioTracks(): List<Track> = tracksOf(C.TRACK_TYPE_AUDIO)
     override fun textTracks(): List<Track> = tracksOf(C.TRACK_TYPE_TEXT)
+
+    override fun videoTracks(): List<Track> {
+        val pinned = trackSelector.parameters.overrides.values
+            .any { it.type == C.TRACK_TYPE_VIDEO }
+        val rungs = player.currentTracks.groups
+            .withIndex()
+            .filter { (_, group) -> group.type == C.TRACK_TYPE_VIDEO }
+            .flatMap { (groupIndex, group) ->
+                (0 until group.length)
+                    .filter { group.isTrackSupported(it) }
+                    .map { trackIndex ->
+                        val format = group.getTrackFormat(trackIndex)
+                        Track(
+                            id = "$groupIndex:$trackIndex",
+                            label = qualityLabel(format.width, format.height, format.bitrate),
+                            // Only mark a rung "selected" when the user pinned
+                            // one; under adaptive selection "Auto" owns the tick.
+                            selected = pinned && group.isTrackSelected(trackIndex),
+                        )
+                    }
+            }
+        // A single rung is not a choice — don't offer a picker for it.
+        return if (rungs.size > 1) rungs else emptyList()
+    }
+
+    override fun selectVideoTrack(id: String?) {
+        trackSelector.parameters = trackSelector.buildUponParameters().apply {
+            if (id == null) {
+                clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            } else {
+                val (groupIndex, trackIndex) = id.split(":").map { it.toInt() }
+                val group = player.currentTracks.groups.getOrNull(groupIndex)
+                    ?: return@apply
+                setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, trackIndex))
+            }
+        }.build()
+    }
 
     private fun applyOverride(trackType: Int, id: String) {
         val (groupIndex, trackIndex) = id.split(":").map { it.toInt() }

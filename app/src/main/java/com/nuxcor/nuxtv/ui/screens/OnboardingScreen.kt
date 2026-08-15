@@ -36,10 +36,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.nativeKeyCode
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
@@ -51,6 +47,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.nuxcor.nuxtv.AddState
 import com.nuxcor.nuxtv.MainViewModel
+import com.nuxcor.nuxtv.ui.components.dpadFieldNavigation
 import com.nuxcor.nuxtv.ui.components.focusBorder
 import com.nuxcor.nuxtv.ui.theme.NuxColors
 
@@ -418,23 +415,8 @@ private fun NuxTextField(
         modifier = Modifier
             .fillMaxWidth()
             // TV remotes navigate fields with the D-pad; the m3 TextField
-            // swallows those keys by default.
-            .onPreviewKeyEvent { event ->
-                if (event.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) {
-                    return@onPreviewKeyEvent false
-                }
-                when (event.key.nativeKeyCode) {
-                    android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
-                        advance()
-                        true
-                    }
-                    android.view.KeyEvent.KEYCODE_DPAD_UP -> {
-                        focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Up)
-                        true
-                    }
-                    else -> false
-                }
-            },
+            // swallows those keys by default. Down advances the form.
+            .dpadFieldNavigation(onDown = advance),
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = NuxColors.OnSurface,
             unfocusedTextColor = NuxColors.OnSurface,

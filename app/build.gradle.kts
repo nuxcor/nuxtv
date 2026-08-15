@@ -85,8 +85,14 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.tv.material)
 
+    // Every container an IPTV provider might hand us: progressive TS/MP4/MKV
+    // from the core, plus HLS, DASH, SmoothStreaming, RTSP and RTMP.
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.exoplayer.hls)
+    implementation(libs.media3.exoplayer.dash)
+    implementation(libs.media3.exoplayer.smoothstreaming)
+    implementation(libs.media3.exoplayer.rtsp)
+    implementation(libs.media3.datasource.rtmp)
     implementation(libs.media3.ui)
     implementation(libs.libvlc)
 

@@ -21,7 +21,22 @@ class VlcEngine(context: Context) : PlayerEngine {
 
     private val libVlc = LibVLC(
         context.applicationContext,
-        arrayListOf("--network-caching=1500", "--http-user-agent=Dzidzi/2.1"),
+        arrayListOf(
+            // Deeper caches than the default ride out provider hiccups, which
+            // are the usual cause of "the picture keeps breaking up".
+            "--network-caching=3000",
+            "--live-caching=3000",
+            "--file-caching=1500",
+            // IPTV transport streams routinely carry broken PCR timestamps.
+            // Ignoring the stream clock stops the stutter that causes.
+            "--clock-jitter=0",
+            "--clock-synchro=0",
+            // Never let the adaptive demuxer pin itself to a low rung.
+            "--adaptive-maxwidth=3840",
+            "--adaptive-maxheight=2160",
+            "--http-reconnect",
+            "--http-user-agent=$USER_AGENT",
+        ),
     )
     private val mediaPlayer = MediaPlayer(libVlc)
 
@@ -135,6 +150,15 @@ class VlcEngine(context: Context) : PlayerEngine {
         else mediaPlayer.spuTracks.orEmpty()
             .filter { it.id != -1 }
             .map { Track(id = it.id.toString(), label = it.name, selected = it.id == mediaPlayer.spuTrack) }
+
+    /**
+     * VLC resolves adaptive ladders internally and exposes only the rung it is
+     * playing, so there is no rendition list to offer. The single entry is
+     * reported so the UI can still show what is actually being decoded.
+     */
+    override fun videoTracks(): List<Track> = emptyList()
+
+    override fun selectVideoTrack(id: String?) = Unit
 
     override fun selectAudioTrack(id: String) {
         id.toIntOrNull()?.let { mediaPlayer.setAudioTrack(it) }

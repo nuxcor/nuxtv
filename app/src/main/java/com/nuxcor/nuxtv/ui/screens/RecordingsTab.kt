@@ -5,17 +5,13 @@ package com.nuxcor.nuxtv.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.runtime.Composable
@@ -51,6 +47,23 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit) {
     val dateFmt = remember { SimpleDateFormat("EEE d MMM, HH:mm", Locale.getDefault()) }
     var confirmDelete by remember { mutableStateOf<com.nuxcor.nuxtv.recording.Recording?>(null) }
     var confirmCancel by remember { mutableStateOf<com.nuxcor.nuxtv.data.ScheduledRecording?>(null) }
+    var menuRecording by remember { mutableStateOf<com.nuxcor.nuxtv.recording.Recording?>(null) }
+
+    menuRecording?.let { recording ->
+        com.nuxcor.nuxtv.ui.components.ContextMenu(
+            title = recording.name,
+            actions = listOf(
+                com.nuxcor.nuxtv.ui.components.MenuAction("Play") {
+                    vm.playRecording(recording)
+                    onPlay()
+                },
+                com.nuxcor.nuxtv.ui.components.MenuAction("Delete", destructive = true) {
+                    confirmDelete = recording
+                },
+            ),
+            onDismiss = { menuRecording = null },
+        )
+    }
 
     confirmDelete?.let { rec ->
         com.nuxcor.nuxtv.ui.components.ConfirmDialog(
@@ -138,30 +151,26 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit) {
                 }
             }
             items(recordings, key = { it.file.absolutePath }) { recording ->
-                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        WideItem(
-                            title = recording.name,
-                            subtitle = "${dateFmt.format(Date(recording.recordedAtMs))} • " +
-                                "%.1f MB".format(recording.sizeBytes / 1024f / 1024f),
-                            leading = {
-                                Icon(
-                                    Icons.Default.Videocam,
-                                    contentDescription = "Recording",
-                                    tint = NuxColors.Secondary,
-                                )
-                            },
-                            onClick = {
-                                vm.playRecording(recording)
-                                onPlay()
-                            },
+                // Delete lives behind the same long-press menu the rest of the
+                // app uses, rather than a bare icon button one press away from
+                // every row.
+                WideItem(
+                    title = recording.name,
+                    subtitle = "${dateFmt.format(Date(recording.recordedAtMs))} • " +
+                        "%.1f MB".format(recording.sizeBytes / 1024f / 1024f),
+                    leading = {
+                        Icon(
+                            Icons.Default.Videocam,
+                            contentDescription = "Recording",
+                            tint = NuxColors.Secondary,
                         )
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    OutlinedButton(onClick = { confirmDelete = recording }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.size(16.dp))
-                    }
-                }
+                    },
+                    onClick = {
+                        vm.playRecording(recording)
+                        onPlay()
+                    },
+                    onLongClick = { menuRecording = recording },
+                )
             }
         }
     }
