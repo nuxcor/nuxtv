@@ -115,15 +115,22 @@ fun HomeScreen(
                     title = "No playlist loaded",
                     subtitle = "Add a playlist in Settings",
                 )
-                is ContentState.Ready -> when (tab) {
-                    HomeTab.Search -> SearchTab(vm, onOpenMovie, onOpenSeries, onPlay)
-                    HomeTab.Live -> LiveTab(vm, state.bundle, onPlay)
-                    HomeTab.Guide -> GuideTab(vm, state.bundle, onPlay)
-                    HomeTab.Movies -> MoviesTab(vm, state.bundle, onOpenMovie)
-                    HomeTab.Series -> SeriesTab(vm, state.bundle, onOpenSeries)
-                    HomeTab.Recordings -> RecordingsTab(vm, onPlay)
-                    HomeTab.Settings -> SettingsTab(vm, state.bundle, onAddPlaylist)
-                }
+                is ContentState.Ready ->
+                    androidx.compose.animation.Crossfade(
+                        targetState = tab,
+                        animationSpec = androidx.compose.animation.core.tween(220),
+                        label = "tab",
+                    ) { current ->
+                        when (current) {
+                            HomeTab.Search -> SearchTab(vm, onOpenMovie, onOpenSeries, onPlay)
+                            HomeTab.Live -> LiveTab(vm, state.bundle, onPlay)
+                            HomeTab.Guide -> GuideTab(vm, state.bundle, onPlay)
+                            HomeTab.Movies -> MoviesTab(vm, state.bundle, onOpenMovie)
+                            HomeTab.Series -> SeriesTab(vm, state.bundle, onOpenSeries)
+                            HomeTab.Recordings -> RecordingsTab(vm, onPlay)
+                            HomeTab.Settings -> SettingsTab(vm, state.bundle, onAddPlaylist)
+                        }
+                    }
             }
             // Settings must stay reachable even while loading or on error.
             if (contentState !is ContentState.Ready && tab == HomeTab.Settings) {

@@ -30,6 +30,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:theme="@style/Theme.NuxTV.Splash"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density"
             android:launchMode="singleTask"
             android:supportsPictureInPicture="true">
