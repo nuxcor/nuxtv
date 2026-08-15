@@ -31,7 +31,11 @@ class VlcEngine(context: Context) : PlayerEngine {
             // Ignoring the stream clock stops the stutter that causes.
             "--clock-jitter=0",
             "--clock-synchro=0",
-            // Never let the adaptive demuxer pin itself to a low rung.
+            // Never let the adaptive demuxer pin itself to a low rung, and
+            // start on the top one rather than climbing to it — the same
+            // default ExoPlayer gets via setForceHighestSupportedBitrate, so
+            // switching engines doesn't silently change picture quality.
+            "--adaptive-logic=highest",
             "--adaptive-maxwidth=3840",
             "--adaptive-maxheight=2160",
             "--http-reconnect",
