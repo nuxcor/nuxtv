@@ -15,8 +15,8 @@ android {
         applicationId = "com.nuxcor.nuxtv"
         minSdk = 23
         targetSdk = 36
-        versionCode = 13
-        versionName = "2.5.0"
+        versionCode = 14
+        versionName = "2.6.0"
 
         // One APK for every real device: both ARM ABIs, no x86 (emulators only).
         ndk {
@@ -72,6 +72,7 @@ kotlin {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.splashscreen)
+    implementation(libs.androidx.profileinstaller)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)

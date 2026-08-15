@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarViewWeek
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -45,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -66,6 +68,11 @@ import com.nuxcor.nuxtv.data.Movie
 import com.nuxcor.nuxtv.data.PlaylistSource
 import com.nuxcor.nuxtv.data.Series
 import com.nuxcor.nuxtv.ui.components.CenteredMessage
+import com.nuxcor.nuxtv.ui.components.ConfirmDialog
+import com.nuxcor.nuxtv.ui.components.ContextMenu
+import com.nuxcor.nuxtv.ui.components.MenuAction
+import com.nuxcor.nuxtv.ui.components.SegmentedControl
+import com.nuxcor.nuxtv.ui.components.itemEntrance
 import com.nuxcor.nuxtv.ui.components.PinPrompt
 import com.nuxcor.nuxtv.ui.components.WideItem
 import com.nuxcor.nuxtv.ui.components.focusBorder
@@ -226,6 +233,7 @@ private fun NavRail(
         modifier = Modifier
             .fillMaxHeight()
             .width(width)
+            .focusRestorer()
             .background(
                 androidx.compose.ui.graphics.Brush.horizontalGradient(
                     listOf(
@@ -327,23 +335,15 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
         return
     }
     val favorites by vm.favorites.collectAsState()
-    val hidden by vm.hidden.collectAsState()
     var pinPromptOpen by remember { mutableStateOf(false) }
+    var menuChannel by remember { mutableStateOf<com.nuxcor.nuxtv.data.LiveChannel?>(null) }
     val pin by vm.parentalPin.collectAsState()
     val lockedIds = remember(bundle, pin, vm.parentalUnlocked) {
         bundle.liveCategories.filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
     }
-    val mergeDupes by vm.mergeDuplicates.collectAsState()
-    val allVisible = remember(bundle, hidden, lockedIds, mergeDupes) {
-        vm.visibleChannels(bundle.channels).filterNot { it.categoryId in lockedIds }
-    }
-    var nowTick by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            kotlinx.coroutines.delay(60_000)
-            nowTick = System.currentTimeMillis()
-        }
-    }
+    // Filtering/merging happens off the main thread in the ViewModel.
+    val allVisible by vm.displayChannels.collectAsState()
+    val nowNextMap by vm.nowNext.collectAsState()
     val categories = remember(bundle, favorites) {
         buildList {
             add(Category(id = "__all__", name = "All channels"))
@@ -355,7 +355,6 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
     }
     var selectedCategory by rememberSaveable(bundle.channels.size) { mutableStateOf("__all__") }
     var sortMode by rememberSaveable { mutableStateOf(0) } // 0 default, 1 A–Z, 2 quality
-    val epgState by vm.epgState.collectAsState()
     val sortedAll = remember(allVisible, sortMode) {
         when (sortMode) {
             1 -> allVisible.sortedBy { it.name.lowercase() }
@@ -383,25 +382,16 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
         LazyColumn(
             modifier = Modifier
                 .width(210.dp)
-                .fillMaxHeight(),
+                .fillMaxHeight()
+                .focusRestorer(),
             verticalArrangement = Arrangement.spacedBy(Space.xs),
             contentPadding = PaddingValues(bottom = Space.l),
         ) {
-            item(key = "__sort__") {
-                CategoryItem(
-                    name = when (sortMode) {
-                        1 -> "Sort: A–Z"
-                        2 -> "Sort: Quality"
-                        else -> "Sort: Default"
-                    },
-                    selected = sortMode != 0,
-                    onClick = { sortMode = (sortMode + 1) % 3 },
-                )
-            }
             items(categories, key = { it.id }) { category ->
                 val locked = category.id in lockedIds
                 CategoryItem(
-                    name = if (locked) "${category.name}  🔒" else category.name,
+                    name = category.name,
+                    locked = locked,
                     selected = category.id == selectedCategory,
                     onClick = {
                         if (locked) pinPromptOpen = true else selectedCategory = category.id
@@ -411,17 +401,25 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
                 )
             }
         }
+        Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+        SegmentedControl(
+            options = listOf("Default", "A–Z", "Quality"),
+            selectedIndex = sortMode,
+            onSelect = { sortMode = it },
+            modifier = Modifier.padding(bottom = Space.m),
+        )
         LazyColumn(
             modifier = Modifier
+                .fillMaxWidth()
                 .weight(1f)
-                .fillMaxHeight(),
+                .focusRestorer(),
             verticalArrangement = Arrangement.spacedBy(Space.s),
             contentPadding = PaddingValues(bottom = Space.l),
         ) {
             itemsIndexed(channels, key = { _, c -> c.id }) { index, channel ->
-                val nowProgram = remember(channel.id, epgState, nowTick) {
-                    vm.programsFor(channel).firstOrNull { nowTick in it.startMs until it.endMs }
-                }
+                val nowProgram = nowNextMap[channel.id]?.now
+                val nowMs = System.currentTimeMillis()
+                Box(modifier = Modifier.itemEntrance(index)) {
                 WideItem(
                     title = channel.name,
                     subtitle = nowProgram?.let { "Now: ${it.title}" } ?: listOfNotNull(
@@ -430,13 +428,38 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
                     ).joinToString("  •  ").ifBlank { null },
                     badge = channel.quality,
                     imageUrl = channel.logo,
+                    progress = nowProgram?.let { p ->
+                        ((nowMs - p.startMs).toFloat() / (p.endMs - p.startMs).coerceAtLeast(1))
+                            .coerceIn(0f, 1f)
+                    },
+                    selected = channel.url in favorites,
                     onClick = {
                         vm.playChannels(channels, index)
                         onPlay()
                     },
+                    onLongClick = { menuChannel = channel },
                 )
+                }
             }
         }
+        }
+    }
+    menuChannel?.let { channel ->
+        val isFav = channel.url in favorites
+        ContextMenu(
+            title = channel.name,
+            actions = listOf(
+                MenuAction("Play") {
+                    vm.playChannels(channels, channels.indexOf(channel).coerceAtLeast(0))
+                    onPlay()
+                },
+                MenuAction(if (isFav) "Remove from favorites" else "Add to favorites") {
+                    vm.toggleFavorite(channel)
+                },
+                MenuAction("Hide this channel") { vm.toggleHidden(channel) },
+            ),
+            onDismiss = { menuChannel = null },
+        )
     }
     if (pinPromptOpen) {
         PinPrompt(
@@ -453,6 +476,7 @@ fun CategoryItem(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier.fillMaxWidth(),
+    locked: Boolean = false,
     onFocus: () -> Unit = {},
 ) {
     Surface(
@@ -468,13 +492,26 @@ fun CategoryItem(
         ),
         border = ClickableSurfaceDefaults.border(focusedBorder = focusBorder()),
     ) {
-        Text(
-            text = name,
-            style = MaterialTheme.typography.titleSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        )
+        ) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (locked) {
+                Icon(
+                    Icons.Default.Lock,
+                    contentDescription = "Locked category",
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
     }
 }
 
@@ -499,6 +536,8 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
     var tmdbField by remember(tmdbKey) { mutableStateOf(tmdbKey.orEmpty()) }
     var pinField by remember(parentalPin) { mutableStateOf(parentalPin.orEmpty()) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
+    var confirmRemoveSource by remember { mutableStateOf<String?>(null) }
+    var confirmImport by remember { mutableStateOf(false) }
 
     if (manageOpen && bundle != null) {
         ChannelManager(vm = vm, bundle = bundle, onClose = { manageOpen = false })
@@ -535,7 +574,8 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
         items(sources.orEmpty(), key = { it.id }) { source ->
             val isActive = source.id == active?.id
             WideItem(
-                title = source.name + if (isActive) "   ●" else "",
+                title = source.name,
+                selected = isActive,
                 subtitle = when (source) {
                     is PlaylistSource.Xtream -> "Xtream • ${source.serverUrl}"
                     is PlaylistSource.M3u -> "M3U • ${source.url}"
@@ -555,14 +595,14 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(onClick = onAddPlaylist) { Text("Add playlist") }
                 OutlinedButton(onClick = { vm.refresh() }) {
-                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh playlist", modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Refresh")
                 }
                 val activeId = active?.id
                 if (activeId != null && (sources?.size ?: 0) > 0) {
-                    OutlinedButton(onClick = { vm.removeSource(activeId) }) {
-                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                    OutlinedButton(onClick = { confirmRemoveSource = activeId }) {
+                        Icon(Icons.Default.Delete, contentDescription = "Remove playlist", modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("Remove current")
                     }
@@ -807,6 +847,17 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
             }
         }
 
+        item(key = "confirmations") {
+            SettingsConfirmations(
+                vm = vm,
+                removeSourceId = confirmRemoveSource,
+                onRemoveHandled = { confirmRemoveSource = null },
+                importPending = confirmImport,
+                onImportHandled = { confirmImport = false },
+                onStatus = { statusMessage = it },
+            )
+        }
+
         item(key = "backup") {
             Column {
                 Spacer(Modifier.height(6.dp))
@@ -822,14 +873,41 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
                             statusMessage = path?.let { "Backup saved to $it" } ?: "Backup failed"
                         }
                     }) { Text("Export backup") }
-                    OutlinedButton(onClick = {
-                        vm.importBackup { ok ->
-                            statusMessage = if (ok) "Backup restored" else "No backup found"
-                        }
-                    }) { Text("Import backup") }
+                    OutlinedButton(onClick = { confirmImport = true }) { Text("Import backup") }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsConfirmations(
+    vm: MainViewModel,
+    removeSourceId: String?,
+    onRemoveHandled: () -> Unit,
+    importPending: Boolean,
+    onImportHandled: () -> Unit,
+    onStatus: (String) -> Unit,
+) {
+    if (removeSourceId != null) {
+        ConfirmDialog(
+            title = "Remove this playlist?",
+            message = "Its cached channels are deleted. Recordings are kept.",
+            confirmLabel = "Remove",
+            onConfirm = { vm.removeSource(removeSourceId) },
+            onDismiss = onRemoveHandled,
+        )
+    }
+    if (importPending) {
+        ConfirmDialog(
+            title = "Restore from backup?",
+            message = "This replaces your current playlists and settings.",
+            confirmLabel = "Restore",
+            onConfirm = {
+                vm.importBackup { ok -> onStatus(if (ok) "Backup restored" else "No backup found") }
+            },
+            onDismiss = onImportHandled,
+        )
     }
 }
 

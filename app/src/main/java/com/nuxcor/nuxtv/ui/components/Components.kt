@@ -5,6 +5,7 @@ package com.nuxcor.nuxtv.ui.components
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -56,6 +58,11 @@ import com.nuxcor.nuxtv.ui.theme.Space
 
 private val CardShape = RoundedCornerShape(16.dp)
 private val ChipShape = RoundedCornerShape(8.dp)
+
+// Hoisted: these are immutable value holders. Allocating them per item per
+// recomposition is the classic scroll-stutter source on TV hardware.
+private val CardStroke = BorderStroke(1.dp, NuxColors.Stroke)
+private val RestingBorder = Border(CardStroke, shape = CardShape)
 
 @Composable
 fun focusBorder(): Border = NuxFocus.ring
@@ -171,6 +178,20 @@ fun PosterCard(
     }
 }
 
+/** Fade + rise used to stagger list items into view. */
+@Composable
+fun Modifier.itemEntrance(index: Int): Modifier {
+    val progress = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay((index.coerceAtMost(8) * 28).toLong())
+        progress.animateTo(1f, androidx.compose.animation.core.tween(260))
+    }
+    return this.graphicsLayer {
+        alpha = progress.value
+        translationY = (1f - progress.value) * 24f
+    }
+}
+
 /** Wide row used for channels, episodes and recordings. */
 @Composable
 fun WideItem(
@@ -182,10 +203,12 @@ fun WideItem(
     selected: Boolean = false,
     leading: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     onFocus: () -> Unit = {},
 ) {
     Surface(
         onClick = onClick,
+        onLongClick = onLongClick,
         modifier = Modifier
             .fillMaxWidth()
             .onFocusChanged { if (it.isFocused) onFocus() },
@@ -199,7 +222,7 @@ fun WideItem(
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = NuxFocus.RowScale),
         border = ClickableSurfaceDefaults.border(
-            border = Border(BorderStroke(1.dp, NuxColors.Stroke), shape = CardShape),
+            border = RestingBorder,
             focusedBorder = NuxFocus.ring,
         ),
     ) {
@@ -422,6 +445,158 @@ fun PinPrompt(
                 androidx.tv.material3.Button(onClick = { if (!onSubmit(pin)) error = true }) {
                     Text("Unlock")
                 }
+            }
+        }
+    }
+}
+
+/** A focusable action in a [ContextMenu]. */
+data class MenuAction(val label: String, val destructive: Boolean = false, val onSelect: () -> Unit)
+
+/**
+ * Universal secondary-action surface (long-press OK or the MENU key), so items
+ * don't have to overload OK with context-dependent meanings.
+ */
+@Composable
+fun ContextMenu(
+    title: String,
+    actions: List<MenuAction>,
+    onDismiss: () -> Unit,
+) {
+    val firstFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
+    androidx.activity.compose.BackHandler(onBack = onDismiss)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(NuxColors.Scrim)
+            .focusGroup(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .width(420.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(NuxColors.Surface)
+                .border(1.dp, NuxColors.Stroke, RoundedCornerShape(20.dp))
+                .padding(Space.l),
+            verticalArrangement = Arrangement.spacedBy(Space.s),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = NuxColors.OnSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(Space.xs))
+            actions.forEachIndexed { index, action ->
+                Surface(
+                    onClick = { action.onSelect(); onDismiss() },
+                    modifier = if (index == 0) {
+                        Modifier.fillMaxWidth().focusRequester(firstFocus)
+                    } else {
+                        Modifier.fillMaxWidth()
+                    },
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = NuxColors.SurfaceVariant,
+                        focusedContainerColor = NuxColors.SurfaceRaised,
+                        contentColor = if (action.destructive) NuxColors.Error else NuxColors.OnSurface,
+                        focusedContentColor = if (action.destructive) NuxColors.Error else NuxColors.OnSurface,
+                    ),
+                    border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring),
+                ) {
+                    Text(
+                        text = action.label,
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(horizontal = Space.m, vertical = 12.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Confirmation for anything destructive — nothing irreversible on a single OK. */
+@Composable
+fun ConfirmDialog(
+    title: String,
+    message: String? = null,
+    confirmLabel: String = "Delete",
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val cancelFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { cancelFocus.requestFocus() } }
+    androidx.activity.compose.BackHandler(onBack = onDismiss)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(NuxColors.Scrim)
+            .focusGroup(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .width(460.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(NuxColors.Surface)
+                .border(1.dp, NuxColors.Stroke, RoundedCornerShape(20.dp))
+                .padding(Space.xl),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(title, style = MaterialTheme.typography.titleLarge, color = NuxColors.OnSurface)
+            if (message != null) {
+                Spacer(Modifier.height(Space.s))
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NuxColors.OnSurfaceDim,
+                )
+            }
+            Spacer(Modifier.height(Space.l))
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
+                androidx.tv.material3.OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.focusRequester(cancelFocus),
+                ) { Text("Cancel") }
+                androidx.tv.material3.Button(onClick = { onConfirm(); onDismiss() }) {
+                    Text(confirmLabel)
+                }
+            }
+        }
+    }
+}
+
+/** Segmented control — replaces chips that silently cycle through states. */
+@Composable
+fun SegmentedControl(
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+        options.forEachIndexed { index, option ->
+            val selected = index == selectedIndex
+            Surface(
+                onClick = { onSelect(index) },
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = if (selected) NuxColors.Primary.copy(alpha = 0.18f)
+                    else NuxColors.Surface,
+                    focusedContainerColor = NuxColors.SurfaceRaised,
+                    contentColor = if (selected) NuxColors.Primary else NuxColors.OnSurfaceDim,
+                    focusedContentColor = if (selected) NuxColors.Primary else NuxColors.OnSurface,
+                ),
+                border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring),
+            ) {
+                Text(
+                    text = option,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(horizontal = Space.m, vertical = 10.dp),
+                )
             }
         }
     }

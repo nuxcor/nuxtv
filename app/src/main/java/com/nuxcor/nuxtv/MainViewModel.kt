@@ -27,6 +27,7 @@ import com.nuxcor.nuxtv.recording.RecordingScheduler
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.StateFlow
@@ -111,6 +112,53 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val epgState: StateFlow<ContentRepository.EpgState> = repo.epg
 
     val activeRecording: StateFlow<ActiveRecording?> = RecordingManager.active
+
+    /** Now/next per channel id, recomputed once a minute off the main thread. */
+    data class NowNext(val now: EpgProgram?, val next: EpgProgram?)
+
+    private val minuteTicker = kotlinx.coroutines.flow.flow {
+        while (true) {
+            emit(System.currentTimeMillis())
+            delay(60_000)
+        }
+    }
+
+    val nowNext: StateFlow<Map<String, NowNext>> =
+        kotlinx.coroutines.flow.combine(content, epgState, minuteTicker) { c, _, now ->
+            val bundle = (c as? ContentState.Ready)?.bundle ?: return@combine emptyMap()
+            bundle.channels.associate { channel ->
+                val programs = repo.programsFor(channel)
+                channel.id to NowNext(
+                    now = programs.firstOrNull { now in it.startMs until it.endMs },
+                    next = programs.firstOrNull { it.startMs >= now },
+                )
+            }
+        }
+            .flowOn(kotlinx.coroutines.Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /**
+     * Channels after hidden/parental filtering and optional duplicate merging,
+     * computed off the main thread instead of inside composition.
+     */
+    val displayChannels: StateFlow<List<LiveChannel>> =
+        kotlinx.coroutines.flow.combine(
+            content,
+            playerPrefs.hidden,
+            playerPrefs.mergeDuplicates,
+            playerPrefs.parentalPin,
+        ) { c, hiddenSet, merge, pin ->
+            val bundle = (c as? ContentState.Ready)?.bundle ?: return@combine emptyList()
+            val lockedIds = if (pin != null && !parentalUnlocked) {
+                bundle.liveCategories.filter { isLockedCategory(it.name) }.map { it.id }.toSet()
+            } else emptySet()
+            val visible = bundle.channels
+                .filterNot { it.url in hiddenSet }
+                .filterNot { it.categoryId in lockedIds }
+            if (merge) com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(visible) else visible
+        }
+            .flowOn(kotlinx.coroutines.Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     var playback by mutableStateOf<PlaybackRequest?>(null)
         private set
@@ -405,7 +453,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // --- recordings -----------------------------------------------------------
 
     fun refreshRecordings() {
-        _recordings.value = RecordingManager.list(getApplication())
+        // listFiles + length + lastModified is disk I/O — never on the main thread.
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            _recordings.value = RecordingManager.list(getApplication())
+        }
     }
 
     fun startRecording(item: PlayableItem) {

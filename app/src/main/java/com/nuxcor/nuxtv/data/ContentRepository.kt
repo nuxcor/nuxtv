@@ -313,6 +313,7 @@ class ContentRepository(context: Context) {
                         voteCount = tmdb.voteCount,
                         plot = enriched.plot ?: tmdb.overview,
                         poster = enriched.poster ?: tmdb.posterUrl,
+                        backdrop = tmdb.backdropUrl,
                         reviews = tmdb.reviews,
                     )
                 }
@@ -329,6 +330,7 @@ class ContentRepository(context: Context) {
             voteCount = tmdb.voteCount,
             plot = series.plot ?: tmdb.overview,
             poster = series.poster ?: tmdb.posterUrl,
+            backdrop = tmdb.backdropUrl,
             reviews = tmdb.reviews,
         )
     }

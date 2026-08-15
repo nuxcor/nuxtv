@@ -76,14 +76,7 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
         )
 
         is ContentRepository.EpgState.Ready -> {
-            val hidden by vm.hidden.collectAsState()
-            val pin by vm.parentalPin.collectAsState()
-            val mergeDupes by vm.mergeDuplicates.collectAsState()
-            val channels = remember(bundle, hidden, pin, vm.parentalUnlocked, mergeDupes) {
-                val lockedIds = bundle.liveCategories
-                    .filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
-                vm.visibleChannels(bundle.channels).filterNot { it.categoryId in lockedIds }
-            }
+            val channels by vm.displayChannels.collectAsState()
             if (channels.isEmpty()) {
                 CenteredMessage(title = "No live channels")
                 return
@@ -286,9 +279,10 @@ private fun GuideRow(
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     Text(
-                        "  No guide data",
-                        style = MaterialTheme.typography.labelSmall,
+                        "No guide data",
+                        style = MaterialTheme.typography.labelMedium,
                         color = NuxColors.OnSurfaceDim,
+                        modifier = Modifier.padding(start = 16.dp),
                     )
                 }
             } else {

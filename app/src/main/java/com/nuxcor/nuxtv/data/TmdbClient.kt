@@ -17,6 +17,7 @@ data class TmdbInfo(
     val voteCount: Int?,
     val overview: String?,
     val posterUrl: String?,
+    val backdropUrl: String?,
     /** "author — excerpt" strings, at most three. */
     val reviews: List<String>,
 )
@@ -71,6 +72,7 @@ class TmdbClient(private val http: OkHttpClient, private val apiKey: String) {
             voteCount = first.int("vote_count"),
             overview = first.str("overview")?.takeIf { it.isNotBlank() },
             posterUrl = first.str("poster_path")?.let { "https://image.tmdb.org/t/p/w500$it" },
+            backdropUrl = first.str("backdrop_path")?.let { "https://image.tmdb.org/t/p/w1280$it" },
             reviews = reviews,
         )
     }

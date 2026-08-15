@@ -180,13 +180,13 @@ private fun ChooseStep(
         SourceOptionCard(
             title = "Xtream Codes",
             subtitle = "Sign in with server URL, username and password",
-            icon = { Icon(Icons.Default.Dns, contentDescription = null, tint = NuxColors.Secondary) },
+            icon = { Icon(Icons.Default.Dns, contentDescription = "Xtream Codes", tint = NuxColors.Secondary) },
             onClick = onXtream,
         )
         SourceOptionCard(
             title = "M3U Playlist",
             subtitle = "Paste a playlist link — channels, movies and series are detected automatically",
-            icon = { Icon(Icons.AutoMirrored.Filled.PlaylistPlay, contentDescription = null, tint = NuxColors.Primary) },
+            icon = { Icon(Icons.AutoMirrored.Filled.PlaylistPlay, contentDescription = "M3U playlist", tint = NuxColors.Primary) },
             onClick = onM3u,
         )
         Spacer(Modifier.height(4.dp))

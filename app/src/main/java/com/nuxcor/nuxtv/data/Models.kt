@@ -84,6 +84,8 @@ data class Movie(
     /** Review excerpts ("author — text"), populated from TMDB when a key is set. */
     val reviews: List<String> = emptyList(),
     val voteCount: Int? = null,
+    /** 16:9 art for hero and detail backdrops. */
+    val backdrop: String? = null,
 )
 
 @Serializable
@@ -113,6 +115,8 @@ data class Series(
     /** Review excerpts ("author — text"), populated from TMDB when a key is set. */
     val reviews: List<String> = emptyList(),
     val voteCount: Int? = null,
+    /** 16:9 art for hero and detail backdrops. */
+    val backdrop: String? = null,
 )
 
 @Serializable

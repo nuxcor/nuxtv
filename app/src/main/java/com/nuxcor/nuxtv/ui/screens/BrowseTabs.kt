@@ -26,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -141,6 +142,7 @@ fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> 
                     Column {
                         SectionTitle("Continue watching", continueWatching.size)
                         LazyRow(
+                            modifier = Modifier.focusRestorer(),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             contentPadding = PaddingValues(end = 24.dp),
                         ) {
@@ -164,6 +166,7 @@ fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> 
                     Column {
                         SectionTitle(categoryName, movies.size)
                         LazyRow(
+                            modifier = Modifier.focusRestorer(),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             contentPadding = PaddingValues(end = 24.dp),
                         ) {
@@ -215,6 +218,7 @@ fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -
                     Column {
                         SectionTitle("Continue watching", continueWatching.size)
                         LazyRow(
+                            modifier = Modifier.focusRestorer(),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             contentPadding = PaddingValues(end = 24.dp),
                         ) {
@@ -238,6 +242,7 @@ fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -
                     Column {
                         SectionTitle(categoryName, seriesList.size)
                         LazyRow(
+                            modifier = Modifier.focusRestorer(),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             contentPadding = PaddingValues(end = 24.dp),
                         ) {

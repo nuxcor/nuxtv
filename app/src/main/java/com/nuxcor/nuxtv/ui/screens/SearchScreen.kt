@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
@@ -43,15 +44,16 @@ fun SearchTab(
     onPlay: () -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
-    val hidden by vm.hidden.collectAsState()
     val contentState by vm.content.collectAsState()
-    val mergeDupes by vm.mergeDuplicates.collectAsState()
+    val visible by vm.displayChannels.collectAsState()
     var results by remember { mutableStateOf(MainViewModel.SearchResults()) }
     // Debounced off-main-thread search so typing stays smooth on huge playlists.
-    LaunchedEffect(query, contentState, hidden, mergeDupes) {
+    LaunchedEffect(query, contentState, visible) {
         kotlinx.coroutines.delay(250)
         results = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            vm.search(query).let { it.copy(channels = vm.visibleChannels(it.channels)) }
+            val base = vm.search(query)
+            val allowed = visible.mapTo(HashSet()) { it.id }
+            base.copy(channels = base.channels.filter { it.id in allowed })
         }
     }
 
@@ -100,7 +102,7 @@ fun SearchTab(
                     item(key = "movies") {
                         Column {
                             SectionTitle("Movies", results.movies.size)
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            LazyRow(modifier = Modifier.focusRestorer(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                 itemsIndexed(results.movies, key = { _, m -> m.id }) { _, movie ->
                                     PosterCard(
                                         title = movie.name,
@@ -117,7 +119,7 @@ fun SearchTab(
                     item(key = "series") {
                         Column {
                             SectionTitle("Series", results.series.size)
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            LazyRow(modifier = Modifier.focusRestorer(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                 itemsIndexed(results.series, key = { _, s -> s.id }) { _, series ->
                                     PosterCard(
                                         title = series.name,

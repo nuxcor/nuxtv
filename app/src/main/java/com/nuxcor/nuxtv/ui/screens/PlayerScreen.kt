@@ -8,6 +8,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,6 +45,7 @@ import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -147,7 +149,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     var tracksOpen by remember { mutableStateOf(false) }
     var miniGuideOpen by remember { mutableStateOf(false) }
     var digitBuffer by remember { mutableStateOf("") }
-    var retriesLeft by remember { mutableIntStateOf(2) }
+    var retriesLeft by remember(currentIndex) { mutableIntStateOf(2) }
     var sleepMinutes by remember { mutableIntStateOf(0) }
     var scaleMode by remember { mutableIntStateOf(0) }
     var speed by remember { mutableStateOf(1f) }
@@ -184,7 +186,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 when {
                     engineChoice == EngineChoice.EXO && !autoFallbackUsed -> {
                         autoFallbackUsed = true
-                        statusMessage = "Stream failed on ExoPlayer — retrying with VLC"
+                        statusMessage = "Reconnecting with a different player…"
                         engineChoice = EngineChoice.VLC
                     }
 
@@ -400,7 +402,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 PlayerBadge(text = "REC ${rec.channelName} • ${rec.bytesWritten / (1024 * 1024)} MB", color = NuxColors.Error)
             }
             statusMessage?.let { PlayerBadge(text = it, color = NuxColors.Secondary) }
-            errorMessage?.let { PlayerBadge(text = it, color = NuxColors.Error) }
             if (digitBuffer.isNotEmpty()) {
                 PlayerBadge(text = "Channel $digitBuffer", color = NuxColors.FocusBorder)
             }
@@ -427,7 +428,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 title = item?.title.orEmpty(),
                 subtitle = item?.subtitle,
                 qualityLabel = qualityLabel,
-                engineName = engine.name,
                 playing = playing,
                 positionMs = positionMs,
                 durationMs = durationMs,
@@ -471,6 +471,27 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     }
                 },
                 onInteraction = { poke() },
+            )
+        }
+
+        val error = errorMessage
+        if (error != null && !inPip) {
+            PlaybackErrorCard(
+                title = item?.title.orEmpty(),
+                message = error,
+                canSwapEngine = true,
+                hasNext = request.items.size > 1,
+                onRetry = {
+                    errorMessage = null
+                    retriesLeft = 2
+                    engine.playAt(engine.currentIndex)
+                },
+                onSwapEngine = {
+                    errorMessage = null
+                    engineChoice = if (engineChoice == EngineChoice.EXO) EngineChoice.VLC else EngineChoice.EXO
+                },
+                onNext = { errorMessage = null; zap(+1) },
+                onBack = onExit,
             )
         }
 
@@ -533,7 +554,6 @@ private fun PlayerControls(
     title: String,
     subtitle: String?,
     qualityLabel: String?,
-    engineName: String,
     playing: Boolean,
     positionMs: Long,
     durationMs: Long,
@@ -654,7 +674,7 @@ private fun PlayerControls(
                         tint = if (isFavorite) NuxColors.Primary else Color.White,
                     )
                 }
-                ControlButton(Icons.Default.Subtitles, "Audio & subtitles", onTracks)
+                ControlButton(Icons.Default.Tune, "Options", onTracks, showLabel = true)
                 ControlButton(Icons.Default.PictureInPictureAlt, "Picture in picture", onPip)
                 if (hasPlaylist) {
                     ControlButton(Icons.AutoMirrored.Filled.List, "Channels", onChannels)
@@ -668,7 +688,7 @@ private fun PlayerControls(
                         tint = NuxColors.Error,
                     )
                 }
-                ControlButton(Icons.Default.SwapHoriz, engineName, onEngineSwap, showLabel = true)
+                ControlButton(Icons.Default.SwapHoriz, "Switch player", onEngineSwap)
             }
         }
     }
@@ -777,7 +797,8 @@ private fun CatchupOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.88f))
+            .background(Color.Black.copy(alpha = 0.92f))
+            .focusGroup()
             .padding(horizontal = 64.dp, vertical = 40.dp)
     ) {
         Column {
@@ -894,7 +915,8 @@ private fun TracksOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.88f))
+            .background(Color.Black.copy(alpha = 0.92f))
+            .focusGroup()
             .padding(horizontal = 64.dp, vertical = 40.dp)
     ) {
         Column {
@@ -1072,16 +1094,9 @@ private fun MiniGuide(
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val epgState by vm.epgState.collectAsState()
+    val nowNextMap by vm.nowNext.collectAsState()
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val firstFocus = remember { FocusRequester() }
-    var nowTick by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(60_000)
-            nowTick = System.currentTimeMillis()
-        }
-    }
 
     LaunchedEffect(Unit) {
         listState.scrollToItem(currentIndex.coerceAtLeast(0))
@@ -1102,6 +1117,7 @@ private fun MiniGuide(
                         listOf(Color.Black.copy(alpha = 0.96f), Color.Black.copy(alpha = 0.85f))
                     )
                 )
+                .focusGroup()
                 .onPreviewKeyEvent { event ->
                     if (event.type == KeyEventType.KeyDown &&
                         event.key.nativeKeyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT
@@ -1127,14 +1143,7 @@ private fun MiniGuide(
                     items(items.size, key = { it }) { index ->
                         val item = items[index]
                         val channel = item.channelId?.let { vm.channelById(it) }
-                        val nowNext = remember(channel?.id, epgState, nowTick) {
-                            channel?.let { ch ->
-                                val programs = vm.programsFor(ch)
-                                val current = programs.firstOrNull { nowTick in it.startMs until it.endMs }
-                                val next = programs.firstOrNull { it.startMs >= nowTick }
-                                current to next
-                            } ?: (null to null)
-                        }
+                        val nowNext = channel?.id?.let { nowNextMap[it] }
                         Surface(
                             onClick = { onSelect(index) },
                             modifier = if (index == currentIndex) {
@@ -1159,7 +1168,7 @@ private fun MiniGuide(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
-                                nowNext.first?.let { now ->
+                                nowNext?.now?.let { now ->
                                     Text(
                                         text = "Now: ${now.title}",
                                         style = MaterialTheme.typography.labelSmall,
@@ -1168,7 +1177,7 @@ private fun MiniGuide(
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                 }
-                                nowNext.second?.let { next ->
+                                nowNext?.next?.let { next ->
                                     Text(
                                         text = "Next: ${next.title}",
                                         style = MaterialTheme.typography.labelSmall,
@@ -1212,10 +1221,9 @@ private fun ChannelBanner(
     channel: LiveChannel?,
     isLive: Boolean,
     qualityLabel: String?,
-    engineName: String,
     liftAboveControls: Boolean,
 ) {
-    val epgState by vm.epgState.collectAsState()
+    val nowNextMap by vm.nowNext.collectAsState()
     val favorites by vm.favorites.collectAsState()
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -1224,14 +1232,7 @@ private fun ChannelBanner(
             nowMs = System.currentTimeMillis()
         }
     }
-    val nowNext = remember(channel?.id, epgState, nowMs) {
-        channel?.let { ch ->
-            val programs = vm.programsFor(ch)
-            val current = programs.firstOrNull { nowMs in it.startMs until it.endMs }
-            val next = programs.firstOrNull { it.startMs >= nowMs }
-            current to next
-        } ?: (null to null)
-    }
+    val nowNext = channel?.id?.let { nowNextMap[it] }
     val timeFmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
 
     Box(
@@ -1282,7 +1283,7 @@ private fun ChannelBanner(
                         com.nuxcor.nuxtv.ui.components.MetaChip(it, accent = true)
                     }
                 }
-                val current = nowNext.first
+                val current = nowNext?.now
                 if (current != null) {
                     Spacer(Modifier.height(6.dp))
                     Text(
@@ -1318,7 +1319,7 @@ private fun ChannelBanner(
                         maxLines = 1,
                     )
                 }
-                nowNext.second?.let { next ->
+                nowNext?.next?.let { next ->
                     Spacer(Modifier.height(6.dp))
                     Text(
                         text = "Next  ${timeFmt.format(Date(next.startMs))}  ${next.title}",
@@ -1329,11 +1330,82 @@ private fun ChannelBanner(
                     )
                 }
             }
-            Text(
-                text = engineName,
-                style = MaterialTheme.typography.labelSmall,
-                color = NuxColors.OnSurfaceDim,
-            )
         }
     }
+}
+
+/**
+ * Actionable failure state. A corner toast leaves the user staring at a black
+ * screen with nothing to press.
+ */
+@Composable
+private fun PlaybackErrorCard(
+    title: String,
+    message: String,
+    canSwapEngine: Boolean,
+    hasNext: Boolean,
+    onRetry: () -> Unit,
+    onSwapEngine: () -> Unit,
+    onNext: () -> Unit,
+    onBack: () -> Unit,
+) {
+    val retryFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { retryFocus.requestFocus() } }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.92f))
+            .focusGroup(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 640.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(NuxColors.Surface)
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "Can't play $title",
+                style = MaterialTheme.typography.titleLarge,
+                color = NuxColors.OnSurface,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = plainLanguage(message),
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuxColors.OnSurfaceDim,
+            )
+            Spacer(Modifier.height(24.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                androidx.tv.material3.Button(
+                    onClick = onRetry,
+                    modifier = Modifier.focusRequester(retryFocus),
+                ) { Text("Retry") }
+                if (canSwapEngine) {
+                    androidx.tv.material3.OutlinedButton(onClick = onSwapEngine) {
+                        Text("Try other player")
+                    }
+                }
+                if (hasNext) {
+                    androidx.tv.material3.OutlinedButton(onClick = onNext) { Text("Next channel") }
+                }
+                androidx.tv.material3.OutlinedButton(onClick = onBack) { Text("Back") }
+            }
+        }
+    }
+}
+
+/** Turns engine error codes into something a viewer can act on. */
+private fun plainLanguage(raw: String): String = when {
+    raw.contains("403", true) || raw.contains("AUTHENTICATION", true) ->
+        "The provider refused the connection. Your account may be at its connection limit, or the stream is no longer available."
+    raw.contains("404", true) || raw.contains("NOT_FOUND", true) ->
+        "The provider no longer has this stream. Try refreshing the playlist in Settings."
+    raw.contains("TIMEOUT", true) || raw.contains("UNSPECIFIED_IO", true) ->
+        "The stream didn't respond. This is usually the provider or the network."
+    raw.contains("DECODER", true) || raw.contains("DECODING", true) ->
+        "This TV couldn't decode the stream. Try the other player engine."
+    else -> raw
 }

@@ -22,6 +22,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -45,7 +48,27 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit) {
 
     LaunchedEffect(active) { vm.refreshRecordings() }
 
-    val dateFmt = SimpleDateFormat("EEE d MMM, HH:mm", Locale.getDefault())
+    val dateFmt = remember { SimpleDateFormat("EEE d MMM, HH:mm", Locale.getDefault()) }
+    var confirmDelete by remember { mutableStateOf<com.nuxcor.nuxtv.recording.Recording?>(null) }
+    var confirmCancel by remember { mutableStateOf<com.nuxcor.nuxtv.data.ScheduledRecording?>(null) }
+
+    confirmDelete?.let { rec ->
+        com.nuxcor.nuxtv.ui.components.ConfirmDialog(
+            title = "Delete this recording?",
+            message = rec.name,
+            onConfirm = { vm.deleteRecording(rec) },
+            onDismiss = { confirmDelete = null },
+        )
+    }
+    confirmCancel?.let { schedule ->
+        com.nuxcor.nuxtv.ui.components.ConfirmDialog(
+            title = "Cancel this scheduled recording?",
+            message = schedule.title,
+            confirmLabel = "Cancel recording",
+            onConfirm = { vm.cancelSchedule(schedule.id) },
+            onDismiss = { confirmCancel = null },
+        )
+    }
 
     Column(
         modifier = Modifier.fillMaxSize(),
@@ -63,7 +86,7 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit) {
                 title = "Recording now: ${rec.channelName}",
                 subtitle = "${rec.bytesWritten / (1024 * 1024)} MB written — select to stop",
                 leading = {
-                    Icon(Icons.Default.FiberManualRecord, contentDescription = null, tint = NuxColors.Error)
+                    Icon(Icons.Default.FiberManualRecord, contentDescription = "Recording in progress", tint = NuxColors.Error)
                 },
                 onClick = { vm.stopRecording() },
             )
@@ -98,11 +121,11 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit) {
                         leading = {
                             Icon(
                                 Icons.Default.FiberManualRecord,
-                                contentDescription = null,
+                                contentDescription = "Scheduled recording",
                                 tint = NuxColors.OnSurfaceDim,
                             )
                         },
-                        onClick = { vm.cancelSchedule(schedule.id) },
+                        onClick = { confirmCancel = schedule },
                     )
                 }
                 item(key = "rec-header") {
@@ -124,7 +147,7 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit) {
                             leading = {
                                 Icon(
                                     Icons.Default.Videocam,
-                                    contentDescription = null,
+                                    contentDescription = "Recording",
                                     tint = NuxColors.Secondary,
                                 )
                             },
@@ -135,7 +158,7 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit) {
                         )
                     }
                     Spacer(Modifier.width(10.dp))
-                    OutlinedButton(onClick = { vm.deleteRecording(recording) }) {
+                    OutlinedButton(onClick = { confirmDelete = recording }) {
                         Icon(Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.size(16.dp))
                     }
                 }

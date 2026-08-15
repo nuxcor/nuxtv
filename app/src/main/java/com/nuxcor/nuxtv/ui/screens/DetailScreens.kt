@@ -2,17 +2,21 @@
 
 package com.nuxcor.nuxtv.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -65,10 +69,35 @@ fun MovieDetailScreen(
     var movie by remember(movieId) { mutableStateOf(base) }
     LaunchedEffect(movieId) { movie = vm.movieDetails(base) }
 
+    Box(modifier = Modifier.fillMaxSize()) {
+    movie.backdrop?.let { backdrop ->
+        coil3.compose.AsyncImage(
+            model = backdrop,
+            contentDescription = null,
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxWidth(0.7f)
+                .fillMaxHeight()
+                .align(Alignment.TopEnd),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    androidx.compose.ui.graphics.Brush.horizontalGradient(
+                        listOf(
+                            NuxColors.Background,
+                            NuxColors.Background.copy(alpha = 0.94f),
+                            NuxColors.Background.copy(alpha = 0.35f),
+                        )
+                    )
+                )
+        )
+    }
     Row(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 56.dp, vertical = 48.dp),
+            .padding(horizontal = 8.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(40.dp),
     ) {
         Artwork(
@@ -77,7 +106,7 @@ fun MovieDetailScreen(
             modifier = Modifier
                 .width(220.dp)
                 .height(330.dp)
-                .clip(RoundedCornerShape(14.dp)),
+                .clip(RoundedCornerShape(16.dp)),
         )
         Column(
             modifier = Modifier
@@ -106,7 +135,7 @@ fun MovieDetailScreen(
                 Spacer(Modifier.height(16.dp))
                 Text(
                     text = movie.plot.orEmpty(),
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyLarge,
                     color = NuxColors.OnSurfaceDim,
                 )
             }
@@ -132,13 +161,14 @@ fun MovieDetailScreen(
                     vm.playMovie(movie)
                     onPlay()
                 }) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.PlayArrow, contentDescription = "Play", modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Play")
                 }
                 OutlinedButton(onClick = onBack) { Text("Back") }
             }
         }
+    }
     }
 }
 
@@ -164,14 +194,10 @@ fun SeriesDetailScreen(
     }
 
     val eps = episodes
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 56.dp, vertical = 36.dp),
-    ) {
+    Column(modifier = Modifier.fillMaxSize()) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(28.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Top,
         ) {
             Artwork(
                 imageUrl = series.poster,
@@ -242,7 +268,7 @@ fun SeriesDetailScreen(
                 ) {
                     itemsIndexed(seasonEpisodes, key = { _, e -> e.id }) { index, episode ->
                         WideItem(
-                            title = "E${episode.episodeNum}  •  ${episode.title}",
+                            title = "${episode.episodeNum}. ${episode.title}",
                             subtitle = episode.durationText ?: "Season ${episode.season}",
                             imageUrl = episode.poster ?: series.poster,
                             onClick = {

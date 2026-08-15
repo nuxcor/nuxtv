@@ -97,21 +97,25 @@ object NuxFocus {
     const val RowScale = 1.0f
     const val ButtonScale = 1.06f
 
-    val ring: Border
-        @Composable get() = Border(
-            border = BorderStroke(3.dp, NuxColors.FocusBorder),
-            shape = RoundedCornerShape(16.dp),
-        )
+    // Allocated once: these are immutable and were previously rebuilt for
+    // every focusable item on every recomposition.
+    val ring: Border = Border(
+        border = BorderStroke(3.dp, NuxColors.FocusBorder),
+        shape = RoundedCornerShape(16.dp),
+    )
 
-    val cardGlow: Glow
-        @Composable get() = Glow(
-            elevationColor = NuxColors.Primary.copy(alpha = 0.30f),
-            elevation = 24.dp,
-        )
+    val cardGlow: Glow = Glow(
+        elevationColor = NuxColors.Primary.copy(alpha = 0.30f),
+        elevation = 24.dp,
+    )
 
     /** Focused containers lift the surface; they never fill with brand gold. */
     val container = NuxColors.SurfaceRaised
 }
+
+private val PageGradient = Brush.verticalGradient(
+    listOf(Color(0xFF11141A), NuxColors.Background)
+)
 
 @Composable
 fun NuxTvTheme(content: @Composable () -> Unit) {
@@ -139,11 +143,7 @@ fun NuxTvTheme(content: @Composable () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 // A subtle page gradient reads as depth; flat black reads as unfinished.
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color(0xFF11141A), NuxColors.Background)
-                    )
-                )
+                .background(PageGradient)
         ) {
             content()
         }
