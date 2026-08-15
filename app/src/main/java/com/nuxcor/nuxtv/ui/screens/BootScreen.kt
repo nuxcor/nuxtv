@@ -83,25 +83,13 @@ fun BootScreen() {
                             )
                         )
                 )
-                Canvas(modifier = Modifier.size(72.dp).scale(markScale.value)) {
-                    val w = size.width
-                    val h = size.height
-                    val path = Path().apply {
-                        moveTo(w * 0.22f, h * 0.08f)
-                        lineTo(w * 0.22f, h * 0.92f)
-                        lineTo(w * 0.92f, h * 0.5f)
-                        close()
-                    }
-                    drawPath(path, color = NuxColors.Primary)
-                    drawPath(
-                        path,
-                        brush = Brush.linearGradient(
-                            colors = listOf(Color.White.copy(alpha = 0.35f), Color.Transparent),
-                            start = Offset.Zero,
-                            end = Offset(w, h),
-                        ),
-                    )
-                }
+                androidx.compose.foundation.Image(
+                    painter = androidx.compose.ui.res.painterResource(
+                        com.nuxcor.nuxtv.R.drawable.ic_splash
+                    ),
+                    contentDescription = null,
+                    modifier = Modifier.size(120.dp).scale(markScale.value),
+                )
             }
             Spacer(Modifier.height(20.dp))
             Row {

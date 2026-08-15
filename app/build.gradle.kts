@@ -15,8 +15,8 @@ android {
         applicationId = "com.nuxcor.nuxtv"
         minSdk = 23
         targetSdk = 36
-        versionCode = 5
-        versionName = "2.2.0"
+        versionCode = 6
+        versionName = "2.2.1"
     }
 
     signingConfigs {
