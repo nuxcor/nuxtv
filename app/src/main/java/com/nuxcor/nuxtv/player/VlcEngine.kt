@@ -21,7 +21,7 @@ class VlcEngine(context: Context) : PlayerEngine {
 
     private val libVlc = LibVLC(
         context.applicationContext,
-        arrayListOf("--network-caching=1500", "--http-user-agent=NuxTV/1.0"),
+        arrayListOf("--network-caching=1500", "--http-user-agent=Dzidzi/2.1"),
     )
     private val mediaPlayer = MediaPlayer(libVlc)
 

@@ -27,7 +27,7 @@ class ExoEngine(context: Context) : PlayerEngine {
 
     private val player: ExoPlayer = run {
         val httpFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent("NuxTV/1.0")
+            .setUserAgent("Dzidzi/2.1")
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(15_000)

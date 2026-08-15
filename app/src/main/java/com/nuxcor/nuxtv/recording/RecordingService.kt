@@ -13,9 +13,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -44,6 +43,7 @@ class RecordingService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
     private var stopTimer: Job? = null
+    private var activeCall: okhttp3.Call? = null
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -55,11 +55,17 @@ class RecordingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
-                val url = intent.getStringExtra(EXTRA_URL) ?: return START_NOT_STICKY.also { stopSelf() }
                 val name = intent.getStringExtra(EXTRA_NAME) ?: "Recording"
-                val durationMs = intent.getLongExtra(EXTRA_DURATION_MS, 0L).takeIf { it > 0 }
+                // Must enter the foreground before any early return: the service
+                // was started with startForegroundService.
                 startForeground(NOTIFICATION_ID, buildNotification(name))
-                startRecording(url, name, durationMs)
+                val url = intent.getStringExtra(EXTRA_URL)
+                if (url == null) {
+                    stopRecording()
+                } else {
+                    val durationMs = intent.getLongExtra(EXTRA_DURATION_MS, 0L).takeIf { it > 0 }
+                    startRecording(url, name, durationMs)
+                }
             }
 
             ACTION_STOP -> stopRecording()
@@ -68,7 +74,8 @@ class RecordingService : Service() {
     }
 
     private fun startRecording(url: String, name: String, durationMs: Long? = null) {
-        runBlocking { job?.cancelAndJoin() }
+        activeCall?.cancel()
+        job?.cancel()
         val safeName = name.replace(Regex("""[^\w\s.-]"""), "").trim().ifBlank { "Recording" }
         val stamp = SimpleDateFormat("yyyy-MM-dd_HH-mm", Locale.US).format(Date())
         val file = File(RecordingManager.directory(this), "$safeName $stamp.ts")
@@ -85,15 +92,17 @@ class RecordingService : Service() {
             val startedAt = System.currentTimeMillis()
             RecordingManager.update(ActiveRecording(name, file, startedAt, 0))
             try {
-                val request = Request.Builder().url(url).header("User-Agent", "NuxTV/1.0").build()
-                http.newCall(request).execute().use { response ->
+                val request = Request.Builder().url(url).header("User-Agent", "Dzidzi/2.1").build()
+                val call = http.newCall(request)
+                activeCall = call
+                call.execute().use { response ->
                     val body = response.body ?: return@use
                     body.byteStream().use { input ->
                         file.outputStream().buffered().use { output ->
                             val buffer = ByteArray(64 * 1024)
                             var total = 0L
                             var lastUpdate = 0L
-                            while (true) {
+                            while (kotlinx.coroutines.currentCoroutineContext().isActive) {
                                 val read = input.read(buffer)
                                 if (read < 0) break
                                 output.write(buffer, 0, read)
@@ -120,6 +129,8 @@ class RecordingService : Service() {
     private fun stopRecording() {
         stopTimer?.cancel()
         stopTimer = null
+        activeCall?.cancel() // unblocks the streaming read immediately
+        activeCall = null
         job?.cancel()
         job = null
         RecordingManager.update(null)
@@ -145,13 +156,14 @@ class RecordingService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.presence_video_online)
             .setContentTitle("Recording $name")
-            .setContentText("NuxTV is recording this channel")
+            .setContentText("Dzidzi is recording this channel")
             .setOngoing(true)
             .addAction(android.R.drawable.ic_media_pause, "Stop", stopIntent)
             .build()
     }
 
     override fun onDestroy() {
+        activeCall?.cancel()
         job?.cancel()
         RecordingManager.update(null)
         super.onDestroy()

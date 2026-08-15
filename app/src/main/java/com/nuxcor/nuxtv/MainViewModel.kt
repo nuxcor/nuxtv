@@ -294,10 +294,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val q = query.trim()
         if (q.length < 2) return SearchResults()
         val b = bundle ?: return SearchResults()
+        val lockedLive = b.liveCategories.filter { isLockedCategory(it.name) }.map { it.id }.toSet()
+        val lockedMovie = b.movieCategories.filter { isLockedCategory(it.name) }.map { it.id }.toSet()
+        val lockedSeries = b.seriesCategories.filter { isLockedCategory(it.name) }.map { it.id }.toSet()
         return SearchResults(
-            channels = b.channels.filter { it.name.contains(q, ignoreCase = true) }.take(30),
-            movies = b.movies.filter { it.name.contains(q, ignoreCase = true) }.take(30),
-            series = b.series.filter { it.name.contains(q, ignoreCase = true) }.take(30),
+            channels = b.channels
+                .filter { it.categoryId !in lockedLive && it.name.contains(q, ignoreCase = true) }
+                .take(30),
+            movies = b.movies
+                .filter { it.categoryId !in lockedMovie && it.name.contains(q, ignoreCase = true) }
+                .take(30),
+            series = b.series
+                .filter { it.categoryId !in lockedSeries && it.name.contains(q, ignoreCase = true) }
+                .take(30),
         )
     }
 

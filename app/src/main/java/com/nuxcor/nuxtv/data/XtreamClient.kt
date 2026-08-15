@@ -50,7 +50,7 @@ class XtreamClient(
             }
             val request = Request.Builder()
                 .url("$baseUrl/player_api.php?$params")
-                .header("User-Agent", "NuxTV/1.0")
+                .header("User-Agent", "Dzidzi/2.1")
                 .build()
             http.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) throw IOException("Server returned HTTP ${resp.code}")

@@ -159,7 +159,7 @@ class ContentRepository(context: Context) {
             val text = withContext(Dispatchers.IO) {
                 val request = Request.Builder()
                     .url(source.url)
-                    .header("User-Agent", "NuxTV/1.0")
+                    .header("User-Agent", "Dzidzi/2.1")
                     .build()
                 http.newCall(request).execute().use { resp ->
                     if (!resp.isSuccessful) throw IOException("Server returned HTTP ${resp.code}")
@@ -195,7 +195,7 @@ class ContentRepository(context: Context) {
         _epg.value = EpgState.Loading
         _epg.value = withContext(Dispatchers.IO) {
             runCatching {
-                val request = Request.Builder().url(url).header("User-Agent", "NuxTV/1.0").build()
+                val request = Request.Builder().url(url).header("User-Agent", "Dzidzi/2.1").build()
                 http.newCall(request).execute().use { resp ->
                     if (!resp.isSuccessful) throw IOException("Guide server returned HTTP ${resp.code}")
                     val body = resp.body ?: throw IOException("Empty guide response")

@@ -15,8 +15,20 @@ android {
         applicationId = "com.nuxcor.nuxtv"
         minSdk = 23
         targetSdk = 36
-        versionCode = 3
-        versionName = "2.1.0"
+        versionCode = 4
+        versionName = "2.1.1"
+    }
+
+    signingConfigs {
+        create("release") {
+            val ksPath = System.getenv("DZIDZI_KEYSTORE")
+            if (ksPath != null) {
+                storeFile = file(ksPath)
+                storePassword = System.getenv("DZIDZI_KEYSTORE_PASS")
+                keyAlias = System.getenv("DZIDZI_KEY_ALIAS") ?: "dzidzi"
+                keyPassword = System.getenv("DZIDZI_KEY_PASS")
+            }
+        }
     }
 
     buildTypes {
@@ -27,6 +39,21 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = if (System.getenv("DZIDZI_KEYSTORE") != null) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+        }
+    }
+
+    // TV hardware is arm; per-ABI APKs keep downloads small (libVLC is heavy).
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a")
+            isUniversalApk = false
         }
     }
     compileOptions {

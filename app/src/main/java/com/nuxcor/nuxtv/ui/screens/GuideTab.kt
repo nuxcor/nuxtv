@@ -76,7 +76,12 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
 
         is ContentRepository.EpgState.Ready -> {
             val hidden by vm.hidden.collectAsState()
-            val channels = remember(bundle, hidden) { vm.visibleChannels(bundle.channels) }
+            val pin by vm.parentalPin.collectAsState()
+            val channels = remember(bundle, hidden, pin, vm.parentalUnlocked) {
+                val lockedIds = bundle.liveCategories
+                    .filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
+                vm.visibleChannels(bundle.channels).filterNot { it.categoryId in lockedIds }
+            }
             if (channels.isEmpty()) {
                 CenteredMessage(title = "No live channels")
                 return
