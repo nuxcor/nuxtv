@@ -2,7 +2,11 @@ package com.nuxcor.nuxtv.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.DecodeSequenceMode
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromStream
+import kotlinx.serialization.json.decodeToSequence
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -49,23 +53,52 @@ class XtreamClient(
         }
     }
 
+    private fun buildRequest(action: String?, extra: Map<String, String>): Request {
+        val params = buildString {
+            append("username=$userQ&password=$passQ")
+            if (action != null) append("&action=$action")
+            extra.forEach { (k, v) -> append("&$k=$v") }
+        }
+        return Request.Builder()
+            .url("$baseUrl/player_api.php?$params")
+            .header("User-Agent", "Dzidzi/2.1")
+            .build()
+    }
+
+    /** Small/object-shaped responses: parse the stream into a tree. */
+    @OptIn(ExperimentalSerializationApi::class)
     private suspend fun call(action: String?, extra: Map<String, String> = emptyMap()): JsonElement =
         withContext(Dispatchers.IO) {
-            val params = buildString {
-                append("username=$userQ&password=$passQ")
-                if (action != null) append("&action=$action")
-                extra.forEach { (k, v) -> append("&$k=$v") }
-            }
-            val request = Request.Builder()
-                .url("$baseUrl/player_api.php?$params")
-                .header("User-Agent", "Dzidzi/2.1")
-                .build()
-            http.newCall(request).execute().use { resp ->
+            http.newCall(buildRequest(action, extra)).execute().use { resp ->
                 if (!resp.isSuccessful) throw IOException("Server returned HTTP ${resp.code}")
-                val body = resp.body?.string() ?: throw IOException("Empty response from server")
-                json.parseToJsonElement(body)
+                val body = resp.body ?: throw IOException("Empty response from server")
+                json.decodeFromStream<JsonElement>(body.byteStream())
             }
         }
+
+    /**
+     * Huge array endpoints (live/vod/series catalogs) are decoded one element
+     * at a time so a 100k-entry provider never needs the whole response in
+     * memory — TV boxes have tiny heaps.
+     */
+    @OptIn(ExperimentalSerializationApi::class)
+    private suspend fun <T : Any> callList(
+        action: String,
+        map: (JsonObject) -> T?,
+    ): List<T> = withContext(Dispatchers.IO) {
+        http.newCall(buildRequest(action, emptyMap())).execute().use { resp ->
+            if (!resp.isSuccessful) throw IOException("Server returned HTTP ${resp.code}")
+            val body = resp.body ?: throw IOException("Empty response from server")
+            val out = ArrayList<T>()
+            runCatching {
+                json.decodeToSequence<JsonElement>(
+                    body.byteStream(),
+                    DecodeSequenceMode.ARRAY_WRAPPED,
+                ).forEach { el -> (el as? JsonObject)?.let(map)?.let(out::add) }
+            }
+            out
+        }
+    }
 
     /** Validates credentials; throws with a readable message when login fails. */
     suspend fun authenticate() {
@@ -85,16 +118,15 @@ class XtreamClient(
     suspend fun seriesCategories(): List<Category> = categories("get_series_categories")
 
     private suspend fun categories(action: String): List<Category> =
-        (call(action) as? JsonArray)?.mapNotNull { el ->
-            val obj = el as? JsonObject ?: return@mapNotNull null
-            val id = obj.str("category_id") ?: return@mapNotNull null
-            Category(id = id, name = obj.str("category_name") ?: "Unnamed")
-        } ?: emptyList()
+        callList(action) { obj ->
+            obj.str("category_id")?.let { id ->
+                Category(id = id, name = obj.str("category_name") ?: "Unnamed")
+            }
+        }
 
     suspend fun liveStreams(): List<LiveChannel> =
-        (call("get_live_streams") as? JsonArray)?.mapNotNull { el ->
-            val obj = el as? JsonObject ?: return@mapNotNull null
-            val id = obj.int("stream_id") ?: return@mapNotNull null
+        callList("get_live_streams") { obj ->
+            val id = obj.int("stream_id") ?: return@callList null
             val hasArchive = obj.int("tv_archive") == 1
             LiveChannel(
                 id = "live:$id",
@@ -109,7 +141,7 @@ class XtreamClient(
                 recordUrl = "$baseUrl/live/$userP/$passP/$id.ts",
                 quality = obj.str("name")?.let { QualityTag.of(it) },
             )
-        } ?: emptyList()
+        }
 
     /** Full EPG listing for one channel; titles/descriptions arrive base64-encoded. */
     suspend fun epg(streamId: Int): List<EpgProgram> {
@@ -145,9 +177,8 @@ class XtreamClient(
     }
 
     suspend fun vodStreams(): List<Movie> =
-        (call("get_vod_streams") as? JsonArray)?.mapNotNull { el ->
-            val obj = el as? JsonObject ?: return@mapNotNull null
-            val id = obj.int("stream_id") ?: return@mapNotNull null
+        callList("get_vod_streams") { obj ->
+            val id = obj.int("stream_id") ?: return@callList null
             val ext = obj.str("container_extension")?.takeIf { it.isNotBlank() } ?: "mp4"
             Movie(
                 id = "movie:$id",
@@ -160,12 +191,11 @@ class XtreamClient(
                 xtreamId = id,
                 quality = obj.str("name")?.let { QualityTag.of(it) },
             )
-        } ?: emptyList()
+        }
 
     suspend fun series(): List<Series> =
-        (call("get_series") as? JsonArray)?.mapNotNull { el ->
-            val obj = el as? JsonObject ?: return@mapNotNull null
-            val id = obj.int("series_id") ?: return@mapNotNull null
+        callList("get_series") { obj ->
+            val id = obj.int("series_id") ?: return@callList null
             Series(
                 id = "series:$id",
                 name = obj.str("name") ?: "Series $id",
@@ -177,7 +207,7 @@ class XtreamClient(
                 genre = obj.str("genre")?.takeIf { it.isNotBlank() },
                 xtreamId = id,
             )
-        } ?: emptyList()
+        }
 
     /** Loads episodes for a series; tolerates both map-of-seasons and array forms. */
     suspend fun seriesEpisodes(seriesId: Int): List<Episode> {

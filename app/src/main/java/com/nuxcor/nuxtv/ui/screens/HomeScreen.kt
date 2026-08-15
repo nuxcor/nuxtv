@@ -692,6 +692,58 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
             }
         }
 
+        item(key = "updates") {
+            Column {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "App updates",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NuxColors.OnSurface,
+                )
+                val update by vm.updateState.collectAsState()
+                Text(
+                    text = when (val u = update) {
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Available ->
+                            "Version ${com.nuxcor.nuxtv.BuildConfig.VERSION_NAME} — ${u.version} is available" +
+                                (u.sizeBytes.takeIf { it > 0 }?.let { " (${it / 1048576} MB)" } ?: "")
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Downloading ->
+                            "Downloading update… ${u.progressPercent}%"
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Ready ->
+                            "Update downloaded — install when prompted"
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.UpToDate ->
+                            "Version ${com.nuxcor.nuxtv.BuildConfig.VERSION_NAME} — up to date"
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Error ->
+                            "Update check failed: ${u.message}"
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Checking -> "Checking…"
+                        else -> "Version ${com.nuxcor.nuxtv.BuildConfig.VERSION_NAME}"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = when (update) {
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Available -> NuxColors.Secondary
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Error -> NuxColors.Error
+                        else -> NuxColors.OnSurfaceDim
+                    },
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    when (update) {
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Available,
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Ready ->
+                            Button(onClick = { vm.downloadAndInstallUpdate() }) {
+                                Text(
+                                    if (update is com.nuxcor.nuxtv.data.UpdateManager.State.Ready) "Install"
+                                    else "Update now"
+                                )
+                            }
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Downloading -> Unit
+                        else -> OutlinedButton(onClick = { vm.checkForUpdates() }) {
+                            Text("Check for updates")
+                        }
+                    }
+                }
+            }
+        }
+
         item(key = "backup") {
             Column {
                 Spacer(Modifier.height(6.dp))

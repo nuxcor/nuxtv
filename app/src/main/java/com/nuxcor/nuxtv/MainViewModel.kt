@@ -44,6 +44,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repo: ContentRepository = (app as NuxTvApp).repository
     private val playerPrefs = PlayerPrefs(app)
+    private val updateManager = com.nuxcor.nuxtv.data.UpdateManager(app, repo.http)
+
+    private val _updateState =
+        MutableStateFlow<com.nuxcor.nuxtv.data.UpdateManager.State>(
+            com.nuxcor.nuxtv.data.UpdateManager.State.Idle
+        )
+    val updateState: StateFlow<com.nuxcor.nuxtv.data.UpdateManager.State> = _updateState
 
     /** null until the persisted sources have been read. */
     val sources: StateFlow<List<PlaylistSource>?> = repo.sources
@@ -141,6 +148,43 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch {
             RecordingScheduler.rescheduleAll(getApplication(), playerPrefs)
+        }
+        // Silent update check shortly after launch.
+        viewModelScope.launch {
+            delay(8_000)
+            val result = updateManager.check()
+            if (result is com.nuxcor.nuxtv.data.UpdateManager.State.Available) {
+                _updateState.value = result
+            }
+        }
+    }
+
+    fun checkForUpdates() {
+        viewModelScope.launch {
+            _updateState.value = com.nuxcor.nuxtv.data.UpdateManager.State.Checking
+            _updateState.value = updateManager.check()
+        }
+    }
+
+    fun downloadAndInstallUpdate() {
+        val available = _updateState.value as? com.nuxcor.nuxtv.data.UpdateManager.State.Available
+            ?: (_updateState.value as? com.nuxcor.nuxtv.data.UpdateManager.State.Ready)?.let {
+                updateManager.install(it.file)
+                return
+            } ?: return
+        viewModelScope.launch {
+            runCatching {
+                _updateState.value = com.nuxcor.nuxtv.data.UpdateManager.State.Downloading(0)
+                val file = updateManager.download(available.apkUrl) { pct ->
+                    _updateState.value = com.nuxcor.nuxtv.data.UpdateManager.State.Downloading(pct)
+                }
+                _updateState.value =
+                    com.nuxcor.nuxtv.data.UpdateManager.State.Ready(available.version, file)
+                updateManager.install(file)
+            }.onFailure { e ->
+                _updateState.value =
+                    com.nuxcor.nuxtv.data.UpdateManager.State.Error(e.message ?: "Download failed")
+            }
         }
     }
 

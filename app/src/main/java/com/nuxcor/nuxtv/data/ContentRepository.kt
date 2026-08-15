@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.serialization.json.decodeFromStream
+import kotlinx.serialization.json.encodeToStream
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -34,13 +36,20 @@ class ContentRepository(context: Context) {
     private fun cacheFile(sourceId: String) =
         java.io.File(appContext.filesDir, "bundle-$sourceId.json".replace("$sourceId", sourceId))
 
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     private fun readCache(sourceId: String): ContentBundle? = runCatching {
-        cacheFile(sourceId).takeIf { it.exists() }?.readText()
-            ?.let { bundleJson.decodeFromString<ContentBundle>(it) }
+        cacheFile(sourceId).takeIf { it.exists() }?.inputStream()?.buffered()?.use { stream ->
+            bundleJson.decodeFromStream<ContentBundle>(stream)
+        }
     }.getOrNull()
 
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     private fun writeCache(sourceId: String, bundle: ContentBundle) {
-        runCatching { cacheFile(sourceId).writeText(bundleJson.encodeToString(bundle)) }
+        runCatching {
+            cacheFile(sourceId).outputStream().buffered().use { stream ->
+                bundleJson.encodeToStream(bundle, stream)
+            }
+        }
     }
 
     val sources: Flow<List<PlaylistSource>> = store.sources
@@ -168,20 +177,27 @@ class ContentRepository(context: Context) {
         }
 
         is PlaylistSource.M3u -> {
-            val text = withContext(Dispatchers.IO) {
+            // Parse line-by-line straight off the socket: giant provider
+            // playlists never exist as one big string in memory.
+            val parsed = withContext(Dispatchers.IO) {
                 val request = Request.Builder()
                     .url(source.url)
                     .header("User-Agent", "Dzidzi/2.1")
                     .build()
                 http.newCall(request).execute().use { resp ->
                     if (!resp.isSuccessful) throw IOException("Server returned HTTP ${resp.code}")
-                    resp.body?.string() ?: throw IOException("Empty playlist")
+                    val body = resp.body ?: throw IOException("Empty playlist")
+                    body.charStream().buffered().useLines { lines ->
+                        M3uParser.parseLines(lines)
+                    }
                 }
             }
-            if (!text.contains("#EXTINF")) throw IOException("That URL doesn't look like an M3U playlist")
-            lastM3uTvgUrl = M3uParser.tvgUrl(text)
+            if (parsed.entries.isEmpty() && !parsed.sawHeader) {
+                throw IOException("That URL doesn't look like an M3U playlist")
+            }
+            lastM3uTvgUrl = parsed.tvgUrl
             withContext(Dispatchers.Default) {
-                ContentClassifier.classify(M3uParser.parse(text))
+                ContentClassifier.classify(parsed.entries)
             }
         }
     }

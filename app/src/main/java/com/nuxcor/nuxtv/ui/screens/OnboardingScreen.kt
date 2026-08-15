@@ -33,6 +33,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.nativeKeyCode
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
@@ -77,6 +81,12 @@ fun OnboardingScreen(
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_splash),
+                contentDescription = null,
+                modifier = Modifier.size(104.dp),
+            )
+            Spacer(Modifier.height(4.dp))
             Text(
                 text = "DZIDZI",
                 style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Black),
@@ -200,7 +210,7 @@ private fun XtreamForm(
         NuxTextField(value = name, onValueChange = { name = it }, label = "Playlist name (optional)")
         NuxTextField(value = server, onValueChange = { server = it }, label = "Server URL  •  http://host:port")
         NuxTextField(value = user, onValueChange = { user = it }, label = "Username")
-        NuxTextField(value = pass, onValueChange = { pass = it }, label = "Password", password = true)
+        NuxTextField(value = pass, onValueChange = { pass = it }, label = "Password", password = true, isLast = true)
     }
 }
 
@@ -222,6 +232,7 @@ private fun M3uForm(
             value = epgUrl,
             onValueChange = { epgUrl = it },
             label = "EPG URL (optional, XMLTV)  •  auto-detected from url-tvg",
+            isLast = true,
         )
     }
 }
@@ -271,14 +282,43 @@ private fun NuxTextField(
     onValueChange: (String) -> Unit,
     label: String,
     password: Boolean = false,
+    isLast: Boolean = false,
 ) {
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { androidx.compose.material3.Text(label) },
         singleLine = true,
         visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-        modifier = Modifier.fillMaxWidth(),
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+            imeAction = if (isLast) androidx.compose.ui.text.input.ImeAction.Done
+            else androidx.compose.ui.text.input.ImeAction.Next
+        ),
+        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+            onNext = { focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down) },
+            onDone = { focusManager.clearFocus() },
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            // TV remotes navigate fields with the D-pad; the m3 TextField
+            // swallows those keys by default.
+            .onPreviewKeyEvent { event ->
+                if (event.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) {
+                    return@onPreviewKeyEvent false
+                }
+                when (event.key.nativeKeyCode) {
+                    android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
+                        focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)
+                        true
+                    }
+                    android.view.KeyEvent.KEYCODE_DPAD_UP -> {
+                        focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Up)
+                        true
+                    }
+                    else -> false
+                }
+            },
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = NuxColors.OnSurface,
             unfocusedTextColor = NuxColors.OnSurface,

@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromStream
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -43,6 +44,7 @@ class LogoRepository(context: Context, private val http: OkHttpClient) {
                 .trim('-')
     }
 
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     private suspend fun loadIndex(): Map<String, String> {
         index?.let { return it }
         val paths: List<String> = withContext(Dispatchers.IO) {
@@ -57,7 +59,7 @@ class LogoRepository(context: Context, private val http: OkHttpClient) {
                     .build()
                 http.newCall(request).execute().use { resp ->
                     if (!resp.isSuccessful) error("HTTP ${resp.code}")
-                    val root = json.parseToJsonElement(resp.body!!.string()) as JsonObject
+                    val root = json.decodeFromStream<JsonObject>(resp.body!!.byteStream())
                     val tree = root["tree"] as? JsonArray ?: return@use emptyList()
                     tree.mapNotNull { el ->
                         ((el as? JsonObject)?.get("path") as? JsonPrimitive)?.contentOrNull

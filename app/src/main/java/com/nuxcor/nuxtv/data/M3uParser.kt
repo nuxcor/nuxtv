@@ -11,6 +11,12 @@ data class M3uEntry(
     val tvgName: String? get() = attrs["tvg-name"]?.takeIf { it.isNotBlank() }
 }
 
+data class M3uResult(
+    val entries: List<M3uEntry>,
+    val tvgUrl: String?,
+    val sawHeader: Boolean,
+)
+
 object M3uParser {
 
     private val attrRegex = Regex("""([\w.-]+)="([^"]*)"""")
@@ -24,15 +30,29 @@ object M3uParser {
             ?.split(",", " ")?.firstOrNull { it.isNotBlank() }?.trim()
     }
 
-    fun parse(text: String): List<M3uEntry> {
+    fun parse(text: String): List<M3uEntry> = parseLines(text.lineSequence()).entries
+
+    /** Streaming variant: never needs the whole playlist in memory at once. */
+    fun parseLines(lines: Sequence<String>): M3uResult {
         val entries = mutableListOf<M3uEntry>()
         var pendingExtinf: String? = null
         var pendingGroup: String? = null
+        var tvg: String? = null
+        var sawHeader = false
 
-        for (raw in text.lineSequence()) {
+        for (raw in lines) {
             val line = raw.trim()
             when {
-                line.isEmpty() || line.startsWith("#EXTM3U") -> Unit
+                line.isEmpty() -> Unit
+                line.startsWith("#EXTM3U") -> {
+                    sawHeader = true
+                    if (tvg == null) {
+                        val attrs = attrRegex.findAll(line)
+                            .associate { it.groupValues[1].lowercase() to it.groupValues[2] }
+                        tvg = (attrs["url-tvg"] ?: attrs["x-tvg-url"])
+                            ?.split(",", " ")?.firstOrNull { it.isNotBlank() }?.trim()
+                    }
+                }
                 line.startsWith("#EXTINF", ignoreCase = true) -> pendingExtinf = line
                 line.startsWith("#EXTGRP:", ignoreCase = true) ->
                     pendingGroup = line.substringAfter(":").trim().takeIf { it.isNotBlank() }
@@ -53,7 +73,7 @@ object M3uParser {
                 }
             }
         }
-        return entries
+        return M3uResult(entries = entries, tvgUrl = tvg, sawHeader = sawHeader)
     }
 
     /** The display title is everything after the first comma that isn't inside quotes. */
