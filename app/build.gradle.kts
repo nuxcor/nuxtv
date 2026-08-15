@@ -15,8 +15,13 @@ android {
         applicationId = "com.nuxcor.nuxtv"
         minSdk = 23
         targetSdk = 36
-        versionCode = 6
-        versionName = "2.2.1"
+        versionCode = 7
+        versionName = "2.2.2"
+
+        // One APK for every real device: both ARM ABIs, no x86 (emulators only).
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     signingConfigs {
@@ -48,14 +53,6 @@ android {
     }
 
     // TV hardware is arm; per-ABI APKs keep downloads small (libVLC is heavy).
-    splits {
-        abi {
-            isEnable = true
-            reset()
-            include("arm64-v8a", "armeabi-v7a")
-            isUniversalApk = false
-        }
-    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

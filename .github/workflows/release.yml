@@ -18,24 +18,20 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Decode keystore
         run: echo "${{ secrets.DZIDZI_KEYSTORE_B64 }}" | base64 -d > "$RUNNER_TEMP/dzidzi.keystore"
-      - name: Build signed release APKs
+      - name: Build signed release APK
         env:
           DZIDZI_KEYSTORE: ${{ runner.temp }}/dzidzi.keystore
           DZIDZI_KEYSTORE_PASS: ${{ secrets.DZIDZI_KEYSTORE_PASS }}
           DZIDZI_KEY_ALIAS: ${{ secrets.DZIDZI_KEY_ALIAS }}
           DZIDZI_KEY_PASS: ${{ secrets.DZIDZI_KEY_PASS }}
         run: ./gradlew assembleRelease
-      - name: Rename APKs
-        run: |
-          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk dzidzi-${{ github.ref_name }}-arm64.apk
-          cp app/build/outputs/apk/release/app-armeabi-v7a-release.apk dzidzi-${{ github.ref_name }}-arm32.apk
+      - name: Rename APK
+        run: cp app/build/outputs/apk/release/app-release.apk dzidzi-${{ github.ref_name }}.apk
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dzidzi-${{ github.ref_name }}-arm64.apk
-            dzidzi-${{ github.ref_name }}-arm32.apk
+          files: dzidzi-${{ github.ref_name }}.apk
           body: |
-            Install **dzidzi-*-arm64.apk** on modern Android TV / Google TV devices (most 4K boxes and sticks).
-            Use **dzidzi-*-arm32.apk** only for older 32-bit devices if the arm64 build refuses to install.
+            One APK for all devices — Android TV, Google TV and phones (arm64 + arm32).
+            Sideload with the Downloader app or `adb install`.
           generate_release_notes: true
