@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -205,12 +206,20 @@ private fun XtreamForm(
     var user by remember { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
 
+    val connectFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     FormContainer(addState = addState, onBack = onBack, submitEnabled = server.isNotBlank() && user.isNotBlank(),
-        onSubmit = { onSubmit(name, server, user, pass) }) {
+        onSubmit = { onSubmit(name, server, user, pass) }, connectFocus = connectFocus) {
         NuxTextField(value = name, onValueChange = { name = it }, label = "Playlist name (optional)")
         NuxTextField(value = server, onValueChange = { server = it }, label = "Server URL  •  http://host:port")
         NuxTextField(value = user, onValueChange = { user = it }, label = "Username")
-        NuxTextField(value = pass, onValueChange = { pass = it }, label = "Password", password = true, isLast = true)
+        NuxTextField(
+            value = pass,
+            onValueChange = { pass = it },
+            label = "Password",
+            password = true,
+            isLast = true,
+            onAdvance = { runCatching { connectFocus.requestFocus() } },
+        )
     }
 }
 
@@ -224,8 +233,9 @@ private fun M3uForm(
     var url by remember { mutableStateOf("") }
     var epgUrl by remember { mutableStateOf("") }
 
+    val connectFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     FormContainer(addState = addState, onBack = onBack, submitEnabled = url.isNotBlank(),
-        onSubmit = { onSubmit(name, url, epgUrl) }) {
+        onSubmit = { onSubmit(name, url, epgUrl) }, connectFocus = connectFocus) {
         NuxTextField(value = name, onValueChange = { name = it }, label = "Playlist name (optional)")
         NuxTextField(value = url, onValueChange = { url = it }, label = "M3U URL  •  http://…/playlist.m3u")
         NuxTextField(
@@ -233,6 +243,7 @@ private fun M3uForm(
             onValueChange = { epgUrl = it },
             label = "EPG URL (optional, XMLTV)  •  auto-detected from url-tvg",
             isLast = true,
+            onAdvance = { runCatching { connectFocus.requestFocus() } },
         )
     }
 }
@@ -243,6 +254,8 @@ private fun FormContainer(
     submitEnabled: Boolean,
     onSubmit: () -> Unit,
     onBack: () -> Unit,
+    connectFocus: androidx.compose.ui.focus.FocusRequester =
+        androidx.compose.ui.focus.FocusRequester(),
     fields: @Composable () -> Unit,
 ) {
     val loading = addState is AddState.Loading
@@ -262,7 +275,11 @@ private fun FormContainer(
             modifier = Modifier.align(Alignment.CenterHorizontally),
         ) {
             OutlinedButton(onClick = onBack, enabled = !loading) { Text("Back") }
-            Button(onClick = onSubmit, enabled = submitEnabled && !loading) {
+            Button(
+                onClick = onSubmit,
+                enabled = submitEnabled && !loading,
+                modifier = Modifier.focusRequester(connectFocus),
+            ) {
                 Text(if (loading) "Connecting…" else "Connect")
             }
             if (loading) {
@@ -283,8 +300,13 @@ private fun NuxTextField(
     label: String,
     password: Boolean = false,
     isLast: Boolean = false,
+    onAdvance: (() -> Unit)? = null,
 ) {
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val advance: () -> Unit = {
+        onAdvance?.invoke()
+            ?: focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)
+    }
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
@@ -296,8 +318,9 @@ private fun NuxTextField(
             else androidx.compose.ui.text.input.ImeAction.Next
         ),
         keyboardActions = androidx.compose.foundation.text.KeyboardActions(
-            onNext = { focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down) },
-            onDone = { focusManager.clearFocus() },
+            onNext = { advance() },
+            // Done jumps straight to the Connect button instead of dropping focus.
+            onDone = { advance() },
         ),
         modifier = Modifier
             .fillMaxWidth()
@@ -309,7 +332,7 @@ private fun NuxTextField(
                 }
                 when (event.key.nativeKeyCode) {
                     android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
-                        focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)
+                        advance()
                         true
                     }
                     android.view.KeyEvent.KEYCODE_DPAD_UP -> {
