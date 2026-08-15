@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -58,10 +60,15 @@ class ContentRepository(context: Context) {
     private val _epg = MutableStateFlow<EpgState>(EpgState.Idle)
     val epg: StateFlow<EpgState> = _epg
 
-    /** Raw playlist text of the last M3U load, kept to read its url-tvg header. */
-    private var lastM3uText: String? = null
+    /** url-tvg header value from the last M3U load. */
+    @Volatile
+    private var lastM3uTvgUrl: String? = null
 
     private var loadedSourceId: String? = null
+
+    private val epgMutex = Mutex()
+    private var lastEpgUrl: String? = null
+    private var lastEpgLoadedAt: Long = 0
 
     /**
      * Loads the active source. A cached copy of the parsed playlist is
@@ -131,13 +138,18 @@ class ContentRepository(context: Context) {
         if (!quiet) _content.value = ContentState.Loading("Loading ${source.name}…")
         runCatching { fetch(source) }
             .onSuccess { bundle ->
+                // Drop the result if the user switched sources while we fetched.
+                if (activeSource.first()?.id != source.id) return
                 loadedSourceId = source.id
                 _content.value = ContentState.Ready(bundle)
                 withContext(Dispatchers.IO) { writeCache(source.id, bundle) }
             }
             .onFailure { e ->
-                // Keep serving the cached copy on background-refresh failures.
-                if (!quiet) _content.value = ContentState.Error(e.message ?: "Failed to load playlist")
+                android.util.Log.w("Dzidzi", "Playlist load failed: ${e.message}")
+                // Never clobber a working library with an error screen.
+                if (!quiet && _content.value !is ContentState.Ready) {
+                    _content.value = ContentState.Error(e.message ?: "Failed to load playlist")
+                }
             }
     }
 
@@ -167,7 +179,7 @@ class ContentRepository(context: Context) {
                 }
             }
             if (!text.contains("#EXTINF")) throw IOException("That URL doesn't look like an M3U playlist")
-            lastM3uText = text
+            lastM3uTvgUrl = M3uParser.tvgUrl(text)
             withContext(Dispatchers.Default) {
                 ContentClassifier.classify(M3uParser.parse(text))
             }
@@ -185,23 +197,46 @@ class ContentRepository(context: Context) {
         val url = overrideUrl?.takeIf { it.isNotBlank() } ?: when (source) {
             is PlaylistSource.Xtream -> xtreamClient(source).xmltvUrl
             is PlaylistSource.M3u ->
-                source.epgUrl?.takeIf { it.isNotBlank() }
-                    ?: lastM3uText?.let { M3uParser.tvgUrl(it) }
+                source.epgUrl?.takeIf { it.isNotBlank() } ?: lastM3uTvgUrl
         }
         if (url == null) {
             _epg.value = EpgState.Error("No EPG source configured for this playlist")
             return
         }
-        _epg.value = EpgState.Loading
-        _epg.value = withContext(Dispatchers.IO) {
-            runCatching {
-                val request = Request.Builder().url(url).header("User-Agent", "Dzidzi/2.1").build()
-                http.newCall(request).execute().use { resp ->
-                    if (!resp.isSuccessful) throw IOException("Guide server returned HTTP ${resp.code}")
-                    val body = resp.body ?: throw IOException("Empty guide response")
-                    EpgState.Ready(XmltvParser.parse(body.byteStream()))
+        // One download at a time, and don't re-fetch the same guide within 15 min
+        // (content republishes — e.g. logo enrichment — would otherwise re-trigger it).
+        epgMutex.withLock {
+            val fresh = url == lastEpgUrl &&
+                System.currentTimeMillis() - lastEpgLoadedAt < 15 * 60_000 &&
+                _epg.value is EpgState.Ready
+            if (fresh) return@withLock
+            if (_epg.value !is EpgState.Ready) _epg.value = EpgState.Loading
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val request = Request.Builder().url(url).header("User-Agent", "Dzidzi/2.1").build()
+                    http.newCall(request).execute().use { resp ->
+                        if (!resp.isSuccessful) throw IOException("Guide server returned HTTP ${resp.code}")
+                        val body = resp.body ?: throw IOException("Empty guide response")
+                        val now = System.currentTimeMillis()
+                        EpgState.Ready(
+                            XmltvParser.parse(
+                                body.byteStream(),
+                                windowStartMs = now - 30L * 3600 * 1000,
+                                windowEndMs = now + 48L * 3600 * 1000,
+                            )
+                        )
+                    }
+                }.getOrElse { e ->
+                    android.util.Log.w("Dzidzi", "EPG load failed: ${e.message}")
+                    // Keep an existing guide rather than replacing it with an error.
+                    (_epg.value as? EpgState.Ready) ?: EpgState.Error(e.message ?: "Failed to load the guide")
                 }
-            }.getOrElse { e -> EpgState.Error(e.message ?: "Failed to load the guide") }
+            }
+            _epg.value = result
+            if (result is EpgState.Ready) {
+                lastEpgUrl = url
+                lastEpgLoadedAt = System.currentTimeMillis()
+            }
         }
     }
 
@@ -214,9 +249,7 @@ class ContentRepository(context: Context) {
         channel.epgId?.lowercase()?.let { id ->
             data.programmes[id]?.let { return it }
         }
-        val wanted = channel.name.trim().lowercase()
-        val byNameId = data.channelNames.entries
-            .firstOrNull { (_, name) -> name.trim().lowercase() == wanted }?.key?.lowercase()
+        val byNameId = data.nameToId[channel.name.trim().lowercase()]
         return byNameId?.let { data.programmes[it] } ?: emptyList()
     }
 

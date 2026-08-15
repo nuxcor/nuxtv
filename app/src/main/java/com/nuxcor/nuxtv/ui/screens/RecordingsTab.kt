@@ -72,32 +72,6 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit) {
             Spacer(Modifier.height(14.dp))
         }
 
-        if (schedules.isNotEmpty()) {
-            Text(
-                "Scheduled",
-                style = MaterialTheme.typography.titleSmall,
-                color = NuxColors.OnSurfaceDim,
-            )
-            Spacer(Modifier.height(8.dp))
-            schedules.sortedBy { it.startMs }.forEach { schedule ->
-                WideItem(
-                    title = "${schedule.title} — ${schedule.channelName}",
-                    subtitle = dateFmt.format(Date(schedule.startMs)) +
-                        " – ${dateFmt.format(Date(schedule.endMs))}  •  select to cancel",
-                    leading = {
-                        Icon(
-                            Icons.Default.FiberManualRecord,
-                            contentDescription = null,
-                            tint = NuxColors.OnSurfaceDim,
-                        )
-                    },
-                    onClick = { vm.cancelSchedule(schedule.id) },
-                )
-                Spacer(Modifier.height(6.dp))
-            }
-            Spacer(Modifier.height(10.dp))
-        }
-
         if (recordings.isEmpty() && rec == null && schedules.isEmpty()) {
             CenteredMessage(
                 title = "No recordings yet",
@@ -110,6 +84,38 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(bottom = 32.dp),
         ) {
+            if (schedules.isNotEmpty()) {
+                item(key = "sched-header") {
+                    Text(
+                        "Scheduled",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = NuxColors.OnSurfaceDim,
+                    )
+                }
+                items(schedules.sortedBy { it.startMs }, key = { it.id }) { schedule ->
+                    WideItem(
+                        title = "${schedule.title} — ${schedule.channelName}",
+                        subtitle = dateFmt.format(Date(schedule.startMs)) +
+                            " – ${dateFmt.format(Date(schedule.endMs))}  •  select to cancel",
+                        leading = {
+                            Icon(
+                                Icons.Default.FiberManualRecord,
+                                contentDescription = null,
+                                tint = NuxColors.OnSurfaceDim,
+                            )
+                        },
+                        onClick = { vm.cancelSchedule(schedule.id) },
+                    )
+                }
+                item(key = "rec-header") {
+                    Text(
+                        "Recorded",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = NuxColors.OnSurfaceDim,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            }
             items(recordings, key = { it.file.absolutePath }) { recording ->
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {

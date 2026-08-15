@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,8 +44,14 @@ fun SearchTab(
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     val hidden by vm.hidden.collectAsState()
-    val results = remember(query, vm.content.value, hidden) {
-        vm.search(query).let { it.copy(channels = vm.visibleChannels(it.channels)) }
+    val contentState by vm.content.collectAsState()
+    var results by remember { mutableStateOf(MainViewModel.SearchResults()) }
+    // Debounced off-main-thread search so typing stays smooth on huge playlists.
+    LaunchedEffect(query, contentState, hidden) {
+        kotlinx.coroutines.delay(250)
+        results = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            vm.search(query).let { it.copy(channels = vm.visibleChannels(it.channels)) }
+        }
     }
 
     Column(

@@ -62,11 +62,19 @@ class PlayerPrefs(private val context: Context) {
 
     /** Saves (or clears, when near the end) a VOD resume position. Keeps the newest 200. */
     suspend fun saveResumePosition(url: String, positionMs: Long, durationMs: Long) {
-        val map = positions()
-        val nearEnd = durationMs > 0 && positionMs > durationMs * 95 / 100
-        if (positionMs < 30_000 || nearEnd) map.remove(url) else map[url] = positionMs
-        val trimmed = if (map.size > 200) map.entries.drop(map.size - 200).associate { it.toPair() } else map
-        context.playerDataStore.edit { it[positionsKey] = json.encodeToString(trimmed) }
+        context.playerDataStore.edit { prefs ->
+            // Read-modify-write inside a single edit so concurrent saves can't
+            // clobber each other.
+            val map = prefs[positionsKey]?.let {
+                runCatching { json.decodeFromString<LinkedHashMap<String, Long>>(it) }.getOrNull()
+            } ?: LinkedHashMap()
+            val nearEnd = durationMs > 0 && positionMs > durationMs * 95 / 100
+            map.remove(url) // re-inserting moves the entry to the newest slot
+            if (positionMs >= 30_000 && !nearEnd) map[url] = positionMs
+            val trimmed =
+                if (map.size > 200) map.entries.drop(map.size - 200).associate { it.toPair() } else map
+            prefs[positionsKey] = json.encodeToString(trimmed)
+        }
     }
 
     // --- favorites (keyed by stream URL, stable across playlist reloads) ------

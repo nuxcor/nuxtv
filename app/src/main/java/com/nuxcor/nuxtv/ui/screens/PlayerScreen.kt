@@ -114,6 +114,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     }
 
     val context = LocalContext.current
+    var inPip by remember { mutableStateOf(false) }
     val defaultEngine by vm.engine.collectAsState()
     val activeRecording by vm.activeRecording.collectAsState()
 
@@ -203,12 +204,16 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     LaunchedEffect(engine, request) {
         val startIndex = currentIndex.coerceIn(0, request.items.size - 1)
         val resume = when {
+            request.isCatchup -> 0L // never inherit a position from the previous stream
             positionMs > 0 -> positionMs // engine swap mid-stream: continue where we were
-            isVod && !request.isCatchup ->
+            isVod ->
                 request.items.getOrNull(startIndex)?.url?.let { vm.resumePositionFor(it) } ?: 0L
             else -> 0L
         }
         engine.prepare(request.items, startIndex, resume)
+        // A recreated engine starts at defaults; re-apply the user's choices.
+        if (speed != 1f) engine.setSpeed(speed)
+        if (scaleMode != 0) engine.setScaleMode(scaleMode)
         if (resume > 0 && positionMs == 0L) statusMessage = "Resumed from ${formatTime(resume)}"
     }
 
@@ -218,8 +223,25 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             positionMs = engine.positionMs
             durationMs = engine.durationMs
             qualityLabel = engine.videoResolution?.let { (w, h) -> QualityTag.ofResolution(w, h) }
+            inPip = android.os.Build.VERSION.SDK_INT >= 24 &&
+                (context as? android.app.Activity)?.isInPictureInPictureMode == true
             delay(500)
         }
+    }
+
+    // Pause when the app leaves the foreground, unless we're in PiP —
+    // otherwise audio keeps playing invisibly behind the launcher.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, engine) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                val pip = android.os.Build.VERSION.SDK_INT >= 24 &&
+                    (context as? android.app.Activity)?.isInPictureInPictureMode == true
+                if (!pip && engine.isPlaying) engine.playPause()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     // Auto-hide controls.
@@ -291,9 +313,14 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key.nativeKeyCode) {
-                    AndroidKeyEvent.KEYCODE_CHANNEL_UP -> { zap(+1); true }
-                    AndroidKeyEvent.KEYCODE_CHANNEL_DOWN -> { zap(-1); true }
-                    AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { engine.playPause(); poke(); true }
+                    AndroidKeyEvent.KEYCODE_CHANNEL_UP ->
+                        if (!catchupOpen && !tracksOpen && !miniGuideOpen) { zap(+1); true } else false
+                    AndroidKeyEvent.KEYCODE_CHANNEL_DOWN ->
+                        if (!catchupOpen && !tracksOpen && !miniGuideOpen) { zap(-1); true } else false
+                    AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ->
+                        if (!catchupOpen && !tracksOpen && !miniGuideOpen) {
+                            engine.playPause(); poke(); true
+                        } else false
                     AndroidKeyEvent.KEYCODE_DPAD_UP ->
                         if (request.isLive && !controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen) { zap(+1); true } else false
                     AndroidKeyEvent.KEYCODE_DPAD_DOWN ->
@@ -357,7 +384,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         }
 
         AnimatedVisibility(
-            visible = controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen,
+            visible = controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen && !inPip,
             enter = fadeIn(),
             exit = fadeOut(),
         ) {
@@ -411,7 +438,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             )
         }
 
-        if (miniGuideOpen) {
+        if (miniGuideOpen && !inPip) {
             MiniGuide(
                 vm = vm,
                 items = request.items,
@@ -424,7 +451,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             )
         }
 
-        if (tracksOpen) {
+        if (tracksOpen && !inPip) {
             TracksOverlay(
                 engine = engine,
                 isVod = !request.isLive,
@@ -438,7 +465,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             )
         }
 
-        if (catchupOpen && channel != null) {
+        if (catchupOpen && channel != null && !inPip) {
             CatchupOverlay(
                 vm = vm,
                 channel = channel,
@@ -698,6 +725,8 @@ private fun CatchupOverlay(
 ) {
     val scope = rememberCoroutineScope()
     var programs by remember(channel.id) { mutableStateOf<List<EpgProgram>?>(null) }
+    val closeFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { closeFocus.requestFocus() } }
 
     LaunchedEffect(channel.id) {
         val now = System.currentTimeMillis()
@@ -789,7 +818,7 @@ private fun CatchupOverlay(
                     contentColor = NuxColors.OnSurface,
                     focusedContentColor = NuxColors.OnAccent,
                 ),
-                modifier = Modifier.widthIn(min = 120.dp),
+                modifier = Modifier.widthIn(min = 120.dp).focusRequester(closeFocus),
             ) {
                 Text(
                     "Close",
@@ -815,6 +844,8 @@ private fun TracksOverlay(
 ) {
     var audio by remember { mutableStateOf(engine.audioTracks()) }
     var text by remember { mutableStateOf(engine.textTracks()) }
+    val initialFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { initialFocus.requestFocus() } }
 
     fun refresh() {
         audio = engine.audioTracks()
@@ -920,7 +951,7 @@ private fun TracksOverlay(
                     contentColor = NuxColors.OnSurface,
                     focusedContentColor = NuxColors.OnAccent,
                 ),
-                modifier = Modifier.widthIn(min = 120.dp),
+                modifier = Modifier.widthIn(min = 120.dp).focusRequester(initialFocus),
             ) {
                 Text(
                     "Close",
@@ -1021,6 +1052,14 @@ private fun MiniGuide(
                         listOf(Color.Black.copy(alpha = 0.96f), Color.Black.copy(alpha = 0.85f))
                     )
                 )
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown &&
+                        event.key.nativeKeyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT
+                    ) {
+                        onDismiss()
+                        true
+                    } else false
+                }
                 .padding(start = 22.dp, top = 22.dp, end = 14.dp)
         ) {
             Column {

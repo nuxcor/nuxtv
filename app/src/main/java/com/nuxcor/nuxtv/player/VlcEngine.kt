@@ -30,12 +30,20 @@ class VlcEngine(context: Context) : PlayerEngine {
     private var index: Int = 0
     private var playing = false
     private var released = false
+    private var pendingSeekMs: Long = 0
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     init {
         mediaPlayer.setEventListener { event ->
             when (event.type) {
                 MediaPlayer.Event.Playing -> {
                     playing = true
+                    // VLC ignores seeks before the media is open; apply them now.
+                    if (pendingSeekMs > 0) {
+                        val seek = pendingSeekMs
+                        pendingSeekMs = 0
+                        mainHandler.post { if (!released && mediaPlayer.isSeekable) mediaPlayer.time = seek }
+                    }
                     listener?.onPlayingChanged(playing = true, buffering = false)
                 }
 
@@ -48,7 +56,8 @@ class VlcEngine(context: Context) : PlayerEngine {
                     listener?.onPlayingChanged(playing = playing, buffering = event.buffering < 100f)
 
                 MediaPlayer.Event.EndReached ->
-                    if (index < items.size - 1) playAt(index + 1)
+                    // Never mutate the MediaPlayer from its own event thread.
+                    if (index < items.size - 1) mainHandler.post { playAt(index + 1) }
                     else listener?.onPlayingChanged(playing = false, buffering = false)
 
                 MediaPlayer.Event.EncounteredError ->
@@ -66,8 +75,8 @@ class VlcEngine(context: Context) : PlayerEngine {
 
     override fun prepare(items: List<PlayableItem>, startIndex: Int, startPositionMs: Long) {
         this.items = items
+        pendingSeekMs = startPositionMs
         playAt(startIndex)
-        if (startPositionMs > 0) mediaPlayer.time = startPositionMs
     }
 
     override fun playAt(index: Int) {

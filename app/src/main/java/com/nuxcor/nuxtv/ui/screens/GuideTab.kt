@@ -87,12 +87,20 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                 return
             }
 
-            // 24h window starting an hour before now, snapped to the half hour.
+            // 30h window starting an hour before now, snapped to the half hour.
             val windowStart = remember {
                 val now = System.currentTimeMillis()
                 now - now % (30 * 60_000L) - 60 * 60_000L
             }
-            val windowEnd = windowStart + 48 * 3600_000L
+            val windowEnd = windowStart + 30 * 3600_000L
+            // Ticks every minute so "Now" highlighting and click behaviour stay live.
+            var nowTick by remember { mutableStateOf(System.currentTimeMillis()) }
+            LaunchedEffect(Unit) {
+                while (true) {
+                    delay(60_000)
+                    nowTick = System.currentTimeMillis()
+                }
+            }
             val timelineScroll = rememberScrollState()
             var statusMessage by remember { mutableStateOf<String?>(null) }
 
@@ -140,6 +148,7 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                             channel = channel,
                             windowStart = windowStart,
                             windowEnd = windowEnd,
+                            nowMs = nowTick,
                             timelineScroll = timelineScroll,
                             onPlayChannel = {
                                 vm.playChannels(channels, channels.indexOf(channel))
@@ -203,6 +212,7 @@ private fun GuideRow(
     channel: LiveChannel,
     windowStart: Long,
     windowEnd: Long,
+    nowMs: Long,
     timelineScroll: androidx.compose.foundation.ScrollState,
     onPlayChannel: () -> Unit,
     onCatchup: (EpgProgram) -> Unit,
@@ -264,16 +274,19 @@ private fun GuideRow(
                     )
                 }
             } else {
+                // Exact fractional-minute widths keep every row aligned with the
+                // ruler; overlapping programmes are clamped to the cursor.
                 var cursor = windowStart
                 programs.forEach { program ->
-                    val start = program.startMs.coerceAtLeast(windowStart)
-                    val end = program.endMs.coerceAtMost(windowEnd)
-                    val gapMin = ((start - cursor) / 60_000L).toInt()
-                    if (gapMin > 0) Spacer(Modifier.width(DP_PER_MINUTE * gapMin))
-                    val widthMin = ((end - start) / 60_000L).toInt().coerceAtLeast(4)
+                    val start = program.startMs.coerceIn(cursor, windowEnd)
+                    val end = program.endMs.coerceIn(start, windowEnd)
+                    if (end <= start) return@forEach
+                    val gapMinutes = (start - cursor) / 60_000f
+                    if (gapMinutes > 0f) Spacer(Modifier.width(DP_PER_MINUTE * gapMinutes))
                     ProgramCell(
                         program = program,
-                        widthMin = widthMin,
+                        widthMinutes = (end - start) / 60_000f,
+                        nowMs = nowMs,
                         hasArchive = channel.archiveDays > 0,
                         canRecord = channel.recordUrl != null,
                         onPlayLive = onPlayChannel,
@@ -290,16 +303,16 @@ private fun GuideRow(
 @Composable
 private fun ProgramCell(
     program: EpgProgram,
-    widthMin: Int,
+    widthMinutes: Float,
+    nowMs: Long,
     hasArchive: Boolean,
     canRecord: Boolean,
     onPlayLive: () -> Unit,
     onCatchup: () -> Unit,
     onSchedule: () -> Unit,
 ) {
-    val now = System.currentTimeMillis()
-    val airingNow = now in program.startMs until program.endMs
-    val isPast = program.endMs <= now
+    val airingNow = nowMs in program.startMs until program.endMs
+    val isPast = program.endMs <= nowMs
     val fmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
 
     Surface(
@@ -312,7 +325,7 @@ private fun ProgramCell(
             }
         },
         modifier = Modifier
-            .width(DP_PER_MINUTE * widthMin)
+            .width((DP_PER_MINUTE * widthMinutes).coerceAtLeast(6.dp))
             .height(ROW_HEIGHT)
             .padding(end = 2.dp, top = 6.dp, bottom = 6.dp),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),

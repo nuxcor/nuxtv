@@ -115,22 +115,28 @@ fun HomeScreen(
                     title = "No playlist loaded",
                     subtitle = "Add a playlist in Settings",
                 )
-                is ContentState.Ready ->
+                is ContentState.Ready -> {
+                    // SaveableStateHolder keeps each tab's scroll/selection/search
+                    // state alive across tab switches.
+                    val stateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
                     androidx.compose.animation.Crossfade(
                         targetState = tab,
                         animationSpec = androidx.compose.animation.core.tween(220),
                         label = "tab",
                     ) { current ->
-                        when (current) {
-                            HomeTab.Search -> SearchTab(vm, onOpenMovie, onOpenSeries, onPlay)
-                            HomeTab.Live -> LiveTab(vm, state.bundle, onPlay)
-                            HomeTab.Guide -> GuideTab(vm, state.bundle, onPlay)
-                            HomeTab.Movies -> MoviesTab(vm, state.bundle, onOpenMovie)
-                            HomeTab.Series -> SeriesTab(vm, state.bundle, onOpenSeries)
-                            HomeTab.Recordings -> RecordingsTab(vm, onPlay)
-                            HomeTab.Settings -> SettingsTab(vm, state.bundle, onAddPlaylist)
+                        stateHolder.SaveableStateProvider(current.name) {
+                            when (current) {
+                                HomeTab.Search -> SearchTab(vm, onOpenMovie, onOpenSeries, onPlay)
+                                HomeTab.Live -> LiveTab(vm, state.bundle, onPlay)
+                                HomeTab.Guide -> GuideTab(vm, state.bundle, onPlay)
+                                HomeTab.Movies -> MoviesTab(vm, state.bundle, onOpenMovie)
+                                HomeTab.Series -> SeriesTab(vm, state.bundle, onOpenSeries)
+                                HomeTab.Recordings -> RecordingsTab(vm, onPlay)
+                                HomeTab.Settings -> SettingsTab(vm, state.bundle, onAddPlaylist)
+                            }
                         }
                     }
+                }
             }
             // Settings must stay reachable even while loading or on error.
             if (contentState !is ContentState.Ready && tab == HomeTab.Settings) {
@@ -169,6 +175,14 @@ private fun NavRail(
     onRailFocusChanged: (Boolean) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    // Focus travel selects a tab only after the focus rests briefly, so
+    // moving down the rail doesn't compose every tab it passes through.
+    var focusedItem by remember { mutableStateOf<HomeTab?>(null) }
+    androidx.compose.runtime.LaunchedEffect(focusedItem) {
+        val item = focusedItem ?: return@LaunchedEffect
+        kotlinx.coroutines.delay(250)
+        onSelect(item)
+    }
     val width by animateDpAsState(targetValue = if (expanded) 190.dp else 64.dp, label = "railWidth")
 
     Column(
@@ -198,6 +212,7 @@ private fun NavRail(
                 selected = item == selected,
                 expanded = expanded,
                 onClick = { onSelect(item) },
+                onItemFocused = { focusedItem = item },
                 modifier = if (item == selected) {
                     Modifier.fillMaxWidth().focusRequester(railFocus)
                 } else {
@@ -214,12 +229,13 @@ private fun RailItem(
     selected: Boolean,
     expanded: Boolean,
     onClick: () -> Unit,
+    onItemFocused: () -> Unit = onClick,
     modifier: Modifier = Modifier.fillMaxWidth(),
 ) {
     Surface(
         onClick = onClick,
         // Tabs switch as focus travels the rail — no OK press needed.
-        modifier = modifier.onFocusChanged { if (it.isFocused) onClick() },
+        modifier = modifier.onFocusChanged { if (it.isFocused) onItemFocused() },
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) NuxColors.Primary.copy(alpha = 0.18f) else androidx.compose.ui.graphics.Color.Transparent,
@@ -279,13 +295,15 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
     var selectedCategory by rememberSaveable(bundle.channels.size) { mutableStateOf("__all__") }
     var sortAz by rememberSaveable { mutableStateOf(false) }
     val epgState by vm.epgState.collectAsState()
-    val channels = remember(allVisible, selectedCategory, favorites, sortAz) {
-        val filtered = when (selectedCategory) {
-            "__all__" -> allVisible
-            "__fav__" -> allVisible.filter { it.url in favorites }
-            else -> allVisible.filter { it.categoryId == selectedCategory }
+    val sortedAll = remember(allVisible, sortAz) {
+        if (sortAz) allVisible.sortedBy { it.name.lowercase() } else allVisible
+    }
+    val channels = remember(sortedAll, selectedCategory, favorites) {
+        when (selectedCategory) {
+            "__all__" -> sortedAll
+            "__fav__" -> sortedAll.filter { it.url in favorites }
+            else -> sortedAll.filter { it.categoryId == selectedCategory }
         }
-        if (sortAz) filtered.sortedBy { it.name.lowercase() } else filtered
     }
 
     Box(modifier = Modifier.fillMaxSize()) {

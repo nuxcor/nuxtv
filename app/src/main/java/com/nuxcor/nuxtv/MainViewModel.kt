@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.nuxcor.nuxtv.data.ContentBundle
 import com.nuxcor.nuxtv.data.ContentRepository
 import com.nuxcor.nuxtv.data.ContentState
 import com.nuxcor.nuxtv.data.EngineChoice
@@ -246,9 +247,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val bundle get() = (content.value as? ContentState.Ready)?.bundle
 
+    /** id → channel index, rebuilt when the bundle changes (O(1) player lookups). */
+    private var channelIndex: Pair<ContentBundle, Map<String, LiveChannel>>? = null
+
     fun movieById(id: String): Movie? = bundle?.movies?.firstOrNull { it.id == id }
     fun seriesById(id: String): Series? = bundle?.series?.firstOrNull { it.id == id }
-    fun channelById(id: String): LiveChannel? = bundle?.channels?.firstOrNull { it.id == id }
+
+    fun channelById(id: String): LiveChannel? {
+        val b = bundle ?: return null
+        val cached = channelIndex
+        val index = if (cached != null && cached.first === b) {
+            cached.second
+        } else {
+            b.channels.associateBy { it.id }.also { channelIndex = b to it }
+        }
+        return index[id]
+    }
 
     suspend fun movieDetails(movie: Movie): Movie = repo.movieDetails(movie, tmdbKey.value)
     suspend fun seriesDetails(series: Series): Series = repo.seriesDetails(series, tmdbKey.value)

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,9 +56,10 @@ fun MovieDetailScreen(
     onPlay: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val base = remember(movieId) { vm.movieById(movieId) }
+    val contentState by vm.content.collectAsState()
+    val base = remember(movieId, contentState) { vm.movieById(movieId) }
     if (base == null) {
-        CenteredMessage(title = "Movie not found")
+        CenteredMessage(title = "Movie not found", loading = true)
         return
     }
     var movie by remember(movieId) { mutableStateOf(base) }
@@ -147,9 +149,10 @@ fun SeriesDetailScreen(
     onPlay: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val base: Series? = remember(seriesId) { vm.seriesById(seriesId) }
+    val contentState by vm.content.collectAsState()
+    val base: Series? = remember(seriesId, contentState) { vm.seriesById(seriesId) }
     if (base == null) {
-        CenteredMessage(title = "Series not found")
+        CenteredMessage(title = "Series not found", loading = true)
         return
     }
     var series by remember(seriesId) { mutableStateOf(base) }

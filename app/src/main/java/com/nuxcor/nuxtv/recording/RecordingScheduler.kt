@@ -32,9 +32,11 @@ object RecordingScheduler {
     }
 
     fun cancel(context: Context, prefs: PlayerPrefs, id: String) {
+        // Cancel the alarm synchronously (cheap) so it can't fire while the
+        // persistence write is still in flight.
+        alarmManager(context).cancel(pendingIntent(context, id, null))
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             prefs.removeSchedule(id)
-            alarmManager(context).cancel(pendingIntent(context, id, null))
         }
     }
 
@@ -54,6 +56,14 @@ object RecordingScheduler {
             am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
         } else {
             am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+            // Ask the user to grant exact alarms so recordings start on time.
+            runCatching {
+                context.startActivity(
+                    Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                        .setData(android.net.Uri.parse("package:${context.packageName}"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
         }
     }
 
@@ -120,7 +130,11 @@ class ScheduledRecordingReceiver : BroadcastReceiver() {
 
         if (id != null) {
             val prefs = PlayerPrefs(context.applicationContext)
-            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { prefs.removeSchedule(id) }
+            val pending = goAsync()
+            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                runCatching { prefs.removeSchedule(id) }
+                pending.finish()
+            }
         }
     }
 }

@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -219,11 +220,10 @@ fun RatingStars(rating: Double, voteCount: Int? = null) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
             text = buildString {
-                val full = kotlin.math.floor(stars).toInt()
-                val half = stars - full >= 0.5
+                // Whole stars only — half-star glyphs render as tofu on many TVs.
+                val full = kotlin.math.round(stars).toInt().coerceIn(0, 5)
                 repeat(full) { append('★') }
-                if (half) append('⯨')
-                repeat(5 - full - if (half) 1 else 0) { append('☆') }
+                repeat(5 - full) { append('☆') }
             },
             style = MaterialTheme.typography.titleMedium,
             color = NuxColors.Primary,
@@ -296,6 +296,9 @@ fun PinPrompt(
 ) {
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
+    val fieldFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { fieldFocus.requestFocus() } }
+    androidx.activity.compose.BackHandler(onBack = onDismiss)
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -327,7 +330,9 @@ fun PinPrompt(
                     unfocusedBorderColor = NuxColors.SurfaceVariant,
                     cursorColor = NuxColors.Primary,
                 ),
-                modifier = Modifier.width(180.dp),
+                modifier = Modifier
+                    .width(180.dp)
+                    .focusRequester(fieldFocus),
             )
             Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

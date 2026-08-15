@@ -29,6 +29,14 @@ class XtreamClient(
 ) {
     val baseUrl: String = normalize(serverUrl)
 
+    // Credentials appear both in query strings and in URL path segments;
+    // encode appropriately so passwords with &, +, %, #, spaces etc. work.
+    private val userQ = java.net.URLEncoder.encode(username, "UTF-8")
+    private val passQ = java.net.URLEncoder.encode(password, "UTF-8")
+    // Path-segment encoding: like query encoding but spaces become %20.
+    private val userP = java.net.URLEncoder.encode(username, "UTF-8").replace("+", "%20")
+    private val passP = java.net.URLEncoder.encode(password, "UTF-8").replace("+", "%20")
+
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     companion object {
@@ -44,7 +52,7 @@ class XtreamClient(
     private suspend fun call(action: String?, extra: Map<String, String> = emptyMap()): JsonElement =
         withContext(Dispatchers.IO) {
             val params = buildString {
-                append("username=$username&password=$password")
+                append("username=$userQ&password=$passQ")
                 if (action != null) append("&action=$action")
                 extra.forEach { (k, v) -> append("&$k=$v") }
             }
@@ -92,13 +100,13 @@ class XtreamClient(
                 id = "live:$id",
                 name = obj.str("name") ?: "Channel $id",
                 logo = obj.str("stream_icon")?.takeIf { it.isNotBlank() },
-                url = "$baseUrl/live/$username/$password/$id.m3u8",
+                url = "$baseUrl/live/$userP/$passP/$id.m3u8",
                 categoryId = obj.str("category_id"),
                 number = obj.int("num"),
                 epgId = obj.str("epg_channel_id"),
                 archiveDays = if (hasArchive) (obj.int("tv_archive_duration") ?: 1) else 0,
                 xtreamId = id,
-                recordUrl = "$baseUrl/live/$username/$password/$id.ts",
+                recordUrl = "$baseUrl/live/$userP/$passP/$id.ts",
                 quality = obj.str("name")?.let { QualityTag.of(it) },
             )
         } ?: emptyList()
@@ -124,14 +132,16 @@ class XtreamClient(
 
     /** Full XMLTV guide for every channel on the server. */
     val xmltvUrl: String
-        get() = "$baseUrl/xmltv.php?username=$username&password=$password"
+        get() = "$baseUrl/xmltv.php?username=$userQ&password=$passQ"
 
     /** Timeshift/catch-up stream URL for an archived programme. */
     fun catchupUrl(streamId: Int, startMs: Long, durationMinutes: Long): String {
+        // Xtream panels almost universally run their archive clocks in UTC.
         val fmt = java.text.SimpleDateFormat("yyyy-MM-dd:HH-mm", java.util.Locale.US)
+        fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
         val start = fmt.format(java.util.Date(startMs))
         return "$baseUrl/streaming/timeshift.php" +
-            "?username=$username&password=$password&stream=$streamId&start=$start&duration=$durationMinutes"
+            "?username=$userQ&password=$passQ&stream=$streamId&start=$start&duration=$durationMinutes"
     }
 
     suspend fun vodStreams(): List<Movie> =
@@ -143,7 +153,7 @@ class XtreamClient(
                 id = "movie:$id",
                 name = obj.str("name") ?: "Movie $id",
                 poster = obj.str("stream_icon")?.takeIf { it.isNotBlank() },
-                url = "$baseUrl/movie/$username/$password/$id.$ext",
+                url = "$baseUrl/movie/$userP/$passP/$id.$ext",
                 categoryId = obj.str("category_id"),
                 year = obj.int("year") ?: yearFrom(obj.str("name")),
                 rating = obj.dbl("rating_5based")?.times(2) ?: obj.dbl("rating"),
@@ -188,7 +198,7 @@ class XtreamClient(
                 title = obj.str("title") ?: "Episode",
                 season = obj.int("season") ?: 1,
                 episodeNum = obj.int("episode_num") ?: 0,
-                url = "$baseUrl/series/$username/$password/$id.$ext",
+                url = "$baseUrl/series/$userP/$passP/$id.$ext",
                 poster = info?.str("movie_image")?.takeIf { it.isNotBlank() },
                 durationText = info?.str("duration")?.takeIf { it.isNotBlank() },
             )

@@ -1,7 +1,7 @@
 package com.nuxcor.nuxtv.data
 
-import android.util.Xml
 import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
 import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -12,6 +12,8 @@ data class XmltvData(
     val channelNames: Map<String, String>,
     /** lowercase channel id → programmes sorted by start. */
     val programmes: Map<String, List<EpgProgram>>,
+    /** lowercase display name → lowercase channel id, for O(1) name matching. */
+    val nameToId: Map<String, String>,
 )
 
 /**
@@ -20,17 +22,24 @@ data class XmltvData(
  */
 object XmltvParser {
 
-    // XMLTV timestamps look like "20260814200000 +0000"; zone is sometimes missing.
-    private val zoned = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US)
-    private val local = SimpleDateFormat("yyyyMMddHHmmss", Locale.US)
+    private const val MAX_DESCRIPTION_LENGTH = 300
 
-    private fun parseTime(raw: String?): Long? {
-        val t = raw?.trim() ?: return null
-        return runCatching { zoned.parse(t)?.time }.getOrNull()
-            ?: runCatching { local.parse(t.substringBefore(' '))?.time }.getOrNull()
-    }
+    fun parse(
+        input: InputStream,
+        /** Programmes entirely outside [windowStartMs, windowEndMs] are dropped
+         *  so multi-week guide packs don't exhaust memory on TV boxes. */
+        windowStartMs: Long = Long.MIN_VALUE,
+        windowEndMs: Long = Long.MAX_VALUE,
+    ): XmltvData {
+        // SimpleDateFormat is not thread-safe; create per parse call.
+        val zoned = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US)
+        val local = SimpleDateFormat("yyyyMMddHHmmss", Locale.US)
+        fun parseTime(raw: String?): Long? {
+            val t = raw?.trim() ?: return null
+            return runCatching { zoned.parse(t)?.time }.getOrNull()
+                ?: runCatching { local.parse(t.substringBefore(' '))?.time }.getOrNull()
+        }
 
-    fun parse(input: InputStream): XmltvData {
         val buffered = input.buffered(64 * 1024)
         // Sniff gzip magic bytes so .gz guides work regardless of extension.
         buffered.mark(2)
@@ -42,7 +51,7 @@ object XmltvParser {
         val channelNames = HashMap<String, String>()
         val programmes = HashMap<String, MutableList<EpgProgram>>()
 
-        val parser = Xml.newPullParser()
+        val parser = XmlPullParserFactory.newInstance().newPullParser()
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
         parser.setInput(stream, null)
 
@@ -60,7 +69,9 @@ object XmltvParser {
                         val channel = parser.getAttributeValue(null, "channel")?.trim()
                         val start = parseTime(parser.getAttributeValue(null, "start"))
                         val stop = parseTime(parser.getAttributeValue(null, "stop"))
-                        programme = if (channel != null && start != null && stop != null) {
+                        programme = if (channel != null && start != null && stop != null &&
+                            stop > windowStartMs && start < windowEndMs
+                        ) {
                             ProgrammeBuilder(channel, start, stop)
                         } else null
                     }
@@ -87,7 +98,7 @@ object XmltvParser {
                             programmes.getOrPut(p.channel.lowercase()) { mutableListOf() } += EpgProgram(
                                 id = "${p.channel}:${p.startMs}",
                                 title = p.title ?: "Untitled",
-                                description = p.desc,
+                                description = p.desc?.take(MAX_DESCRIPTION_LENGTH),
                                 startMs = p.startMs,
                                 endMs = p.stopMs,
                                 hasArchive = false,
@@ -101,7 +112,9 @@ object XmltvParser {
         }
 
         programmes.values.forEach { it.sortBy { p -> p.startMs } }
-        return XmltvData(channelNames = channelNames, programmes = programmes)
+        val nameToId = HashMap<String, String>(channelNames.size)
+        channelNames.forEach { (id, name) -> nameToId.putIfAbsent(name.trim().lowercase(), id.lowercase()) }
+        return XmltvData(channelNames = channelNames, programmes = programmes, nameToId = nameToId)
     }
 
     private enum class TextTarget { NONE, CHANNEL_NAME, TITLE, DESC }

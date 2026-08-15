@@ -102,9 +102,9 @@ object ContentClassifier {
             }
         }
 
-        val seriesList = seriesMap.values.map { acc ->
+        val seriesList = seriesMap.entries.map { (key, acc) ->
             Series(
-                id = "series:${acc.name.lowercase().hashCode()}",
+                id = "series:$key",
                 name = acc.name,
                 poster = acc.poster,
                 categoryId = groupId(seriesGroups, acc.group),
