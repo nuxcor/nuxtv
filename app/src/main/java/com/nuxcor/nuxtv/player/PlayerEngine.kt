@@ -12,6 +12,9 @@ import com.nuxcor.nuxtv.data.PlayableItem
 /** Some providers gate on a known UA, so both engines send the same one. */
 internal const val USER_AGENT = "Dzidzi/2.9"
 
+/** Sentinel id for "always the top rung", as opposed to a specific rendition. */
+const val HIGHEST_QUALITY = "highest"
+
 data class Track(val id: String, val label: String, val selected: Boolean)
 
 /**

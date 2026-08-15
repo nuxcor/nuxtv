@@ -71,8 +71,11 @@ class TmdbClient(private val http: OkHttpClient, private val apiKey: String) {
             rating = first.dbl("vote_average")?.takeIf { it > 0 },
             voteCount = first.int("vote_count"),
             overview = first.str("overview")?.takeIf { it.isNotBlank() },
-            posterUrl = first.str("poster_path")?.let { "https://image.tmdb.org/t/p/w500$it" },
-            backdropUrl = first.str("backdrop_path")?.let { "https://image.tmdb.org/t/p/w1280$it" },
+            // w500 upscaled into a 220x330dp poster on a 4K panel is visibly
+            // soft; the backdrop fills 70% of the screen, so it gets the
+            // original. These are the sizes TMDB serves for TV-sized layouts.
+            posterUrl = first.str("poster_path")?.let { "https://image.tmdb.org/t/p/w780$it" },
+            backdropUrl = first.str("backdrop_path")?.let { "https://image.tmdb.org/t/p/original$it" },
             reviews = reviews,
         )
     }

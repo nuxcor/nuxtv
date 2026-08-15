@@ -143,8 +143,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     var bannerTick by remember { mutableIntStateOf(0) }
     var bannerVisible by remember { mutableStateOf(false) }
     var videoSize by remember { mutableStateOf<Pair<Int, Int>?>(null) }
-    // Set when a long-press on OK has already acted, so the release doesn't
-    // also fire the tap action.
+    // True between OK's press and release, so the release can be swallowed
+    // rather than activating the control the press just brought into focus.
     var centerConsumed by remember { mutableStateOf(false) }
     var exitArmed by remember { mutableStateOf(false) }
     var previousIndex by remember { mutableIntStateOf(-1) }
@@ -388,31 +388,26 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 val isCenter = code == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
                     code == AndroidKeyEvent.KEYCODE_ENTER
 
-                // Once a hold has been acted on, swallow the rest of that press
-                // — the repeats and the release. Otherwise the release lands on
-                // the control button the hold just brought up and focused, and
-                // instantly activates it.
-                if (isCenter && centerConsumed) {
-                    if (event.type == KeyEventType.KeyUp) centerConsumed = false
-                    return@onPreviewKeyEvent true
-                }
-
-                // OK carries two meanings on bare playback, so it resolves on
-                // release: a tap opens the channel list, a hold opens the
-                // options bar. Without the hold, Record/Catch-up/PiP/subtitles
-                // are reachable only via MENU — a key most TV remotes lack.
-                if (isCenter && !controlsVisible && !overlayOpen) {
-                    when {
-                        event.type == KeyEventType.KeyUp -> {
-                            if (request.isLive && request.items.size > 1) miniGuideOpen = true
-                            else poke()
-                        }
-                        event.nativeKeyEvent.repeatCount > 0 -> {
-                            centerConsumed = true
-                            poke()
-                        }
+                // OK opens the player controls — favourite, record, catch-up,
+                // subtitles, PiP. This was a long-press, which nobody discovers
+                // and which depends on the remote emitting key repeats; the tap
+                // opened the channel list instead, leaving the controls with no
+                // route on remotes without a MENU key. LEFT owns the channel
+                // list, so OK is free to mean the obvious thing.
+                //
+                // The release must be swallowed too: poke() shows the controls
+                // and focuses a button, so an unhandled KeyUp lands on that
+                // button and fires it immediately.
+                if (isCenter) {
+                    if (event.type == KeyEventType.KeyDown && !controlsVisible && !overlayOpen) {
+                        centerConsumed = true
+                        poke()
+                        return@onPreviewKeyEvent true
                     }
-                    return@onPreviewKeyEvent true
+                    if (event.type == KeyEventType.KeyUp && centerConsumed) {
+                        centerConsumed = false
+                        return@onPreviewKeyEvent true
+                    }
                 }
 
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -435,11 +430,16 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         if (request.isLive && previousIndex >= 0) { jumpTo(previousIndex); true } else false
                     AndroidKeyEvent.KEYCODE_MENU ->
                         if (!overlayOpen) { poke(); true } else false
-                    AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_DPAD_RIGHT ->
+                    // LEFT is the way out to the channel list and, from there,
+                    // categories and Home. RIGHT mirrors OK so the controls
+                    // have a second obvious route.
+                    AndroidKeyEvent.KEYCODE_DPAD_LEFT ->
                         if (!controlsVisible && !overlayOpen) {
                             if (request.isLive && request.items.size > 1) miniGuideOpen = true else poke()
                             true
                         } else false
+                    AndroidKeyEvent.KEYCODE_DPAD_RIGHT ->
+                        if (!controlsVisible && !overlayOpen) { poke(); true } else false
                     in AndroidKeyEvent.KEYCODE_0..AndroidKeyEvent.KEYCODE_9 ->
                         if (request.isLive && !overlayOpen) {
                             digitBuffer += (code - AndroidKeyEvent.KEYCODE_0).toString()
@@ -623,6 +623,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     positionMs = 0
                     vm.playChannels(channels, index)
                 },
+                onExitToHome = { miniGuideOpen = false; onExit() },
                 onDismiss = { miniGuideOpen = false },
             )
         }
@@ -774,34 +775,43 @@ private fun PlayerControls(
                     Spacer(Modifier.weight(1f))
                 }
 
+                // Live TV has no transport row, so there is room to label every
+                // action — and a bare star or red dot at 10 feet tells you
+                // nothing. VOD keeps icons so the transport stays the focus.
+                val labelled = isLive
                 if (isFavoritable) {
                     ControlButton(
                         icon = if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
-                        label = if (isFavorite) "Remove favorite" else "Add favorite",
+                        label = if (isFavorite) "Favorited" else "Favorite",
                         onClick = onFavoriteToggle,
                         tint = if (isFavorite) NuxColors.Primary else Color.White,
+                        showLabel = labelled,
                     )
                 }
                 ControlButton(Icons.Default.Tune, "Options", onTracks, showLabel = true)
-                ControlButton(Icons.Default.PictureInPictureAlt, "Picture in picture", onPip)
                 if (hasPlaylist) {
                     ControlButton(
                         Icons.AutoMirrored.Filled.List,
                         "Channels",
                         onChannels,
                         modifier = if (isLive) Modifier.focusRequester(playFocus) else Modifier,
+                        showLabel = labelled,
                     )
                 }
-                if (hasCatchup) ControlButton(Icons.Default.History, "Catch-up", onCatchup)
+                if (hasCatchup) {
+                    ControlButton(Icons.Default.History, "Catch-up", onCatchup, showLabel = labelled)
+                }
                 if (canRecord || isRecording) {
                     ControlButton(
                         icon = if (isRecording) Icons.Default.Stop else Icons.Default.FiberManualRecord,
                         label = if (isRecording) "Stop recording" else "Record",
                         onClick = onRecordToggle,
                         tint = NuxColors.Error,
+                        showLabel = labelled,
                     )
                 }
-                ControlButton(Icons.Default.SwapHoriz, "Switch player", onEngineSwap)
+                ControlButton(Icons.Default.PictureInPictureAlt, "PiP", onPip, showLabel = labelled)
+                ControlButton(Icons.Default.SwapHoriz, "Player", onEngineSwap, showLabel = labelled)
             }
         }
     }
@@ -1019,6 +1029,10 @@ private fun TracksOverlay(
     var text by remember { mutableStateOf(engine.textTracks()) }
     var video by remember { mutableStateOf(engine.videoTracks()) }
     var decoded by remember { mutableStateOf(engine.videoResolution) }
+    // Only ExoPlayer exposes a bitrate ladder; VLC resolves it internally.
+    var forcingHighest by remember {
+        mutableStateOf((engine as? ExoEngine)?.isForcingHighest ?: false)
+    }
     val initialFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { initialFocus.requestFocus() } }
 
@@ -1038,6 +1052,7 @@ private fun TracksOverlay(
         audio = engine.audioTracks()
         text = engine.textTracks()
         video = engine.videoTracks()
+        forcingHighest = (engine as? ExoEngine)?.isForcingHighest ?: false
     }
 
     Box(
@@ -1071,9 +1086,25 @@ private fun TracksOverlay(
                             color = NuxColors.OnSurfaceDim,
                         )
                     }
+                    item(key = "video-highest") {
+                        TrackRow(
+                            track = Track(
+                                com.nuxcor.nuxtv.player.HIGHEST_QUALITY,
+                                "Highest available",
+                                forcingHighest,
+                            )
+                        ) {
+                            engine.selectVideoTrack(com.nuxcor.nuxtv.player.HIGHEST_QUALITY)
+                            refresh()
+                        }
+                    }
                     item(key = "video-auto") {
                         TrackRow(
-                            track = Track("auto", "Auto — adapt to bandwidth", video.none { it.selected })
+                            track = Track(
+                                "auto",
+                                "Auto — adapt to bandwidth",
+                                !forcingHighest && video.none { it.selected },
+                            )
                         ) {
                             engine.selectVideoTrack(null)
                             refresh()
@@ -1252,6 +1283,7 @@ private fun MiniGuide(
     currentIndex: Int,
     onSelect: (Int) -> Unit,
     onSelectChannels: (List<LiveChannel>, Int) -> Unit,
+    onExitToHome: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val nowNextMap by vm.nowNext.collectAsState()
@@ -1342,9 +1374,10 @@ private fun MiniGuide(
                                 runCatching { firstFocus.requestFocus() }
                                 true
                             }
-                            // Already at the outermost level; swallow so focus
-                            // can't escape sideways into the video area.
-                            AndroidKeyEvent.KEYCODE_DPAD_LEFT -> true
+                            // Categories is the last panel, so LEFT completes the
+                            // walk outward and leaves the player for Home, where
+                            // Live/Movies/Series/Settings live.
+                            AndroidKeyEvent.KEYCODE_DPAD_LEFT -> { onExitToHome(); true }
                             else -> false
                         }
                     }
@@ -1442,6 +1475,32 @@ private fun MiniGuide(
                     modifier = Modifier.fillMaxHeight(),
                 ) {
                     val rowCount = if (browsingCategory) categoryChannels.size else items.size
+                    // A category can legitimately be empty — every channel in it
+                    // hidden, or Favorites before anything is starred. Without a
+                    // focusable row here focus has nowhere to land, and since
+                    // the guide suppresses the root's focus parking, the remote
+                    // would go dead until BACK. Never leave the panel focusless.
+                    if (rowCount == 0) {
+                        item(key = "empty") {
+                            Surface(
+                                onClick = { categoriesOpen = true },
+                                modifier = Modifier.fillMaxWidth().focusRequester(firstFocus),
+                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = Color.Transparent,
+                                    focusedContainerColor = NuxColors.SurfaceVariant,
+                                    contentColor = NuxColors.OnSurfaceDim,
+                                    focusedContentColor = NuxColors.OnSurface,
+                                ),
+                            ) {
+                                Text(
+                                    text = "No channels here — press OK for categories",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+                                )
+                            }
+                        }
+                    }
                     items(rowCount, key = { it }) { index ->
                         // Browsing a category shows that category's channels and
                         // selecting one makes it the new zap playlist; otherwise
