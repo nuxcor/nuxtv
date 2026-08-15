@@ -1,6 +1,6 @@
 # Dzidzi
 
-A premium IPTV player for **Android TV**, built with Jetpack Compose for TV, Media3/ExoPlayer and libVLC.
+A premium streaming player for **Android TV**, built with Jetpack Compose for TV, Media3/ExoPlayer and libVLC.
 
 Point it at an **Xtream Codes** login or a plain **M3U playlist link** and Dzidzi organizes everything into a real TV experience — Live channels, a Movies library, and Series with seasons and episodes.
 
@@ -16,7 +16,7 @@ Point it at an **Xtream Codes** login or a plain **M3U playlist link** and Dzidz
   - Everything else becomes a live channel, grouped by `group-title` categories
   - Titles are cleaned of quality noise (`1080p`, `HEVC`, `[4K]`, language prefixes)
 - **Dual playback engines** — ExoPlayer and libVLC behind one abstraction. If a stream fails on ExoPlayer it automatically retries on VLC (which handles odd TS muxing and exotic codecs); you can also swap engines from the player or set a default in Settings
-- **Every stream format** — progressive TS/MP4/MKV, HLS, DASH, SmoothStreaming, RTSP and RTMP. Extensionless IPTV URLs get a MIME hint so the right demuxer is picked up front instead of falling back to progressive
+- **Every stream format** — progressive TS/MP4/MKV, HLS, DASH, SmoothStreaming, RTSP and RTMP. Extensionless stream URLs get a MIME hint so the right demuxer is picked up front instead of falling back to progressive
 - **Full-quality by default** — hardware decoders first with software fallback, no viewport cap on adaptive bitrate selection (TV boxes routinely under-report their display size and silently pin an HLS ladder to a low rung), and a deeper buffer so provider hiccups don't read as bad picture
 - **Video quality picker** — adaptive streams expose their full bitrate ladder in the player's options; leave it on Auto or pin a rung. The banner shows the resolution actually being decoded, not what the stream name advertises
 - **Instant start** — the parsed playlist is cached on disk, so the library appears immediately on launch and refreshes silently in the background
@@ -25,7 +25,7 @@ Point it at an **Xtream Codes** login or a plain **M3U playlist link** and Dzidz
 - **Now/next everywhere** — channel rows in Live TV show what's airing right now
 - **Remote-first navigation** — rail tabs and Live categories switch once focus rests (no OK needed), BACK returns focus to the rail before exiting, and every list takes channel numbers straight off the keypad. In the player a tap of OK opens the channel list and a hold opens the options bar, so nothing depends on a MENU key the remote may not have
 - **Continue Watching** — partially-watched movies and series surface at the top of their tabs
-- **Parental control** — set a PIN and adult-looking categories (XXX/Adult/18+) lock across Live, Movies and Series
+- **Parental control** — set a PIN and restricted categories are hidden across Live, Movies and Series until you unlock them
 - **Player options** — aspect ratio (fit/stretch/zoom), playback speed for VOD, sleep timer, and automatic reconnection when a live stream drops
 - **Catch-up TV** — Xtream channels with `tv_archive` expose their EPG in the player; pick any archived programme and it plays via timeshift
 - **Recording & DVR** — record raw TS live streams from the player, or schedule future recordings from the guide (AlarmManager, survives reboots, auto-stops after the programme); recordings get their own library section with playback and delete

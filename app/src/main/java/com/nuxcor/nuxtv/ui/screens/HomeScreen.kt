@@ -901,7 +901,7 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
                     color = NuxColors.OnSurface,
                 )
                 Text(
-                    "With a PIN set, adult-looking categories (XXX/Adult/18+) lock everywhere until unlocked.",
+                    "With a PIN set, restricted categories are hidden everywhere until you unlock them.",
                     style = MaterialTheme.typography.labelSmall,
                     color = NuxColors.OnSurfaceDim,
                 )
