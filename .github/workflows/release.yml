@@ -1,11 +1,14 @@
 name: Release
 
-# Merging to main publishes a release for whatever version the build declares,
-# so shipping is just "bump versionName, merge". Pushing a v* tag still works
-# for cutting a release by hand.
+# Releasing is deliberate: run this workflow from the Actions tab (or push a v*
+# tag) when a build has actually been verified on a TV. It used to fire on every
+# merge to main, which meant code reached users minutes after being written and
+# device-only bugs — the kind unit tests can't reach — shipped before anyone
+# had run the app. Merges still build and test via build.yml; they just don't
+# publish any more.
 on:
+  workflow_dispatch:
   push:
-    branches: [main]
     tags: ['v*']
 
 jobs:

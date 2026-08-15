@@ -52,7 +52,13 @@ class ExoEngine(context: Context) : PlayerEngine {
             // HLS ladder to a low rung. On a TV we always want the top rung.
             .clearViewportSizeConstraints()
             .clearVideoSizeConstraints()
-            .setForceHighestSupportedBitrate(false) // Auto by default; user can pin
+            // Default to the top rung rather than ramping up to it. Adaptive
+            // selection starts low and climbs, which on a TV means the first
+            // several seconds of every channel change look soft — the single
+            // most common "the quality is bad" complaint. Bandwidth to a TV is
+            // usually fixed and adequate; "Auto" is one press away in the
+            // player options for anyone on a constrained connection.
+            .setForceHighestSupportedBitrate(true)
             .build()
     }
 
@@ -213,6 +219,10 @@ class ExoEngine(context: Context) : PlayerEngine {
     override fun audioTracks(): List<Track> = tracksOf(C.TRACK_TYPE_AUDIO)
     override fun textTracks(): List<Track> = tracksOf(C.TRACK_TYPE_TEXT)
 
+    /** True when neither a rung nor Auto has been chosen — the default. */
+    val isForcingHighest: Boolean
+        get() = trackSelector.parameters.forceHighestSupportedBitrate
+
     override fun videoTracks(): List<Track> {
         val pinned = trackSelector.parameters.overrides.values
             .any { it.type == C.TRACK_TYPE_VIDEO }
@@ -239,7 +249,11 @@ class ExoEngine(context: Context) : PlayerEngine {
 
     override fun selectVideoTrack(id: String?) {
         trackSelector.parameters = trackSelector.buildUponParameters().apply {
-            if (id == null) {
+            // Any explicit choice — a pinned rung or Auto — hands bitrate
+            // control back to the selector, so the forced-highest default
+            // stops overriding it.
+            setForceHighestSupportedBitrate(id == HIGHEST_QUALITY)
+            if (id == null || id == HIGHEST_QUALITY) {
                 clearOverridesOfType(C.TRACK_TYPE_VIDEO)
             } else {
                 val (groupIndex, trackIndex) = id.split(":").map { it.toInt() }
