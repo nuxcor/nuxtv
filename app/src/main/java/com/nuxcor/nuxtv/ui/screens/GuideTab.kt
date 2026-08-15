@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,6 +65,9 @@ private val ROW_HEIGHT = 72.dp
 
 /** 16 min ≈ 64dp: the narrowest cell that still shows a title and a focus ring. */
 private const val MIN_CELL_MINUTES = 16f
+
+/** Leaves room for roughly five rows on a 540dp-tall TV canvas. */
+private val HEADER_HEIGHT = 168.dp
 
 @Composable
 fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
@@ -118,12 +122,16 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
             var nowTick by remember { mutableStateOf(System.currentTimeMillis()) }
             LaunchedEffect(Unit) {
                 while (true) {
-                    delay(60_000)
+                    delay(30_000)
                     nowTick = System.currentTimeMillis()
                 }
             }
             val timelineScroll = rememberScrollState()
             var statusMessage by remember { mutableStateOf<String?>(null) }
+            // What the header describes. Focus drives it, so moving across the
+            // grid reads out each programme without having to select it.
+            var focusedProgram by remember { mutableStateOf<EpgProgram?>(null) }
+            var focusedChannel by remember { mutableStateOf<LiveChannel?>(null) }
 
             LaunchedEffect(statusMessage) {
                 if (statusMessage != null) {
@@ -188,7 +196,16 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                     }
                 }
 
-                TimeRuler(windowStart, windowEnd, timelineScroll)
+                GuideHeader(
+                    channel = focusedChannel ?: channels.firstOrNull(),
+                    program = focusedProgram,
+                    nowMs = nowTick,
+                    playlistName = vm.activeSource.collectAsState().value?.name,
+                    categoryName = categories.firstOrNull { it.id == categoryId }?.name,
+                )
+                Spacer(Modifier.height(10.dp))
+
+                TimeRuler(windowStart, windowEnd, nowTick, timelineScroll)
 
                 Box(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
@@ -204,6 +221,10 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                             windowEnd = windowEnd,
                             nowMs = nowTick,
                             timelineScroll = timelineScroll,
+                            onFocus = { program ->
+                                focusedChannel = channel
+                                focusedProgram = program
+                            },
                             onPlayChannel = {
                                 vm.playChannels(channels, channels.indexOf(channel))
                                 onPlay()
@@ -244,6 +265,132 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                     )
                 }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Broadcast-style header: what the cursor is sitting on, described in full,
+ * above the grid. The grid can only ever show a truncated title, so without
+ * this you have to select a programme to find out what it is.
+ */
+@Composable
+private fun GuideHeader(
+    channel: LiveChannel?,
+    program: EpgProgram?,
+    nowMs: Long,
+    playlistName: String?,
+    categoryName: String?,
+) {
+    val clockFmt = remember { SimpleDateFormat("h:mm a • EEE, d MMM yyyy", Locale.getDefault()) }
+    val timeFmt = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth().height(HEADER_HEIGHT),
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        // Channel artwork rather than a live preview: previewing on focus would
+        // open a stream per channel you pass over, and providers cap concurrent
+        // connections — browsing the guide would lock you out of playback.
+        Box(
+            modifier = Modifier
+                .width(240.dp)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(12.dp))
+                .background(NuxColors.Surface),
+            contentAlignment = Alignment.Center,
+        ) {
+            Artwork(
+                imageUrl = channel?.logo,
+                title = channel?.name.orEmpty(),
+                modifier = Modifier.fillMaxSize().padding(20.dp),
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                monogramStyle = MaterialTheme.typography.headlineSmall,
+            )
+        }
+
+        Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+            Row(verticalAlignment = Alignment.Top) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = program?.title ?: channel?.name ?: "Guide",
+                        style = MaterialTheme.typography.headlineSmall.copy(
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = NuxColors.OnSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (program != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "${timeFmt.format(Date(program.startMs))} – " +
+                                timeFmt.format(Date(program.endMs)),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = NuxColors.OnSurfaceDim,
+                        )
+                    }
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = clockFmt.format(Date(nowMs)),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = NuxColors.OnSurface,
+                    )
+                    if (playlistName != null || categoryName != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = listOfNotNull(playlistName, categoryName).joinToString("  •  "),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NuxColors.OnSurfaceDim,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+
+            // Progress only means something for whatever is on right now.
+            if (program != null && nowMs in program.startMs until program.endMs) {
+                Spacer(Modifier.height(10.dp))
+                val span = (program.endMs - program.startMs).coerceAtLeast(1)
+                val progress = ((nowMs - program.startMs).toFloat() / span).coerceIn(0f, 1f)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(260.dp)
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(NuxColors.SurfaceVariant)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(progress)
+                                .background(NuxColors.Primary)
+                        )
+                    }
+                    Text(
+                        text = "${((program.endMs - nowMs) / 60_000L).coerceAtLeast(0)} minutes left",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = NuxColors.OnSurfaceDim,
+                    )
+                }
+            }
+
+            if (!program?.description.isNullOrBlank()) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = program?.description.orEmpty(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NuxColors.OnSurfaceDim,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -309,18 +456,30 @@ private fun NoGuidePane(
 private fun TimeRuler(
     windowStart: Long,
     windowEnd: Long,
+    nowMs: Long,
     timelineScroll: androidx.compose.foundation.ScrollState,
 ) {
-    val fmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-    Row(modifier = Modifier.fillMaxWidth()) {
-        Spacer(Modifier.width(CHANNEL_COLUMN_WIDTH + 8.dp))
+    val fmt = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
+    val dayFmt = remember { SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault()) }
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = dayFmt.format(Date(windowStart)),
+            style = MaterialTheme.typography.labelMedium,
+            color = NuxColors.OnSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.width(CHANNEL_COLUMN_WIDTH + 8.dp),
+        )
         Row(modifier = Modifier.horizontalScroll(timelineScroll, enabled = false)) {
             var t = windowStart
             while (t < windowEnd) {
+                // The half-hour containing "now" is called out instead of
+                // labelled with a time you'd have to compare against a clock.
+                val isNow = nowMs >= t && nowMs < t + 30 * 60_000L
                 Text(
-                    text = fmt.format(Date(t)),
+                    text = if (isNow) "ON NOW" else fmt.format(Date(t)),
                     style = MaterialTheme.typography.labelMedium,
-                    color = NuxColors.OnSurfaceDim,
+                    color = if (isNow) NuxColors.Error else NuxColors.OnSurfaceDim,
                     modifier = Modifier.width(DP_PER_MINUTE * 30),
                 )
                 t += 30 * 60_000L
@@ -338,6 +497,7 @@ private fun GuideRow(
     windowEnd: Long,
     nowMs: Long,
     timelineScroll: androidx.compose.foundation.ScrollState,
+    onFocus: (EpgProgram?) -> Unit,
     onPlayChannel: () -> Unit,
     onCatchup: (EpgProgram) -> Unit,
     onSchedule: (EpgProgram) -> Unit,
@@ -350,7 +510,13 @@ private fun GuideRow(
         // Fixed channel cell.
         Surface(
             onClick = onPlayChannel,
-            modifier = Modifier.width(CHANNEL_COLUMN_WIDTH),
+            modifier = Modifier
+                .width(CHANNEL_COLUMN_WIDTH)
+                .onFocusChanged {
+                    if (it.isFocused) {
+                        onFocus(programs.firstOrNull { p -> nowMs in p.startMs until p.endMs })
+                    }
+                },
             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = NuxColors.Surface,
@@ -381,9 +547,17 @@ private fun GuideRow(
                 Text(
                     text = channel.name,
                     style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
+                channel.number?.let { number ->
+                    Text(
+                        text = number.toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NuxColors.OnSurfaceDim,
+                    )
+                }
             }
         }
         Spacer(Modifier.width(8.dp))
@@ -401,7 +575,7 @@ private fun GuideRow(
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     Text(
-                        "No guide data",
+                        "No information — ${channel.name}",
                         style = MaterialTheme.typography.labelMedium,
                         color = NuxColors.OnSurfaceDim,
                         modifier = Modifier.padding(start = 16.dp),
@@ -444,6 +618,7 @@ private fun GuideRow(
                         program = program,
                         widthMinutes = widthMinutes,
                         nowMs = nowMs,
+                        onFocus = { onFocus(program) },
                         hasArchive = channel.archiveDays > 0,
                         canRecord = channel.recordUrl != null,
                         onPlayLive = onPlayChannel,
@@ -469,6 +644,7 @@ private fun ProgramCell(
     program: EpgProgram,
     widthMinutes: Float,
     nowMs: Long,
+    onFocus: () -> Unit,
     hasArchive: Boolean,
     canRecord: Boolean,
     onPlayLive: () -> Unit,
@@ -489,6 +665,7 @@ private fun ProgramCell(
             }
         },
         modifier = Modifier
+            .onFocusChanged { if (it.isFocused) onFocus() }
             // Caller has already reconciled this against the ruler; see GuideRow.
             .width(DP_PER_MINUTE * widthMinutes)
             .height(ROW_HEIGHT)
