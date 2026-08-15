@@ -131,7 +131,7 @@ fun PosterCard(
         border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = NuxFocus.cardGlow),
     ) {
-        Column {
+        Column(modifier = Modifier.padding(horizontal = 2.dp)) {
             Box {
                 Artwork(
                     imageUrl = imageUrl,

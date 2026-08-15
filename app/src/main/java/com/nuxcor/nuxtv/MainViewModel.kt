@@ -90,6 +90,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setMergeDuplicates(enabled: Boolean) =
         viewModelScope.launch { playerPrefs.setMergeDuplicates(enabled) }
 
+    /** 0 = provider order, 1 = A–Z, 2 = quality first. */
+    val channelOrder: StateFlow<Int> = playerPrefs.channelOrder
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    fun setChannelOrder(mode: Int) = viewModelScope.launch { playerPrefs.setChannelOrder(mode) }
+
     /** Locked categories stay hidden until the PIN is entered this session. */
     var parentalUnlocked by mutableStateOf(false)
         private set
@@ -147,7 +153,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             playerPrefs.hidden,
             playerPrefs.mergeDuplicates,
             playerPrefs.parentalPin,
-        ) { c, hiddenSet, merge, pin ->
+            playerPrefs.channelOrder,
+        ) { c, hiddenSet, merge, pin, order ->
             val bundle = (c as? ContentState.Ready)?.bundle ?: return@combine emptyList()
             val lockedIds = if (pin != null && !parentalUnlocked) {
                 bundle.liveCategories.filter { isLockedCategory(it.name) }.map { it.id }.toSet()
@@ -155,7 +162,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val visible = bundle.channels
                 .filterNot { it.url in hiddenSet }
                 .filterNot { it.categoryId in lockedIds }
-            if (merge) com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(visible) else visible
+            val merged =
+                if (merge) com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(visible) else visible
+            when (order) {
+                1 -> merged.sortedBy { it.name.lowercase() }
+                2 -> merged.sortedWith(
+                    compareByDescending<LiveChannel> {
+                        com.nuxcor.nuxtv.data.QualityTag.rank(it.quality)
+                    }.thenBy { it.name.lowercase() }
+                )
+                else -> merged
+            }
         }
             .flowOn(kotlinx.coroutines.Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

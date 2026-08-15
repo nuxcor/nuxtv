@@ -229,20 +229,27 @@ private fun NavRail(
     }
     val width by animateDpAsState(targetValue = if (expanded) 190.dp else 64.dp, label = "railWidth")
 
+    if (expanded) {
+        // Soft edge between the rail and the content it covers.
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .padding(start = width)
+                .width(28.dp)
+                .background(
+                    androidx.compose.ui.graphics.Brush.horizontalGradient(
+                        listOf(NuxColors.Background, androidx.compose.ui.graphics.Color.Transparent)
+                    )
+                )
+        )
+    }
     Column(
         modifier = Modifier
             .fillMaxHeight()
             .width(width)
             .focusRestorer()
-            .background(
-                androidx.compose.ui.graphics.Brush.horizontalGradient(
-                    listOf(
-                        NuxColors.Background,
-                        NuxColors.Background,
-                        NuxColors.Background.copy(alpha = if (expanded) 0.92f else 1f),
-                    )
-                )
-            )
+            // Opaque so overlaid content never shows through the rail.
+            .background(NuxColors.Background)
             .onFocusChanged {
                 expanded = it.hasFocus
                 onRailFocusChanged(it.hasFocus)
@@ -354,23 +361,12 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
         }
     }
     var selectedCategory by rememberSaveable(bundle.channels.size) { mutableStateOf("__all__") }
-    var sortMode by rememberSaveable { mutableStateOf(0) } // 0 default, 1 A–Z, 2 quality
-    val sortedAll = remember(allVisible, sortMode) {
-        when (sortMode) {
-            1 -> allVisible.sortedBy { it.name.lowercase() }
-            2 -> allVisible.sortedWith(
-                compareByDescending<com.nuxcor.nuxtv.data.LiveChannel> {
-                    com.nuxcor.nuxtv.data.QualityTag.rank(it.quality)
-                }.thenBy { it.name.lowercase() }
-            )
-            else -> allVisible
-        }
-    }
-    val channels = remember(sortedAll, selectedCategory, favorites) {
+    // Ordering is applied in the ViewModel from the Settings preference.
+    val channels = remember(allVisible, selectedCategory, favorites) {
         when (selectedCategory) {
-            "__all__" -> sortedAll
-            "__fav__" -> sortedAll.filter { it.url in favorites }
-            else -> sortedAll.filter { it.categoryId == selectedCategory }
+            "__all__" -> allVisible
+            "__fav__" -> allVisible.filter { it.url in favorites }
+            else -> allVisible.filter { it.categoryId == selectedCategory }
         }
     }
 
@@ -402,12 +398,6 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
             }
         }
         Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
-        SegmentedControl(
-            options = listOf("Default", "A–Z", "Quality"),
-            selectedIndex = sortMode,
-            onSelect = { sortMode = it },
-            modifier = Modifier.padding(bottom = Space.m),
-        )
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
@@ -641,6 +631,28 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
                         modifier = Modifier,
                     )
                 }
+            }
+        }
+
+        item(key = "order") {
+            Column {
+                Text(
+                    "Channel order",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NuxColors.OnSurface,
+                )
+                Text(
+                    "How Live TV lists channels within a category.",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = NuxColors.OnSurfaceDim,
+                )
+                Spacer(Modifier.height(8.dp))
+                val order by vm.channelOrder.collectAsState()
+                SegmentedControl(
+                    options = listOf("Provider order", "A–Z", "Best quality first"),
+                    selectedIndex = order,
+                    onSelect = { vm.setChannelOrder(it) },
+                )
             }
         }
 

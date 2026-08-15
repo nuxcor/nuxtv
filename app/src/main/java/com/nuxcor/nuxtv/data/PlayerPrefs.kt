@@ -38,6 +38,7 @@ class PlayerPrefs(private val context: Context) {
     private val tmdbKeyKey = stringPreferencesKey("tmdb_api_key")
     private val pinKey = stringPreferencesKey("parental_pin")
     private val mergeDupesKey = stringPreferencesKey("merge_duplicate_channels")
+    private val channelOrderKey = stringPreferencesKey("channel_order")
 
     val engine: Flow<EngineChoice> = context.playerDataStore.data.map { prefs ->
         runCatching { EngineChoice.valueOf(prefs[engineKey] ?: "EXO") }.getOrDefault(EngineChoice.EXO)
@@ -165,6 +166,15 @@ class PlayerPrefs(private val context: Context) {
         context.playerDataStore.edit { it[mergeDupesKey] = enabled.toString() }
     }
 
+    /** 0 = provider order, 1 = A-Z, 2 = quality first. */
+    val channelOrder: Flow<Int> = context.playerDataStore.data.map { prefs ->
+        prefs[channelOrderKey]?.toIntOrNull() ?: 0
+    }
+
+    suspend fun setChannelOrder(mode: Int) {
+        context.playerDataStore.edit { it[channelOrderKey] = mode.toString() }
+    }
+
     val parentalPin: Flow<String?> = context.playerDataStore.data.map { prefs ->
         prefs[pinKey]?.takeIf { it.isNotBlank() }
     }
@@ -191,6 +201,7 @@ class PlayerPrefs(private val context: Context) {
         val epgOverrideUrl: String? = null,
         val tmdbKey: String? = null,
         val mergeDuplicates: Boolean = false,
+        val channelOrder: Int = 0,
         val schedules: List<ScheduledRecording> = emptyList(),
         val sources: List<PlaylistSource> = emptyList(),
     )
@@ -208,6 +219,7 @@ class PlayerPrefs(private val context: Context) {
             epgOverrideUrl = prefs[epgOverrideKey],
             tmdbKey = prefs[tmdbKeyKey],
             mergeDuplicates = prefs[mergeDupesKey] == "true",
+            channelOrder = prefs[channelOrderKey]?.toIntOrNull() ?: 0,
             schedules = prefs[schedulesKey]?.let {
                 runCatching { json.decodeFromString<List<ScheduledRecording>>(it) }.getOrNull()
             } ?: emptyList(),
@@ -226,6 +238,7 @@ class PlayerPrefs(private val context: Context) {
             backup.epgOverrideUrl?.let { prefs[epgOverrideKey] = it } ?: prefs.remove(epgOverrideKey)
             backup.tmdbKey?.let { prefs[tmdbKeyKey] = it } ?: prefs.remove(tmdbKeyKey)
             prefs[mergeDupesKey] = backup.mergeDuplicates.toString()
+            prefs[channelOrderKey] = backup.channelOrder.toString()
             prefs[schedulesKey] = json.encodeToString(backup.schedules)
         }
         return backup.sources

@@ -144,7 +144,7 @@ fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> 
                         LazyRow(
                             modifier = Modifier.focusRestorer(),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            contentPadding = PaddingValues(end = 24.dp),
+                            contentPadding = PaddingValues(start = 4.dp, end = 24.dp),
                         ) {
                             items(continueWatching.size, key = { continueWatching[it].id }) { i ->
                                 val movie = continueWatching[i]
@@ -168,7 +168,7 @@ fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> 
                         LazyRow(
                             modifier = Modifier.focusRestorer(),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            contentPadding = PaddingValues(end = 24.dp),
+                            contentPadding = PaddingValues(start = 4.dp, end = 24.dp),
                         ) {
                             items(movies.size, key = { movies[it].id }) { i ->
                                 val movie = movies[i]
@@ -220,7 +220,7 @@ fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -
                         LazyRow(
                             modifier = Modifier.focusRestorer(),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            contentPadding = PaddingValues(end = 24.dp),
+                            contentPadding = PaddingValues(start = 4.dp, end = 24.dp),
                         ) {
                             items(continueWatching.size, key = { continueWatching[it].id }) { i ->
                                 val series = continueWatching[i]
@@ -244,7 +244,7 @@ fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -
                         LazyRow(
                             modifier = Modifier.focusRestorer(),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            contentPadding = PaddingValues(end = 24.dp),
+                            contentPadding = PaddingValues(start = 4.dp, end = 24.dp),
                         ) {
                             items(seriesList.size, key = { seriesList[it].id }) { i ->
                                 val series = seriesList[i]
