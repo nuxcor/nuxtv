@@ -126,6 +126,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         onDispose { activity?.removeOnPictureInPictureModeChangedListener(listener) }
     }
     val defaultEngine by vm.engine.collectAsState()
+    val qualityPref by vm.videoQuality.collectAsState()
     val activeRecording by vm.activeRecording.collectAsState()
 
     var engineChoice by remember { mutableStateOf(defaultEngine) }
@@ -171,7 +172,12 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
 
     // Engine lives for as long as engineChoice does; swapping recreates it.
     val engine: PlayerEngine = remember(engineChoice) {
-        if (engineChoice == EngineChoice.VLC) VlcEngine(context) else ExoEngine(context)
+        // Not keyed on qualityPref: ExoPlayer applies it live through the track
+        // selector, and rebuilding VLC mid-stream to change a construction flag
+        // would interrupt playback for a setting change. VLC picks it up next
+        // time the player opens.
+        if (engineChoice == EngineChoice.VLC) VlcEngine(context, qualityPref == 1)
+        else ExoEngine(context)
     }
 
     DisposableEffect(engine) {
@@ -235,6 +241,11 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         // A recreated engine starts at defaults; re-apply the user's choices.
         if (speed != 1f) engine.setSpeed(speed)
         if (scaleMode != 0) engine.setScaleMode(scaleMode)
+        // Settings decides whether we pin the top rung or let it adapt. Doing
+        // this per-stream also resets any rung pinned on the previous channel.
+        engine.selectVideoTrack(
+            if (qualityPref == 1) com.nuxcor.nuxtv.player.HIGHEST_QUALITY else null
+        )
         if (resume > 0 && positionMs == 0L) statusMessage = "Resumed from ${formatTime(resume)}"
     }
 

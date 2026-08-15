@@ -52,12 +52,8 @@ class ExoEngine(context: Context) : PlayerEngine {
             // HLS ladder to a low rung. On a TV we always want the top rung.
             .clearViewportSizeConstraints()
             .clearVideoSizeConstraints()
-            // Default to the top rung rather than ramping up to it. Adaptive
-            // selection starts low and climbs, which on a TV means the first
-            // several seconds of every channel change look soft — the single
-            // most common "the quality is bad" complaint. Bandwidth to a TV is
-            // usually fixed and adequate; "Auto" is one press away in the
-            // player options for anyone on a constrained connection.
+            // Overridden from the Settings preference once playback starts;
+            // this is only the value in force before that is applied.
             .setForceHighestSupportedBitrate(true)
             .build()
     }
@@ -91,8 +87,14 @@ class ExoEngine(context: Context) : PlayerEngine {
                     .setBufferDurationsMs(
                         /* minBufferMs = */ 15_000,
                         /* maxBufferMs = */ 60_000,
-                        /* bufferForPlaybackMs = */ 1_500,
-                        /* bufferForPlaybackAfterRebufferMs = */ 3_000,
+                        // Stock 2.5s to start. 1.5s made channel changes feel
+                        // quicker but began playback on a thinner buffer, so a
+                        // marginal connection re-stalled seconds later — a
+                        // stall costs far more than the second it saved.
+                        /* bufferForPlaybackMs = */ 2_500,
+                        // Deeper after a stall: coming back on the same thin
+                        // buffer that just failed invites a rebuffer loop.
+                        /* bufferForPlaybackAfterRebufferMs = */ 5_000,
                     )
                     .setPrioritizeTimeOverSizeThresholds(true)
                     .build()

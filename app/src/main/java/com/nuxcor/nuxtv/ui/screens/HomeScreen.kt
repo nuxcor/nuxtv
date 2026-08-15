@@ -782,6 +782,31 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
             }
         }
 
+        item(key = "quality") {
+            Column {
+                Text(
+                    "Picture quality",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NuxColors.OnSurface,
+                )
+                Text(
+                    "Highest is sharper the moment a channel opens, but never drops " +
+                        "when the connection sags — on a weak line that becomes buffering. " +
+                        "Auto starts lower and climbs. Only affects streams that offer " +
+                        "more than one quality.",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = NuxColors.OnSurfaceDim,
+                )
+                Spacer(Modifier.height(8.dp))
+                val quality by vm.videoQuality.collectAsState()
+                SegmentedControl(
+                    options = listOf("Auto", "Highest"),
+                    selectedIndex = quality,
+                    onSelect = { vm.setVideoQuality(it) },
+                )
+            }
+        }
+
         item(key = "engine") {
             Column {
                 Text(

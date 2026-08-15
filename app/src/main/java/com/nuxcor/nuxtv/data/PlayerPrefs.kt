@@ -40,6 +40,7 @@ class PlayerPrefs(private val context: Context) {
     private val mergeDupesKey = stringPreferencesKey("merge_duplicate_channels")
     private val channelOrderKey = stringPreferencesKey("channel_order")
     private val durationsKey = stringPreferencesKey("resume_durations")
+    private val videoQualityKey = stringPreferencesKey("video_quality")
 
     val engine: Flow<EngineChoice> = context.playerDataStore.data.map { prefs ->
         runCatching { EngineChoice.valueOf(prefs[engineKey] ?: "EXO") }.getOrDefault(EngineChoice.EXO)
@@ -194,6 +195,20 @@ class PlayerPrefs(private val context: Context) {
 
     suspend fun setChannelOrder(mode: Int) {
         context.playerDataStore.edit { it[channelOrderKey] = mode.toString() }
+    }
+
+    /**
+     * 0 = adapt to bandwidth, 1 = always the top rung. Highest looks sharper
+     * immediately but never drops when the connection sags, so it turns a soft
+     * picture into rebuffering — which of those is the lesser evil depends on
+     * the line, not on us.
+     */
+    val videoQuality: Flow<Int> = context.playerDataStore.data.map { prefs ->
+        prefs[videoQualityKey]?.toIntOrNull() ?: 1
+    }
+
+    suspend fun setVideoQuality(mode: Int) {
+        context.playerDataStore.edit { it[videoQualityKey] = mode.toString() }
     }
 
     val parentalPin: Flow<String?> = context.playerDataStore.data.map { prefs ->
