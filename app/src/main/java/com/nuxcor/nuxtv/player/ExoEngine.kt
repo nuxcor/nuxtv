@@ -52,12 +52,8 @@ class ExoEngine(context: Context) : PlayerEngine {
             // HLS ladder to a low rung. On a TV we always want the top rung.
             .clearViewportSizeConstraints()
             .clearVideoSizeConstraints()
-            // Default to the top rung rather than ramping up to it. Adaptive
-            // selection starts low and climbs, which on a TV means the first
-            // several seconds of every channel change look soft — the single
-            // most common "the quality is bad" complaint. Bandwidth to a TV is
-            // usually fixed and adequate; "Auto" is one press away in the
-            // player options for anyone on a constrained connection.
+            // Overridden from the Settings preference once playback starts;
+            // this is only the value in force before that is applied.
             .setForceHighestSupportedBitrate(true)
             .build()
     }
@@ -91,8 +87,14 @@ class ExoEngine(context: Context) : PlayerEngine {
                     .setBufferDurationsMs(
                         /* minBufferMs = */ 15_000,
                         /* maxBufferMs = */ 60_000,
-                        /* bufferForPlaybackMs = */ 1_500,
-                        /* bufferForPlaybackAfterRebufferMs = */ 3_000,
+                        // Stock 2.5s to start. 1.5s made channel changes feel
+                        // quicker but began playback on a thinner buffer, so a
+                        // marginal connection re-stalled seconds later — a
+                        // stall costs far more than the second it saved.
+                        /* bufferForPlaybackMs = */ 2_500,
+                        // Deeper after a stall: coming back on the same thin
+                        // buffer that just failed invites a rebuffer loop.
+                        /* bufferForPlaybackAfterRebufferMs = */ 5_000,
                     )
                     .setPrioritizeTimeOverSizeThresholds(true)
                     .build()
@@ -230,21 +232,28 @@ class ExoEngine(context: Context) : PlayerEngine {
             .withIndex()
             .filter { (_, group) -> group.type == C.TRACK_TYPE_VIDEO }
             .flatMap { (groupIndex, group) ->
-                (0 until group.length)
-                    .filter { group.isTrackSupported(it) }
-                    .map { trackIndex ->
-                        val format = group.getTrackFormat(trackIndex)
-                        Track(
-                            id = "$groupIndex:$trackIndex",
-                            label = qualityLabel(format.width, format.height, format.bitrate),
-                            // Only mark a rung "selected" when the user pinned
-                            // one; under adaptive selection "Auto" owns the tick.
-                            selected = pinned && group.isTrackSelected(trackIndex),
-                        )
-                    }
+                (0 until group.length).map { trackIndex ->
+                    val format = group.getTrackFormat(trackIndex)
+                    val supported = group.isTrackSupported(trackIndex)
+                    val codec = format.codecs?.substringBefore('.')?.uppercase()
+                    Track(
+                        id = "$groupIndex:$trackIndex",
+                        label = buildString {
+                            append(qualityLabel(format.width, format.height, format.bitrate))
+                            if (codec != null) append("  $codec")
+                            if (!supported) append("  — this TV can't decode it")
+                        },
+                        // Only mark a rung "selected" when the user pinned
+                        // one; under adaptive selection "Auto" owns the tick.
+                        selected = supported && pinned && group.isTrackSelected(trackIndex),
+                        supported = supported,
+                    )
+                }
             }
-        // A single rung is not a choice — don't offer a picker for it.
-        return if (rungs.size > 1) rungs else emptyList()
+        // One playable rung and nothing else is not a choice. But a rung the
+        // device can't decode is worth showing even on its own — that is the
+        // whole explanation for a UHD channel looking soft.
+        return if (rungs.size > 1 || rungs.any { !it.supported }) rungs else emptyList()
     }
 
     override fun selectVideoTrack(id: String?) {
@@ -255,6 +264,12 @@ class ExoEngine(context: Context) : PlayerEngine {
             setForceHighestSupportedBitrate(id == HIGHEST_QUALITY)
             if (id == null || id == HIGHEST_QUALITY) {
                 clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            } else if (player.currentTracks.groups
+                    .getOrNull(id.substringBefore(':').toIntOrNull() ?: -1)
+                    ?.isTrackSupported(id.substringAfter(':').toIntOrNull() ?: -1) == false
+            ) {
+                // Pinning a rung the decoder rejects would black the video out.
+                return@apply
             } else {
                 val (groupIndex, trackIndex) = id.split(":").map { it.toInt() }
                 val group = player.currentTracks.groups.getOrNull(groupIndex)

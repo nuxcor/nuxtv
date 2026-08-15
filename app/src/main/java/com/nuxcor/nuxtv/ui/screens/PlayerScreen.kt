@@ -126,6 +126,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         onDispose { activity?.removeOnPictureInPictureModeChangedListener(listener) }
     }
     val defaultEngine by vm.engine.collectAsState()
+    val qualityPref by vm.videoQuality.collectAsState()
     val activeRecording by vm.activeRecording.collectAsState()
 
     var engineChoice by remember { mutableStateOf(defaultEngine) }
@@ -171,7 +172,12 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
 
     // Engine lives for as long as engineChoice does; swapping recreates it.
     val engine: PlayerEngine = remember(engineChoice) {
-        if (engineChoice == EngineChoice.VLC) VlcEngine(context) else ExoEngine(context)
+        // Not keyed on qualityPref: ExoPlayer applies it live through the track
+        // selector, and rebuilding VLC mid-stream to change a construction flag
+        // would interrupt playback for a setting change. VLC picks it up next
+        // time the player opens.
+        if (engineChoice == EngineChoice.VLC) VlcEngine(context, qualityPref == 1)
+        else ExoEngine(context)
     }
 
     DisposableEffect(engine) {
@@ -235,6 +241,11 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         // A recreated engine starts at defaults; re-apply the user's choices.
         if (speed != 1f) engine.setSpeed(speed)
         if (scaleMode != 0) engine.setScaleMode(scaleMode)
+        // Settings decides whether we pin the top rung or let it adapt. Doing
+        // this per-stream also resets any rung pinned on the previous channel.
+        engine.selectVideoTrack(
+            if (qualityPref == 1) com.nuxcor.nuxtv.player.HIGHEST_QUALITY else null
+        )
         if (resume > 0 && positionMs == 0L) statusMessage = "Resumed from ${formatTime(resume)}"
     }
 
@@ -1217,15 +1228,21 @@ private fun TracksOverlay(
 @Composable
 private fun TrackRow(track: Track, onClick: () -> Unit) {
     Surface(
-        onClick = onClick,
+        // Still focusable when unsupported so it can be read, but selecting it
+        // does nothing — pinning a rung the decoder rejects blacks out video.
+        onClick = { if (track.supported) onClick() },
         modifier = Modifier.fillMaxWidth(),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (track.selected) NuxColors.Primary.copy(alpha = 0.16f)
             else NuxColors.Surface.copy(alpha = 0.6f),
             focusedContainerColor = NuxColors.SurfaceVariant,
-            contentColor = if (track.selected) NuxColors.FocusBorder else NuxColors.OnSurface,
-            focusedContentColor = NuxColors.OnSurface,
+            contentColor = when {
+                !track.supported -> NuxColors.OnSurfaceDim
+                track.selected -> NuxColors.FocusBorder
+                else -> NuxColors.OnSurface
+            },
+            focusedContentColor = if (track.supported) NuxColors.OnSurface else NuxColors.OnSurfaceDim,
         ),
     ) {
         Text(

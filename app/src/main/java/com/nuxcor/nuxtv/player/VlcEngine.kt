@@ -14,7 +14,7 @@ import org.videolan.libvlc.util.VLCVideoLayout
  * rejects (odd TS muxing, exotic codecs), which is why it exists here.
  * The playlist is managed manually — VLC plays one Media at a time.
  */
-class VlcEngine(context: Context) : PlayerEngine {
+class VlcEngine(context: Context, preferHighestQuality: Boolean = true) : PlayerEngine {
 
     override val name = "VLC"
     override var listener: PlayerEngine.Listener? = null
@@ -31,7 +31,12 @@ class VlcEngine(context: Context) : PlayerEngine {
             // Ignoring the stream clock stops the stutter that causes.
             "--clock-jitter=0",
             "--clock-synchro=0",
-            // Never let the adaptive demuxer pin itself to a low rung.
+            // Mirrors the Settings preference that ExoPlayer applies via its
+            // track selector, so switching engines doesn't silently change
+            // picture quality. Unlike ExoPlayer this is fixed at construction,
+            // so a change takes effect when the player is next opened.
+            if (preferHighestQuality) "--adaptive-logic=highest" else "--adaptive-logic=rate",
+            // Never let the adaptive demuxer cap itself below the panel.
             "--adaptive-maxwidth=3840",
             "--adaptive-maxheight=2160",
             "--http-reconnect",

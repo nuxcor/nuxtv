@@ -88,6 +88,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** Shared by the rail and the content lane so the two can never disagree. */
+private val RAIL_WIDTH_COLLAPSED = 64.dp
+private val RAIL_WIDTH_EXPANDED = 190.dp
+
 enum class HomeTab(val label: String, val icon: ImageVector) {
     Search("Search", Icons.Default.Search),
     Live("Live TV", Icons.Default.LiveTv),
@@ -110,6 +114,7 @@ fun HomeScreen(
     // Non-content tabs also work while the playlist is loading or failed.
     val contentState by vm.content.collectAsState()
     var railFocused by remember { mutableStateOf(false) }
+    var railExpanded by remember { mutableStateOf(false) }
     val railFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     // Hoisted above the Ready branch so a refresh cycle doesn't wipe tab state.
     val tabStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
@@ -140,13 +145,22 @@ fun HomeScreen(
         exitArmed = true
     }
 
+    // The content lane tracks the rail's width instead of being covered by it.
+    // It used to reserve a fixed 64dp and let the expanded 190dp rail draw on
+    // top "so nothing reflows" — but the rail is expanded exactly when you are
+    // reading the rail *and* the content, and 68dp of every line was sliced
+    // off. Shifting with the animation costs nothing and is what TV launchers
+    // do; the reflow the old comment avoided was never the greater evil.
+    val railWidth by animateDpAsState(
+        targetValue = if (railExpanded) RAIL_WIDTH_EXPANDED else RAIL_WIDTH_COLLAPSED,
+        label = "railLane",
+    )
+
     Box(modifier = Modifier.fillMaxSize()) {
-    // Content keeps a fixed 64dp lane for the collapsed rail; the expanded
-    // rail draws over it so nothing reflows when focus enters the rail.
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(start = 64.dp)
+            .padding(start = railWidth)
     ) {
         Box(
             modifier = Modifier
@@ -191,7 +205,7 @@ fun HomeScreen(
         selected = tab,
         onSelect = { tab = it },
         railFocus = railFocus,
-        onRailFocusChanged = { railFocused = it },
+        onRailFocusChanged = { railFocused = it; railExpanded = it },
     )
     if (exitArmed) {
         Box(
@@ -237,6 +251,7 @@ private fun NavRail(
     railFocus: androidx.compose.ui.focus.FocusRequester,
     onRailFocusChanged: (Boolean) -> Unit,
 ) {
+    // Mirrors the caller's copy, which drives the content lane's width.
     var expanded by remember { mutableStateOf(false) }
     // Focus travel selects a tab only after the focus rests briefly, so
     // moving down the rail doesn't compose every tab it passes through.
@@ -246,22 +261,11 @@ private fun NavRail(
         kotlinx.coroutines.delay(250)
         onSelect(item)
     }
-    val width by animateDpAsState(targetValue = if (expanded) 190.dp else 64.dp, label = "railWidth")
+    val width by animateDpAsState(
+        targetValue = if (expanded) RAIL_WIDTH_EXPANDED else RAIL_WIDTH_COLLAPSED,
+        label = "railWidth",
+    )
 
-    if (expanded) {
-        // Soft edge between the rail and the content it covers.
-        Box(
-            modifier = Modifier
-                .fillMaxHeight()
-                .padding(start = width)
-                .width(28.dp)
-                .background(
-                    androidx.compose.ui.graphics.Brush.horizontalGradient(
-                        listOf(NuxColors.Background, androidx.compose.ui.graphics.Color.Transparent)
-                    )
-                )
-        )
-    }
     Column(
         modifier = Modifier
             .fillMaxHeight()
@@ -277,15 +281,37 @@ private fun NavRail(
             .padding(horizontal = Space.s, vertical = Space.gutterVertical),
         verticalArrangement = Arrangement.spacedBy(Space.xs),
     ) {
-        Text(
-            text = if (expanded) "DZIDZI" else "D",
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black),
-            color = NuxColors.Primary,
-            maxLines = 1,
+        // The brand mark itself, not a letter standing in for it. Same lockup
+        // as onboarding: mark alone when collapsed, mark plus wordmark when
+        // there is room for it.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier
-                .padding(start = 12.dp, bottom = 20.dp)
+                .padding(start = 10.dp, bottom = 20.dp)
                 .animateContentSize(),
-        )
+        ) {
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_splash),
+                contentDescription = "Dzidzi",
+                modifier = Modifier.size(32.dp),
+            )
+            androidx.compose.animation.AnimatedVisibility(
+                visible = expanded,
+                enter = androidx.compose.animation.fadeIn(
+                    androidx.compose.animation.core.tween(160, delayMillis = 120)
+                ),
+                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(80)),
+            ) {
+                Text(
+                    text = "DZIDZI",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black),
+                    color = NuxColors.Primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip,
+                )
+            }
+        }
         HomeTab.entries.forEach { item ->
             RailItem(
                 item = item,
@@ -778,6 +804,31 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
                     options = listOf("Provider order", "A–Z", "Best quality first"),
                     selectedIndex = order,
                     onSelect = { vm.setChannelOrder(it) },
+                )
+            }
+        }
+
+        item(key = "quality") {
+            Column {
+                Text(
+                    "Picture quality",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NuxColors.OnSurface,
+                )
+                Text(
+                    "Highest is sharper the moment a channel opens, but never drops " +
+                        "when the connection sags — on a weak line that becomes buffering. " +
+                        "Auto starts lower and climbs. Only affects streams that offer " +
+                        "more than one quality.",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = NuxColors.OnSurfaceDim,
+                )
+                Spacer(Modifier.height(8.dp))
+                val quality by vm.videoQuality.collectAsState()
+                SegmentedControl(
+                    options = listOf("Auto", "Highest"),
+                    selectedIndex = quality,
+                    onSelect = { vm.setVideoQuality(it) },
                 )
             }
         }

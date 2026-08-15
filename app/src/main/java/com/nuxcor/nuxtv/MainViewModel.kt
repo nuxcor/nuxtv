@@ -112,6 +112,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setChannelOrder(mode: Int) = viewModelScope.launch { playerPrefs.setChannelOrder(mode) }
 
+    val videoQuality: StateFlow<Int> = playerPrefs.videoQuality
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 1)
+
+    fun setVideoQuality(mode: Int) = viewModelScope.launch { playerPrefs.setVideoQuality(mode) }
+
     /** Locked categories stay hidden until the PIN is entered this session. */
     var parentalUnlocked by mutableStateOf(false)
         private set
@@ -145,16 +150,49 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // Previous result, reused between ticks. Written only by the combine below,
+    // but successive emissions can land on different Dispatchers.Default
+    // threads, so these need to be volatile to be seen.
+    @Volatile private var nowNextCache: Map<String, NowNext> = emptyMap()
+    @Volatile private var nowNextCacheBundle: ContentBundle? = null
+    @Volatile private var nowNextCacheEpg: Any? = null
+
     val nowNext: StateFlow<Map<String, NowNext>> =
-        kotlinx.coroutines.flow.combine(content, epgState, minuteTicker) { c, _, now ->
+        kotlinx.coroutines.flow.combine(content, epgState, minuteTicker) { c, epg, now ->
             val bundle = (c as? ContentState.Ready)?.bundle ?: return@combine emptyMap()
-            bundle.channels.associate { channel ->
-                val programs = repo.programsFor(channel)
-                channel.id to NowNext(
-                    now = programs.firstOrNull { now in it.startMs until it.endMs },
-                    next = programs.firstOrNull { it.startMs >= now },
-                )
+            // Rescanning every channel's whole programme list once a minute is
+            // a CPU and allocation spike that lands as micro-stutter during
+            // playback. A channel's now/next only changes when its current
+            // programme ends, so almost every entry survives a tick untouched.
+            // Reference identity, not hashes: a hash collision would silently
+            // serve one playlist's guide data for another's.
+            val previous =
+                if (nowNextCacheBundle === bundle && nowNextCacheEpg === epg) nowNextCache
+                else emptyMap()
+            var changed = previous.size != bundle.channels.size
+            val refreshed = HashMap<String, NowNext>(bundle.channels.size)
+            bundle.channels.forEach { channel ->
+                val cached = previous[channel.id]
+                val stillCurrent = cached?.now?.let { now < it.endMs } == true
+                if (stillCurrent) {
+                    refreshed[channel.id] = cached!!
+                } else {
+                    val programs = repo.programsFor(channel)
+                    val fresh = NowNext(
+                        now = programs.firstOrNull { now in it.startMs until it.endMs },
+                        next = programs.firstOrNull { it.startMs >= now },
+                    )
+                    if (fresh != cached) changed = true
+                    refreshed[channel.id] = fresh
+                }
             }
+            nowNextCacheBundle = bundle
+            nowNextCacheEpg = epg
+            // Returning the previous instance when nothing moved lets StateFlow
+            // dedupe the emission, so an idle minute costs no recomposition.
+            val result = if (changed) refreshed else previous
+            nowNextCache = result
+            result
         }
             .flowOn(kotlinx.coroutines.Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
