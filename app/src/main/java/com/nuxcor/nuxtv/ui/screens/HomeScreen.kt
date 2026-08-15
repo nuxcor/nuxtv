@@ -97,12 +97,23 @@ fun HomeScreen(
     // Hoisted above the Ready branch so a refresh cycle doesn't wipe tab state.
     val tabStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
 
-    // BACK from inside the content pane jumps focus to the rail first;
-    // a second BACK (rail focused) exits as usual.
+    // BACK from inside the content pane jumps focus to the rail first; on the
+    // rail, BACK asks for confirmation instead of instantly quitting the app.
+    var exitArmed by remember { mutableStateOf(false) }
+    LaunchedEffect(exitArmed) {
+        if (exitArmed) {
+            kotlinx.coroutines.delay(2_500)
+            exitArmed = false
+        }
+    }
     BackHandler(enabled = !railFocused) {
         runCatching { railFocus.requestFocus() }
     }
+    BackHandler(enabled = railFocused && !exitArmed) {
+        exitArmed = true
+    }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Row(modifier = Modifier.fillMaxSize()) {
         NavRail(
             selected = tab,
@@ -145,6 +156,22 @@ fun HomeScreen(
                 }
             }
         }
+    }
+    if (exitArmed) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 24.dp)
+                .background(NuxColors.Scrim, RoundedCornerShape(10.dp))
+                .padding(horizontal = 18.dp, vertical = 10.dp),
+        ) {
+            Text(
+                "Press BACK again to exit",
+                style = MaterialTheme.typography.labelLarge,
+                color = NuxColors.OnSurface,
+            )
+        }
+    }
     }
 }
 

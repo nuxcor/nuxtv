@@ -64,6 +64,15 @@ fun OnboardingScreen(
     var step by remember { mutableStateOf(Step.Choose) }
     val addState = vm.addState
 
+    // Remote BACK mirrors the on-screen Back button: form → chooser → leave.
+    androidx.activity.compose.BackHandler(enabled = step != Step.Choose) {
+        vm.resetAddState()
+        step = Step.Choose
+    }
+    if (cancellable) {
+        androidx.activity.compose.BackHandler(enabled = step == Step.Choose) { onCancel() }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()

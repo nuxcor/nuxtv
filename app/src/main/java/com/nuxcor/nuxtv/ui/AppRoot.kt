@@ -2,6 +2,11 @@ package com.nuxcor.nuxtv.ui
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -25,6 +30,19 @@ import kotlinx.coroutines.delay
 
 private enum class RootScreen { Boot, Onboarding, Main }
 
+/**
+ * Real TVs crop the frame edges (overscan). Browsing screens keep this safe
+ * inset; the player stays full-bleed.
+ */
+@Composable
+private fun TvSafe(content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp, vertical = 14.dp)
+    ) { content() }
+}
+
 @Composable
 fun AppRoot(vm: MainViewModel = viewModel()) {
     val sources by vm.sources.collectAsState()
@@ -45,8 +63,9 @@ fun AppRoot(vm: MainViewModel = viewModel()) {
     Crossfade(targetState = screen, animationSpec = tween(450), label = "root") { target ->
         when (target) {
             RootScreen.Boot -> BootScreen()
-            RootScreen.Onboarding ->
+            RootScreen.Onboarding -> TvSafe {
                 OnboardingScreen(vm = vm, cancellable = false, onDone = {}, onCancel = {})
+            }
             RootScreen.Main -> NuxNavHost(vm)
         }
     }
@@ -57,6 +76,7 @@ private fun NuxNavHost(vm: MainViewModel) {
     val nav: NavHostController = rememberNavController()
     NavHost(navController = nav, startDestination = "home") {
         composable("home") {
+            TvSafe {
             HomeScreen(
                 vm = vm,
                 onOpenMovie = { nav.navigate("movie/${it.id}") },
@@ -64,30 +84,37 @@ private fun NuxNavHost(vm: MainViewModel) {
                 onPlay = { nav.navigate("player") },
                 onAddPlaylist = { nav.navigate("onboarding") },
             )
+            }
         }
         composable("onboarding") {
+            TvSafe {
             OnboardingScreen(
                 vm = vm,
                 cancellable = true,
                 onDone = { nav.popBackStack() },
                 onCancel = { nav.popBackStack() },
             )
+            }
         }
         composable("movie/{id}") { entry ->
+            TvSafe {
             MovieDetailScreen(
                 vm = vm,
                 movieId = entry.arguments?.getString("id").orEmpty(),
                 onPlay = { nav.navigate("player") },
                 onBack = { nav.popBackStack() },
             )
+            }
         }
         composable("series/{id}") { entry ->
+            TvSafe {
             SeriesDetailScreen(
                 vm = vm,
                 seriesId = entry.arguments?.getString("id").orEmpty(),
                 onPlay = { nav.navigate("player") },
                 onBack = { nav.popBackStack() },
             )
+            }
         }
         composable("player") {
             PlayerScreen(vm = vm, onExit = { nav.popBackStack() })
