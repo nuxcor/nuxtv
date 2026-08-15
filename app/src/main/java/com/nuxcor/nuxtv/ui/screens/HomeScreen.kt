@@ -78,6 +78,9 @@ import com.nuxcor.nuxtv.ui.components.WideItem
 import com.nuxcor.nuxtv.ui.components.focusBorder
 import com.nuxcor.nuxtv.ui.theme.NuxColors
 import com.nuxcor.nuxtv.ui.theme.Space
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 enum class HomeTab(val label: String, val icon: ImageVector) {
     Search("Search", Icons.Default.Search),
@@ -579,6 +582,57 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
                 },
                 onClick = { if (!isActive) vm.selectSource(source.id) },
             )
+        }
+
+        item(key = "account") {
+            val account by vm.accountInfo.collectAsState()
+            account?.let { info ->
+                val dayMs = 24 * 3600_000L
+                val daysLeft = info.expiresAtMs?.let { (it - System.currentTimeMillis()) / dayMs }
+                val expiringSoon = daysLeft != null && daysLeft in 0..7
+                val inactive = info.status != null && !info.status.equals("Active", ignoreCase = true)
+                val expired = daysLeft != null && daysLeft < 0
+                val fmt = remember { SimpleDateFormat("d MMM yyyy", Locale.getDefault()) }
+                Column {
+                    Text(
+                        "Account",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = NuxColors.OnSurface,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = buildList {
+                            info.status?.let { add(it) }
+                            info.expiresAtMs?.let {
+                                add(
+                                    when {
+                                        expired -> "Expired ${fmt.format(Date(it))}"
+                                        else -> "Expires ${fmt.format(Date(it))}"
+                                    }
+                                )
+                            }
+                            if (info.maxConnections != null) {
+                                add("${info.activeConnections ?: 0} of ${info.maxConnections} connections in use")
+                            }
+                        }.joinToString("   •   "),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (expired || inactive || expiringSoon) NuxColors.Error
+                        else NuxColors.OnSurfaceDim,
+                    )
+                    if (expiringSoon || expired || inactive) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = when {
+                                expired -> "Your subscription has ended — streams will fail until it is renewed."
+                                inactive -> "Your provider reports this account as inactive."
+                                else -> "Your subscription renews soon."
+                            },
+                            style = MaterialTheme.typography.labelMedium,
+                            color = NuxColors.OnSurfaceDim,
+                        )
+                    }
+                }
+            }
         }
 
         item(key = "playlist-buttons") {

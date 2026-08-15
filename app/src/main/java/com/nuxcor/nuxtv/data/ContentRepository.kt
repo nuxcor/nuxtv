@@ -342,6 +342,12 @@ class ContentRepository(context: Context) {
         return runCatching { xtreamClient(source).seriesEpisodes(id) }.getOrDefault(emptyList())
     }
 
+    /** Provider account health, or null for M3U sources. */
+    suspend fun accountInfo(): XtreamClient.AccountInfo? {
+        val source = activeSource.first() as? PlaylistSource.Xtream ?: return null
+        return xtreamClient(source).accountInfo()
+    }
+
     /** EPG for a live channel; empty for M3U sources or channels without an Xtream id. */
     suspend fun epgFor(channel: LiveChannel): List<EpgProgram> {
         val source = activeSource.first() as? PlaylistSource.Xtream ?: return emptyList()

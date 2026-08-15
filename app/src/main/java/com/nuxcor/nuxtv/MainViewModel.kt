@@ -214,6 +214,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             RecordingScheduler.rescheduleAll(getApplication(), playerPrefs)
         }
+        viewModelScope.launch {
+            delay(3_000)
+            _accountInfo.value = repo.accountInfo()
+        }
         // Silent update check shortly after launch. Never stomps an
         // in-progress manual check/download.
         viewModelScope.launch {
@@ -371,6 +375,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refresh() = viewModelScope.launch { repo.refresh() }
+
+    private val _accountInfo =
+        MutableStateFlow<com.nuxcor.nuxtv.data.XtreamClient.AccountInfo?>(null)
+    val accountInfo: StateFlow<com.nuxcor.nuxtv.data.XtreamClient.AccountInfo?> = _accountInfo
+
+    fun refreshAccountInfo() {
+        viewModelScope.launch { _accountInfo.value = repo.accountInfo() }
+    }
 
     fun selectSource(id: String) = viewModelScope.launch { repo.selectSource(id) }
 

@@ -29,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +43,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.nuxcor.nuxtv.MainViewModel
+import com.nuxcor.nuxtv.data.Category
 import com.nuxcor.nuxtv.data.ContentBundle
 import com.nuxcor.nuxtv.data.ContentRepository
 import com.nuxcor.nuxtv.data.EpgProgram
@@ -57,7 +59,7 @@ import kotlinx.coroutines.launch
 
 /** 3dp per minute → an hour is 180dp wide. */
 private val DP_PER_MINUTE = 4.dp
-private val CHANNEL_COLUMN_WIDTH = 168.dp
+private val CHANNEL_COLUMN_WIDTH = 200.dp
 private val ROW_HEIGHT = 72.dp
 
 @Composable
@@ -76,17 +78,34 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
         )
 
         is ContentRepository.EpgState.Ready -> {
-            val channels by vm.displayChannels.collectAsState()
-            if (channels.isEmpty()) {
+            val allChannels by vm.displayChannels.collectAsState()
+            val favorites by vm.favorites.collectAsState()
+            var categoryId by rememberSaveable { mutableStateOf("__all__") }
+            val categories = remember(bundle, favorites, allChannels) {
+                buildList {
+                    add(Category("__all__", "All"))
+                    if (allChannels.any { it.url in favorites }) add(Category("__fav__", "★ Favorites"))
+                    addAll(bundle.liveCategories)
+                }
+            }
+            val channels = remember(allChannels, categoryId, favorites) {
+                when (categoryId) {
+                    "__all__" -> allChannels
+                    "__fav__" -> allChannels.filter { it.url in favorites }
+                    else -> allChannels.filter { it.categoryId == categoryId }
+                }
+            }
+            if (allChannels.isEmpty()) {
                 CenteredMessage(title = "No live channels")
                 return
             }
 
-            // 30h window starting an hour before now, snapped to the half hour.
-            val windowStart = remember {
+            var dayOffset by rememberSaveable { mutableStateOf(0) }
+            val baseStart = remember {
                 val now = System.currentTimeMillis()
                 now - now % (30 * 60_000L) - 60 * 60_000L
             }
+            val windowStart = baseStart + dayOffset * 24 * 3600_000L
             val windowEnd = windowStart + 30 * 3600_000L
             // Ticks every minute so "Now" highlighting and click behaviour stay live.
             var nowTick by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -120,6 +139,46 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                 statusMessage?.let {
                     Text(it, style = MaterialTheme.typography.labelLarge, color = NuxColors.Secondary)
                     Spacer(Modifier.height(6.dp))
+                }
+                // Category filter + day paging: a guide over hundreds of
+                // channels is unusable without both.
+                val dayFmt = remember { SimpleDateFormat("EEE d MMM", Locale.getDefault()) }
+                androidx.compose.foundation.lazy.LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(bottom = 10.dp),
+                ) {
+                    item(key = "__prev__") {
+                        androidx.tv.material3.OutlinedButton(
+                            onClick = { if (dayOffset > 0) dayOffset-- },
+                            enabled = dayOffset > 0,
+                        ) { Text("‹") }
+                    }
+                    item(key = "__day__") {
+                        Text(
+                            text = if (dayOffset == 0) "Today" else dayFmt.format(Date(windowStart)),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = NuxColors.OnSurface,
+                            modifier = Modifier.padding(horizontal = 4.dp),
+                        )
+                    }
+                    item(key = "__next__") {
+                        androidx.tv.material3.OutlinedButton(onClick = { dayOffset++ }) { Text("›") }
+                    }
+                    if (dayOffset != 0) {
+                        item(key = "__now__") {
+                            androidx.tv.material3.OutlinedButton(onClick = { dayOffset = 0 }) { Text("Now") }
+                        }
+                    }
+                    item(key = "__sep__") { Spacer(Modifier.width(12.dp)) }
+                    items(categories, key = { it.id }) { category ->
+                        com.nuxcor.nuxtv.ui.screens.CategoryItem(
+                            name = category.name,
+                            selected = category.id == categoryId,
+                            onClick = { categoryId = category.id },
+                            modifier = Modifier,
+                        )
+                    }
                 }
 
                 TimeRuler(windowStart, windowEnd, timelineScroll)
@@ -259,7 +318,7 @@ private fun GuideRow(
                 Text(
                     text = channel.name,
                     style = MaterialTheme.typography.titleSmall,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }

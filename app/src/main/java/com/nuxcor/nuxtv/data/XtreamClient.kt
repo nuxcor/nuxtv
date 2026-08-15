@@ -105,6 +105,24 @@ class XtreamClient(
         }
     }
 
+    data class AccountInfo(
+        val status: String?,
+        val expiresAtMs: Long?,
+        val activeConnections: Int?,
+        val maxConnections: Int?,
+    )
+
+    /** Account status from player_api; null when the server doesn't report it. */
+    suspend fun accountInfo(): AccountInfo? = runCatching {
+        val userInfo = (call(null) as? JsonObject)?.get("user_info") as? JsonObject ?: return null
+        AccountInfo(
+            status = userInfo.str("status"),
+            expiresAtMs = userInfo.str("exp_date")?.toLongOrNull()?.times(1000),
+            activeConnections = userInfo.int("active_cons"),
+            maxConnections = userInfo.int("max_connections"),
+        )
+    }.getOrNull()
+
     /** Validates credentials; throws with a readable message when login fails. */
     suspend fun authenticate() {
         val root = call(null).jsonObject
