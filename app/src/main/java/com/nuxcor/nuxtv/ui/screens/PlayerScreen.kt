@@ -87,7 +87,6 @@ import com.nuxcor.nuxtv.MainViewModel
 import com.nuxcor.nuxtv.data.EngineChoice
 import com.nuxcor.nuxtv.data.EpgProgram
 import com.nuxcor.nuxtv.data.LiveChannel
-import com.nuxcor.nuxtv.data.QualityTag
 import com.nuxcor.nuxtv.player.ExoEngine
 import com.nuxcor.nuxtv.player.PlayerEngine
 import com.nuxcor.nuxtv.player.Track
@@ -139,7 +138,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
-    var qualityLabel by remember { mutableStateOf<String?>(null) }
 
     var controlsVisible by remember { mutableStateOf(false) } // banner first, not the transport bar
     var bannerTick by remember { mutableIntStateOf(0) }
@@ -237,7 +235,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         while (controlsVisible || miniGuideOpen) {
             positionMs = engine.positionMs
             durationMs = engine.durationMs
-            qualityLabel = engine.videoResolution?.let { (w, h) -> QualityTag.ofResolution(w, h) }
             delay(500)
         }
     }
@@ -314,12 +311,16 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         }
     }
 
-    BackHandler(enabled = controlsVisible || catchupOpen || tracksOpen || miniGuideOpen) {
+    // Real IPTV back behaviour: close whatever is open; on live TV the first
+    // BACK from bare playback opens the channel list, the next one exits.
+    BackHandler {
         when {
             miniGuideOpen -> miniGuideOpen = false
             tracksOpen -> tracksOpen = false
             catchupOpen -> catchupOpen = false
-            else -> controlsVisible = false
+            controlsVisible -> controlsVisible = false
+            request.isLive && request.items.size > 1 -> miniGuideOpen = true
+            else -> onExit()
         }
     }
 
@@ -358,7 +359,13 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     AndroidKeyEvent.KEYCODE_LAST_CHANNEL, AndroidKeyEvent.KEYCODE_PROG_RED ->
                         if (request.isLive && previousIndex >= 0) { jumpTo(previousIndex); true } else false
                     AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER ->
-                        if (!controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen) { poke(); true } else false
+                        if (!controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen) {
+                            // Live TV: OK is the channel list. VOD: OK is the transport bar.
+                            if (request.isLive && request.items.size > 1) miniGuideOpen = true else poke()
+                            true
+                        } else false
+                    AndroidKeyEvent.KEYCODE_MENU ->
+                        if (!catchupOpen && !tracksOpen && !miniGuideOpen) { poke(); true } else false
                     AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_DPAD_RIGHT ->
                         if (!controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen) {
                             if (request.isLive && request.items.size > 1) miniGuideOpen = true else poke()
@@ -427,7 +434,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             PlayerControls(
                 title = item?.title.orEmpty(),
                 subtitle = item?.subtitle,
-                qualityLabel = qualityLabel,
+                isLive = request.isLive,
                 playing = playing,
                 positionMs = positionMs,
                 durationMs = durationMs,
@@ -553,7 +560,7 @@ private fun PlayerBadge(text: String, color: Color) {
 private fun PlayerControls(
     title: String,
     subtitle: String?,
-    qualityLabel: String?,
+    isLive: Boolean,
     playing: Boolean,
     positionMs: Long,
     durationMs: Long,
@@ -600,20 +607,6 @@ private fun PlayerControls(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                qualityLabel?.let {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(NuxColors.Primary.copy(alpha = 0.22f))
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                    ) {
-                        Text(
-                            text = it,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = NuxColors.FocusBorder,
-                        )
-                    }
-                }
             }
             if (!subtitle.isNullOrBlank()) {
                 Text(
@@ -636,7 +629,7 @@ private fun PlayerControls(
                 .padding(horizontal = 32.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            if (durationMs > 0) {
+            if (!isLive && durationMs > 0) {
                 SeekBar(
                     positionMs = positionMs,
                     durationMs = durationMs,
@@ -648,23 +641,26 @@ private fun PlayerControls(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                if (hasPlaylist) ControlButton(Icons.Default.SkipPrevious, "Previous", onPrevious)
-                if (durationMs > 0) {
-                    ControlButton(Icons.Default.FastRewind, "Back 10s", onClick = { onSeekBy(-10_000) })
+                // Live streams get no transport: pausing/seeking a live feed is
+                // meaningless, and OK already opens the channel list.
+                if (!isLive) {
+                    if (hasPlaylist) ControlButton(Icons.Default.SkipPrevious, "Previous", onPrevious)
+                    if (durationMs > 0) {
+                        ControlButton(Icons.Default.FastRewind, "Back 10s", onClick = { onSeekBy(-10_000) })
+                    }
+                    ControlButton(
+                        icon = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        label = if (playing) "Pause" else "Play",
+                        onClick = onPlayPause,
+                        modifier = Modifier.focusRequester(playFocus),
+                        prominent = true,
+                    )
+                    if (durationMs > 0) {
+                        ControlButton(Icons.Default.FastForward, "Forward 10s", onClick = { onSeekBy(10_000) })
+                    }
+                    if (hasPlaylist) ControlButton(Icons.Default.SkipNext, "Next", onNext)
+                    Spacer(Modifier.weight(1f))
                 }
-                ControlButton(
-                    icon = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    label = if (playing) "Pause" else "Play",
-                    onClick = onPlayPause,
-                    modifier = Modifier.focusRequester(playFocus),
-                    prominent = true,
-                )
-                if (durationMs > 0) {
-                    ControlButton(Icons.Default.FastForward, "Forward 10s", onClick = { onSeekBy(10_000) })
-                }
-                if (hasPlaylist) ControlButton(Icons.Default.SkipNext, "Next", onNext)
-
-                Spacer(Modifier.weight(1f))
 
                 if (isFavoritable) {
                     ControlButton(
@@ -677,7 +673,12 @@ private fun PlayerControls(
                 ControlButton(Icons.Default.Tune, "Options", onTracks, showLabel = true)
                 ControlButton(Icons.Default.PictureInPictureAlt, "Picture in picture", onPip)
                 if (hasPlaylist) {
-                    ControlButton(Icons.AutoMirrored.Filled.List, "Channels", onChannels)
+                    ControlButton(
+                        Icons.AutoMirrored.Filled.List,
+                        "Channels",
+                        onChannels,
+                        modifier = if (isLive) Modifier.focusRequester(playFocus) else Modifier,
+                    )
                 }
                 if (hasCatchup) ControlButton(Icons.Default.History, "Catch-up", onCatchup)
                 if (canRecord || isRecording) {
@@ -1220,7 +1221,6 @@ private fun ChannelBanner(
     item: com.nuxcor.nuxtv.data.PlayableItem?,
     channel: LiveChannel?,
     isLive: Boolean,
-    qualityLabel: String?,
     liftAboveControls: Boolean,
 ) {
     val nowNextMap by vm.nowNext.collectAsState()
@@ -1278,9 +1278,6 @@ private fun ChannelBanner(
                     )
                     if (channel != null && channel.url in favorites) {
                         Text("★", style = MaterialTheme.typography.titleMedium, color = NuxColors.Primary)
-                    }
-                    qualityLabel?.let {
-                        com.nuxcor.nuxtv.ui.components.MetaChip(it, accent = true)
                     }
                 }
                 val current = nowNext?.now

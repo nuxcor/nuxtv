@@ -55,9 +55,13 @@ object Space {
     val xl = 32.dp
     val xxl = 48.dp
 
-    /** 5% TV-safe horizontal margin on a 960dp canvas. */
-    val gutter = 48.dp
-    val gutterVertical = 27.dp
+    /**
+     * TV-safe margins. Nominal overscan is 5% (48dp/27dp on a 960x540dp
+     * canvas) but real panels crop more — verified against a Sony Bravia
+     * clipping content at 48dp.
+     */
+    val gutter = 58.dp
+    val gutterVertical = 32.dp
 }
 
 val NuxShapes = Shapes(

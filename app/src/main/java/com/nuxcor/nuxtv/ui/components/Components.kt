@@ -229,9 +229,9 @@ fun WideItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = Space.m, vertical = Space.s),
+                .padding(horizontal = 14.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Space.m),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             // Selected marker survives focus because it's a separate element.
             if (selected) {
@@ -250,7 +250,7 @@ fun WideItem(
                     imageUrl = imageUrl,
                     title = title,
                     modifier = Modifier
-                        .size(width = 76.dp, height = 44.dp)
+                        .size(width = 64.dp, height = 38.dp)
                         .clip(ChipShape),
                     contentScale = ContentScale.Fit,
                     monogramStyle = MaterialTheme.typography.labelLarge,
@@ -259,7 +259,7 @@ fun WideItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -290,7 +290,11 @@ fun WideItem(
                     }
                 }
             }
-            if (badge != null) MetaChip(badge, accent = true)
+            if (badge != null) {
+                Box(modifier = Modifier.padding(start = 4.dp)) {
+                    MetaChip(badge, accent = true)
+                }
+            }
         }
     }
 }

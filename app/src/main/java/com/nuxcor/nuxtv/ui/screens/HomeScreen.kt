@@ -373,11 +373,11 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
     Box(modifier = Modifier.fillMaxSize()) {
     Row(
         modifier = Modifier.fillMaxSize(),
-        horizontalArrangement = Arrangement.spacedBy(Space.l),
+        horizontalArrangement = Arrangement.spacedBy(Space.m),
     ) {
         LazyColumn(
             modifier = Modifier
-                .width(210.dp)
+                .width(190.dp)
                 .fillMaxHeight()
                 .focusRestorer(),
             verticalArrangement = Arrangement.spacedBy(Space.xs),
@@ -403,7 +403,7 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
                 .fillMaxWidth()
                 .weight(1f)
                 .focusRestorer(),
-            verticalArrangement = Arrangement.spacedBy(Space.s),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
             contentPadding = PaddingValues(bottom = Space.l),
         ) {
             itemsIndexed(channels, key = { _, c -> c.id }) { index, channel ->
