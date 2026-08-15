@@ -15,7 +15,18 @@ internal const val USER_AGENT = "Dzidzi/2.9"
 /** Sentinel id for "always the top rung", as opposed to a specific rendition. */
 const val HIGHEST_QUALITY = "highest"
 
-data class Track(val id: String, val label: String, val selected: Boolean)
+data class Track(
+    val id: String,
+    val label: String,
+    val selected: Boolean,
+    /**
+     * False when the stream carries this rendition but the device can't decode
+     * it. Shown rather than hidden: "2160p — this TV can't decode it" explains
+     * a soft picture on a channel advertised as UHD; silently dropping the
+     * track leaves the viewer with no picture quality and no reason.
+     */
+    val supported: Boolean = true,
+)
 
 /**
  * "1080p FHD • 5.4 Mbps" — the vocabulary viewers actually recognise, used for

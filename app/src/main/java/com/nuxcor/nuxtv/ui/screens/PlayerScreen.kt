@@ -1217,15 +1217,21 @@ private fun TracksOverlay(
 @Composable
 private fun TrackRow(track: Track, onClick: () -> Unit) {
     Surface(
-        onClick = onClick,
+        // Still focusable when unsupported so it can be read, but selecting it
+        // does nothing — pinning a rung the decoder rejects blacks out video.
+        onClick = { if (track.supported) onClick() },
         modifier = Modifier.fillMaxWidth(),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (track.selected) NuxColors.Primary.copy(alpha = 0.16f)
             else NuxColors.Surface.copy(alpha = 0.6f),
             focusedContainerColor = NuxColors.SurfaceVariant,
-            contentColor = if (track.selected) NuxColors.FocusBorder else NuxColors.OnSurface,
-            focusedContentColor = NuxColors.OnSurface,
+            contentColor = when {
+                !track.supported -> NuxColors.OnSurfaceDim
+                track.selected -> NuxColors.FocusBorder
+                else -> NuxColors.OnSurface
+            },
+            focusedContentColor = if (track.supported) NuxColors.OnSurface else NuxColors.OnSurfaceDim,
         ),
     ) {
         Text(
