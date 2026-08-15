@@ -80,7 +80,6 @@ import com.nuxcor.nuxtv.ui.components.itemEntrance
 import com.nuxcor.nuxtv.ui.components.rememberListEntrance
 import com.nuxcor.nuxtv.ui.components.PinPrompt
 import com.nuxcor.nuxtv.ui.components.WideItem
-import com.nuxcor.nuxtv.ui.components.dpadFieldNavigation
 import com.nuxcor.nuxtv.ui.components.focusBorder
 import com.nuxcor.nuxtv.ui.theme.NuxColors
 import com.nuxcor.nuxtv.ui.theme.Space
@@ -608,9 +607,38 @@ fun CategoryItem(
 
 // --- Settings ----------------------------------------------------------------
 
-private val EPGSHARE_PACKS = listOf("US", "UK", "CA", "DE", "FR", "IN", "ZA")
+internal val EPGSHARE_PACKS = listOf("US", "UK", "CA", "DE", "FR", "IN", "ZA")
 
-private fun epgshareUrl(cc: String) =
+/**
+ * Which country packs plausibly match a playlist, judged from its own category
+ * names ("US| NEWS", "UK| SPORT", "DSTV") rather than from where the device is.
+ * A viewer's location says nothing about their lineup — IPTV playlists are
+ * routinely watched from another continent — whereas the categories describe
+ * exactly what is in there.
+ */
+internal fun suggestedEpgPacks(categoryNames: List<String>): List<String> {
+    val hints = mapOf(
+        "US" to listOf("us", "usa", "united states", "america"),
+        "UK" to listOf("uk", "gb", "britain", "british", "united kingdom"),
+        "CA" to listOf("ca", "canada", "canadian"),
+        "DE" to listOf("de", "german", "germany", "deutsch"),
+        "FR" to listOf("fr", "france", "french"),
+        "IN" to listOf("in", "india", "indian", "hindi"),
+        "ZA" to listOf("za", "south africa", "dstv", "supersport"),
+    )
+    val haystack = categoryNames.map { it.lowercase() }
+    return EPGSHARE_PACKS.filter { code ->
+        val needles = hints[code].orEmpty()
+        haystack.any { name ->
+            needles.any { needle ->
+                // Word-boundary match so "in" doesn't fire on "entertainment".
+                Regex("""(^|[^a-z])${Regex.escape(needle)}([^a-z]|$)""").containsMatchIn(name)
+            }
+        }
+    }
+}
+
+internal fun epgshareUrl(cc: String) =
     "https://epgshare01.online/epgshare01/epg_ripper_${cc}1.xml.gz"
 
 @Composable
@@ -619,16 +647,47 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
     val active by vm.activeSource.collectAsState()
     val engine by vm.engine.collectAsState()
     val epgOverride by vm.epgOverrideUrl.collectAsState()
-    val tmdbKey by vm.tmdbKey.collectAsState()
 
     val parentalPin by vm.parentalPin.collectAsState()
     var manageOpen by remember { mutableStateOf(false) }
-    var epgField by remember(epgOverride) { mutableStateOf(epgOverride.orEmpty()) }
-    var tmdbField by remember(tmdbKey) { mutableStateOf(tmdbKey.orEmpty()) }
-    var pinField by remember(parentalPin) { mutableStateOf(parentalPin.orEmpty()) }
+    // Text entry happens in dialogs, not inline: a focused TextField on TV
+    // opens the keyboard on its own, so a field in the scroll path grabs the
+    // remote every time you D-pad past it.
+    var epgDialogOpen by remember { mutableStateOf(false) }
+    var pinDialogOpen by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var confirmRemoveSource by remember { mutableStateOf<String?>(null) }
     var confirmImport by remember { mutableStateOf(false) }
+
+    if (epgDialogOpen) {
+        com.nuxcor.nuxtv.ui.components.TextInputDialog(
+            title = "Custom XMLTV URL",
+            message = "Optional. Leave this unset and the guide from your playlist is used.",
+            initialValue = epgOverride.orEmpty(),
+            label = "XMLTV URL",
+            onConfirm = { entered ->
+                vm.setEpgOverrideUrl(entered)
+                statusMessage = if (entered.isBlank()) "EPG source: playlist default"
+                else "EPG source updated"
+            },
+            onDismiss = { epgDialogOpen = false },
+        )
+    }
+    if (pinDialogOpen) {
+        com.nuxcor.nuxtv.ui.components.TextInputDialog(
+            title = "Parental PIN",
+            message = "Optional. Clearing the PIN turns parental control off.",
+            initialValue = parentalPin.orEmpty(),
+            label = "PIN",
+            digitsOnly = true,
+            onConfirm = { entered ->
+                vm.setParentalPin(entered)
+                statusMessage = if (entered.isBlank()) "Parental lock disabled"
+                else "Parental PIN saved"
+            },
+            onDismiss = { pinDialogOpen = false },
+        )
+    }
 
     if (manageOpen && bundle != null) {
         ChannelManager(vm = vm, bundle = bundle, onClose = { manageOpen = false })
@@ -888,58 +947,20 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    androidx.compose.material3.OutlinedTextField(
-                        value = epgField,
-                        onValueChange = { epgField = it },
-                        label = { androidx.compose.material3.Text("Custom XMLTV URL") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f).dpadFieldNavigation(),
-                        colors = settingsFieldColors(),
-                    )
-                    OutlinedButton(onClick = {
-                        vm.setEpgOverrideUrl(epgField)
-                        statusMessage = if (epgField.isBlank()) "EPG source: playlist default"
-                        else "EPG source updated"
-                    }) { Text("Apply") }
-                }
-            }
-        }
-
-        item(key = "tmdb") {
-            Column {
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "TMDB ratings & reviews",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = NuxColors.OnSurface,
+                val custom = epgOverride
+                    ?.takeIf { url -> url.isNotBlank() && EPGSHARE_PACKS.none { epgshareUrl(it) == url } }
+                WideItem(
+                    title = "Custom XMLTV URL",
+                    subtitle = custom ?: "Not set — the playlist's own guide is used",
+                    leading = {
+                        Icon(
+                            Icons.Default.CalendarViewWeek,
+                            contentDescription = null,
+                            tint = if (custom != null) NuxColors.Primary else NuxColors.OnSurfaceDim,
+                        )
+                    },
+                    onClick = { epgDialogOpen = true },
                 )
-                Text(
-                    "Add a free themoviedb.org API key to enrich movies and series with ratings, posters and review excerpts.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = NuxColors.OnSurfaceDim,
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    androidx.compose.material3.OutlinedTextField(
-                        value = tmdbField,
-                        onValueChange = { tmdbField = it },
-                        label = { androidx.compose.material3.Text("TMDB API key") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f).dpadFieldNavigation(),
-                        colors = settingsFieldColors(),
-                    )
-                    OutlinedButton(onClick = {
-                        vm.setTmdbKey(tmdbField)
-                        statusMessage = if (tmdbField.isBlank()) "TMDB disabled" else "TMDB key saved"
-                    }) { Text("Save") }
-                }
             }
         }
 
@@ -952,28 +973,25 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
                     color = NuxColors.OnSurface,
                 )
                 Text(
-                    "With a PIN set, restricted categories are hidden everywhere until you unlock them.",
+                    "Optional. With a PIN set, restricted categories are hidden everywhere until you unlock them.",
                     style = MaterialTheme.typography.labelSmall,
                     color = NuxColors.OnSurfaceDim,
                 )
                 Spacer(Modifier.height(8.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    androidx.compose.material3.OutlinedTextField(
-                        value = pinField,
-                        onValueChange = { value -> pinField = value.filter { ch -> ch.isDigit() }.take(8) },
-                        label = { androidx.compose.material3.Text("PIN (blank to disable)") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f).dpadFieldNavigation(),
-                        colors = settingsFieldColors(),
-                    )
-                    OutlinedButton(onClick = {
-                        vm.setParentalPin(pinField)
-                        statusMessage = if (pinField.isBlank()) "Parental lock disabled" else "Parental PIN saved"
-                    }) { Text("Save") }
-                }
+                WideItem(
+                    title = if (parentalPin.isNullOrBlank()) "Set a PIN" else "Change or remove PIN",
+                    subtitle = if (parentalPin.isNullOrBlank()) "Off — nothing is hidden"
+                    else "On — restricted categories are locked",
+                    leading = {
+                        Icon(
+                            Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = if (parentalPin.isNullOrBlank()) NuxColors.OnSurfaceDim
+                            else NuxColors.Primary,
+                        )
+                    },
+                    onClick = { pinDialogOpen = true },
+                )
             }
         }
 
@@ -1100,18 +1118,6 @@ private fun SettingsConfirmations(
     }
 }
 
-@Composable
-private fun settingsFieldColors() = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-    focusedTextColor = NuxColors.OnSurface,
-    unfocusedTextColor = NuxColors.OnSurface,
-    focusedContainerColor = NuxColors.Surface,
-    unfocusedContainerColor = NuxColors.Surface.copy(alpha = 0.6f),
-    focusedBorderColor = NuxColors.Primary,
-    unfocusedBorderColor = NuxColors.SurfaceVariant,
-    focusedLabelColor = NuxColors.Primary,
-    unfocusedLabelColor = NuxColors.OnSurfaceDim,
-    cursorColor = NuxColors.Primary,
-)
 
 @Composable
 private fun ChannelManager(vm: MainViewModel, bundle: ContentBundle, onClose: () -> Unit) {

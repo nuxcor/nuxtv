@@ -641,6 +641,98 @@ fun ConfirmDialog(
     }
 }
 
+/**
+ * Text entry behind a dialog rather than inline in a settings list.
+ *
+ * A focused TextField on Android TV opens the on-screen keyboard by itself, so
+ * a field sitting in the scroll path hijacks the remote every time you D-pad
+ * past it — an optional setting that behaves like a mandatory one. Putting it
+ * behind an explicit OK means scrolling never summons a keyboard.
+ */
+@Composable
+fun TextInputDialog(
+    title: String,
+    initialValue: String,
+    label: String,
+    message: String? = null,
+    digitsOnly: Boolean = false,
+    confirmLabel: String = "Save",
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var value by remember { mutableStateOf(initialValue) }
+    val fieldFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { fieldFocus.requestFocus() } }
+    androidx.activity.compose.BackHandler(onBack = onDismiss)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(NuxColors.Scrim)
+            .focusGroup(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .width(620.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(NuxColors.Surface)
+                .border(1.dp, NuxColors.Stroke, RoundedCornerShape(20.dp))
+                .padding(Space.xl),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleLarge, color = NuxColors.OnSurface)
+            if (message != null) {
+                Spacer(Modifier.height(Space.s))
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NuxColors.OnSurfaceDim,
+                )
+            }
+            Spacer(Modifier.height(Space.m))
+            androidx.compose.material3.OutlinedTextField(
+                value = value,
+                onValueChange = { entered ->
+                    value = if (digitsOnly) entered.filter { it.isDigit() }.take(8) else entered
+                },
+                label = { androidx.compose.material3.Text(label) },
+                singleLine = true,
+                visualTransformation = if (digitsOnly) {
+                    androidx.compose.ui.text.input.PasswordVisualTransformation()
+                } else {
+                    androidx.compose.ui.text.input.VisualTransformation.None
+                },
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = NuxColors.OnSurface,
+                    unfocusedTextColor = NuxColors.OnSurface,
+                    focusedContainerColor = NuxColors.SurfaceVariant,
+                    unfocusedContainerColor = NuxColors.SurfaceVariant,
+                    focusedBorderColor = NuxColors.Primary,
+                    unfocusedBorderColor = NuxColors.Stroke,
+                    focusedLabelColor = NuxColors.Primary,
+                    unfocusedLabelColor = NuxColors.OnSurfaceDim,
+                    cursorColor = NuxColors.Primary,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(fieldFocus)
+                    .dpadFieldNavigation(),
+            )
+            Spacer(Modifier.height(Space.l))
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
+                androidx.tv.material3.Button(onClick = { onConfirm(value); onDismiss() }) {
+                    Text(confirmLabel)
+                }
+                androidx.tv.material3.OutlinedButton(onClick = onDismiss) { Text("Cancel") }
+                if (initialValue.isNotBlank()) {
+                    androidx.tv.material3.OutlinedButton(onClick = { onConfirm(""); onDismiss() }) {
+                        Text("Clear")
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** Segmented control — replaces chips that silently cycle through states. */
 @Composable
 fun SegmentedControl(

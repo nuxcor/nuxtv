@@ -34,7 +34,7 @@ Point it at an **Xtream Codes** login or a plain **M3U playlist link** and Dzidz
 - **Auto channel logos** — channels without artwork get logos automatically from the community [tv-logo/tv-logos](https://github.com/tv-logo/tv-logos) repo (index cached for a week)
 - **EPG sources & auto-update** — one-tap [epgshare01](https://epgshare01.online/epgshare01/) country packs or any custom XMLTV URL in Settings; guides auto-refresh every 6 hours
 - **Quality badges** — advertised quality (4K/FHD/HD/SD) parsed from stream names shows on channel rows, and the player displays the real decoded resolution (e.g. "1080p FHD") live
-- **Ratings & reviews** — five-star rating bars on detail pages; add a free TMDB API key in Settings to enrich movies and series with ratings, vote counts, posters and review excerpts
+- **Ratings & reviews** — rating bars on detail pages, with ratings, vote counts, posters and review excerpts from TMDB. The API key is bundled at build time, so there is nothing to configure
 - **Picture-in-picture** — pop live TV into PiP from the player
 - **Backup & restore** — export playlists, favorites, hidden channels, schedules and settings to a JSON file and restore them on any install
 - **TV-first UI** — collapsible navigation rail, category rows with focus-scaling poster cards, immersive hero header, detail pages for movies and series, global search, D-pad friendly throughout
@@ -47,6 +47,16 @@ Point it at an **Xtream Codes** login or a plain **M3U playlist link** and Dzidz
 ./gradlew assembleDebug        # APK at app/build/outputs/apk/debug/
 ./gradlew testDebugUnitTest    # classifier + parser unit tests
 ```
+
+To bundle the TMDB key, add it to `local.properties` (gitignored) or set it in the
+environment. Without it the app builds and runs fine — movies and series simply
+aren't enriched with ratings, posters and reviews:
+
+```properties
+TMDB_API_KEY=your_key_here
+```
+
+CI reads the same value from the `TMDB_API_KEY` repository secret.
 
 Requires JDK 17+ and the Android SDK (compileSdk 36). Install on an Android TV device or emulator:
 

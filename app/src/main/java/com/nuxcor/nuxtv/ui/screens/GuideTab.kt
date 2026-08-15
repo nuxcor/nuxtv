@@ -75,9 +75,13 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
         is ContentRepository.EpgState.Loading ->
             CenteredMessage(title = "Loading guide…", loading = true)
 
-        is ContentRepository.EpgState.Error -> CenteredMessage(
-            title = "No guide available",
-            subtitle = state.message,
+        // A dead end otherwise: the viewer would have to already know epgshare
+        // exists and go looking for it in Settings. Only ever shown when the
+        // playlist's own guide failed — a working guide is never second-guessed.
+        is ContentRepository.EpgState.Error -> NoGuidePane(
+            message = state.message,
+            categoryNames = bundle.liveCategories.map { it.name },
+            onPick = { cc -> vm.setEpgOverrideUrl(epgshareUrl(cc)) },
         )
 
         is ContentRepository.EpgState.Ready -> {
@@ -241,6 +245,62 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                 }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun NoGuidePane(
+    message: String,
+    categoryNames: List<String>,
+    onPick: (String) -> Unit,
+) {
+    // Suggestions come from the playlist's own categories; the full list is the
+    // fallback when nothing in the names hints at a country.
+    val suggested = remember(categoryNames) {
+        suggestedEpgPacks(categoryNames).ifEmpty { EPGSHARE_PACKS }
+    }
+    val narrowed = suggested.size < EPGSHARE_PACKS.size
+
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                "No guide available",
+                style = MaterialTheme.typography.titleLarge,
+                color = NuxColors.OnSurface,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuxColors.OnSurfaceDim,
+            )
+            Spacer(Modifier.height(20.dp))
+            Text(
+                if (narrowed) "Your playlist looks like it covers these — try a free guide:"
+                else "Try a free guide from epgshare01:",
+                style = MaterialTheme.typography.labelMedium,
+                color = NuxColors.OnSurfaceDim,
+            )
+            Spacer(Modifier.height(10.dp))
+            androidx.compose.foundation.lazy.LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(suggested, key = { it }) { cc ->
+                    com.nuxcor.nuxtv.ui.screens.CategoryItem(
+                        name = cc,
+                        selected = false,
+                        onClick = { onPick(cc) },
+                        modifier = Modifier,
+                    )
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            Text(
+                "You can change this any time in Settings → EPG source.",
+                style = MaterialTheme.typography.labelSmall,
+                color = NuxColors.OnSurfaceDim,
+            )
         }
     }
 }

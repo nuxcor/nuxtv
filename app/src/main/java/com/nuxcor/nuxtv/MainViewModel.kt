@@ -75,9 +75,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val epgOverrideUrl: StateFlow<String?> = playerPrefs.epgOverrideUrl
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    val tmdbKey: StateFlow<String?> = playerPrefs.tmdbKey
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
-
     val resumePositions: StateFlow<Map<String, Long>> = playerPrefs.resumePositions
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
@@ -329,7 +326,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setEpgOverrideUrl(url: String?) = viewModelScope.launch { playerPrefs.setEpgOverrideUrl(url) }
 
-    fun setTmdbKey(key: String?) = viewModelScope.launch { playerPrefs.setTmdbKey(key) }
 
     fun setParentalPin(pin: String?) = viewModelScope.launch { playerPrefs.setParentalPin(pin) }
 
@@ -465,8 +461,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return index[id]
     }
 
-    suspend fun movieDetails(movie: Movie): Movie = repo.movieDetails(movie, tmdbKey.value)
-    suspend fun seriesDetails(series: Series): Series = repo.seriesDetails(series, tmdbKey.value)
+    /**
+     * Bundled at build time — there is no in-app setting for it. Null when the
+     * build had no key, in which case enrichment is simply off rather than
+     * asking the viewer to go and register for one.
+     */
+    private val tmdbApiKey: String? = BuildConfig.TMDB_API_KEY.takeIf { it.isNotBlank() }
+
+    suspend fun movieDetails(movie: Movie): Movie = repo.movieDetails(movie, tmdbApiKey)
+    suspend fun seriesDetails(series: Series): Series = repo.seriesDetails(series, tmdbApiKey)
     suspend fun episodesFor(series: Series): List<Episode> = repo.episodesFor(series)
     suspend fun epgFor(channel: LiveChannel): List<EpgProgram> = repo.epgFor(channel)
     suspend fun catchupUrl(channel: LiveChannel, program: EpgProgram): String? =
