@@ -108,6 +108,7 @@ fun HomeScreen(
     onOpenSeries: (Series) -> Unit,
     onPlay: () -> Unit,
     onAddPlaylist: () -> Unit,
+    onEditPlaylist: (String) -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(HomeTab.Live) }
     // Non-content tabs also work while the playlist is loading or failed.
@@ -186,7 +187,7 @@ fun HomeScreen(
                                 HomeTab.Movies -> MoviesTab(vm, state.bundle, onOpenMovie)
                                 HomeTab.Series -> SeriesTab(vm, state.bundle, onOpenSeries)
                                 HomeTab.Recordings -> RecordingsTab(vm, onPlay)
-                                HomeTab.Settings -> SettingsTab(vm, state.bundle, onAddPlaylist)
+                                HomeTab.Settings -> SettingsTab(vm, state.bundle, onAddPlaylist, onEditPlaylist)
                             }
                         }
                     }
@@ -195,7 +196,7 @@ fun HomeScreen(
             // Settings must stay reachable even while loading or on error.
             if (contentState !is ContentState.Ready && tab == HomeTab.Settings) {
                 Box(modifier = Modifier.fillMaxSize().background(NuxColors.Background)) {
-                    SettingsTab(vm, null, onAddPlaylist)
+                    SettingsTab(vm, null, onAddPlaylist, onEditPlaylist)
                 }
             }
         }
@@ -642,7 +643,12 @@ internal fun epgshareUrl(cc: String) =
     "https://epgshare01.online/epgshare01/epg_ripper_${cc}1.xml.gz"
 
 @Composable
-private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist: () -> Unit) {
+private fun SettingsTab(
+    vm: MainViewModel,
+    bundle: ContentBundle?,
+    onAddPlaylist: () -> Unit,
+    onEditPlaylist: (String) -> Unit,
+) {
     val sources by vm.sources.collectAsState()
     val active by vm.activeSource.collectAsState()
     val engine by vm.engine.collectAsState()
@@ -657,6 +663,7 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
     var pinDialogOpen by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var confirmRemoveSource by remember { mutableStateOf<String?>(null) }
+    var sourceOptions by remember { mutableStateOf<String?>(null) }
     var confirmImport by remember { mutableStateOf(false) }
 
     if (epgDialogOpen) {
@@ -686,6 +693,22 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
                 else "Parental PIN saved"
             },
             onDismiss = { pinDialogOpen = false },
+        )
+    }
+
+    // A stale id (the playlist vanished under us) simply shows nothing.
+    sources.orEmpty().firstOrNull { it.id == sourceOptions }?.let { source ->
+        com.nuxcor.nuxtv.ui.components.PlaylistOptionsDialog(
+            name = source.name,
+            onEdit = {
+                sourceOptions = null
+                onEditPlaylist(source.id)
+            },
+            onRemove = {
+                sourceOptions = null
+                confirmRemoveSource = source.id
+            },
+            onDismiss = { sourceOptions = null },
         )
     }
 
@@ -726,6 +749,9 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
             WideItem(
                 title = source.name,
                 selected = isActive,
+                // Hold OK for options on any playlist; the active one has
+                // nothing to switch to, so a plain OK opens them too.
+                onLongClick = { sourceOptions = source.id },
                 subtitle = when (source) {
                     is PlaylistSource.Xtream -> "Xtream • ${source.serverUrl}"
                     is PlaylistSource.M3u -> "M3U • ${source.url}"
@@ -737,7 +763,9 @@ private fun SettingsTab(vm: MainViewModel, bundle: ContentBundle?, onAddPlaylist
                         tint = if (isActive) NuxColors.Primary else NuxColors.OnSurfaceDim,
                     )
                 },
-                onClick = { if (!isActive) vm.selectSource(source.id) },
+                onClick = {
+                    if (isActive) sourceOptions = source.id else vm.selectSource(source.id)
+                },
             )
         }
 

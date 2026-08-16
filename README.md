@@ -39,7 +39,7 @@ Point it at an **Xtream Codes** login or a plain **M3U playlist link** and Dzidz
 - **Backup & restore** — export playlists, favorites, hidden channels, schedules and settings to a JSON file and restore them on any install
 - **TV-first UI** — collapsible navigation rail, category rows with focus-scaling poster cards, immersive hero header, detail pages for movies and series, global search, D-pad friendly throughout
 - **Pro player** — custom TV controls (seek bar with ±10s D-pad seeking, transport, engine badge), live channel zapping with DPAD/CHANNEL up/down, episode binge queueing, and automatic resume for movies and episodes
-- **Multiple playlists** — add several sources and switch between them in Settings
+- **Multiple playlists** — add several sources and switch between them in Settings; select the one you're on (or hold OK on any of them) to edit its details or remove it. Edits are validated before they're saved, so a mistyped password can't break a playlist that was working
 
 ## Installing
 

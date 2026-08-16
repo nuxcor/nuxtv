@@ -131,6 +131,42 @@ class ContentRepository(context: Context) {
         )
     }
 
+    /**
+     * Same validation as [validateAndAdd], for a source that already exists: the
+     * edit only lands if the new details actually load, so a mistyped password
+     * can't leave you with a playlist that no longer works either way.
+     *
+     * Editing a playlist you aren't currently watching leaves the screen alone —
+     * only its cache is refreshed, ready for the next time you switch to it.
+     */
+    suspend fun validateAndUpdate(source: PlaylistSource): Result<Unit> {
+        val isActive = activeSource.first()?.id == source.id
+        val previous = _content.value
+        if (isActive) _content.value = ContentState.Loading("Connecting to ${source.name}…")
+        val result = runCatching {
+            val bundle = fetch(source)
+            if (bundle.isEmpty) throw IOException("The playlist loaded but contains no content.")
+            bundle
+        }
+        return result.fold(
+            onSuccess = { bundle ->
+                publishMutex.withLock {
+                    store.update(source)
+                    if (isActive) {
+                        loadedSourceId = source.id
+                        _content.value = ContentState.Ready(bundle)
+                    }
+                }
+                withContext(Dispatchers.IO) { writeCache(source.id, bundle) }
+                Result.success(Unit)
+            },
+            onFailure = { e ->
+                if (isActive) _content.value = previous
+                Result.failure(e)
+            },
+        )
+    }
+
     suspend fun selectSource(sourceId: String) {
         store.setActive(sourceId)
         val source = sources.first().firstOrNull { it.id == sourceId } ?: return

@@ -409,10 +409,53 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
-    private fun addSource(source: PlaylistSource, onSuccess: () -> Unit) {
+    /** The existing playlist an edit is working on, or null while adding a new one. */
+    fun sourceById(id: String?): PlaylistSource? =
+        id?.let { wanted -> sources.value?.firstOrNull { it.id == wanted } }
+
+    fun updateXtream(
+        id: String,
+        name: String,
+        server: String,
+        username: String,
+        password: String,
+        onSuccess: () -> Unit,
+    ) {
+        saveSource(
+            PlaylistSource.Xtream(
+                id = id,
+                name = name.ifBlank { "Xtream playlist" },
+                serverUrl = server.trim(),
+                username = username.trim(),
+                password = password.trim(),
+            ),
+            onSuccess,
+            existing = true,
+        )
+    }
+
+    fun updateM3u(id: String, name: String, url: String, epgUrl: String, onSuccess: () -> Unit) {
+        saveSource(
+            PlaylistSource.M3u(
+                id = id,
+                name = name.ifBlank { "M3U playlist" },
+                url = url.trim(),
+                epgUrl = epgUrl.trim().takeIf { it.isNotBlank() },
+            ),
+            onSuccess,
+            existing = true,
+        )
+    }
+
+    private fun addSource(source: PlaylistSource, onSuccess: () -> Unit) =
+        saveSource(source, onSuccess, existing = false)
+
+    private fun saveSource(source: PlaylistSource, onSuccess: () -> Unit, existing: Boolean) {
         addState = AddState.Loading
         viewModelScope.launch {
-            repo.validateAndAdd(source).fold(
+            val outcome =
+                if (existing) repo.validateAndUpdate(source) else repo.validateAndAdd(source)
+            outcome.fold(
                 onSuccess = {
                     addState = AddState.Idle
                     onSuccess()
