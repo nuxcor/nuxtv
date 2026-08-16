@@ -132,7 +132,7 @@ jobs:
           body: |
             One APK for all devices — Android TV, Google TV and phones (arm64 + arm32).
 
-            **Install on a TV:** open the Downloader app and enter code `9988764`,
+            **Install on a TV:** open the Downloader app and enter code `5526044`,
             or type `nuxcor.github.io/nuxtv/`. Both reach the APK below and keep
             working on every future release without being reissued.
 
