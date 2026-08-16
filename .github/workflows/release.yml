@@ -118,6 +118,13 @@ jobs:
         run: |
           cp app/build/outputs/apk/release/app-release.apk agoro-${{ steps.version.outputs.tag }}.apk
           cp app/build/outputs/apk/release/app-release.apk agoro.apk
+          # Legacy alias. Downloader code 7141087 was issued against
+          # dzidzi.apk and is printed in every release note up to v2.12.0, on
+          # the Pages redirect, and on whatever a viewer wrote down. The
+          # rebrand renamed the asset and the code started 404ing for people
+          # holding a number they can't tell is stale. A shortener entry can't
+          # be repointed, so the path it points at has to keep existing.
+          cp app/build/outputs/apk/release/app-release.apk dzidzi.apk
 
       # Creates the tag at this commit when the run came from a merge; reuses
       # the pushed tag otherwise.
@@ -129,6 +136,7 @@ jobs:
           files: |
             agoro-${{ steps.version.outputs.tag }}.apk
             agoro.apk
+            dzidzi.apk
           body: |
             One APK for all devices — Android TV, Google TV and phones (arm64 + arm32).
 
