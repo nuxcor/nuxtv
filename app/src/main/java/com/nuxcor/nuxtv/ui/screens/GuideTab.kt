@@ -37,9 +37,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
@@ -55,19 +57,57 @@ import com.nuxcor.nuxtv.ui.components.Artwork
 import com.nuxcor.nuxtv.ui.components.CenteredMessage
 import com.nuxcor.nuxtv.ui.components.rememberClockFormat
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import com.nuxcor.nuxtv.ui.theme.Space
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** 4dp per minute → an hour is 240dp wide. */
-private val DP_PER_MINUTE = 4.dp
+/**
+ * How many half-hour columns the timeline aims to show at once, the "on now"
+ * one included. Two and a half hours of schedule is the point of a grid guide:
+ * fewer and you are paging to answer "what's on after this", more and the cells
+ * are too narrow to carry a title.
+ */
+private const val TARGET_COLUMNS = 5
+
+/**
+ * The scale is derived from the panel's own width rather than fixed, because
+ * the same constant lands differently on every one of them: a 960dp
+ * canvas has 572dp of lane once the TV-safe gutters, the navigation rail and
+ * the channel column are paid for, while a 1280dp one has 892dp. A fixed 4dp
+ * per minute showed 4.8 columns on the first and 7.4 on the second.
+ *
+ * Clamped at both ends: below the minimum a half-hour cell can't hold a title,
+ * and above the maximum a wide panel would show two programmes and a lot of
+ * empty rounding.
+ */
+private val MIN_DP_PER_MINUTE = 2.6.dp
+private val MAX_DP_PER_MINUTE = 6.dp
+
 private val CHANNEL_COLUMN_WIDTH = 200.dp
+private val CHANNEL_COLUMN_GAP = 8.dp
 private val ROW_HEIGHT = 62.dp
 
-/** 16 min ≈ 64dp: the narrowest cell that still shows a title and a focus ring. */
+/** The narrowest cell that still shows a title and a focus ring — 61dp on a
+ *  960dp panel, more on a wider one since the scale grows with it. */
 private const val MIN_CELL_MINUTES = 16f
+
+/**
+ * Timeline scale for a panel [screenWidth] dp wide: the lane left after the
+ * TV-safe gutters, the collapsed rail and the channel column, divided into
+ * [TARGET_COLUMNS] half-hour columns.
+ *
+ * Internal and pure so the column arithmetic can be tested — getting it wrong
+ * is invisible in code review and only shows up as a guide that pages too soon
+ * on someone else's TV.
+ */
+internal fun guideDpPerMinute(screenWidth: Dp): Dp {
+    val lane = screenWidth - Space.gutter * 2 - RAIL_WIDTH_COLLAPSED -
+        CHANNEL_COLUMN_WIDTH - CHANNEL_COLUMN_GAP
+    return (lane / (TARGET_COLUMNS * 30)).coerceIn(MIN_DP_PER_MINUTE, MAX_DP_PER_MINUTE)
+}
 
 /**
  * Budget on a 960x540dp TV canvas: 540 − 64 (screen gutters) − 50 (category
@@ -157,13 +197,21 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                 }
             }
 
+            // Sized against the screen rather than the width this composable is
+            // handed, deliberately: the rail animates its width on focus, and a
+            // scale read from the live measurement would resize every cell in
+            // the grid on each frame of that animation and leave the scroll
+            // offset pointing at a different time than before.
+            val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+            val dpPerMinute = remember(screenWidth) { guideDpPerMinute(screenWidth) }
+
             // Start the timeline near "now".
             val density = LocalDensity.current
             LaunchedEffect(Unit) {
                 val nowOffsetMin = ((System.currentTimeMillis() - windowStart) / 60_000L - 15)
                     .coerceAtLeast(0)
                 timelineScroll.scrollTo(
-                    with(density) { (DP_PER_MINUTE * nowOffsetMin.toInt()).roundToPx() }
+                    with(density) { (dpPerMinute * nowOffsetMin.toInt()).roundToPx() }
                 )
             }
 
@@ -228,7 +276,10 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                 )
                 Spacer(Modifier.height(10.dp))
 
-                TimeRuler(windowStart, windowEnd, nowTick, nowTick + dayOffset * 24 * 3600_000L, timelineScroll)
+                TimeRuler(
+                    windowStart, windowEnd, nowTick,
+                    nowTick + dayOffset * 24 * 3600_000L, timelineScroll, dpPerMinute,
+                )
 
                 Box(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
@@ -244,6 +295,7 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                             windowEnd = windowEnd,
                             nowMs = nowTick,
                             timelineScroll = timelineScroll,
+                            dpPerMinute = dpPerMinute,
                             onFocus = { program ->
                                 focusedChannel = channel
                                 focusedProgram = program
@@ -275,9 +327,9 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                     }
                 }
                 // The NOW marker — the defining element of an EPG.
-                val nowOffset = DP_PER_MINUTE * ((nowTick - windowStart) / 60_000f)
+                val nowOffset = dpPerMinute * ((nowTick - windowStart) / 60_000f)
                 val scrolled = with(LocalDensity.current) { timelineScroll.value.toDp() }
-                val markerX = CHANNEL_COLUMN_WIDTH + 8.dp + nowOffset - scrolled
+                val markerX = CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP + nowOffset - scrolled
                 if (markerX > CHANNEL_COLUMN_WIDTH) {
                     Box(
                         modifier = Modifier
@@ -503,6 +555,7 @@ private fun TimeRuler(
      *  the previous date between midnight and 01:00. */
     dayMs: Long,
     timelineScroll: androidx.compose.foundation.ScrollState,
+    dpPerMinute: Dp,
 ) {
     val fmt = rememberClockFormat()
     val dayFmt = remember { SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault()) }
@@ -513,7 +566,7 @@ private fun TimeRuler(
             color = NuxColors.OnSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.width(CHANNEL_COLUMN_WIDTH + 8.dp),
+            modifier = Modifier.width(CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP),
         )
         Row(modifier = Modifier.horizontalScroll(timelineScroll, enabled = false)) {
             var t = windowStart
@@ -525,7 +578,7 @@ private fun TimeRuler(
                     text = if (isNow) "ON NOW" else fmt.format(Date(t)),
                     style = MaterialTheme.typography.labelMedium,
                     color = if (isNow) NuxColors.Error else NuxColors.OnSurfaceDim,
-                    modifier = Modifier.width(DP_PER_MINUTE * 30),
+                    modifier = Modifier.width(dpPerMinute * 30),
                 )
                 t += 30 * 60_000L
             }
@@ -542,6 +595,7 @@ private fun GuideRow(
     windowEnd: Long,
     nowMs: Long,
     timelineScroll: androidx.compose.foundation.ScrollState,
+    dpPerMinute: Dp,
     onFocus: (EpgProgram?) -> Unit,
     onPlayChannel: () -> Unit,
     onCatchup: (EpgProgram) -> Unit,
@@ -612,14 +666,14 @@ private fun GuideRow(
                 }
             }
         }
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(CHANNEL_COLUMN_GAP))
 
         // Programme lane sharing the timeline scroll.
         Row(modifier = Modifier.horizontalScroll(timelineScroll)) {
             if (programs.isEmpty()) {
                 Box(
                     modifier = Modifier
-                        .width(DP_PER_MINUTE * ((windowEnd - windowStart) / 60_000L).toInt())
+                        .width(dpPerMinute * ((windowEnd - windowStart) / 60_000L).toInt())
                         .height(ROW_HEIGHT)
                         .padding(vertical = 6.dp)
                         .clip(RoundedCornerShape(6.dp))
@@ -652,7 +706,7 @@ private fun GuideRow(
                         val repaid = minOf(gapMinutes, borrowedMinutes)
                         gapMinutes -= repaid
                         borrowedMinutes -= repaid
-                        if (gapMinutes > 0f) Spacer(Modifier.width(DP_PER_MINUTE * gapMinutes))
+                        if (gapMinutes > 0f) Spacer(Modifier.width(dpPerMinute * gapMinutes))
                     }
 
                     val naturalMinutes = (end - start) / 60_000f
@@ -669,6 +723,7 @@ private fun GuideRow(
                     ProgramCell(
                         program = program,
                         widthMinutes = widthMinutes,
+                        dpPerMinute = dpPerMinute,
                         nowMs = nowMs,
                         onFocus = { onFocus(program) },
                         hasArchive = channel.archiveDays > 0,
@@ -685,7 +740,7 @@ private fun GuideRow(
                 // early) would otherwise set a smaller maxValue and clamp the
                 // scroll for every other row.
                 val tailMinutes = ((windowEnd - cursor) / 60_000f) - borrowedMinutes
-                if (tailMinutes > 0f) Spacer(Modifier.width(DP_PER_MINUTE * tailMinutes))
+                if (tailMinutes > 0f) Spacer(Modifier.width(dpPerMinute * tailMinutes))
             }
         }
     }
@@ -695,6 +750,7 @@ private fun GuideRow(
 private fun ProgramCell(
     program: EpgProgram,
     widthMinutes: Float,
+    dpPerMinute: Dp,
     nowMs: Long,
     onFocus: () -> Unit,
     hasArchive: Boolean,
@@ -719,7 +775,7 @@ private fun ProgramCell(
         modifier = Modifier
             .onFocusChanged { if (it.isFocused) onFocus() }
             // Caller has already reconciled this against the ruler; see GuideRow.
-            .width(DP_PER_MINUTE * widthMinutes)
+            .width(dpPerMinute * widthMinutes)
             .height(ROW_HEIGHT)
             .padding(end = 2.dp, top = 6.dp, bottom = 6.dp),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
