@@ -3,10 +3,24 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Agoro "A" — Avenir Next Heavy outline; the counter is cut with evenOdd
-         so the mark drops onto any background. -->
-    <path
-        android:fillColor="#FFE6B450"
-        android:fillType="evenOdd"
-        android:pathData="M43.48,24.42 L64.77,24.42 L88,84 L66.2,84 L63.09,75.25 L44.15,75.25 L41.21,84 L20,84 Z M53.83,45.2 L48.95,59.93 L58.63,59.93 Z" />
+    <!-- Agoro mark: a play triangle with the slot where a sideways A's crossbar
+         would sit. The slot is cut with evenOdd so the mark drops onto any
+         background, and it is what keeps the silhouette from reading as a plain
+         triangle once the launcher scales it down to 28px.
+
+         Scaled to 0.84 because the splash screen masks this icon to a circle
+         across the inner two thirds — r=36 of the 108 viewport. At full size
+         the triangle's rear corners sit at r=42 and get sliced flat, which
+         reads as a rendering bug rather than a logo. The launcher copy in
+         drawable/ic_launcher.xml is not masked and stays full size. -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.84"
+        android:scaleY="0.84">
+        <path
+            android:fillColor="#FFE6B450"
+            android:fillType="evenOdd"
+            android:pathData="M31,22 C31,18 34,16 37.5,18 L83,50 C86,52 86,56 83,58 L37.5,90 C34,92 31,90 31,86 Z M47.5,34 C50,34 52,36 52,38.5 L52,69.5 C52,72 50,74 47.5,74 C45,74 43,72 43,69.5 L43,38.5 C43,36 45,34 47.5,34 Z" />
+    </group>
 </vector>

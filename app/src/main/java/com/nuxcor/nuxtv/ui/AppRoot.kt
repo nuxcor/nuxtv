@@ -2,18 +2,15 @@ package com.nuxcor.nuxtv.ui
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -22,14 +19,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.nuxcor.nuxtv.MainViewModel
-import com.nuxcor.nuxtv.ui.screens.BootScreen
 import com.nuxcor.nuxtv.ui.screens.HomeScreen
 import com.nuxcor.nuxtv.ui.screens.MovieDetailScreen
 import com.nuxcor.nuxtv.ui.screens.OnboardingScreen
 import com.nuxcor.nuxtv.ui.screens.PlayerScreen
 import com.nuxcor.nuxtv.ui.screens.SeriesDetailScreen
+import com.nuxcor.nuxtv.ui.theme.NuxColors
 import com.nuxcor.nuxtv.ui.theme.Space
-import kotlinx.coroutines.delay
 
 private enum class RootScreen { Boot, Onboarding, Main }
 
@@ -51,22 +47,21 @@ private fun TvSafe(content: @Composable () -> Unit) {
 fun AppRoot(vm: MainViewModel = viewModel()) {
     val sources by vm.sources.collectAsState()
 
-    // Hold the boot animation long enough to play out even on instant starts.
-    var bootElapsed by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        delay(900)
-        bootElapsed = true
-    }
-
+    // The system splash stays up until sources resolve (see MainActivity), so
+    // Boot is only ever reached if that hold hit its deadline. It is a bare
+    // background rather than a second animated logo: the splash already showed
+    // the mark, and showing it again is the whole reason startup felt slow.
     val screen = when {
-        !bootElapsed || sources == null -> RootScreen.Boot
+        sources == null -> RootScreen.Boot
         sources!!.isEmpty() -> RootScreen.Onboarding
         else -> RootScreen.Main
     }
 
     Crossfade(targetState = screen, animationSpec = tween(260), label = "root") { target ->
         when (target) {
-            RootScreen.Boot -> BootScreen()
+            RootScreen.Boot -> Box(
+                modifier = Modifier.fillMaxSize().background(NuxColors.Background)
+            )
             RootScreen.Onboarding -> TvSafe {
                 OnboardingScreen(vm = vm, cancellable = false, onDone = {}, onCancel = {})
             }

@@ -506,9 +506,14 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             }
         }
 
-        // Channel banner: sits above the transport bar when both are up.
+        // Channel banner: sits above the transport bar when both are up. On
+        // live it also stays up for as long as the controls do — the controls
+        // no longer carry a title there, so the banner is the only thing
+        // naming what is playing, and its own timer would otherwise retire it
+        // out from under an open control bar.
         AnimatedVisibility(
-            visible = bannerVisible && !catchupOpen && !tracksOpen && !miniGuideOpen &&
+            visible = (bannerVisible || (controlsVisible && request.isLive)) &&
+                !catchupOpen && !tracksOpen && !miniGuideOpen &&
                 !inPip && errorMessage == null,
             enter = fadeIn(),
             exit = fadeOut(),
@@ -547,8 +552,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             exit = fadeOut(),
         ) {
             PlayerControls(
-                title = item?.title.orEmpty(),
-                subtitle = item?.subtitle,
+                title = if (request.isLive) "" else item?.title.orEmpty(),
+                subtitle = if (request.isLive) null else item?.subtitle,
                 isLive = request.isLive,
                 playing = playing,
                 positionMs = positionMs,
@@ -711,34 +716,39 @@ private fun PlayerControls(
     LaunchedEffect(Unit) { runCatching { playFocus.requestFocus() } }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Top scrim + title.
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.75f), Color.Transparent))
-                )
-                .padding(horizontal = 32.dp, vertical = 22.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+        // Top scrim + title. Blank on live, where the channel banner below is
+        // already showing the same name — with the logo, number, favourite star
+        // and now/next besides — and lifts itself clear of this bar so both
+        // were on screen saying it twice.
+        if (title.isNotBlank()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.75f), Color.Transparent))
+                    )
+                    .padding(horizontal = 32.dp, vertical = 22.dp),
             ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (!subtitle.isNullOrBlank()) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = NuxColors.OnSurfaceDim,
-                    maxLines = 1,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (!subtitle.isNullOrBlank()) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = NuxColors.OnSurfaceDim,
+                        maxLines = 1,
+                    )
+                }
             }
         }
 
