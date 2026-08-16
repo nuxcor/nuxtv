@@ -15,6 +15,10 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
+      # app/build.gradle.kts pins ndkVersion, so it has to be present here too
+      # or the build fails outright rather than merely skipping the strip.
+      - name: Install NDK
+        run: echo y | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.1.12297006"
       - name: Build and test
         env:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}

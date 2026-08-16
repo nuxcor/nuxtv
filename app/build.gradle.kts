@@ -23,12 +23,21 @@ android {
     namespace = "com.nuxcor.nuxtv"
     compileSdk = 36
 
+    /**
+     * Pinned so the build always has the NDK's `strip` on hand. Without it AGP
+     * can't strip the prebuilt .so files and merely warns ("Unable to strip the
+     * following libraries, packaging them as they are") — which is exactly what
+     * CI did through v2.10.2, shipping 8 MB of arm64 debug symbols in
+     * libc++_shared.so to every viewer. The workflow installs this same version.
+     */
+    ndkVersion = "27.1.12297006"
+
     defaultConfig {
         applicationId = "com.nuxcor.nuxtv"
         minSdk = 23
         targetSdk = 36
-        versionCode = 27
-        versionName = "2.10.2"
+        versionCode = 28
+        versionName = "2.10.3"
 
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
 
