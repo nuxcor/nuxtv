@@ -168,19 +168,14 @@ fun GuideTab(
         is ContentRepository.EpgState.Ready -> {
             val allChannels by vm.displayChannels.collectAsState()
             val favorites by vm.favorites.collectAsState()
-            val categories = remember(bundle, favorites, allChannels) {
-                buildList {
-                    add(Category("__all__", "All"))
-                    if (allChannels.any { it.url in favorites }) add(Category("__fav__", "★ Favorites"))
-                    addAll(bundle.liveCategories)
-                }
+            val recents by vm.recentChannels.collectAsState()
+            // Same list and same filtering as the channel view — see
+            // LiveCategories.kt. The caller owns which one is selected.
+            val categories = remember(bundle, favorites, recents, allChannels) {
+                liveCategoryList(bundle, allChannels, favorites, recents)
             }
-            val channels = remember(allChannels, categoryId, favorites) {
-                when (categoryId) {
-                    "__all__" -> allChannels
-                    "__fav__" -> allChannels.filter { it.url in favorites }
-                    else -> allChannels.filter { it.categoryId == categoryId }
-                }
+            val channels = remember(allChannels, categoryId, favorites, recents) {
+                channelsInCategory(categoryId, allChannels, favorites, recents)
             }
             if (allChannels.isEmpty()) {
                 CenteredMessage(title = "No live channels")

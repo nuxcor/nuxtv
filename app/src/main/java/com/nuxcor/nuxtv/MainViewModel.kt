@@ -75,6 +75,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val hidden: StateFlow<Set<String>> = playerPrefs.hidden
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
+    /** Stream URLs of recently watched live channels, newest first. */
+    val recentChannels: StateFlow<List<String>> = playerPrefs.recentChannels
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     val epgOverrideUrl: StateFlow<String?> = playerPrefs.epgOverrideUrl
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
@@ -526,6 +530,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleFavorite(channel: LiveChannel) {
         viewModelScope.launch { playerPrefs.toggleFavorite(channel.url) }
+    }
+
+    /**
+     * Records a live channel as watched. Called from the player once a channel
+     * has been on screen long enough to count as watched rather than zapped
+     * past — see the dwell in PlayerScreen.
+     */
+    fun recordChannelVisit(url: String) {
+        viewModelScope.launch { playerPrefs.recordChannelVisit(url) }
+    }
+
+    fun clearRecentChannels() {
+        viewModelScope.launch { playerPrefs.clearRecentChannels() }
     }
 
     fun scheduleRecording(channel: LiveChannel, program: EpgProgram): Boolean {

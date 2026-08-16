@@ -269,6 +269,19 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         bannerVisible = false
     }
 
+    // Recent channels. Hooked to currentIndex rather than to the play call, so
+    // it catches every route onto a channel: opening one from Live TV or the
+    // guide, zapping with CHANNEL/DPAD, the mini-guide, and typing a number on
+    // the keypad. The dwell is what makes the list mean anything — zapping
+    // through twenty channels to find something should record the one you
+    // stopped on, not all twenty.
+    LaunchedEffect(currentIndex, request) {
+        if (!request.isLive) return@LaunchedEffect
+        val url = request.items.getOrNull(currentIndex)?.url ?: return@LaunchedEffect
+        delay(8_000)
+        vm.recordChannelVisit(url)
+    }
+
     // Pause when the app leaves the foreground, unless we're in PiP —
     // otherwise audio keeps playing invisibly behind the launcher.
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -1338,22 +1351,21 @@ private fun MiniGuide(
     var categoryId by remember { mutableStateOf<String?>(null) }
 
     val bundle = (contentState as? com.nuxcor.nuxtv.data.ContentState.Ready)?.bundle
-    val categories = remember(bundle, allChannels, favorites) {
-        buildList {
-            add(com.nuxcor.nuxtv.data.Category("__all__", "All channels"))
-            if (allChannels.any { it.url in favorites }) {
-                add(com.nuxcor.nuxtv.data.Category("__fav__", "★ Favorites"))
-            }
-            addAll(bundle?.liveCategories.orEmpty())
-        }
+    val recents by vm.recentChannels.collectAsState()
+    // Third view of the same channels, and it built its own copy of this too.
+    // Shared with Live TV and the guide — see LiveCategories.kt — so Recent
+    // shows up here as well without being added a third time.
+    val categories = remember(bundle, allChannels, favorites, recents) {
+        liveCategoryList(
+            bundle ?: com.nuxcor.nuxtv.data.ContentBundle(),
+            allChannels,
+            favorites,
+            recents,
+        )
     }
-    val categoryChannels = remember(categoryId, allChannels, favorites) {
-        when (categoryId) {
-            null -> emptyList()
-            "__all__" -> allChannels
-            "__fav__" -> allChannels.filter { it.url in favorites }
-            else -> allChannels.filter { it.categoryId == categoryId }
-        }
+    val categoryChannels = remember(categoryId, allChannels, favorites, recents) {
+        if (categoryId == null) emptyList()
+        else channelsInCategory(categoryId!!, allChannels, favorites, recents)
     }
     val browsingCategory = categoryId != null
 

@@ -414,16 +414,14 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
     // Filtering/merging happens off the main thread in the ViewModel.
     val allVisible by vm.displayChannels.collectAsState()
     val nowNextMap by vm.nowNext.collectAsState()
-    val categories = remember(bundle, favorites) {
-        buildList {
-            add(Category(id = "__all__", name = "All channels"))
-            if (allVisible.any { it.url in favorites }) {
-                add(Category(id = "__fav__", name = "★ Favorites"))
-            }
-            addAll(bundle.liveCategories)
-        }
+    val recents by vm.recentChannels.collectAsState()
+    val categories = remember(bundle, favorites, recents, allVisible) {
+        liveCategoryList(bundle, allVisible, favorites, recents)
     }
-    var selectedCategory by rememberSaveable(bundle.channels.size) { mutableStateOf("__all__") }
+    var selectedCategory by rememberSaveable(bundle.channels.size) { mutableStateOf(CATEGORY_ALL) }
+    // Recent and Favorites come and go as the viewer watches and stars things,
+    // so the selection can outlive the category it names.
+    val activeCategory = resolveCategoryId(selectedCategory, categories)
     // The guide is a second view of these same channels rather than a separate
     // destination, so it shares selectedCategory and costs no rail slot.
     var guideMode by rememberSaveable { mutableStateOf(false) }
@@ -436,12 +434,8 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
         selectedCategory = id
     }
     // Ordering is applied in the ViewModel from the Settings preference.
-    val channels = remember(allVisible, selectedCategory, favorites) {
-        when (selectedCategory) {
-            "__all__" -> allVisible
-            "__fav__" -> allVisible.filter { it.url in favorites }
-            else -> allVisible.filter { it.categoryId == selectedCategory }
-        }
+    val channels = remember(allVisible, activeCategory, favorites, recents) {
+        channelsInCategory(activeCategory, allVisible, favorites, recents)
     }
 
     // Restarts the stagger when the visible set changes (category switch), so
@@ -471,7 +465,7 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
             vm = vm,
             bundle = bundle,
             onPlay = onPlay,
-            categoryId = selectedCategory,
+            categoryId = activeCategory,
             onCategoryId = { selectedCategory = it },
             leading = { LiveViewSwitch(guideMode) { guideMode = it } },
         )
@@ -497,7 +491,7 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
                 CategoryItem(
                     name = category.name,
                     locked = locked,
-                    selected = category.id == selectedCategory,
+                    selected = category.id == activeCategory,
                     onClick = {
                         if (locked) pinPromptOpen = true else selectedCategory = category.id
                     },
@@ -872,6 +866,12 @@ private fun SettingsTab(
                 // accident.
                 if (bundle != null) {
                     OutlinedButton(onClick = { manageOpen = true }) { Text("Manage channels") }
+                }
+                // Only offered when there is something to clear: a button that
+                // does nothing still costs a press to walk past.
+                val recentChannels by vm.recentChannels.collectAsState()
+                if (recentChannels.isNotEmpty()) {
+                    OutlinedButton(onClick = { vm.clearRecentChannels() }) { Text("Clear recent") }
                 }
             }
         }

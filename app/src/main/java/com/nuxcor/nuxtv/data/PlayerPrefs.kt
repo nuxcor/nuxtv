@@ -25,6 +25,13 @@ data class ScheduledRecording(
 
 private val Context.playerDataStore: DataStore<Preferences> by preferencesDataStore(name = "nuxtv_player")
 
+/**
+ * How many recently-watched channels to keep. Deep enough to cover an evening
+ * of flipping, short enough that the list still reads as "what I was just on"
+ * rather than a history.
+ */
+const val RECENT_CHANNEL_LIMIT = 20
+
 /** Player-related preferences: default engine and VOD resume positions. */
 class PlayerPrefs(private val context: Context) {
 
@@ -41,6 +48,7 @@ class PlayerPrefs(private val context: Context) {
     private val channelOrderKey = stringPreferencesKey("channel_order")
     private val durationsKey = stringPreferencesKey("resume_durations")
     private val videoQualityKey = stringPreferencesKey("video_quality")
+    private val recentChannelsKey = stringPreferencesKey("recent_channels")
 
     val engine: Flow<EngineChoice> = context.playerDataStore.data.map { prefs ->
         runCatching { EngineChoice.valueOf(prefs[engineKey] ?: "EXO") }.getOrDefault(EngineChoice.EXO)
@@ -117,6 +125,36 @@ class PlayerPrefs(private val context: Context) {
             val updated = if (channelUrl in current) current - channelUrl else current + channelUrl
             prefs[favoritesKey] = json.encodeToString(updated)
         }
+    }
+
+    // --- recently watched channels -------------------------------------------
+    // Keyed by stream URL like favorites and hidden, so the list survives a
+    // playlist reload that renumbers or re-ids everything. Newest first.
+
+    val recentChannels: Flow<List<String>> = context.playerDataStore.data.map { prefs ->
+        prefs[recentChannelsKey]?.let {
+            runCatching { json.decodeFromString<List<String>>(it) }.getOrNull()
+        } ?: emptyList()
+    }
+
+    /**
+     * Records a channel as watched, moving it to the front if it was already
+     * there. Capped at [RECENT_CHANNEL_LIMIT]: this is a shortcut back to what
+     * you were just watching, and a list longer than a screen stops being one.
+     */
+    suspend fun recordChannelVisit(channelUrl: String) {
+        context.playerDataStore.edit { prefs ->
+            val current = prefs[recentChannelsKey]?.let {
+                runCatching { json.decodeFromString<List<String>>(it) }.getOrNull()
+            } ?: emptyList()
+            val updated = (listOf(channelUrl) + current.filterNot { it == channelUrl })
+                .take(RECENT_CHANNEL_LIMIT)
+            prefs[recentChannelsKey] = json.encodeToString(updated)
+        }
+    }
+
+    suspend fun clearRecentChannels() {
+        context.playerDataStore.edit { it[recentChannelsKey] = json.encodeToString(emptyList<String>()) }
     }
 
     // --- scheduled recordings -------------------------------------------------
