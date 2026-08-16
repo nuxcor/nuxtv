@@ -828,14 +828,12 @@ private fun SettingsTab(
                     Spacer(Modifier.width(6.dp))
                     Text("Refresh")
                 }
-                val activeId = active?.id
-                if (activeId != null && (sources?.size ?: 0) > 0) {
-                    OutlinedButton(onClick = { confirmRemoveSource = activeId }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Remove playlist", modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Remove current")
-                    }
-                }
+                // No "Remove current" here. Holding OK on any playlist row
+                // already offers Edit and Remove, and works for every playlist
+                // rather than only the active one — so this button was the
+                // narrower of two routes to the same thing, sitting in the
+                // primary row where it was the easiest control to hit by
+                // accident.
                 if (bundle != null) {
                     OutlinedButton(onClick = { manageOpen = true }) { Text("Manage channels") }
                 }
