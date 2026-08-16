@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  Short link for sideloading: nuxcor.github.io/nuxtv
+  Short link for sideloading, typed by hand: nuxcor.github.io/nuxtv/
 
   Typing a GitHub release URL on a TV remote is miserable, so this page exists
   only to be short enough to peck out in the Downloader app. It bounces to the
@@ -9,19 +9,28 @@
 
   GitHub Pages can't issue a real 3xx, hence the meta refresh plus a visible
   link for the Downloader browser (and for anyone who lands here on a desktop).
+  The refresh is 0 rather than 1: nothing on this page is worth reading, and a
+  second of dead air on a TV reads as a hung download.
 
-  The Downloader code points at THIS PAGE, never at an asset URL. AFTVnews
-  shortener codes can't be repointed once minted, so a code aimed straight at
-  a release asset dies the moment that filename changes — which is exactly how
-  the previous code (7141087, aimed at dzidzi.apk) was lost in the rename.
-  Aim any future code here and a filename change stays a one-line commit.
+  Quote the trailing slash anywhere this address is printed. Without it Pages
+  answers with a 301 to the slashed form, which is one more hop for a WebView
+  that is already being asked to honour a meta refresh.
+
+  The DOWNLOADER CODE DOES NOT COME THROUGH HERE, and shouldn't. A code aimed
+  at this page walks five hops — 301, HTML, meta refresh, then two GitHub 302s
+  — and the middle one is not a redirect at all but a page asking the browser
+  to navigate, which Downloader's WebView honours unreliably; that is what left
+  it sitting on "connecting". Codes point straight at the asset URL, which is
+  two clean 302s. That trades away surviving an asset rename, which is a trade
+  worth making now `agoro.apk` is permanent and the release workflow emits it
+  every time.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Download Agoro</title>
-<meta http-equiv="refresh" content="1; url=https://github.com/nuxcor/nuxtv/releases/latest/download/agoro.apk">
+<meta http-equiv="refresh" content="0; url=https://github.com/nuxcor/nuxtv/releases/latest/download/agoro.apk">
 <style>
   :root { color-scheme: dark; }
   body {
@@ -49,7 +58,7 @@
   <a class="download" href="https://github.com/nuxcor/nuxtv/releases/latest/download/agoro.apk">Download the APK</a>
   <p><small>Android TV, Google TV, Fire TV and phones — one APK, arm64 + arm32.<br>
   Installing over an older copy keeps your playlists and settings.</small></p>
-  <p><small>On a TV, the Downloader app code is <code>9988764</code>.<br>
+  <p><small>On a TV, the Downloader app code is <code>5526044</code>.<br>
   Source and release notes: <code>github.com/nuxcor/nuxtv</code></small></p>
 </body>
 </html>
