@@ -183,6 +183,10 @@ class ExoEngine(context: Context) : PlayerEngine {
         player.playWhenReady = true
     }
 
+    override fun setMuted(muted: Boolean) {
+        player.volume = if (muted) 0f else 1f
+    }
+
     override fun release() {
         listener = null
         player.release()

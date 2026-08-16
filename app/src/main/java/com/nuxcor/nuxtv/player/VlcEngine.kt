@@ -128,6 +128,12 @@ class VlcEngine(context: Context, preferHighestQuality: Boolean = true) : Player
 
     override fun previous() = playAt((index - 1).coerceAtLeast(0))
 
+    override fun setMuted(muted: Boolean) {
+        // libVLC takes 0-100 and returns non-zero on failure, which happens if
+        // the media isn't open yet; the preview re-applies after prepare.
+        mediaPlayer.volume = if (muted) 0 else 100
+    }
+
     override fun release() {
         released = true
         listener = null

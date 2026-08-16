@@ -96,7 +96,6 @@ private val RAIL_WIDTH_EXPANDED = 190.dp
 enum class HomeTab(val label: String, val icon: ImageVector) {
     Search("Search", Icons.Default.Search),
     Live("Live TV", Icons.Default.LiveTv),
-    Guide("Guide", Icons.Default.CalendarViewWeek),
     Movies("Movies", Icons.Default.Movie),
     Series("Series", Icons.Default.VideoLibrary),
     Recordings("Recordings", Icons.Default.Videocam),
@@ -185,7 +184,6 @@ fun HomeScreen(
                             when (current) {
                                 HomeTab.Search -> SearchTab(vm, onOpenMovie, onOpenSeries, onPlay)
                                 HomeTab.Live -> LiveTab(vm, state.bundle, onPlay)
-                                HomeTab.Guide -> GuideTab(vm, state.bundle, onPlay)
                                 HomeTab.Movies -> MoviesTab(vm, state.bundle, onOpenMovie)
                                 HomeTab.Series -> SeriesTab(vm, state.bundle, onOpenSeries)
                                 HomeTab.Recordings -> RecordingsTab(vm, onPlay)
@@ -299,7 +297,13 @@ private fun NavRail(
                 // ic_logo, not ic_splash: the splash copy is padded into a
                 // square and scaled for its circular mask, so drawing it here
                 // gave about 59% of the size asked for.
-                modifier = Modifier.height(32.dp).width(23.dp),
+                //
+                // 48dp against titleLarge's 17.1dp cap height is the banner's
+                // 2.81:1. The old 32dp was inherited from the square drawable
+                // rather than derived from anything, and came out at 1.88:1 —
+                // the mark reading as an afterthought beside its own wordmark.
+                // 35dp wide clears the 54dp the collapsed rail leaves.
+                modifier = Modifier.height(48.dp).width(35.dp),
             )
             androidx.compose.animation.AnimatedVisibility(
                 visible = expanded,
@@ -385,6 +389,21 @@ private fun RailItem(
 
 // --- Live TV -----------------------------------------------------------------
 
+/**
+ * List or grid, for the same channels. Drawn inside whichever control strip the
+ * current view already has — the category column in list view, the day/category
+ * row in the guide — so switching costs no vertical space on a screen that
+ * fits four guide rows.
+ */
+@Composable
+private fun LiveViewSwitch(guideMode: Boolean, onChange: (Boolean) -> Unit) {
+    SegmentedControl(
+        options = listOf("Channels", "Guide"),
+        selectedIndex = if (guideMode) 1 else 0,
+        onSelect = { onChange(it == 1) },
+    )
+}
+
 @Composable
 private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
     if (bundle.channels.isEmpty()) {
@@ -401,16 +420,17 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
     // Filtering/merging happens off the main thread in the ViewModel.
     val allVisible by vm.displayChannels.collectAsState()
     val nowNextMap by vm.nowNext.collectAsState()
-    val categories = remember(bundle, favorites) {
-        buildList {
-            add(Category(id = "__all__", name = "All channels"))
-            if (allVisible.any { it.url in favorites }) {
-                add(Category(id = "__fav__", name = "★ Favorites"))
-            }
-            addAll(bundle.liveCategories)
-        }
+    val recents by vm.recentChannels.collectAsState()
+    val categories = remember(bundle, favorites, recents, allVisible) {
+        liveCategoryList(bundle, allVisible, favorites, recents)
     }
-    var selectedCategory by rememberSaveable(bundle.channels.size) { mutableStateOf("__all__") }
+    var selectedCategory by rememberSaveable(bundle.channels.size) { mutableStateOf(CATEGORY_ALL) }
+    // Recent and Favorites come and go as the viewer watches and stars things,
+    // so the selection can outlive the category it names.
+    val activeCategory = resolveCategoryId(selectedCategory, categories)
+    // The guide is a second view of these same channels rather than a separate
+    // destination, so it shares selectedCategory and costs no rail slot.
+    var guideMode by rememberSaveable { mutableStateOf(false) }
     // Same rest-before-select rule as the nav rail: travelling the category
     // list would otherwise re-filter the entire channel set on every step.
     var focusedCategory by remember { mutableStateOf<String?>(null) }
@@ -420,12 +440,8 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
         selectedCategory = id
     }
     // Ordering is applied in the ViewModel from the Settings preference.
-    val channels = remember(allVisible, selectedCategory, favorites) {
-        when (selectedCategory) {
-            "__all__" -> allVisible
-            "__fav__" -> allVisible.filter { it.url in favorites }
-            else -> allVisible.filter { it.categoryId == selectedCategory }
-        }
+    val channels = remember(allVisible, activeCategory, favorites, recents) {
+        channelsInCategory(activeCategory, allVisible, favorites, recents)
     }
 
     // Restarts the stagger when the visible set changes (category switch), so
@@ -450,6 +466,16 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+    if (guideMode) {
+        GuideTab(
+            vm = vm,
+            bundle = bundle,
+            onPlay = onPlay,
+            categoryId = activeCategory,
+            onCategoryId = { selectedCategory = it },
+            leading = { LiveViewSwitch(guideMode) { guideMode = it } },
+        )
+    } else {
     Row(
         modifier = Modifier.fillMaxSize(),
         horizontalArrangement = Arrangement.spacedBy(Space.m),
@@ -462,12 +488,16 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
             verticalArrangement = Arrangement.spacedBy(Space.xs),
             contentPadding = PaddingValues(bottom = Space.l),
         ) {
+            item(key = "__view__") {
+                LiveViewSwitch(guideMode) { guideMode = it }
+                Spacer(Modifier.height(Space.s))
+            }
             items(categories, key = { it.id }) { category ->
                 val locked = category.id in lockedIds
                 CategoryItem(
                     name = category.name,
                     locked = locked,
-                    selected = category.id == selectedCategory,
+                    selected = category.id == activeCategory,
                     onClick = {
                         if (locked) pinPromptOpen = true else selectedCategory = category.id
                     },
@@ -525,6 +555,7 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
             }
         }
         }
+    }
     }
     if (digitBuffer.isNotEmpty()) {
         Box(
@@ -842,6 +873,12 @@ private fun SettingsTab(
                 if (bundle != null) {
                     OutlinedButton(onClick = { manageOpen = true }) { Text("Manage channels") }
                 }
+                // Only offered when there is something to clear: a button that
+                // does nothing still costs a press to walk past.
+                val recentChannels by vm.recentChannels.collectAsState()
+                if (recentChannels.isNotEmpty()) {
+                    OutlinedButton(onClick = { vm.clearRecentChannels() }) { Text("Clear recent") }
+                }
             }
         }
 
@@ -871,6 +908,57 @@ private fun SettingsTab(
                         selected = mergeDupes,
                         onClick = { vm.setMergeDuplicates(true) },
                         modifier = Modifier,
+                    )
+                }
+            }
+        }
+
+        item(key = "guide-preview") {
+            Column {
+                Text(
+                    "Guide preview",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NuxColors.OnSurface,
+                )
+                Text(
+                    "Play the focused channel, muted, in the guide's corner. " +
+                        "Uses one of your provider's connections while it runs, " +
+                        "so leave it off if your subscription only allows one.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NuxColors.OnSurfaceDim,
+                )
+                Spacer(Modifier.height(8.dp))
+                val preview by vm.guidePreview.collectAsState()
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CategoryItem(
+                        name = "Off",
+                        selected = !preview,
+                        onClick = { vm.setGuidePreview(false) },
+                        modifier = Modifier,
+                    )
+                    CategoryItem(
+                        name = "On",
+                        selected = preview,
+                        onClick = { vm.setGuidePreview(true) },
+                        modifier = Modifier,
+                    )
+                }
+                // The number the provider reports, so the choice is made with
+                // the actual limit in view rather than a guess about it. Only
+                // Xtream accounts report one; an M3U link says nothing about
+                // its limits, which is its own argument for leaving this off.
+                val account by vm.accountInfo.collectAsState()
+                val maxConnections = account?.maxConnections
+                if (maxConnections != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = if (maxConnections == 1) {
+                            "Your provider allows 1 connection — a preview would use it."
+                        } else {
+                            "Your provider allows $maxConnections connections."
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (maxConnections == 1) NuxColors.Error else NuxColors.OnSurfaceDim,
                     )
                 }
             }
