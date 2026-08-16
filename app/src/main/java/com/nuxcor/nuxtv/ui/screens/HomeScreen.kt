@@ -88,7 +88,9 @@ import java.util.Date
 import java.util.Locale
 
 /** Shared by the rail and the content lane so the two can never disagree. */
-private val RAIL_WIDTH_COLLAPSED = 64.dp
+// Not private: the guide sizes its timeline against the width it will actually
+// have, and the rail is part of that budget.
+internal val RAIL_WIDTH_COLLAPSED = 64.dp
 private val RAIL_WIDTH_EXPANDED = 190.dp
 
 enum class HomeTab(val label: String, val icon: ImageVector) {
