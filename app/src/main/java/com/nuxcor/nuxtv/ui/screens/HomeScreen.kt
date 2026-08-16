@@ -434,7 +434,8 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
     var menuChannel by remember { mutableStateOf<com.nuxcor.nuxtv.data.LiveChannel?>(null) }
     var scheduleChannel by remember { mutableStateOf<com.nuxcor.nuxtv.data.LiveChannel?>(null) }
     val pin by vm.parentalPin.collectAsState()
-    val lockedIds = remember(bundle, pin, vm.parentalUnlocked) {
+    val unlocked by vm.parentalUnlocked.collectAsState()
+    val lockedIds = remember(bundle, pin, unlocked) {
         bundle.liveCategories.filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
     }
     // Filtering/merging happens off the main thread in the ViewModel.

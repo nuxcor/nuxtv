@@ -121,7 +121,8 @@ fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> 
     val resumePositions by vm.resumePositions.collectAsState()
     val resumeProgress by vm.resumeProgress.collectAsState()
     val pin by vm.parentalPin.collectAsState()
-    val rows = remember(bundle, pin, vm.parentalUnlocked) {
+    val unlocked by vm.parentalUnlocked.collectAsState()
+    val rows = remember(bundle, pin, unlocked) {
         val visibleCategories = bundle.movieCategories.filterNot { vm.isLockedCategory(it.name) }
         val lockedIds = bundle.movieCategories.filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
         rowsOf(visibleCategories, bundle.movies.filterNot { it.categoryId in lockedIds }) { it.categoryId }
@@ -198,7 +199,8 @@ fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -
     val resumePositions by vm.resumePositions.collectAsState()
     val resumeProgress by vm.resumeProgress.collectAsState()
     val pin by vm.parentalPin.collectAsState()
-    val rows = remember(bundle, pin, vm.parentalUnlocked) {
+    val unlocked by vm.parentalUnlocked.collectAsState()
+    val rows = remember(bundle, pin, unlocked) {
         val visibleCategories = bundle.seriesCategories.filterNot { vm.isLockedCategory(it.name) }
         val lockedIds = bundle.seriesCategories.filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
         rowsOf(visibleCategories, bundle.series.filterNot { it.categoryId in lockedIds }) { it.categoryId }
