@@ -47,7 +47,7 @@ Point it at an **Xtream Codes** login or a plain **M3U playlist link** and Agoro
 enter the code:
 
 ```
-7141087
+9988764
 ```
 
 Digits only; Downloader expands it. `nuxcor.github.io/nuxtv` works too if you'd
