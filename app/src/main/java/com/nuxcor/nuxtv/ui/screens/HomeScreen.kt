@@ -552,7 +552,18 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
                     // stream to read the banner is a poor way to ask.
                     // Watch is focused first in there, so watching is still OK
                     // twice rather than a hunt.
-                    onClick = { scheduleChannel = channel },
+                    onClick = {
+                        // Straight to playback when there is no guide for this
+                        // channel: the schedule would be an empty dialog in
+                        // front of every channel, which is what a playlist with
+                        // no EPG would get on every single press.
+                        if (vm.programsFor(channel).isEmpty()) {
+                            vm.playChannels(channels, index)
+                            onPlay()
+                        } else {
+                            scheduleChannel = channel
+                        }
+                    },
                     onLongClick = { menuChannel = channel },
                 )
                 }
@@ -599,9 +610,14 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
                     onPlay()
                     null
                 } else if (vm.scheduleRecording(channel, program)) {
-                    "Recording scheduled for ${program.title}"
+                    "Recording scheduled: ${program.title}"
                 } else {
-                    "This channel can't be recorded — set a reminder from the guide"
+                    // Same fallback the guide uses: a channel the provider
+                    // won't let us record can still be remembered. Sending the
+                    // viewer to the guide to do what this screen could have
+                    // done is not an answer.
+                    vm.scheduleReminder(channel, program)
+                    "Reminder set: ${program.title}"
                 }
             },
             onDismiss = { scheduleChannel = null },

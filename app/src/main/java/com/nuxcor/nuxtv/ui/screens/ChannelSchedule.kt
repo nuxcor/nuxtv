@@ -88,15 +88,34 @@ fun ChannelSchedule(
         }
     }
     val watchFocus = remember { FocusRequester() }
-    LaunchedEffect(channel.id) { runCatching { watchFocus.requestFocus() } }
+    // Retried, like the nav rail: the Button composes a frame after this runs,
+    // and a single attempt that lands too early leaves the sheet with nothing
+    // focused — which on a TV is a dialog that ignores the remote.
+    LaunchedEffect(channel.id) {
+        repeat(5) {
+            if (runCatching { watchFocus.requestFocus() }.isSuccess) return@LaunchedEffect
+            kotlinx.coroutines.delay(60)
+        }
+    }
     BackHandler(onBack = onDismiss)
 
     val timeFmt = rememberClockFormat()
     val dayFmt = remember { SimpleDateFormat("EEE d MMM", Locale.getDefault()) }
 
+    // The caller's nowMs is a snapshot; this sheet can sit open across a
+    // programme boundary, and a schedule that goes on calling a finished
+    // programme ON NOW is worse than one that shows nothing.
+    var tick by remember { mutableStateOf(nowMs) }
+    LaunchedEffect(channel.id) {
+        while (true) {
+            kotlinx.coroutines.delay(30_000)
+            tick = System.currentTimeMillis()
+        }
+    }
+
     // Everything still to come, plus whatever is on now — a schedule that opens
     // on programmes that already finished is a history, not a plan.
-    val upcoming = remember(programs, nowMs) { programs.filter { it.endMs > nowMs } }
+    val upcoming = remember(programs, tick) { programs.filter { it.endMs > tick } }
     val listState = rememberLazyListState()
 
     Box(
@@ -176,8 +195,12 @@ fun ChannelSchedule(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     contentPadding = PaddingValues(bottom = Space.s),
                 ) {
-                    itemsIndexed(upcoming, key = { _, p -> p.startMs }) { index, program ->
-                        val onNow = nowMs in program.startMs until program.endMs
+                    // Keyed by position, not by the programme: XMLTV ids and
+                    // start times both repeat in real feeds, and a duplicate
+                    // key takes a LazyColumn down. Nothing here holds per-item
+                    // state that a stable key would protect.
+                    itemsIndexed(upcoming) { index, program ->
+                        val onNow = tick in program.startMs until program.endMs
                         // The date only where it changes, so an evening of
                         // programmes doesn't repeat today's date twenty times.
                         val showDay = index > 0 &&
