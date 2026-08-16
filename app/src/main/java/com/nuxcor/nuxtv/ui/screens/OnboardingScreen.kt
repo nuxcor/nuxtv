@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -123,15 +122,17 @@ fun OnboardingScreen(
         Column(
             modifier = Modifier
                 .align(Alignment.Center)
-                // The chooser lays its two options side by side and needs the
-                // width for it; the forms are single-column and read badly when
-                // a text field is stretched across a TV.
-                // widthIn, not width: a fixed width is silently coerced into a
-                // narrower canvas, and everything inside then measures against
-                // room that isn't there — the lockup's Row clipped the mark and
-                // the wordmark on any TV reporting fewer dp than 908.
-                .fillMaxWidth()
+                // 560 or the screen, whichever is smaller: a single-column form
+                // reads badly with its fields stretched across a TV, and the
+                // chooser is one card now, so neither wants the full width.
+                //
+                // Order matters and is not obvious. fillMaxWidth measures its
+                // child with a fixed width, and widthIn enforces the incoming
+                // constraints, so putting the cap second coerces 560 into
+                // [screen, screen] and hands back the screen — the cap silently
+                // does nothing. The cap has to sit outside the fill.
                 .widthIn(max = 560.dp)
+                .fillMaxWidth()
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -247,7 +248,7 @@ private fun ChooseStep(
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            text = "Your provider's server URL, username and password. You can add more later.",
+            text = "The details your provider gave you. You can add more later.",
             style = MaterialTheme.typography.bodyMedium,
             color = NuxColors.OnSurfaceDim,
         )
@@ -301,10 +302,11 @@ private fun ChooseStep(
 }
 
 /**
- * A choice on the chooser, as a card rather than a list row: the icon gets a
- * tinted chip, the title gets the top of the type scale this screen uses, and
- * the whole thing lifts on focus. Both icons are the brand gold — one was teal
- * and one gold before, a distinction that looked deliberate and meant nothing.
+ * What this screen asks for, as a card rather than a list row: the icon gets a
+ * tinted chip in the brand gold, the title gets the top of the type scale this
+ * screen uses, and the whole thing lifts on focus. Kept as a card, and kept
+ * general, because it stood beside a second one until adding a playlist became
+ * Xtream-only and may again.
  */
 @Composable
 private fun SourceOptionCard(
