@@ -5,9 +5,9 @@
     </style>
 
     <style name="Theme.NuxTV.Splash" parent="Theme.SplashScreen.IconBackground">
-        <item name="windowSplashScreenBackground">#0B0C0F</item>
+        <item name="windowSplashScreenBackground">#0E0D0C</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash</item>
-        <item name="windowSplashScreenIconBackgroundColor">#15171B</item>
+        <item name="windowSplashScreenIconBackgroundColor">#1A1816</item>
         <item name="postSplashScreenTheme">@style/Theme.NuxTV</item>
     </style>
 </resources>

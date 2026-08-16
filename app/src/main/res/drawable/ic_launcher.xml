@@ -12,8 +12,8 @@
                 android:endX="108"
                 android:endY="108"
                 android:type="linear">
-                <item android:offset="0" android:color="#FF221D12" />
-                <item android:offset="1" android:color="#FF0B0C0F" />
+                <item android:offset="0" android:color="#FF241C10" />
+                <item android:offset="1" android:color="#FF0E0D0C" />
             </gradient>
         </aapt:attr>
     </path>
@@ -25,8 +25,8 @@
                 android:centerY="50"
                 android:gradientRadius="52"
                 android:type="radial">
-                <item android:offset="0" android:color="#2EE6B450" />
-                <item android:offset="1" android:color="#00E6B450" />
+                <item android:offset="0" android:color="#2ED99A2E" />
+                <item android:offset="1" android:color="#00D99A2E" />
             </gradient>
         </aapt:attr>
     </path>
@@ -35,7 +35,7 @@
          carries its mass on the left, so geometric centring reads as drifting
          right. -->
     <path
-        android:fillColor="#FFE6B450"
+        android:fillColor="#FFD99A2E"
         android:fillType="evenOdd"
         android:pathData="M31,22 C31,18 34,16 37.5,18 L83,50 C86,52 86,56 83,58 L37.5,90 C34,92 31,90 31,86 Z M47.5,34 C50,34 52,36 52,38.5 L52,69.5 C52,72 50,74 47.5,74 C45,74 43,72 43,69.5 L43,38.5 C43,36 45,34 47.5,34 Z" />
 </vector>
