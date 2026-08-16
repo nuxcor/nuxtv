@@ -16,9 +16,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.nuxcor.nuxtv.MainViewModel
 import com.nuxcor.nuxtv.ui.screens.BootScreen
 import com.nuxcor.nuxtv.ui.screens.HomeScreen
@@ -84,15 +86,28 @@ private fun NuxNavHost(vm: MainViewModel) {
                 onOpenSeries = { nav.navigate("series/${it.id}") },
                 onPlay = { nav.navigate("player") },
                 onAddPlaylist = { nav.navigate("onboarding") },
+                onEditPlaylist = { id -> nav.navigate("onboarding?edit=$id") },
             )
         }
-        composable("onboarding") {
+        // One route for both: "onboarding" adds, "onboarding?edit=<id>" opens
+        // that playlist's own form with its details filled in.
+        composable(
+            route = "onboarding?edit={edit}",
+            arguments = listOf(
+                navArgument("edit") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            ),
+        ) { entry ->
             TvSafe {
             OnboardingScreen(
                 vm = vm,
                 cancellable = true,
                 onDone = { nav.popBackStack() },
                 onCancel = { nav.popBackStack() },
+                editing = vm.sourceById(entry.arguments?.getString("edit")),
             )
             }
         }

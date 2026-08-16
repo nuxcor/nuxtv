@@ -609,6 +609,57 @@ fun ContextMenu(
     }
 }
 
+/**
+ * What you can do to one playlist. Editing used to be impossible and removing
+ * reached only the playlist you were already watching, which left a dead or
+ * mistyped source stuck in the list for good.
+ */
+@Composable
+fun PlaylistOptionsDialog(
+    name: String,
+    onEdit: () -> Unit,
+    onRemove: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val editFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { editFocus.requestFocus() } }
+    androidx.activity.compose.BackHandler(onBack = onDismiss)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(NuxColors.Scrim)
+            .focusGroup(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .width(460.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(NuxColors.Surface)
+                .border(1.dp, NuxColors.Stroke, RoundedCornerShape(20.dp))
+                .padding(Space.xl),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(name, style = MaterialTheme.typography.titleLarge, color = NuxColors.OnSurface)
+            Spacer(Modifier.height(Space.s))
+            Text(
+                "Change this playlist's details, or remove it.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuxColors.OnSurfaceDim,
+            )
+            Spacer(Modifier.height(Space.l))
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
+                androidx.tv.material3.Button(
+                    onClick = { onEdit() },
+                    modifier = Modifier.focusRequester(editFocus),
+                ) { Text("Edit") }
+                androidx.tv.material3.OutlinedButton(onClick = { onRemove() }) { Text("Remove") }
+                androidx.tv.material3.OutlinedButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        }
+    }
+}
+
 /** Confirmation for anything destructive — nothing irreversible on a single OK. */
 @Composable
 fun ConfirmDialog(

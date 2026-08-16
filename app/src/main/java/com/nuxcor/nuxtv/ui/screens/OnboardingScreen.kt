@@ -47,6 +47,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.nuxcor.nuxtv.AddState
 import com.nuxcor.nuxtv.MainViewModel
+import com.nuxcor.nuxtv.data.PlaylistSource
 import com.nuxcor.nuxtv.ui.components.dpadFieldNavigation
 import com.nuxcor.nuxtv.ui.components.focusBorder
 import com.nuxcor.nuxtv.ui.theme.NuxColors
@@ -59,22 +60,45 @@ fun OnboardingScreen(
     cancellable: Boolean,
     onDone: () -> Unit,
     onCancel: () -> Unit,
+    /** Set to edit an existing playlist instead of adding one. */
+    editing: PlaylistSource? = null,
 ) {
-    var step by rememberSaveable { mutableStateOf(Step.Choose) }
+    // Editing skips the chooser: you can't turn an Xtream login into an M3U
+    // link, so the only sensible screen is that playlist's own form.
+    var step by rememberSaveable {
+        mutableStateOf(
+            when (editing) {
+                is PlaylistSource.Xtream -> Step.Xtream
+                is PlaylistSource.M3u -> Step.M3u
+                null -> Step.Choose
+            }
+        )
+    }
     // Hoisted + saveable: a stray BACK (or process death) must never wipe
     // credentials the user spent hundreds of remote presses typing.
-    var name by rememberSaveable { mutableStateOf("") }
-    var server by rememberSaveable { mutableStateOf("") }
-    var user by rememberSaveable { mutableStateOf("") }
-    var pass by rememberSaveable { mutableStateOf("") }
-    var m3uUrl by rememberSaveable { mutableStateOf("") }
-    var epgUrl by rememberSaveable { mutableStateOf("") }
+    var name by rememberSaveable { mutableStateOf(editing?.name.orEmpty()) }
+    var server by rememberSaveable {
+        mutableStateOf((editing as? PlaylistSource.Xtream)?.serverUrl.orEmpty())
+    }
+    var user by rememberSaveable {
+        mutableStateOf((editing as? PlaylistSource.Xtream)?.username.orEmpty())
+    }
+    var pass by rememberSaveable {
+        mutableStateOf((editing as? PlaylistSource.Xtream)?.password.orEmpty())
+    }
+    var m3uUrl by rememberSaveable {
+        mutableStateOf((editing as? PlaylistSource.M3u)?.url.orEmpty())
+    }
+    var epgUrl by rememberSaveable {
+        mutableStateOf((editing as? PlaylistSource.M3u)?.epgUrl.orEmpty())
+    }
     val addState = vm.addState
 
     // Remote BACK mirrors the on-screen Back button: form → chooser → leave.
+    // With no chooser to fall back to, an edit leaves outright.
     androidx.activity.compose.BackHandler(enabled = step != Step.Choose) {
         vm.resetAddState()
-        step = Step.Choose
+        if (editing != null) onCancel() else step = Step.Choose
     }
     if (cancellable) {
         androidx.activity.compose.BackHandler(enabled = step == Step.Choose) { onCancel() }
@@ -148,8 +172,18 @@ fun OnboardingScreen(
                     server = server, onServer = { server = it },
                     user = user, onUser = { user = it },
                     pass = pass, onPass = { pass = it },
-                    onSubmit = { vm.addXtream(name, server, user, pass, onSuccess = onDone) },
-                    onBack = { vm.resetAddState(); step = Step.Choose },
+                    submitLabel = if (editing != null) "Save" else "Connect",
+                    onSubmit = {
+                        if (editing != null) {
+                            vm.updateXtream(editing.id, name, server, user, pass, onSuccess = onDone)
+                        } else {
+                            vm.addXtream(name, server, user, pass, onSuccess = onDone)
+                        }
+                    },
+                    onBack = {
+                        vm.resetAddState()
+                        if (editing != null) onCancel() else step = Step.Choose
+                    },
                 )
 
                 Step.M3u -> M3uForm(
@@ -157,8 +191,18 @@ fun OnboardingScreen(
                     name = name, onName = { name = it },
                     url = m3uUrl, onUrl = { m3uUrl = it },
                     epgUrl = epgUrl, onEpgUrl = { epgUrl = it },
-                    onSubmit = { vm.addM3u(name, m3uUrl, epgUrl, onSuccess = onDone) },
-                    onBack = { vm.resetAddState(); step = Step.Choose },
+                    submitLabel = if (editing != null) "Save" else "Connect",
+                    onSubmit = {
+                        if (editing != null) {
+                            vm.updateM3u(editing.id, name, m3uUrl, epgUrl, onSuccess = onDone)
+                        } else {
+                            vm.addM3u(name, m3uUrl, epgUrl, onSuccess = onDone)
+                        }
+                    },
+                    onBack = {
+                        vm.resetAddState()
+                        if (editing != null) onCancel() else step = Step.Choose
+                    },
                 )
             }
         }
@@ -275,13 +319,14 @@ private fun XtreamForm(
     server: String, onServer: (String) -> Unit,
     user: String, onUser: (String) -> Unit,
     pass: String, onPass: (String) -> Unit,
+    submitLabel: String,
     onSubmit: () -> Unit,
     onBack: () -> Unit,
 ) {
     val connectFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     var revealPassword by rememberSaveable { mutableStateOf(false) }
     FormContainer(addState = addState, onBack = onBack, submitEnabled = server.isNotBlank() && user.isNotBlank(),
-        onSubmit = onSubmit, connectFocus = connectFocus) {
+        onSubmit = onSubmit, submitLabel = submitLabel, connectFocus = connectFocus) {
         // Credentials first; the optional name last.
         NuxTextField(value = server, onValueChange = onServer, label = "Server URL  •  http://host:port")
         NuxTextField(value = user, onValueChange = onUser, label = "Username")
@@ -321,12 +366,13 @@ private fun M3uForm(
     name: String, onName: (String) -> Unit,
     url: String, onUrl: (String) -> Unit,
     epgUrl: String, onEpgUrl: (String) -> Unit,
+    submitLabel: String,
     onSubmit: () -> Unit,
     onBack: () -> Unit,
 ) {
     val connectFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     FormContainer(addState = addState, onBack = onBack, submitEnabled = url.isNotBlank(),
-        onSubmit = onSubmit, connectFocus = connectFocus) {
+        onSubmit = onSubmit, submitLabel = submitLabel, connectFocus = connectFocus) {
         NuxTextField(value = url, onValueChange = onUrl, label = "M3U URL  •  http://…/playlist.m3u")
         NuxTextField(value = name, onValueChange = onName, label = "Playlist name (optional)")
         NuxTextField(
@@ -344,6 +390,7 @@ private fun FormContainer(
     addState: AddState,
     submitEnabled: Boolean,
     onSubmit: () -> Unit,
+    submitLabel: String = "Connect",
     onBack: () -> Unit,
     connectFocus: androidx.compose.ui.focus.FocusRequester =
         androidx.compose.ui.focus.FocusRequester(),
@@ -370,7 +417,7 @@ private fun FormContainer(
                 enabled = submitEnabled && !loading,
                 modifier = Modifier.focusRequester(connectFocus),
             ) {
-                Text(if (loading) "Connecting…" else "Connect")
+                Text(if (loading) "Connecting…" else submitLabel)
             }
             if (loading) {
                 CircularProgressIndicator(
