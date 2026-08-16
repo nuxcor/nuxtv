@@ -72,6 +72,25 @@ private val RestingBorder = Border(CardStroke, shape = CardShape)
 fun focusBorder(): Border = NuxFocus.ring
 
 /**
+ * Clock format honouring Android's "Use 24-hour format" toggle.
+ *
+ * `java.text.DateFormat.getTimeInstance` is locale-driven only, so an en-US
+ * viewer who switches their TV to 24-hour still saw "8:00 PM" everywhere.
+ * Every clock in the app goes through this, so the guide and the player can't
+ * disagree about the same programme.
+ */
+@Composable
+fun rememberClockFormat(): java.text.SimpleDateFormat {
+    val context = LocalContext.current
+    return remember(context) {
+        java.text.SimpleDateFormat(
+            if (android.text.format.DateFormat.is24HourFormat(context)) "HH:mm" else "h:mm a",
+            java.util.Locale.getDefault(),
+        )
+    }
+}
+
+/**
  * Material3's TextField consumes D-pad keys for cursor movement, which on a
  * remote strands focus inside the field with no way out. This routes them back
  * to focus travel instead — on TV the on-screen keyboard owns text editing, so
