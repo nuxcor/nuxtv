@@ -12,7 +12,7 @@
          across the inner two thirds — r=36 of the 108 viewport. At full size
          the triangle's rear corners sit at r=40.5 and get sliced flat, which
          reads as a rendering bug rather than a logo; 0.84 brings them to 34.0.
-         The launcher copy in drawable/ic_launcher.xml is not masked and stays
+         The launcher copy in mipmap/ic_launcher.xml is not masked and stays
          full size. -->
     <group
         android:pivotX="54"

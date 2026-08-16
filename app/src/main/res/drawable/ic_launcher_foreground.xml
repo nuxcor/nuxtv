@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Adaptive-icon foreground. Scaled to 0.80 because only the inner 66dp of
+         the 108dp canvas is guaranteed to survive the launcher's mask — the
+         mark's furthest ink sits at r=40.5, which 0.80 brings to 32.4 inside
+         that 33.0 budget. The same drawable is the monochrome layer, so it has
+         to work as a flat silhouette too; the slot is a cut rather than a
+         painted-on shape, which is what lets it. -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.80"
+        android:scaleY="0.80">
+        <path
+            android:fillColor="#FFD99A2E"
+            android:fillType="evenOdd"
+            android:pathData="M34.3,22 C34.3,18 37.3,16 40.8,18 L86.3,50 C89.3,52 89.3,56 86.3,58 L40.8,90 C37.3,92 34.3,90 34.3,86 Z M50.8,34 C53.3,34 55.3,36 55.3,38.5 L55.3,69.5 C55.3,72 53.3,74 50.8,74 C48.3,74 46.3,72 46.3,69.5 L46.3,38.5 C46.3,36 48.3,34 50.8,34 Z" />
+    </group>
+</vector>
