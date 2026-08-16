@@ -119,22 +119,17 @@ fun OnboardingScreen(
             )
             .padding(horizontal = 64.dp, vertical = 40.dp)
     ) {
+        // The lockup sits outside the scrolling part, which is the whole point
+        // of the split. Everything used to share one scroll container, and the
+        // chooser asks for focus on its card as soon as it composes — focusing
+        // inside a scroller scrolls the target into view, so on any TV where
+        // the content is taller than the screen (a larger font-size setting is
+        // enough) the first frame scrolled the logo off the top and left it
+        // there. Nothing below can push it away now.
         Column(
-            modifier = Modifier
-                .align(Alignment.Center)
-                // 560 or the screen, whichever is smaller: a single-column form
-                // reads badly with its fields stretched across a TV, and the
-                // chooser is one card now, so neither wants the full width.
-                //
-                // Order matters and is not obvious. fillMaxWidth measures its
-                // child with a fixed width, and widthIn enforces the incoming
-                // constraints, so putting the cap second coerces 560 into
-                // [screen, screen] and hands back the screen — the cap silently
-                // does nothing. The cap has to sit outside the fill.
-                .widthIn(max = 560.dp)
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
+            modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
             // The chooser gets the full lockup; forms keep just a small mark
             // so every field and the Connect button fit on a TV screen.
@@ -176,52 +171,74 @@ fun OnboardingScreen(
                 Spacer(Modifier.height(10.dp))
             }
 
-            when (step) {
-                Step.Choose -> ChooseStep(
-                    vm = vm,
-                    cancellable = cancellable,
-                    onXtream = { vm.resetAddState(); step = Step.Xtream },
-                    onCancel = onCancel,
-                )
+            // 560 or the screen, whichever is smaller: a single-column form
+            // reads badly with its fields stretched across a TV, and the
+            // chooser is one card now, so neither wants the full width.
+            //
+            // Order matters and is not obvious. fillMaxWidth measures its child
+            // with a fixed width, and widthIn enforces the constraints it is
+            // handed, so putting the cap second coerces 560 into [screen,
+            // screen] and hands back the screen — the cap silently does
+            // nothing. The cap has to sit outside the fill.
+            //
+            // weight(fill = false) so this takes only the height it needs and
+            // scrolls when there isn't enough, instead of claiming the rest of
+            // the screen and pushing the lockup up regardless.
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 560.dp)
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                when (step) {
+                    Step.Choose -> ChooseStep(
+                        vm = vm,
+                        cancellable = cancellable,
+                        onXtream = { vm.resetAddState(); step = Step.Xtream },
+                        onCancel = onCancel,
+                    )
 
-                Step.Xtream -> XtreamForm(
-                    addState = addState,
-                    name = name, onName = { name = it },
-                    server = server, onServer = { server = it },
-                    user = user, onUser = { user = it },
-                    pass = pass, onPass = { pass = it },
-                    submitLabel = if (editing != null) "Save" else "Connect",
-                    onSubmit = {
-                        if (editing != null) {
-                            vm.updateXtream(editing.id, name, server, user, pass, onSuccess = onDone)
-                        } else {
-                            vm.addXtream(name, server, user, pass, onSuccess = onDone)
-                        }
-                    },
-                    onBack = {
-                        vm.resetAddState()
-                        if (editing != null) onCancel() else step = Step.Choose
-                    },
-                )
+                    Step.Xtream -> XtreamForm(
+                        addState = addState,
+                        name = name, onName = { name = it },
+                        server = server, onServer = { server = it },
+                        user = user, onUser = { user = it },
+                        pass = pass, onPass = { pass = it },
+                        submitLabel = if (editing != null) "Save" else "Connect",
+                        onSubmit = {
+                            if (editing != null) {
+                                vm.updateXtream(editing.id, name, server, user, pass, onSuccess = onDone)
+                            } else {
+                                vm.addXtream(name, server, user, pass, onSuccess = onDone)
+                            }
+                        },
+                        onBack = {
+                            vm.resetAddState()
+                            if (editing != null) onCancel() else step = Step.Choose
+                        },
+                    )
 
-                Step.M3u -> M3uForm(
-                    addState = addState,
-                    name = name, onName = { name = it },
-                    url = m3uUrl, onUrl = { m3uUrl = it },
-                    epgUrl = epgUrl, onEpgUrl = { epgUrl = it },
-                    submitLabel = if (editing != null) "Save" else "Connect",
-                    onSubmit = {
-                        if (editing != null) {
-                            vm.updateM3u(editing.id, name, m3uUrl, epgUrl, onSuccess = onDone)
-                        } else {
-                            vm.addM3u(name, m3uUrl, epgUrl, onSuccess = onDone)
-                        }
-                    },
-                    onBack = {
-                        vm.resetAddState()
-                        if (editing != null) onCancel() else step = Step.Choose
-                    },
-                )
+                    Step.M3u -> M3uForm(
+                        addState = addState,
+                        name = name, onName = { name = it },
+                        url = m3uUrl, onUrl = { m3uUrl = it },
+                        epgUrl = epgUrl, onEpgUrl = { epgUrl = it },
+                        submitLabel = if (editing != null) "Save" else "Connect",
+                        onSubmit = {
+                            if (editing != null) {
+                                vm.updateM3u(editing.id, name, m3uUrl, epgUrl, onSuccess = onDone)
+                            } else {
+                                vm.addM3u(name, m3uUrl, epgUrl, onSuccess = onDone)
+                            }
+                        },
+                        onBack = {
+                            vm.resetAddState()
+                            if (editing != null) onCancel() else step = Step.Choose
+                        },
+                    )
+                }
             }
         }
     }
@@ -241,21 +258,13 @@ private fun ChooseStep(
     LaunchedEffect(Unit) { runCatching { firstCard.requestFocus() } }
 
     Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = "Add your playlist",
-            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
-            color = NuxColors.OnSurface,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = "The details your provider gave you. You can add more later.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = NuxColors.OnSurfaceDim,
-        )
-        Spacer(Modifier.height(22.dp))
-        // One way in. Playlists already added as M3U keep working and stay
-        // editable through their own form — this is the choice of how to add a
-        // new one, and a chooser with a single option is not a choice.
+        // No heading, no standfirst. The card says Xtream Codes and names the
+        // three things it wants; a title saying "Add your playlist" above one
+        // card said nothing the card didn't, and it was two of the lines
+        // competing for a screen that had none to spare.
+        //
+        // Playlists already added as M3U keep working and stay editable through
+        // their own form — this is only how a new one is added.
         SourceOptionCard(
             title = "Xtream Codes",
             subtitle = "Server URL, username and password",
