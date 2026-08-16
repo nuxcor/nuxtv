@@ -102,9 +102,14 @@ jobs:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: ./gradlew assembleRelease
 
-      - name: Rename APK
+      # Two names for one APK. The versioned one is the archive; the plain one
+      # is what /releases/latest/download/dzidzi.apk resolves to, so the short
+      # link people type into the Downloader app never has to change.
+      - name: Name APKs
         if: steps.check.outputs.skip == 'false'
-        run: cp app/build/outputs/apk/release/app-release.apk dzidzi-${{ steps.version.outputs.tag }}.apk
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk dzidzi-${{ steps.version.outputs.tag }}.apk
+          cp app/build/outputs/apk/release/app-release.apk dzidzi.apk
 
       # Creates the tag at this commit when the run came from a merge; reuses
       # the pushed tag otherwise.
@@ -113,8 +118,15 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          files: dzidzi-${{ steps.version.outputs.tag }}.apk
+          files: |
+            dzidzi-${{ steps.version.outputs.tag }}.apk
+            dzidzi.apk
           body: |
             One APK for all devices — Android TV, Google TV and phones (arm64 + arm32).
-            Sideload with the Downloader app or `adb install`.
+
+            **Install on a TV:** open the Downloader app and enter code `7141087`
+            (or type `nuxcor.github.io/nuxtv`). Both resolve to the APK below, so
+            they keep working on every future release without being reissued.
+
+            On a computer: `adb install dzidzi-${{ steps.version.outputs.tag }}.apk`.
           generate_release_notes: true

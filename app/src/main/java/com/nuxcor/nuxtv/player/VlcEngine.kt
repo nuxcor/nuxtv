@@ -110,11 +110,17 @@ class VlcEngine(context: Context, preferHighestQuality: Boolean = true) : Player
         listener?.onItemChanged(index)
     }
 
+    // These four lacked the released guard the rest of the class has. libVLC
+    // throws IllegalStateException once the native player is freed, so a D-pad
+    // press still in flight while the screen is disposed — or while the engine
+    // is being swapped for the ExoPlayer fallback — crashed the app.
     override fun playPause() {
+        if (released) return
         if (mediaPlayer.isPlaying) mediaPlayer.pause() else mediaPlayer.play()
     }
 
     override fun seekTo(positionMs: Long) {
+        if (released) return
         if (mediaPlayer.isSeekable) mediaPlayer.time = positionMs.coerceAtLeast(0)
     }
 
@@ -166,10 +172,12 @@ class VlcEngine(context: Context, preferHighestQuality: Boolean = true) : Player
     override fun selectVideoTrack(id: String?) = Unit
 
     override fun selectAudioTrack(id: String) {
+        if (released) return
         id.toIntOrNull()?.let { mediaPlayer.setAudioTrack(it) }
     }
 
     override fun selectTextTrack(id: String?) {
+        if (released) return
         mediaPlayer.setSpuTrack(id?.toIntOrNull() ?: -1)
     }
 

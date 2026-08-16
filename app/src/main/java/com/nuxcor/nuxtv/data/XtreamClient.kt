@@ -95,6 +95,11 @@ class XtreamClient(
                     body.byteStream(),
                     DecodeSequenceMode.ARRAY_WRAPPED,
                 ).forEach { el -> (el as? JsonObject)?.let(map)?.let(out::add) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Switching source mid-download cancels this scope. Wrapping it
+                // as an IOException below would report a normal failure and
+                // swallow the cancellation the coroutine machinery needs.
+                throw e
             } catch (e: Exception) {
                 // A truncated stream or an error-object response must fail the
                 // whole load — a silently partial catalog would overwrite the

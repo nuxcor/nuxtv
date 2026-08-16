@@ -27,7 +27,8 @@ object RecordingScheduler {
     fun schedule(context: Context, prefs: PlayerPrefs, item: ScheduledRecording) {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             prefs.addSchedule(item)
-            registerAlarm(context, item)
+            // The one path the user asked for, so the one path that may prompt.
+            registerAlarm(context, item, promptForExactAlarms = true)
         }
     }
 
@@ -47,7 +48,17 @@ object RecordingScheduler {
         }
     }
 
-    private fun registerAlarm(context: Context, item: ScheduledRecording) {
+    /**
+     * [promptForExactAlarms] only on a user-initiated schedule. rescheduleAll
+     * runs on every app start and after boot, so prompting from there threw one
+     * Settings activity per pending schedule over the UI at every launch —
+     * SCHEDULE_EXACT_ALARM is denied by default from targetSdk 31.
+     */
+    private fun registerAlarm(
+        context: Context,
+        item: ScheduledRecording,
+        promptForExactAlarms: Boolean = false,
+    ) {
         val triggerAt = (item.startMs - START_PAD_MS).coerceAtLeast(System.currentTimeMillis())
         val pi = pendingIntent(context, item.id, item)
         val am = alarmManager(context)
@@ -57,7 +68,7 @@ object RecordingScheduler {
         } else {
             am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
             // Ask the user to grant exact alarms so recordings start on time.
-            runCatching {
+            if (promptForExactAlarms) runCatching {
                 context.startActivity(
                     Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
                         .setData(android.net.Uri.parse("package:${context.packageName}"))
@@ -100,7 +111,10 @@ object RecordingScheduler {
             intent.putExtra("id", item.id)
             intent.putExtra("url", item.recordUrl)
             intent.putExtra("name", "${item.channelName} — ${item.title}")
-            intent.putExtra("durationMs", item.endMs - item.startMs + END_PAD_MS)
+            // Measured from the alarm, which fires START_PAD_MS early — without
+            // that term the head start comes out of the tail pad and a
+            // programme that overruns loses its ending.
+            intent.putExtra("durationMs", (item.endMs + END_PAD_MS) - (item.startMs - START_PAD_MS))
         }
         return PendingIntent.getBroadcast(
             context,

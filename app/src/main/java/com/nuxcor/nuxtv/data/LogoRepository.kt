@@ -47,10 +47,14 @@ class LogoRepository(context: Context, private val http: OkHttpClient) {
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     private suspend fun loadIndex(): Map<String, String> {
         index?.let { return it }
+        // An empty result is never cached below: one transient failure (or an
+        // unauthenticated GitHub rate-limit, which is easy to hit) would
+        // otherwise mean no channel gets a logo until the app is force-stopped.
         val paths: List<String> = withContext(Dispatchers.IO) {
             val cached = cacheFile.takeIf {
                 it.exists() && System.currentTimeMillis() - it.lastModified() < CACHE_TTL_MS
             }?.readLines()
+            val stale = cacheFile.takeIf { it.exists() }?.readLines().orEmpty()
             cached ?: runCatching {
                 val request = Request.Builder()
                     .url(TREE_URL)
@@ -67,7 +71,9 @@ class LogoRepository(context: Context, private val http: OkHttpClient) {
                 }.also { list ->
                     if (list.isNotEmpty()) cacheFile.writeText(list.joinToString("\n"))
                 }
-            }.getOrDefault(emptyList())
+            }.getOrNull()?.takeIf { it.isNotEmpty() }
+                // A usable stale copy beats no logos at all.
+                ?: stale
         }
 
         val built = HashMap<String, String>(paths.size * 2)
@@ -79,7 +85,9 @@ class LogoRepository(context: Context, private val http: OkHttpClient) {
             val withoutCountry = base.substringBeforeLast('-', base)
             if (withoutCountry.length > 2) built.putIfAbsent(withoutCountry, url)
         }
-        index = built
+        // Only memoise a usable index, so a failed fetch is retried next time
+        // instead of pinning an empty map for the life of the process.
+        if (built.isNotEmpty()) index = built
         return built
     }
 
@@ -93,14 +101,23 @@ class LogoRepository(context: Context, private val http: OkHttpClient) {
     }
 
     /** Fills missing logos on a bundle's channels; returns null when nothing changed. */
+    /**
+     * Called from viewModelScope (Main). Once the index is cached nothing here
+     * suspends, so without an explicit dispatcher the whole per-channel
+     * normalize-and-match loop ran on the main thread — seconds of jank at
+     * startup on the six-figure playlists this app is built for.
+     */
     suspend fun enrich(bundle: ContentBundle): ContentBundle? {
         val missing = bundle.channels.count { it.logo.isNullOrBlank() }
         if (missing == 0) return null
-        var changed = false
-        val channels = bundle.channels.map { channel ->
-            if (!channel.logo.isNullOrBlank()) channel
-            else logoFor(channel.name)?.let { changed = true; channel.copy(logo = it) } ?: channel
+        loadIndex() // suspends on IO the first time; cheap thereafter
+        return withContext(Dispatchers.Default) {
+            var changed = false
+            val channels = bundle.channels.map { channel ->
+                if (!channel.logo.isNullOrBlank()) channel
+                else logoFor(channel.name)?.let { changed = true; channel.copy(logo = it) } ?: channel
+            }
+            if (changed) bundle.copy(channels = channels) else null
         }
-        return if (changed) bundle.copy(channels = channels) else null
     }
 }
