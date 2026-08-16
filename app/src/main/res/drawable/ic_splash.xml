@@ -10,17 +10,18 @@
 
          Scaled to 0.84 because the splash screen masks this icon to a circle
          across the inner two thirds — r=36 of the 108 viewport. At full size
-         the triangle's rear corners sit at r=42 and get sliced flat, which
-         reads as a rendering bug rather than a logo. The launcher copy in
-         drawable/ic_launcher.xml is not masked and stays full size. -->
+         the triangle's rear corners sit at r=40.5 and get sliced flat, which
+         reads as a rendering bug rather than a logo; 0.84 brings them to 34.0.
+         The launcher copy in mipmap/ic_launcher.xml is not masked and stays
+         full size. -->
     <group
         android:pivotX="54"
         android:pivotY="54"
         android:scaleX="0.84"
         android:scaleY="0.84">
         <path
-            android:fillColor="#FFE6B450"
+            android:fillColor="#FFD99A2E"
             android:fillType="evenOdd"
-            android:pathData="M31,22 C31,18 34,16 37.5,18 L83,50 C86,52 86,56 83,58 L37.5,90 C34,92 31,90 31,86 Z M47.5,34 C50,34 52,36 52,38.5 L52,69.5 C52,72 50,74 47.5,74 C45,74 43,72 43,69.5 L43,38.5 C43,36 45,34 47.5,34 Z" />
+            android:pathData="M34.3,22 C34.3,18 37.3,16 40.8,18 L86.3,50 C89.3,52 89.3,56 86.3,58 L40.8,90 C37.3,92 34.3,90 34.3,86 Z M50.8,34 C53.3,34 55.3,36 55.3,38.5 L55.3,69.5 C55.3,72 53.3,74 50.8,74 C48.3,74 46.3,72 46.3,69.5 L46.3,38.5 C46.3,36 48.3,34 50.8,34 Z" />
     </group>
 </vector>

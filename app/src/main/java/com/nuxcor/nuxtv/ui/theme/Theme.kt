@@ -27,23 +27,29 @@ import androidx.tv.material3.darkColorScheme
  * lightness increment (ΔL* ≈ 5), so resting cards are visible without focus.
  */
 object NuxColors {
-    val Background = Color(0xFF08090C)      // page
-    val Surface = Color(0xFF15171D)         // resting card
-    val SurfaceVariant = Color(0xFF1F232B)  // grouped container / hover
-    val SurfaceRaised = Color(0xFF2A2F39)   // focused / raised
-    val Stroke = Color(0xFF32373F)          // 1dp card outline
+    // Warm charcoal, not blue-grey. These were all hue ~220 at 15-21%
+    // saturation — near-black on a monitor, but a TV lifts its black level and
+    // runs a cool white point, which exposes that tint: the page corners read
+    // navy and the resting cards, being the lightest of them, read as solid
+    // blue. Same hue as the gold at 7% instead, so no amount of black-level
+    // lift can turn the background into another colour.
+    val Background = Color(0xFF0B0A09)      // page
+    val Surface = Color(0xFF1B1917)         // resting card
+    val SurfaceVariant = Color(0xFF282622)  // grouped container / hover
+    val SurfaceRaised = Color(0xFF35322E)   // focused / raised
+    val Stroke = Color(0xFF3C3A35)          // 1dp card outline
     val StrokeSoft = Color(0x1AFFFFFF)      // dividers
 
-    val Primary = Color(0xFFE6B450)         // brand gold — never a full focus fill
-    val PrimaryDim = Color(0xFFB98A2E)
+    val Primary = Color(0xFFD99A2E)         // brand gold — never a full focus fill
+    val PrimaryDim = Color(0xFF9C6D1C)
     val Secondary = Color(0xFF4FD1C5)
     val OnAccent = Color(0xFF1E1503)
 
-    val OnSurface = Color(0xFFECEDEF)
-    val OnSurfaceDim = Color(0xFFA7ACB8)
+    val OnSurface = Color(0xFFEEEEED)
+    val OnSurfaceDim = Color(0xFFB4B1AB)
     val FocusBorder = Color(0xE6FFFFFF)     // focus is white; gold means brand
     val Error = Color(0xFFFF6B6B)
-    val Scrim = Color(0xCC08090C)
+    val Scrim = Color(0xCC0B0A09)
 }
 
 /** 4dp-based spacing scale. Screens use [Space.gutter] for their leading edge. */
@@ -118,7 +124,7 @@ object NuxFocus {
 }
 
 private val PageGradient = Brush.verticalGradient(
-    listOf(Color(0xFF11141A), NuxColors.Background)
+    listOf(Color(0xFF171614), NuxColors.Background)
 )
 
 @Composable
