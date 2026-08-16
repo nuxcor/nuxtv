@@ -41,6 +41,29 @@ Point it at an **Xtream Codes** login or a plain **M3U playlist link** and Dzidz
 - **Pro player** — custom TV controls (seek bar with ±10s D-pad seeking, transport, engine badge), live channel zapping with DPAD/CHANNEL up/down, episode binge queueing, and automatic resume for movies and episodes
 - **Multiple playlists** — add several sources and switch between them in Settings
 
+## Installing
+
+**On a TV** — open the [Downloader](https://www.aftvnews.com/downloader/) app and enter:
+
+```
+nuxcor.github.io/nuxtv
+```
+
+That page redirects to the newest signed APK. Downloader's own numeric shortcut
+works too, if you'd rather not type letters on a remote — get one for the link
+below at [go.aftvnews.com](https://go.aftvnews.com/) and enter the digits alone.
+
+**Anywhere else** — the download link is stable across releases, so it always
+points at the current version:
+
+```bash
+curl -L -o dzidzi.apk https://github.com/nuxcor/nuxtv/releases/latest/download/dzidzi.apk
+adb install dzidzi.apk
+```
+
+One APK covers Android TV, Google TV, Fire TV and phones (arm64 + arm32).
+Installing over an older copy keeps playlists and settings.
+
 ## Building
 
 ```bash

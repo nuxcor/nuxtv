@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<!--
+  Short link for sideloading: nuxcor.github.io/nuxtv
+
+  Typing a GitHub release URL on a TV remote is miserable, so this page exists
+  only to be short enough to peck out in the Downloader app. It bounces to the
+  stable `dzidzi.apk` asset on the newest release — the redirect target never
+  changes, so the link keeps working across versions.
+
+  GitHub Pages can't issue a real 3xx, hence the meta refresh plus a visible
+  link for the Downloader browser (and for anyone who lands here on a desktop).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Download Dzidzi</title>
+<meta http-equiv="refresh" content="1; url=https://github.com/nuxcor/nuxtv/releases/latest/download/dzidzi.apk">
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 1.5rem; text-align: center;
+    background: #0b0d12; color: #e8eaf0;
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 2rem;
+  }
+  h1 { margin: 0; font-size: clamp(1.75rem, 6vw, 3rem); letter-spacing: -0.02em; }
+  p { margin: 0; color: #9aa3b5; max-width: 32rem; }
+  a.download {
+    display: inline-block; padding: 0.9rem 2rem; border-radius: 999px;
+    background: #4f7cff; color: #fff; font-size: 1.125rem; font-weight: 600;
+    text-decoration: none;
+  }
+  a.download:focus { outline: 3px solid #fff; outline-offset: 3px; }
+  code { background: #171b24; padding: 0.15em 0.45em; border-radius: 4px; color: #cbd3e4; }
+  small { color: #6c7488; }
+</style>
+</head>
+<body>
+  <h1>Dzidzi</h1>
+  <p>Your download should start automatically. If it doesn't, select the button below.</p>
+  <a class="download" href="https://github.com/nuxcor/nuxtv/releases/latest/download/dzidzi.apk">Download the APK</a>
+  <p><small>Android TV, Google TV, Fire TV and phones — one APK, arm64 + arm32.<br>
+  Installing over an older copy keeps your playlists and settings.</small></p>
+  <p><small>Source and release notes: <code>github.com/nuxcor/nuxtv</code></small></p>
+</body>
+</html>
