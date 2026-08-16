@@ -110,17 +110,14 @@ jobs:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: ./gradlew assembleRelease
 
-      # Three names for one APK. The versioned one is the archive; agoro.apk is
-      # what /releases/latest/download/agoro.apk resolves to, so the short link
-      # people type into the Downloader app never has to change. dzidzi.apk is
-      # the pre-rename alias, kept so links published before the rename still
-      # land on a real file.
+      # Two names for one APK. The versioned one is the archive; the plain one
+      # is what /releases/latest/download/agoro.apk resolves to, so the short
+      # link people type into the Downloader app never has to change.
       - name: Name APKs
         if: steps.check.outputs.skip == 'false'
         run: |
           cp app/build/outputs/apk/release/app-release.apk agoro-${{ steps.version.outputs.tag }}.apk
           cp app/build/outputs/apk/release/app-release.apk agoro.apk
-          cp app/build/outputs/apk/release/app-release.apk dzidzi.apk
 
       # Creates the tag at this commit when the run came from a merge; reuses
       # the pushed tag otherwise.
@@ -132,7 +129,6 @@ jobs:
           files: |
             agoro-${{ steps.version.outputs.tag }}.apk
             agoro.apk
-            dzidzi.apk
           body: |
             One APK for all devices — Android TV, Google TV and phones (arm64 + arm32).
 
