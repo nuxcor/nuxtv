@@ -140,3 +140,58 @@ class QualityMergeTest {
         org.junit.Assert.assertEquals("Real Channel", bundle.channels[0].name)
     }
 }
+
+/**
+ * Providers file series under a VOD-prefixed shelf far more often than not, and
+ * matching the movie keyword first put every one of those episodes in Movies —
+ * leaving the Series tab reading "No series" on a playlist full of them.
+ */
+class SeriesGroupTest {
+
+    private fun classify(playlist: String) =
+        com.nuxcor.nuxtv.data.ContentClassifier.classify(
+            com.nuxcor.nuxtv.data.M3uParser.parse(playlist)
+        )
+
+    @org.junit.Test
+    fun `a VOD-prefixed series shelf is still series`() {
+        val bundle = classify(
+            """
+            #EXTM3U
+            #EXTINF:-1 group-title="VOD - SERIES | Drama",Kingdom of Ash - Bolum 1
+            http://example.com/9001.mp4
+            #EXTINF:-1 group-title="VOD - SERIES | Drama",Kingdom of Ash - Bolum 2
+            http://example.com/9002.mp4
+            """.trimIndent()
+        )
+        org.junit.Assert.assertEquals(0, bundle.movies.size)
+        org.junit.Assert.assertEquals(1, bundle.series.size)
+        org.junit.Assert.assertEquals(2, bundle.series[0].episodes?.size)
+    }
+
+    @org.junit.Test
+    fun `a genre word does not turn a movie shelf into series`() {
+        val bundle = classify(
+            """
+            #EXTM3U
+            #EXTINF:-1 group-title="VOD | Drama",Sintel (2010) 4K
+            http://example.com/files/sintel.mp4
+            """.trimIndent()
+        )
+        org.junit.Assert.assertEquals(1, bundle.movies.size)
+        org.junit.Assert.assertEquals(0, bundle.series.size)
+    }
+
+    @org.junit.Test
+    fun `an episode marker still wins over any group name`() {
+        val bundle = classify(
+            """
+            #EXTM3U
+            #EXTINF:-1 group-title="VOD | Movies",The Crown S01E01
+            http://example.com/files/crown1.mkv
+            """.trimIndent()
+        )
+        org.junit.Assert.assertEquals(0, bundle.movies.size)
+        org.junit.Assert.assertEquals(1, bundle.series.size)
+    }
+}

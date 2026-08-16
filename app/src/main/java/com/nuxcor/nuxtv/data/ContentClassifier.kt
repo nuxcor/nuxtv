@@ -17,10 +17,23 @@ object ContentClassifier {
         Regex("""(?i)\b(\d{1,2})\s*x\s*(\d{1,4})\b"""),
         Regex("""(?i)\bseason[\s.]*(\d{1,2})\b[\s.\-]*(?:episode|ep)[\s.]*(\d{1,4})\b"""),
     )
-    private val episodeOnlyPattern = Regex("""(?i)\b(?:episode|ep)[\s.]*(\d{1,4})\b""")
+    // The episode word providers actually use depends on where they are. Without
+    // the localized spellings every "Show - Bolum 3" is its own one-episode
+    // series, which fills the Series tab with hundreds of unopenable shows.
+    // "ep" comes last so "episode" is matched whole rather than as "ep" + "isode".
+    private val episodeOnlyPattern =
+        Regex("""(?i)\b(?:episode|épisode|episodio|cap[ií]tulo|b[öo]l[üu]m|folge|ep)[\s.\-]*(\d{1,4})\b""")
 
     private val movieGroupKeywords = listOf("movie", "vod", "film", "cine", "pelicula", "película")
-    private val seriesGroupKeywords = listOf("series", "serie", "show", "drama", "anime", "novela")
+
+    /**
+     * Split because providers routinely file series under a VOD-prefixed shelf
+     * ("VOD - SERIES | Drama"). A word that names the shelf outright wins over
+     * the movie markers; a genre word that sits just as happily on a movie shelf
+     * ("VOD | Drama") only gets a say once no movie marker has claimed the group.
+     */
+    private val strongSeriesKeywords = listOf("series", "serie", "novela", "anime")
+    private val weakSeriesKeywords = listOf("show", "drama")
     private val liveGroupKeywords = listOf("live", "tv", "channel", "sport", "news", "kids", "music")
 
     private val vodExtensions = setOf("mp4", "mkv", "avi", "mov", "flv", "wmv", "m4v", "webm", "mpg", "mpeg")
@@ -164,13 +177,17 @@ object ContentClassifier {
         // in Live TV. Stripping '?' after the fact also read ".mkv?t=a.b" as "b".
         val ext = path.substringBefore('?').substringAfterLast('.', "")
 
-        // 3. Group-title keywords. Explicit VOD/movie markers outrank genre-ish
-        //    series words ("VOD | Drama" is a movie shelf, not a series).
+        // 3. Group-title keywords. A group that says "series" is a series shelf
+        //    even when it also says VOD, which is how most providers name them —
+        //    checking movie markers first sent every episode of a
+        //    "VOD - SERIES | Drama" shelf to Movies and left the Series tab empty.
+        if (strongSeriesKeywords.any { it in group }) return Kind.EPISODE
         if (movieGroupKeywords.any { it in group }) {
             // "movies" group but a live-format stream → still live (e.g. 24/7 movie channels).
             return if (ext in vodExtensions || ext.isEmpty()) Kind.MOVIE else Kind.LIVE
         }
-        if (seriesGroupKeywords.any { it in group }) return Kind.EPISODE
+        // Genre-ish words only now: "VOD | Drama" above is a movie shelf.
+        if (weakSeriesKeywords.any { it in group }) return Kind.EPISODE
         if (liveGroupKeywords.any { it in group }) return Kind.LIVE
 
         // 4. Fall back to the stream container.
