@@ -52,6 +52,12 @@ enter the code:
 Digits only; Downloader expands it. `nuxcor.github.io/nuxtv/` works too if you'd
 rather type the address. Both land on the newest signed APK.
 
+The pre-rebrand code `7141087` still works. It was issued against the old
+`dzidzi.apk` filename, which the rebrand stopped producing — a shortener entry
+can't be repointed, so each release publishes that filename too, as a byte
+identical copy. Anyone holding the old number has no way to tell it went stale,
+which is the whole reason to keep it alive.
+
 **Anywhere else** — the download link is stable across releases, so it always
 points at the current version:
 
