@@ -105,13 +105,6 @@ fun BootScreen() {
                     )
                 }
             }
-            val taglineAlpha = ((letters.value - 0.6f) * 3f).coerceIn(0f, 1f)
-            Text(
-                text = "Your playlists, organized like real TV",
-                style = MaterialTheme.typography.bodyMedium,
-                color = NuxColors.OnSurfaceDim,
-                modifier = Modifier.alpha(taglineAlpha),
-            )
         }
     }
 }

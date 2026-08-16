@@ -134,18 +134,11 @@ fun OnboardingScreen(
                         contentDescription = null,
                         modifier = Modifier.size(56.dp),
                     )
-                    Column {
-                        Text(
-                            text = "AGORO",
-                            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Black),
-                            color = NuxColors.Primary,
-                        )
-                        Text(
-                            text = "Your playlists, organized like real TV",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = NuxColors.OnSurfaceDim,
-                        )
-                    }
+                    Text(
+                        text = "AGORO",
+                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Black),
+                        color = NuxColors.Primary,
+                    )
                 }
                 Spacer(Modifier.height(20.dp))
             } else {
