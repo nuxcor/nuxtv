@@ -297,7 +297,13 @@ private fun NavRail(
                 // ic_logo, not ic_splash: the splash copy is padded into a
                 // square and scaled for its circular mask, so drawing it here
                 // gave about 59% of the size asked for.
-                modifier = Modifier.height(32.dp).width(23.dp),
+                //
+                // 48dp against titleLarge's 17.1dp cap height is the banner's
+                // 2.81:1. The old 32dp was inherited from the square drawable
+                // rather than derived from anything, and came out at 1.88:1 —
+                // the mark reading as an afterthought beside its own wordmark.
+                // 35dp wide clears the 54dp the collapsed rail leaves.
+                modifier = Modifier.height(48.dp).width(35.dp),
             )
             androidx.compose.animation.AnimatedVisibility(
                 visible = expanded,
