@@ -258,21 +258,13 @@ private fun ChooseStep(
     LaunchedEffect(Unit) { runCatching { firstCard.requestFocus() } }
 
     Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = "Add your playlist",
-            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
-            color = NuxColors.OnSurface,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = "The details your provider gave you. You can add more later.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = NuxColors.OnSurfaceDim,
-        )
-        Spacer(Modifier.height(22.dp))
-        // One way in. Playlists already added as M3U keep working and stay
-        // editable through their own form — this is the choice of how to add a
-        // new one, and a chooser with a single option is not a choice.
+        // No heading, no standfirst. The card says Xtream Codes and names the
+        // three things it wants; a title saying "Add your playlist" above one
+        // card said nothing the card didn't, and it was two of the lines
+        // competing for a screen that had none to spare.
+        //
+        // Playlists already added as M3U keep working and stay editable through
+        // their own form — this is only how a new one is added.
         SourceOptionCard(
             title = "Xtream Codes",
             subtitle = "Server URL, username and password",
