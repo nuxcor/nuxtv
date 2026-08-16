@@ -142,9 +142,12 @@ fun OnboardingScreen(
                     horizontalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
                     androidx.compose.foundation.Image(
-                        painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_splash),
+                        painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_logo),
                         contentDescription = null,
-                        modifier = Modifier.size(64.dp),
+                        // 64dp against headlineLarge's 22.8dp cap height is the
+                        // banner's 2.81:1. Sized by height because the mark is
+                        // taller than it is wide; ic_logo carries the aspect.
+                        modifier = Modifier.height(64.dp).width(46.dp),
                     )
                     Text(
                         text = "AGORO",
@@ -155,9 +158,9 @@ fun OnboardingScreen(
                 Spacer(Modifier.height(38.dp))
             } else {
                 androidx.compose.foundation.Image(
-                    painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_splash),
+                    painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_logo),
                     contentDescription = null,
-                    modifier = Modifier.size(40.dp),
+                    modifier = Modifier.height(44.dp).width(32.dp),
                 )
                 Spacer(Modifier.height(10.dp))
             }
