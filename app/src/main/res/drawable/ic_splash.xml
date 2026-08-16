@@ -3,7 +3,10 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:fillColor="#FFE6B450" android:pathData="M38,24 L58,24 C78,24 88,38 88,54 C88,70 78,84 58,84 L38,84 C34,84 32,82 32,78 L32,30 C32,26 34,24 38,24 Z" />
-    <path android:fillColor="#FF15171B" android:pathData="M46,36 L57,36 C70,36 76,45 76,54 C76,63 70,72 57,72 L46,72 C44.9,72 44,71.1 44,70 L44,38 C44,36.9 44.9,36 46,36 Z" />
-    <path android:fillColor="#FFE6B450" android:pathData="M51,44 L51,64 L69,54 Z" />
+    <!-- Agoro "A" — Avenir Next Heavy outline; the counter is cut with evenOdd
+         so the mark drops onto any background. -->
+    <path
+        android:fillColor="#FFE6B450"
+        android:fillType="evenOdd"
+        android:pathData="M43.48,24.42 L64.77,24.42 L88,84 L66.2,84 L63.09,75.25 L44.15,75.25 L41.21,84 L20,84 Z M53.83,45.2 L48.95,59.93 L58.63,59.93 Z" />
 </vector>

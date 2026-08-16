@@ -189,7 +189,7 @@ class ContentRepository(context: Context) {
                 if (bundle.isEmpty) {
                     // A server that authenticates but returns error objects for
                     // the catalogs must not blank a working library or cache.
-                    android.util.Log.w("Dzidzi", "Refresh returned an empty catalog; keeping current library")
+                    android.util.Log.w("Agoro", "Refresh returned an empty catalog; keeping current library")
                     if (!quiet && _content.value !is ContentState.Ready) {
                         _content.value = ContentState.Error("The playlist loaded but contains no content.")
                     }
@@ -204,7 +204,7 @@ class ContentRepository(context: Context) {
                 withContext(Dispatchers.IO) { writeCache(source.id, bundle) }
             }
             .onFailure { e ->
-                android.util.Log.w("Dzidzi", "Playlist load failed: ${e.message}")
+                android.util.Log.w("Agoro", "Playlist load failed: ${e.message}")
                 // Never clobber a working library with an error screen.
                 if (!quiet && _content.value !is ContentState.Ready) {
                     _content.value = ContentState.Error(e.message ?: "Failed to load playlist")
@@ -232,7 +232,7 @@ class ContentRepository(context: Context) {
             val parsed = withContext(Dispatchers.IO) {
                 val request = Request.Builder()
                     .url(source.url)
-                    .header("User-Agent", "Dzidzi/2.1")
+                    .header("User-Agent", "Agoro/2.1")
                     .build()
                 http.newCall(request).execute().use { resp ->
                     if (!resp.isSuccessful) throw IOException("Server returned HTTP ${resp.code}")
@@ -279,7 +279,7 @@ class ContentRepository(context: Context) {
             if (_epg.value !is EpgState.Ready) _epg.value = EpgState.Loading
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    val request = Request.Builder().url(url).header("User-Agent", "Dzidzi/2.1").build()
+                    val request = Request.Builder().url(url).header("User-Agent", "Agoro/2.1").build()
                     http.newCall(request).execute().use { resp ->
                         if (!resp.isSuccessful) throw IOException("Guide server returned HTTP ${resp.code}")
                         val body = resp.body ?: throw IOException("Empty guide response")
@@ -293,7 +293,7 @@ class ContentRepository(context: Context) {
                         )
                     }
                 }.getOrElse { e ->
-                    android.util.Log.w("Dzidzi", "EPG load failed: ${e.message}")
+                    android.util.Log.w("Agoro", "EPG load failed: ${e.message}")
                     // Keep an existing guide rather than replacing it with an error.
                     (_epg.value as? EpgState.Ready) ?: EpgState.Error(e.message ?: "Failed to load the guide")
                 }

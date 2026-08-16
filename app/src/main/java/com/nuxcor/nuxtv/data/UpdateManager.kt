@@ -61,7 +61,7 @@ class UpdateManager(private val context: Context, private val http: OkHttpClient
             val request = Request.Builder()
                 .url(LATEST_URL)
                 .header("Accept", "application/vnd.github+json")
-                .header("User-Agent", "Dzidzi/${BuildConfig.VERSION_NAME}")
+                .header("User-Agent", "Agoro/${BuildConfig.VERSION_NAME}")
                 .build()
             http.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
@@ -89,10 +89,10 @@ class UpdateManager(private val context: Context, private val http: OkHttpClient
         withContext(Dispatchers.IO) {
             val dir = File(context.cacheDir, "updates").apply { mkdirs() }
             dir.listFiles()?.forEach { it.delete() }
-            val out = File(dir, "dzidzi-update.apk")
+            val out = File(dir, "agoro-update.apk")
             val request = Request.Builder()
                 .url(apkUrl)
-                .header("User-Agent", "Dzidzi/${BuildConfig.VERSION_NAME}")
+                .header("User-Agent", "Agoro/${BuildConfig.VERSION_NAME}")
                 .build()
             http.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")

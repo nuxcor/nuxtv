@@ -4,8 +4,13 @@
 
   Typing a GitHub release URL on a TV remote is miserable, so this page exists
   only to be short enough to peck out in the Downloader app. It bounces to the
-  stable `dzidzi.apk` asset on the newest release — the redirect target never
-  changes, so the link keeps working across versions.
+  stable APK asset on the newest release — the redirect target never changes,
+  so the link keeps working across versions.
+
+  Still pointed at `dzidzi.apk` (the pre-rename asset name) because that is the
+  only short-named asset on the currently published release. The release
+  workflow now ships `agoro.apk` alongside it; flip both URLs below to
+  `agoro.apk` once the first post-rename release is out.
 
   GitHub Pages can't issue a real 3xx, hence the meta refresh plus a visible
   link for the Downloader browser (and for anyone who lands here on a desktop).
@@ -14,7 +19,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Download Dzidzi</title>
+<title>Download Agoro</title>
 <meta http-equiv="refresh" content="1; url=https://github.com/nuxcor/nuxtv/releases/latest/download/dzidzi.apk">
 <style>
   :root { color-scheme: dark; }
@@ -38,7 +43,7 @@
 </style>
 </head>
 <body>
-  <h1>Dzidzi</h1>
+  <h1>Agoro</h1>
   <p>Your download should start automatically. If it doesn't, select the button below.</p>
   <a class="download" href="https://github.com/nuxcor/nuxtv/releases/latest/download/dzidzi.apk">Download the APK</a>
   <p><small>Android TV, Google TV, Fire TV and phones — one APK, arm64 + arm32.<br>

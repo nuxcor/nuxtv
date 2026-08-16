@@ -41,6 +41,9 @@ sealed class AddState {
     data class Error(val message: String) : AddState()
 }
 
+private const val BACKUP_FILE = "agoro-backup.json"
+private const val LEGACY_BACKUP_FILE = "dzidzi-backup.json"
+
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repo: ContentRepository = (app as NuxTvApp).repository
@@ -295,7 +298,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             is com.nuxcor.nuxtv.data.UpdateManager.State.Ready -> {
                 if (!updateManager.install(current.file)) {
                     _updateState.value = com.nuxcor.nuxtv.data.UpdateManager.State.Error(
-                        "Couldn't start the installer — allow \"install unknown apps\" for Dzidzi, then check again"
+                        "Couldn't start the installer — allow \"install unknown apps\" for Agoro, then check again"
                     )
                 }
                 return
@@ -314,7 +317,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     com.nuxcor.nuxtv.data.UpdateManager.State.Ready(available.version, file)
                 if (!updateManager.install(file)) {
                     _updateState.value = com.nuxcor.nuxtv.data.UpdateManager.State.Error(
-                        "Couldn't start the installer — allow \"install unknown apps\" for Dzidzi, then check again"
+                        "Couldn't start the installer — allow \"install unknown apps\" for Agoro, then check again"
                     )
                 }
             }.onFailure { e ->
@@ -355,7 +358,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val text = playerPrefs.snapshot(sources.value.orEmpty())
                 val file = java.io.File(
                     getApplication<Application>().getExternalFilesDir(null),
-                    "dzidzi-backup.json",
+                    BACKUP_FILE,
                 )
                 file.writeText(text)
                 file.absolutePath
@@ -367,10 +370,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun importBackup(onDone: (Boolean) -> Unit) {
         viewModelScope.launch {
             val ok = runCatching {
-                val file = java.io.File(
-                    getApplication<Application>().getExternalFilesDir(null),
-                    "dzidzi-backup.json",
-                )
+                // Falls back to the pre-rename filename so a backup exported by
+                // an older build still restores.
+                val dir = getApplication<Application>().getExternalFilesDir(null)
+                val file = java.io.File(dir, BACKUP_FILE).takeIf { it.exists() }
+                    ?: java.io.File(dir, LEGACY_BACKUP_FILE)
                 val restoredSources = playerPrefs.restore(file.readText())
                 repo.restoreSources(restoredSources)
                 RecordingScheduler.rescheduleAll(getApplication(), playerPrefs)

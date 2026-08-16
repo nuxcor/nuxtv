@@ -61,7 +61,7 @@ class XtreamClient(
         }
         return Request.Builder()
             .url("$baseUrl/player_api.php?$params")
-            .header("User-Agent", "Dzidzi/2.1")
+            .header("User-Agent", "Agoro/2.1")
             .build()
     }
 
