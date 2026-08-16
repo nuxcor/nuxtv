@@ -57,8 +57,8 @@ rather type the address. Both land on the newest signed APK.
 points at the current version:
 
 ```bash
-curl -L -o dzidzi.apk https://github.com/nuxcor/nuxtv/releases/latest/download/dzidzi.apk
-adb install dzidzi.apk
+curl -L -o agoro.apk https://github.com/nuxcor/nuxtv/releases/latest/download/agoro.apk
+adb install agoro.apk
 ```
 
 One APK covers Android TV, Google TV, Fire TV and phones (arm64 + arm32).
