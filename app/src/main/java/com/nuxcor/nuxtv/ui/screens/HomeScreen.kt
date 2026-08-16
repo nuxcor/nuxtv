@@ -413,6 +413,7 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
     val favorites by vm.favorites.collectAsState()
     var pinPromptOpen by remember { mutableStateOf(false) }
     var menuChannel by remember { mutableStateOf<com.nuxcor.nuxtv.data.LiveChannel?>(null) }
+    var scheduleChannel by remember { mutableStateOf<com.nuxcor.nuxtv.data.LiveChannel?>(null) }
     val pin by vm.parentalPin.collectAsState()
     val lockedIds = remember(bundle, pin, vm.parentalUnlocked) {
         bundle.liveCategories.filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
@@ -545,10 +546,13 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
                             .coerceIn(0f, 1f)
                     },
                     selected = channel.url in favorites,
-                    onClick = {
-                        vm.playChannels(channels, index)
-                        onPlay()
-                    },
+                    // Opens the channel's schedule rather than playing it. The
+                    // row already says what is on now; the question it could
+                    // not answer was what is on after it, and starting the
+                    // stream to read the banner is a poor way to ask.
+                    // Watch is focused first in there, so watching is still OK
+                    // twice rather than a hunt.
+                    onClick = { scheduleChannel = channel },
                     onLongClick = { menuChannel = channel },
                 )
                 }
@@ -570,6 +574,38 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
                 color = NuxColors.Primary,
             )
         }
+    }
+    scheduleChannel?.let { channel ->
+        val epgState by vm.epgState.collectAsState()
+        val programs = remember(channel.id, epgState) { vm.programsFor(channel) }
+        ChannelSchedule(
+            channel = channel,
+            programs = programs,
+            nowMs = System.currentTimeMillis(),
+            onWatch = {
+                scheduleChannel = null
+                vm.playChannels(channels, channels.indexOf(channel).coerceAtLeast(0))
+                onPlay()
+            },
+            onSelectProgram = { program ->
+                // Same rules as the guide: what a programme offers depends on
+                // whether it is on now or still to come. The list only holds
+                // those two — anything finished is filtered out before it gets
+                // here, so there is no catch-up case to answer.
+                val now = System.currentTimeMillis()
+                if (now in program.startMs until program.endMs) {
+                    scheduleChannel = null
+                    vm.playChannels(channels, channels.indexOf(channel).coerceAtLeast(0))
+                    onPlay()
+                    null
+                } else if (vm.scheduleRecording(channel, program)) {
+                    "Recording scheduled for ${program.title}"
+                } else {
+                    "This channel can't be recorded — set a reminder from the guide"
+                }
+            },
+            onDismiss = { scheduleChannel = null },
+        )
     }
     menuChannel?.let { channel ->
         val isFav = channel.url in favorites
