@@ -43,15 +43,15 @@ Point it at an **Xtream Codes** login or a plain **M3U playlist link** and Dzidz
 
 ## Installing
 
-**On a TV** — open the [Downloader](https://www.aftvnews.com/downloader/) app and enter:
+**On a TV** — open the [Downloader](https://www.aftvnews.com/downloader/) app and
+enter the code:
 
 ```
-nuxcor.github.io/nuxtv
+7141087
 ```
 
-That page redirects to the newest signed APK. Downloader's own numeric shortcut
-works too, if you'd rather not type letters on a remote — get one for the link
-below at [go.aftvnews.com](https://go.aftvnews.com/) and enter the digits alone.
+Digits only; Downloader expands it. `nuxcor.github.io/nuxtv` works too if you'd
+rather type the address. Both land on the newest signed APK.
 
 **Anywhere else** — the download link is stable across releases, so it always
 points at the current version:

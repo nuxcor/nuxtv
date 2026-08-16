@@ -124,7 +124,9 @@ jobs:
           body: |
             One APK for all devices — Android TV, Google TV and phones (arm64 + arm32).
 
-            **Install on a TV:** open the Downloader app and enter `nuxcor.github.io/nuxtv`
-            (or the direct link https://github.com/nuxcor/nuxtv/releases/latest/download/dzidzi.apk).
+            **Install on a TV:** open the Downloader app and enter code `7141087`
+            (or type `nuxcor.github.io/nuxtv`). Both resolve to the APK below, so
+            they keep working on every future release without being reissued.
+
             On a computer: `adb install dzidzi-${{ steps.version.outputs.tag }}.apk`.
           generate_release_notes: true
