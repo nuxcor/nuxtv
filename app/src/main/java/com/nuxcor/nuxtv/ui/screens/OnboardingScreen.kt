@@ -8,21 +8,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -127,7 +126,12 @@ fun OnboardingScreen(
                 // The chooser lays its two options side by side and needs the
                 // width for it; the forms are single-column and read badly when
                 // a text field is stretched across a TV.
-                .width(if (step == Step.Choose) 780.dp else 560.dp)
+                // widthIn, not width: a fixed width is silently coerced into a
+                // narrower canvas, and everything inside then measures against
+                // room that isn't there — the lockup's Row clipped the mark and
+                // the wordmark on any TV reporting fewer dp than 908.
+                .fillMaxWidth()
+                .widthIn(max = 560.dp)
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -141,13 +145,19 @@ fun OnboardingScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
+                    // Derived from the wordmark rather than fixed at 64dp: the
+                    // text scales with the TV's font-size setting and the mark
+                    // did not, so the banner's 2.81:1 held only at font scale 1
+                    // and the Row outgrew its width everywhere else. aspectRatio
+                    // keeps ic_logo's own 55:76 instead of a rounded 46:64.
+                    val wordSize = MaterialTheme.typography.headlineLarge.fontSize
+                    val markHeight = with(androidx.compose.ui.platform.LocalDensity.current) {
+                        wordSize.toDp() * 2f
+                    }
                     androidx.compose.foundation.Image(
                         painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_logo),
                         contentDescription = null,
-                        // 64dp against headlineLarge's 22.8dp cap height is the
-                        // banner's 2.81:1. Sized by height because the mark is
-                        // taller than it is wide; ic_logo carries the aspect.
-                        modifier = Modifier.height(64.dp).width(46.dp),
+                        modifier = Modifier.height(markHeight).aspectRatio(55f / 76f),
                     )
                     Text(
                         text = "AGORO",
@@ -160,7 +170,7 @@ fun OnboardingScreen(
                 androidx.compose.foundation.Image(
                     painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_logo),
                     contentDescription = null,
-                    modifier = Modifier.height(44.dp).width(32.dp),
+                    modifier = Modifier.height(44.dp).aspectRatio(55f / 76f),
                 )
                 Spacer(Modifier.height(10.dp))
             }
@@ -170,7 +180,6 @@ fun OnboardingScreen(
                     vm = vm,
                     cancellable = cancellable,
                     onXtream = { vm.resetAddState(); step = Step.Xtream },
-                    onM3u = { vm.resetAddState(); step = Step.M3u },
                     onCancel = onCancel,
                 )
 
@@ -222,7 +231,6 @@ private fun ChooseStep(
     vm: MainViewModel,
     cancellable: Boolean,
     onXtream: () -> Unit,
-    onM3u: () -> Unit,
     onCancel: () -> Unit,
 ) {
     // Nothing held focus when this screen opened — the forms below request it
@@ -239,34 +247,21 @@ private fun ChooseStep(
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            text = "Use whichever your provider gave you. You can add more later.",
+            text = "Your provider's server URL, username and password. You can add more later.",
             style = MaterialTheme.typography.bodyMedium,
             color = NuxColors.OnSurfaceDim,
         )
         Spacer(Modifier.height(22.dp))
-        // Side by side, and both stretched to the taller of the two: stacked
-        // full-width rows spent the vertical axis a TV is short on, and the
-        // longer subtitle made one card taller than the other, which read as an
-        // accident rather than a decision.
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
-            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-        ) {
-            SourceOptionCard(
-                title = "Xtream Codes",
-                subtitle = "Server URL, username and password",
-                icon = Icons.Default.Dns,
-                onClick = onXtream,
-                modifier = Modifier.weight(1f).fillMaxHeight().focusRequester(firstCard),
-            )
-            SourceOptionCard(
-                title = "M3U Playlist",
-                subtitle = "A playlist link, sorted out automatically",
-                icon = Icons.AutoMirrored.Filled.PlaylistPlay,
-                onClick = onM3u,
-                modifier = Modifier.weight(1f).fillMaxHeight(),
-            )
-        }
+        // One way in. Playlists already added as M3U keep working and stay
+        // editable through their own form — this is the choice of how to add a
+        // new one, and a chooser with a single option is not a choice.
+        SourceOptionCard(
+            title = "Xtream Codes",
+            subtitle = "Server URL, username and password",
+            icon = Icons.Default.Dns,
+            onClick = onXtream,
+            modifier = Modifier.fillMaxWidth().focusRequester(firstCard),
+        )
         Spacer(Modifier.height(26.dp))
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),

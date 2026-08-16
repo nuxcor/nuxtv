@@ -6,9 +6,8 @@ Point it at an **Xtream Codes** login or a plain **M3U playlist link** and Agoro
 
 ## Features
 
-- **Two playlist types**
-  - **Xtream Codes** — server URL + username + password (full live/VOD/series catalogs, posters, plots, ratings, lazily loaded episode lists)
-  - **M3U URL** — any standard playlist link
+- **Xtream Codes** — server URL + username + password (full live/VOD/series catalogs, posters, plots, ratings, lazily loaded episode lists). This is how playlists are added
+- **M3U URL** — still supported and still classified as below, but no longer offered when adding a playlist. Sources added before are loaded, played and edited exactly as they were
 - **Intelligent playlist mapping** — flat M3U playlists are classified automatically:
   - Xtream-style URL paths (`/live/`, `/movie/`, `/series/`) are used as authoritative signals
   - Series are detected from `S01E02`, `1x02`, and `Season 1 Episode 2` title patterns, then grouped into shows → seasons → episodes
