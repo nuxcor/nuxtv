@@ -147,7 +147,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     // True between OK's press and release, so the release can be swallowed
     // rather than activating the control the press just brought into focus.
     var centerConsumed by remember { mutableStateOf(false) }
-    var exitArmed by remember { mutableStateOf(false) }
     var previousIndex by remember { mutableIntStateOf(-1) }
     var interactionTick by remember { mutableIntStateOf(0) }
     var catchupOpen by remember { mutableStateOf(false) }
@@ -363,30 +362,21 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         }
     }
 
-    // The exit prompt lapses, so a BACK pressed minutes later reopens the
-    // channel list rather than dropping the viewer out of the player.
-    LaunchedEffect(exitArmed) {
-        if (exitArmed) {
-            delay(3_000)
-            exitArmed = false
-        }
-    }
-
-    // Real IPTV back behaviour: close whatever is open; on live TV the first
-    // BACK from bare playback opens the channel list, closing it again arms the
-    // exit, and the next BACK leaves. Without that latch the channel list and
-    // bare playback just toggle forever and the player has no exit at all.
+    // BACK closes whatever is open, and from bare playback it leaves. One
+    // meaning, and the same one every time.
+    //
+    // It used to open the channel list on live TV instead, then need a second
+    // press to arm an exit and a third to take it — three presses to get back
+    // to the screen you came from, and a prompt explaining the middle one.
+    // That existed because BACK opening the channel list would otherwise
+    // toggle against bare playback forever with no way out. LEFT owns the
+    // channel list now, so none of it is load-bearing: BACK can just go back.
     BackHandler {
         when {
-            miniGuideOpen -> {
-                miniGuideOpen = false
-                if (request.isLive) exitArmed = true
-            }
+            miniGuideOpen -> miniGuideOpen = false
             tracksOpen -> tracksOpen = false
             catchupOpen -> catchupOpen = false
             controlsVisible -> controlsVisible = false
-            exitArmed -> onExit()
-            request.isLive && request.items.size > 1 -> miniGuideOpen = true
             else -> onExit()
         }
     }
@@ -540,23 +530,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 resolution = videoSize,
                 liftAboveControls = controlsVisible,
             )
-        }
-
-        if (exitArmed && !inPip) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 28.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(NuxColors.Scrim)
-                    .padding(horizontal = 18.dp, vertical = 10.dp),
-            ) {
-                Text(
-                    "Press BACK again to leave the player",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = NuxColors.OnSurface,
-                )
-            }
         }
 
         AnimatedVisibility(

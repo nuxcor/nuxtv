@@ -129,14 +129,31 @@ fun HomeScreen(
             exitArmed = false
         }
     }
+    val contentFocus = remember { FocusRequester() }
+    // Survives this screen leaving composition, which is what going to the
+    // player does: coming back is a return, not a launch.
+    var hasLaunched by rememberSaveable { mutableStateOf(false) }
+
     // Without this the first D-pad press lands wherever Compose's focus search
-    // happens to go. Park it on the rail so the app always starts somewhere
-    // predictable — and retry, since the rail composes a frame later.
+    // happens to go. Park it somewhere predictable — and retry, since the
+    // target composes a frame later.
+    //
+    // Where depends on why we are here. On launch that is the rail. Coming back
+    // from the player it is the content, restored to the row that was focused
+    // when the stream started: BACK out of a channel used to land on the rail,
+    // several presses from the list it had just left, which is not going back.
     LaunchedEffect(Unit) {
+        val target = if (hasLaunched) contentFocus else railFocus
         repeat(5) {
-            if (runCatching { railFocus.requestFocus() }.isSuccess) return@LaunchedEffect
+            if (runCatching { target.requestFocus() }.isSuccess) {
+                hasLaunched = true
+                return@LaunchedEffect
+            }
             kotlinx.coroutines.delay(60)
         }
+        // Whatever we aimed at never composed; the rail always exists.
+        runCatching { railFocus.requestFocus() }
+        hasLaunched = true
     }
 
     BackHandler(enabled = !railFocused) {
@@ -167,6 +184,8 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(start = Space.gutter, end = Space.gutter, top = Space.gutterVertical, bottom = Space.gutterVertical)
+                .focusRequester(contentFocus)
+                .focusRestorer()
         ) {
             when (val state = contentState) {
                 is ContentState.Loading -> CenteredMessage(title = state.message, loading = true)
@@ -413,6 +432,7 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
     val favorites by vm.favorites.collectAsState()
     var pinPromptOpen by remember { mutableStateOf(false) }
     var menuChannel by remember { mutableStateOf<com.nuxcor.nuxtv.data.LiveChannel?>(null) }
+    var scheduleChannel by remember { mutableStateOf<com.nuxcor.nuxtv.data.LiveChannel?>(null) }
     val pin by vm.parentalPin.collectAsState()
     val lockedIds = remember(bundle, pin, vm.parentalUnlocked) {
         bundle.liveCategories.filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
@@ -545,9 +565,31 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
                             .coerceIn(0f, 1f)
                     },
                     selected = channel.url in favorites,
+                    // Opens the channel's schedule rather than playing it. The
+                    // row already says what is on now; the question it could
+                    // not answer was what is on after it, and starting the
+                    // stream to read the banner is a poor way to ask.
+                    // Watch is focused first in there, so watching is still OK
+                    // twice rather than a hunt.
                     onClick = {
-                        vm.playChannels(channels, index)
-                        onPlay()
+                        // Straight to playback when there is no guide for this
+                        // channel: the schedule would be an empty dialog in
+                        // front of every channel, which is what a playlist with
+                        // no EPG would get on every single press.
+                        //
+                        // Counted the same way the schedule counts, which is
+                        // not the same as "has any programmes at all": the
+                        // parsed window keeps 30 hours of finished ones, while
+                        // the sheet lists only what has yet to end. A channel
+                        // whose provider EPG stopped earlier today passed this
+                        // guard and opened the empty dialog it exists to avoid.
+                        val now = System.currentTimeMillis()
+                        if (vm.programsFor(channel).none { it.endMs > now }) {
+                            vm.playChannels(channels, index)
+                            onPlay()
+                        } else {
+                            scheduleChannel = channel
+                        }
                     },
                     onLongClick = { menuChannel = channel },
                 )
@@ -570,6 +612,50 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
                 color = NuxColors.Primary,
             )
         }
+    }
+    scheduleChannel?.let { channel ->
+        val epgState by vm.epgState.collectAsState()
+        val programs = remember(channel.id, epgState) { vm.programsFor(channel) }
+        ChannelSchedule(
+            channel = channel,
+            programs = programs,
+            nowMs = System.currentTimeMillis(),
+            onWatch = {
+                scheduleChannel = null
+                vm.playChannels(channels, channels.indexOf(channel).coerceAtLeast(0))
+                onPlay()
+            },
+            onSelectProgram = { program ->
+                // Same rules as the guide: what a programme offers depends on
+                // whether it is on now or still to come.
+                //
+                // "Started already" rather than "on now", because the list is
+                // filtered against a clock that ticks every 30 seconds while
+                // this reads the real one. In the seconds after a programme
+                // ends the row still says ON NOW, and treating that press as a
+                // future programme sent it to scheduleRecording — which
+                // succeeds for any recordable channel and clamps its alarm to
+                // now, so a press meant to watch instead began recording
+                // something already over. Both cases play the channel.
+                val now = System.currentTimeMillis()
+                if (program.startMs <= now) {
+                    scheduleChannel = null
+                    vm.playChannels(channels, channels.indexOf(channel).coerceAtLeast(0))
+                    onPlay()
+                    null
+                } else if (vm.scheduleRecording(channel, program)) {
+                    "Recording scheduled: ${program.title}"
+                } else {
+                    // Same fallback the guide uses: a channel the provider
+                    // won't let us record can still be remembered. Sending the
+                    // viewer to the guide to do what this screen could have
+                    // done is not an answer.
+                    vm.scheduleReminder(channel, program)
+                    "Reminder set: ${program.title}"
+                }
+            },
+            onDismiss = { scheduleChannel = null },
+        )
     }
     menuChannel?.let { channel ->
         val isFav = channel.url in favorites
