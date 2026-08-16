@@ -192,53 +192,53 @@ fun OnboardingScreen(
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-            when (step) {
-                Step.Choose -> ChooseStep(
-                    vm = vm,
-                    cancellable = cancellable,
-                    onXtream = { vm.resetAddState(); step = Step.Xtream },
-                    onCancel = onCancel,
-                )
+                when (step) {
+                    Step.Choose -> ChooseStep(
+                        vm = vm,
+                        cancellable = cancellable,
+                        onXtream = { vm.resetAddState(); step = Step.Xtream },
+                        onCancel = onCancel,
+                    )
 
-                Step.Xtream -> XtreamForm(
-                    addState = addState,
-                    name = name, onName = { name = it },
-                    server = server, onServer = { server = it },
-                    user = user, onUser = { user = it },
-                    pass = pass, onPass = { pass = it },
-                    submitLabel = if (editing != null) "Save" else "Connect",
-                    onSubmit = {
-                        if (editing != null) {
-                            vm.updateXtream(editing.id, name, server, user, pass, onSuccess = onDone)
-                        } else {
-                            vm.addXtream(name, server, user, pass, onSuccess = onDone)
-                        }
-                    },
-                    onBack = {
-                        vm.resetAddState()
-                        if (editing != null) onCancel() else step = Step.Choose
-                    },
-                )
+                    Step.Xtream -> XtreamForm(
+                        addState = addState,
+                        name = name, onName = { name = it },
+                        server = server, onServer = { server = it },
+                        user = user, onUser = { user = it },
+                        pass = pass, onPass = { pass = it },
+                        submitLabel = if (editing != null) "Save" else "Connect",
+                        onSubmit = {
+                            if (editing != null) {
+                                vm.updateXtream(editing.id, name, server, user, pass, onSuccess = onDone)
+                            } else {
+                                vm.addXtream(name, server, user, pass, onSuccess = onDone)
+                            }
+                        },
+                        onBack = {
+                            vm.resetAddState()
+                            if (editing != null) onCancel() else step = Step.Choose
+                        },
+                    )
 
-                Step.M3u -> M3uForm(
-                    addState = addState,
-                    name = name, onName = { name = it },
-                    url = m3uUrl, onUrl = { m3uUrl = it },
-                    epgUrl = epgUrl, onEpgUrl = { epgUrl = it },
-                    submitLabel = if (editing != null) "Save" else "Connect",
-                    onSubmit = {
-                        if (editing != null) {
-                            vm.updateM3u(editing.id, name, m3uUrl, epgUrl, onSuccess = onDone)
-                        } else {
-                            vm.addM3u(name, m3uUrl, epgUrl, onSuccess = onDone)
-                        }
-                    },
-                    onBack = {
-                        vm.resetAddState()
-                        if (editing != null) onCancel() else step = Step.Choose
-                    },
-                )
-            }
+                    Step.M3u -> M3uForm(
+                        addState = addState,
+                        name = name, onName = { name = it },
+                        url = m3uUrl, onUrl = { m3uUrl = it },
+                        epgUrl = epgUrl, onEpgUrl = { epgUrl = it },
+                        submitLabel = if (editing != null) "Save" else "Connect",
+                        onSubmit = {
+                            if (editing != null) {
+                                vm.updateM3u(editing.id, name, m3uUrl, epgUrl, onSuccess = onDone)
+                            } else {
+                                vm.addM3u(name, m3uUrl, epgUrl, onSuccess = onDone)
+                            }
+                        },
+                        onBack = {
+                            vm.resetAddState()
+                            if (editing != null) onCancel() else step = Step.Choose
+                        },
+                    )
+                }
             }
         }
     }
