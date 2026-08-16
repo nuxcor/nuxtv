@@ -189,7 +189,15 @@ fun OnboardingScreen(
                     .widthIn(max = 560.dp)
                     .fillMaxWidth()
                     .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(rememberScrollState())
+                    // Inside the scroll, so the clip region includes it. A
+                    // focused card draws 1.04x with a 3dp ring — several dp
+                    // outside its own bounds — and a scroller clips its scroll
+                    // axis exactly while inflating the cross axis 30dp for
+                    // shadows. With the chooser's heading gone the card became
+                    // the first child, flush against that clip: ring cut along
+                    // the top, intact down the sides. This is the headroom.
+                    .padding(vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 when (step) {
