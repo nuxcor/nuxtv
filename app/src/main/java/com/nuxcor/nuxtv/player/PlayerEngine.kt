@@ -93,6 +93,14 @@ interface PlayerEngine {
 
     fun setSpeed(speed: Float)
 
+    /**
+     * Silences the engine without pausing it. Used by the guide preview, which
+     * plays whatever channel focus rests on — audio that changed every time you
+     * moved down a list would be unusable, and would fight whatever is already
+     * playing behind the guide.
+     */
+    fun setMuted(muted: Boolean)
+
     var listener: Listener?
 
     interface Listener {

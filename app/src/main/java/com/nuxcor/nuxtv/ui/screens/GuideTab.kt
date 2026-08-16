@@ -204,6 +204,20 @@ fun GuideTab(
             // grid reads out each programme without having to select it.
             var focusedProgram by remember { mutableStateOf<EpgProgram?>(null) }
             var focusedChannel by remember { mutableStateOf<LiveChannel?>(null) }
+
+            // Muted video for whatever channel focus rests on. Off unless the
+            // viewer turned it on: it holds one of the provider's concurrent
+            // connections for as long as it runs. Moving along a row costs
+            // nothing — the channel is unchanged, so nothing re-prepares.
+            val previewEnabled by vm.guidePreview.collectAsState()
+            val engineChoice by vm.engine.collectAsState()
+            val videoQuality by vm.videoQuality.collectAsState()
+            val preview = rememberGuidePreview(engineChoice, highestQuality = videoQuality == 1)
+            GuidePreviewEffect(
+                controller = preview,
+                enabled = previewEnabled,
+                channel = focusedChannel,
+            )
             // Changing category or day replaces the grid without moving focus
             // inside it, so nothing would clear these — the header would go on
             // describing a channel that is no longer listed, above a category
@@ -297,6 +311,9 @@ fun GuideTab(
                     nowMs = nowTick,
                     playlistName = vm.activeSource.collectAsState().value?.name,
                     categoryName = categories.firstOrNull { it.id == categoryId }?.name,
+                    preview = {
+                        GuidePreviewSurface(preview, modifier = Modifier.fillMaxSize())
+                    },
                 )
                 Spacer(Modifier.height(10.dp))
 
@@ -325,6 +342,12 @@ fun GuideTab(
                                 focusedProgram = program
                             },
                             onPlayChannel = {
+                                // Hand the connection back before the player
+                                // asks for one. Two engines briefly alive at
+                                // once is one too many on a line that allows
+                                // two, and the stream refused is the one the
+                                // viewer just asked for.
+                                preview.release()
                                 vm.playChannels(channels, channels.indexOf(channel))
                                 onPlay()
                             },
@@ -332,6 +355,7 @@ fun GuideTab(
                                 scope.launch {
                                     val url = vm.catchupUrl(channel, program)
                                     if (url != null) {
+                                        preview.release()
                                         vm.playCatchup(channel, program, url)
                                         onPlay()
                                     } else {
@@ -381,6 +405,8 @@ private fun GuideHeader(
     nowMs: Long,
     playlistName: String?,
     categoryName: String?,
+    /** Video for the focused channel, when previewing is on and one is running. */
+    preview: @Composable () -> Unit = {},
 ) {
     val timeFmt = rememberClockFormat()
     val dateFmt = remember { SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault()) }
@@ -397,9 +423,10 @@ private fun GuideHeader(
         modifier = Modifier.fillMaxWidth().height(HEADER_HEIGHT),
         horizontalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        // Channel artwork rather than a live preview: previewing on focus would
-        // open a stream per channel you pass over, and providers cap concurrent
-        // connections — browsing the guide would lock you out of playback.
+        // Channel artwork, with the live preview drawn over it when that is
+        // switched on. Off by default and gated on a dwell, because previewing
+        // every channel focus passes over would open a stream per channel and
+        // providers cap concurrent connections — see GuidePreview.kt.
         Box(
             modifier = Modifier
                 .width(200.dp)
@@ -415,6 +442,10 @@ private fun GuideHeader(
                 contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                 monogramStyle = MaterialTheme.typography.headlineSmall,
             )
+            // Drawn over the logo rather than instead of it: the stream takes a
+            // moment to give a first frame, and swapping to an empty black box
+            // in the meantime reads worse than the logo staying put.
+            preview()
         }
 
         Column(modifier = Modifier.weight(1f)) {

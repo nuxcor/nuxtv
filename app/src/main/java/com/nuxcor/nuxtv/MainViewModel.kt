@@ -75,6 +75,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val hidden: StateFlow<Set<String>> = playerPrefs.hidden
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
+    val guidePreview: StateFlow<Boolean> = playerPrefs.guidePreview
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     /** Stream URLs of recently watched live channels, newest first. */
     val recentChannels: StateFlow<List<String>> = playerPrefs.recentChannels
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -539,6 +542,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun recordChannelVisit(url: String) {
         viewModelScope.launch { playerPrefs.recordChannelVisit(url) }
+    }
+
+    fun setGuidePreview(enabled: Boolean) {
+        viewModelScope.launch { playerPrefs.setGuidePreview(enabled) }
     }
 
     fun clearRecentChannels() {

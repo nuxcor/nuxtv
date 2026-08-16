@@ -913,6 +913,57 @@ private fun SettingsTab(
             }
         }
 
+        item(key = "guide-preview") {
+            Column {
+                Text(
+                    "Guide preview",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NuxColors.OnSurface,
+                )
+                Text(
+                    "Play the focused channel, muted, in the guide's corner. " +
+                        "Uses one of your provider's connections while it runs, " +
+                        "so leave it off if your subscription only allows one.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NuxColors.OnSurfaceDim,
+                )
+                Spacer(Modifier.height(8.dp))
+                val preview by vm.guidePreview.collectAsState()
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CategoryItem(
+                        name = "Off",
+                        selected = !preview,
+                        onClick = { vm.setGuidePreview(false) },
+                        modifier = Modifier,
+                    )
+                    CategoryItem(
+                        name = "On",
+                        selected = preview,
+                        onClick = { vm.setGuidePreview(true) },
+                        modifier = Modifier,
+                    )
+                }
+                // The number the provider reports, so the choice is made with
+                // the actual limit in view rather than a guess about it. Only
+                // Xtream accounts report one; an M3U link says nothing about
+                // its limits, which is its own argument for leaving this off.
+                val account by vm.accountInfo.collectAsState()
+                val maxConnections = account?.maxConnections
+                if (maxConnections != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = if (maxConnections == 1) {
+                            "Your provider allows 1 connection — a preview would use it."
+                        } else {
+                            "Your provider allows $maxConnections connections."
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (maxConnections == 1) NuxColors.Error else NuxColors.OnSurfaceDim,
+                    )
+                }
+            }
+        }
+
         item(key = "order") {
             Column {
                 Text(

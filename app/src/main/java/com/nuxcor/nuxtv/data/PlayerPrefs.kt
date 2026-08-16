@@ -49,6 +49,7 @@ class PlayerPrefs(private val context: Context) {
     private val durationsKey = stringPreferencesKey("resume_durations")
     private val videoQualityKey = stringPreferencesKey("video_quality")
     private val recentChannelsKey = stringPreferencesKey("recent_channels")
+    private val guidePreviewKey = stringPreferencesKey("guide_preview")
 
     val engine: Flow<EngineChoice> = context.playerDataStore.data.map { prefs ->
         runCatching { EngineChoice.valueOf(prefs[engineKey] ?: "EXO") }.getOrDefault(EngineChoice.EXO)
@@ -220,6 +221,20 @@ class PlayerPrefs(private val context: Context) {
 
     suspend fun setMergeDuplicates(enabled: Boolean) {
         context.playerDataStore.edit { it[mergeDupesKey] = enabled.toString() }
+    }
+
+    /**
+     * Whether the guide previews the focused channel. Off unless asked for: a
+     * preview holds one of the provider's concurrent connections, and plenty of
+     * subscriptions allow exactly one — on those, browsing the guide with this
+     * on would lock the viewer out of playing anything.
+     */
+    val guidePreview: Flow<Boolean> = context.playerDataStore.data.map { prefs ->
+        prefs[guidePreviewKey] == "true"
+    }
+
+    suspend fun setGuidePreview(enabled: Boolean) {
+        context.playerDataStore.edit { it[guidePreviewKey] = enabled.toString() }
     }
 
     /** 0 = provider order, 1 = A-Z, 2 = quality first. */
