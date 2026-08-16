@@ -81,6 +81,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         if: steps.check.outputs.skip == 'false'
 
+      # Stripping the prebuilt .so files needs the NDK's strip tool, and a
+      # missing NDK only warns — which is how v2.10.2 and everything before it
+      # shipped 8 MB of arm64 debug symbols. Keep in step with ndkVersion in
+      # app/build.gradle.kts; the install is a no-op when already present.
+      - name: Install NDK
+        if: steps.check.outputs.skip == 'false'
+        run: echo y | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.1.12297006"
+
       # An auto-publishing pipeline must not ship code the tests reject.
       - name: Test
         if: steps.check.outputs.skip == 'false'
