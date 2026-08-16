@@ -119,22 +119,17 @@ fun OnboardingScreen(
             )
             .padding(horizontal = 64.dp, vertical = 40.dp)
     ) {
+        // The lockup sits outside the scrolling part, which is the whole point
+        // of the split. Everything used to share one scroll container, and the
+        // chooser asks for focus on its card as soon as it composes — focusing
+        // inside a scroller scrolls the target into view, so on any TV where
+        // the content is taller than the screen (a larger font-size setting is
+        // enough) the first frame scrolled the logo off the top and left it
+        // there. Nothing below can push it away now.
         Column(
-            modifier = Modifier
-                .align(Alignment.Center)
-                // 560 or the screen, whichever is smaller: a single-column form
-                // reads badly with its fields stretched across a TV, and the
-                // chooser is one card now, so neither wants the full width.
-                //
-                // Order matters and is not obvious. fillMaxWidth measures its
-                // child with a fixed width, and widthIn enforces the incoming
-                // constraints, so putting the cap second coerces 560 into
-                // [screen, screen] and hands back the screen — the cap silently
-                // does nothing. The cap has to sit outside the fill.
-                .widthIn(max = 560.dp)
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
+            modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
             // The chooser gets the full lockup; forms keep just a small mark
             // so every field and the Connect button fit on a TV screen.
@@ -176,6 +171,27 @@ fun OnboardingScreen(
                 Spacer(Modifier.height(10.dp))
             }
 
+            // 560 or the screen, whichever is smaller: a single-column form
+            // reads badly with its fields stretched across a TV, and the
+            // chooser is one card now, so neither wants the full width.
+            //
+            // Order matters and is not obvious. fillMaxWidth measures its child
+            // with a fixed width, and widthIn enforces the constraints it is
+            // handed, so putting the cap second coerces 560 into [screen,
+            // screen] and hands back the screen — the cap silently does
+            // nothing. The cap has to sit outside the fill.
+            //
+            // weight(fill = false) so this takes only the height it needs and
+            // scrolls when there isn't enough, instead of claiming the rest of
+            // the screen and pushing the lockup up regardless.
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 560.dp)
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
             when (step) {
                 Step.Choose -> ChooseStep(
                     vm = vm,
@@ -222,6 +238,7 @@ fun OnboardingScreen(
                         if (editing != null) onCancel() else step = Step.Choose
                     },
                 )
+            }
             }
         }
     }
