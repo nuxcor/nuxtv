@@ -8,13 +8,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -24,6 +27,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +38,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -118,29 +124,35 @@ fun OnboardingScreen(
         Column(
             modifier = Modifier
                 .align(Alignment.Center)
-                .width(560.dp)
+                // The chooser lays its two options side by side and needs the
+                // width for it; the forms are single-column and read badly when
+                // a text field is stretched across a TV.
+                .width(if (step == Step.Choose) 780.dp else 560.dp)
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // The chooser gets the full lockup; forms keep just a small mark
             // so every field and the Connect button fit on a TV screen.
             if (step == Step.Choose) {
+                // Same lockup as the launcher banner — mark a little over twice
+                // the cap height, spaced by roughly a third of it — so the first
+                // screen and the tile it was launched from are the same mark.
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
                     androidx.compose.foundation.Image(
                         painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_splash),
                         contentDescription = null,
-                        modifier = Modifier.size(56.dp),
+                        modifier = Modifier.size(64.dp),
                     )
                     Text(
                         text = "AGORO",
-                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Black),
+                        style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Black),
                         color = NuxColors.Primary,
                     )
                 }
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(38.dp))
             } else {
                 androidx.compose.foundation.Image(
                     painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_splash),
@@ -210,20 +222,49 @@ private fun ChooseStep(
     onM3u: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-        SourceOptionCard(
-            title = "Xtream Codes",
-            subtitle = "Sign in with server URL, username and password",
-            icon = { Icon(Icons.Default.Dns, contentDescription = "Xtream Codes", tint = NuxColors.Secondary) },
-            onClick = onXtream,
+    // Nothing held focus when this screen opened — the forms below request it
+    // but the chooser never did, so the first press of the D-pad went wherever
+    // Compose decided and until then the screen looked inert.
+    val firstCard = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { firstCard.requestFocus() } }
+
+    Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = "Add your playlist",
+            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = NuxColors.OnSurface,
         )
-        SourceOptionCard(
-            title = "M3U Playlist",
-            subtitle = "Paste a playlist link — channels, movies and series are detected automatically",
-            icon = { Icon(Icons.AutoMirrored.Filled.PlaylistPlay, contentDescription = "M3U playlist", tint = NuxColors.Primary) },
-            onClick = onM3u,
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "Use whichever your provider gave you. You can add more later.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = NuxColors.OnSurfaceDim,
         )
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(22.dp))
+        // Side by side, and both stretched to the taller of the two: stacked
+        // full-width rows spent the vertical axis a TV is short on, and the
+        // longer subtitle made one card taller than the other, which read as an
+        // accident rather than a decision.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
+            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+        ) {
+            SourceOptionCard(
+                title = "Xtream Codes",
+                subtitle = "Server URL, username and password",
+                icon = Icons.Default.Dns,
+                onClick = onXtream,
+                modifier = Modifier.weight(1f).fillMaxHeight().focusRequester(firstCard),
+            )
+            SourceOptionCard(
+                title = "M3U Playlist",
+                subtitle = "A playlist link, sorted out automatically",
+                icon = Icons.AutoMirrored.Filled.PlaylistPlay,
+                onClick = onM3u,
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+            )
+        }
+        Spacer(Modifier.height(26.dp))
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.align(Alignment.CenterHorizontally),
@@ -232,7 +273,9 @@ private fun ChooseStep(
                 OutlinedButton(onClick = onCancel) { Text("Cancel") }
             }
             // Updates don't need a playlist or an account — reachable here so a
-            // first-run user never has to sideload again.
+            // first-run user never has to sideload again. Kept quiet: it is
+            // maintenance, and it was sitting level with the only two controls
+            // this screen exists to offer.
             val update by vm.updateState.collectAsState()
             OutlinedButton(onClick = {
                 when (update) {
@@ -259,48 +302,71 @@ private fun ChooseStep(
     }
 }
 
+/**
+ * A choice on the chooser, as a card rather than a list row: the icon gets a
+ * tinted chip, the title gets the top of the type scale this screen uses, and
+ * the whole thing lifts on focus. Both icons are the brand gold — one was teal
+ * and one gold before, a distinction that looked deliberate and meant nothing.
+ */
 @Composable
 private fun SourceOptionCard(
     title: String,
     subtitle: String,
-    icon: @Composable () -> Unit,
+    icon: ImageVector,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+        modifier = modifier,
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(18.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = NuxColors.Surface,
             focusedContainerColor = NuxColors.SurfaceRaised,
             contentColor = NuxColors.OnSurface,
             focusedContentColor = NuxColors.OnSurface,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.0f),
+        // Focus was doing nothing but swapping a border colour. On a TV the
+        // selected thing should visibly come forward.
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
         border = ClickableSurfaceDefaults.border(
             border = androidx.tv.material3.Border(
                 androidx.compose.foundation.BorderStroke(1.dp, NuxColors.Stroke),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(18.dp),
             ),
             focusedBorder = focusBorder(),
         ),
     ) {
-        Row(
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                .fillMaxSize()
+                .padding(horizontal = 26.dp, vertical = 24.dp),
         ) {
-            Box(modifier = Modifier.size(32.dp), contentAlignment = Alignment.Center) { icon() }
-            Column {
-                Text(title, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = NuxColors.OnSurfaceDim,
+            Box(
+                modifier = Modifier
+                    .size(54.dp)
+                    .clip(CircleShape)
+                    .background(NuxColors.Primary.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = NuxColors.Primary,
+                    modifier = Modifier.size(27.dp),
                 )
             }
+            Spacer(Modifier.height(20.dp))
+            Text(
+                title,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuxColors.OnSurfaceDim,
+            )
         }
     }
 }
