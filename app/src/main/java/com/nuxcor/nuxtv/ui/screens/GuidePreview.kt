@@ -46,7 +46,11 @@ private const val PREVIEW_DWELL_MS = 1_500L
 class GuidePreviewController internal constructor(
     private val newEngine: () -> PlayerEngine,
 ) {
-    internal var engine: PlayerEngine? = null
+    // Compose state, not a plain field: the surface reads this to decide
+    // whether to draw, so an assignment nothing observes means the video never
+    // appears until something else happens to recompose the header — which,
+    // between focus moves, is the 30-second clock tick.
+    internal var engine: PlayerEngine? by mutableStateOf(null)
         private set
 
     /** Bumped on every teardown so a stale surface is never reattached. */
@@ -83,7 +87,10 @@ class GuidePreviewController internal constructor(
 @Composable
 fun rememberGuidePreview(engineChoice: EngineChoice, highestQuality: Boolean): GuidePreviewController {
     val context = LocalContext.current
-    val controller = remember(engineChoice) {
+    // Keyed on both, not just the engine: the lambda captures highestQuality,
+    // so keying on engineChoice alone would leave a controller built before the
+    // setting changed still constructing engines with the old value.
+    val controller = remember(engineChoice, highestQuality) {
         GuidePreviewController {
             if (engineChoice == EngineChoice.VLC) VlcEngine(context, highestQuality)
             else ExoEngine(context)
