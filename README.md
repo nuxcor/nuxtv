@@ -50,7 +50,7 @@ enter the code:
 9988764
 ```
 
-Digits only; Downloader expands it. `nuxcor.github.io/nuxtv` works too if you'd
+Digits only; Downloader expands it. `nuxcor.github.io/nuxtv/` works too if you'd
 rather type the address. Both land on the newest signed APK.
 
 **Anywhere else** — the download link is stable across releases, so it always
