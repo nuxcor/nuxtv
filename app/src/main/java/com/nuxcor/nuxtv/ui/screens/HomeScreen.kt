@@ -576,7 +576,15 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
                         // channel: the schedule would be an empty dialog in
                         // front of every channel, which is what a playlist with
                         // no EPG would get on every single press.
-                        if (vm.programsFor(channel).isEmpty()) {
+                        //
+                        // Counted the same way the schedule counts, which is
+                        // not the same as "has any programmes at all": the
+                        // parsed window keeps 30 hours of finished ones, while
+                        // the sheet lists only what has yet to end. A channel
+                        // whose provider EPG stopped earlier today passed this
+                        // guard and opened the empty dialog it exists to avoid.
+                        val now = System.currentTimeMillis()
+                        if (vm.programsFor(channel).none { it.endMs > now }) {
                             vm.playChannels(channels, index)
                             onPlay()
                         } else {
@@ -619,11 +627,18 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
             },
             onSelectProgram = { program ->
                 // Same rules as the guide: what a programme offers depends on
-                // whether it is on now or still to come. The list only holds
-                // those two — anything finished is filtered out before it gets
-                // here, so there is no catch-up case to answer.
+                // whether it is on now or still to come.
+                //
+                // "Started already" rather than "on now", because the list is
+                // filtered against a clock that ticks every 30 seconds while
+                // this reads the real one. In the seconds after a programme
+                // ends the row still says ON NOW, and treating that press as a
+                // future programme sent it to scheduleRecording — which
+                // succeeds for any recordable channel and clamps its alarm to
+                // now, so a press meant to watch instead began recording
+                // something already over. Both cases play the channel.
                 val now = System.currentTimeMillis()
-                if (now in program.startMs until program.endMs) {
+                if (program.startMs <= now) {
                     scheduleChannel = null
                     vm.playChannels(channels, channels.indexOf(channel).coerceAtLeast(0))
                     onPlay()
