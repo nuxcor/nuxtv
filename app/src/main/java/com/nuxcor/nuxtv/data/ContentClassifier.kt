@@ -157,7 +157,12 @@ object ContentClassifier {
         if (hasEpisodeMarker(entry.title)) return Kind.EPISODE
 
         val group = entry.group?.lowercase().orEmpty()
-        val ext = url.substringAfterLast('.', "").substringBefore('?')
+        // From the path, and with the query stripped first: taking the last
+        // dot of the whole URL made "host.com/vod/1234" an ext of
+        // "com/vod/1234" — never empty, never a known container — so the
+        // isEmpty() branch below was unreachable and extensionless VOD landed
+        // in Live TV. Stripping '?' after the fact also read ".mkv?t=a.b" as "b".
+        val ext = path.substringBefore('?').substringAfterLast('.', "")
 
         // 3. Group-title keywords. Explicit VOD/movie markers outrank genre-ish
         //    series words ("VOD | Drama" is a movie shelf, not a series).

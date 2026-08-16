@@ -45,6 +45,9 @@ class RecordingService : Service() {
     private var stopTimer: Job? = null
     private var activeCall: okhttp3.Call? = null
 
+    /** Bumped whenever a recording is replaced or stopped; see startRecording. */
+    private var recordingGeneration = 0
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS) // endless live stream
@@ -76,6 +79,13 @@ class RecordingService : Service() {
     private fun startRecording(url: String, name: String, durationMs: Long? = null) {
         activeCall?.cancel()
         job?.cancel()
+        // Cancellation is not instant: the outgoing job unwinds its IOException
+        // milliseconds later and runs its finally block. Without a generation
+        // token that stale cleanup clears RecordingManager.active and calls
+        // stopSelf(), tearing down the service and killing the recording that
+        // just replaced it — leaving a truncated file and a UI that says
+        // nothing is recording. Only the newest job may publish or tear down.
+        val generation = ++recordingGeneration
         val safeName = name.replace(Regex("""[^\w\s.-]"""), "").trim().ifBlank { "Recording" }
         val stamp = SimpleDateFormat("yyyy-MM-dd_HH-mm", Locale.US).format(Date())
         val file = File(RecordingManager.directory(this), "$safeName $stamp.ts")
@@ -120,13 +130,16 @@ class RecordingService : Service() {
                 // Cancellation or network drop — whatever was written stays on disk.
             } finally {
                 if (file.length() == 0L) file.delete()
-                RecordingManager.update(null)
-                stopSelf()
+                if (generation == recordingGeneration) {
+                    RecordingManager.update(null)
+                    stopSelf()
+                }
             }
         }
     }
 
     private fun stopRecording() {
+        recordingGeneration++
         stopTimer?.cancel()
         stopTimer = null
         activeCall?.cancel() // unblocks the streaming read immediately

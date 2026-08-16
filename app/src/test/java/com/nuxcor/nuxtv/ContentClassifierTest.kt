@@ -78,6 +78,39 @@ class ContentClassifierTest {
         assertEquals("Inception", ContentClassifier.cleanTitle("EN - Inception (2010) 1080p"))
         assertEquals("Oppenheimer", ContentClassifier.cleanTitle("Oppenheimer [4K] HEVC"))
     }
+
+    /**
+     * Regression: the container extension was read from the last dot of the
+     * whole URL, so any dotted hostname yielded a bogus non-empty ext
+     * ("example.com/vod/9001" → "com/vod/9001"). That made the extensionless
+     * branch unreachable and dropped a provider's whole VOD shelf into Live TV.
+     */
+    @Test
+    fun `extensionless VOD urls are movies, not live channels`() {
+        val playlist = """
+            #EXTM3U
+            #EXTINF:-1 group-title="VOD | Action",Hard Boiled (1992)
+            http://example.com/vod/9001
+            #EXTINF:-1 group-title="News",Sky News
+            http://example.com/hls/9002
+        """.trimIndent()
+        val bundle = ContentClassifier.classify(M3uParser.parse(playlist))
+        assertEquals(1, bundle.movies.size)
+        assertEquals("Hard Boiled", bundle.movies.first().name)
+        assertEquals(1, bundle.channels.size)
+    }
+
+    /** A query string must not be mistaken for the container. */
+    @Test
+    fun `token query strings do not become the extension`() {
+        val playlist = """
+            #EXTM3U
+            #EXTINF:-1 group-title="VOD | Action",Heat (1995)
+            http://example.com/files/heat.mkv?token=a.b
+        """.trimIndent()
+        val bundle = ContentClassifier.classify(M3uParser.parse(playlist))
+        assertEquals(1, bundle.movies.size)
+    }
 }
 
 class QualityMergeTest {
