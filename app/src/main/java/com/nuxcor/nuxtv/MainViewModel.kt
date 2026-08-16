@@ -124,20 +124,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setVideoQuality(mode: Int) = viewModelScope.launch { playerPrefs.setVideoQuality(mode) }
 
-    /** Locked categories stay hidden until the PIN is entered this session. */
-    var parentalUnlocked by mutableStateOf(false)
-        private set
+    /**
+     * Locked categories stay hidden until the PIN is entered this session.
+     *
+     * A StateFlow, not Compose state: displayChannels reads this inside a Flow
+     * combine, and a combine only re-runs when one of its sources emits.
+     * Snapshot state is invisible to it, so entering the correct PIN made the
+     * locked category selectable — the UI reads recomposed — while the channel
+     * list it opened onto stayed filtered until the playlist reloaded.
+     */
+    private val _parentalUnlocked = MutableStateFlow(false)
+    val parentalUnlocked: StateFlow<Boolean> = _parentalUnlocked
 
     fun tryUnlock(pin: String): Boolean {
         val ok = pin == parentalPin.value
-        if (ok) parentalUnlocked = true
+        if (ok) _parentalUnlocked.value = true
         return ok
     }
 
     private val adultPattern = Regex("""(?i)(xxx|adult|porn|18\+|erotic)""")
 
     fun isLockedCategory(name: String?): Boolean =
-        parentalPin.value != null && !parentalUnlocked &&
+        parentalPin.value != null && !_parentalUnlocked.value &&
             name != null && adultPattern.containsMatchIn(name)
 
     val schedules: StateFlow<List<ScheduledRecording>> = playerPrefs.schedules
@@ -213,11 +221,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             content,
             playerPrefs.hidden,
             playerPrefs.mergeDuplicates,
-            playerPrefs.parentalPin,
+            // Folded into one source so the unlock is something this combine can
+            // see; the typed combine overloads stop at five flows.
+            kotlinx.coroutines.flow.combine(playerPrefs.parentalPin, _parentalUnlocked) { pin, unlocked ->
+                pin.takeIf { !unlocked }
+            },
             playerPrefs.channelOrder,
-        ) { c, hiddenSet, merge, pin, order ->
+        ) { c, hiddenSet, merge, effectivePin, order ->
             val bundle = (c as? ContentState.Ready)?.bundle ?: return@combine emptyList()
-            val lockedIds = if (pin != null && !parentalUnlocked) {
+            val lockedIds = if (effectivePin != null) {
                 bundle.liveCategories.filter { isLockedCategory(it.name) }.map { it.id }.toSet()
             } else emptySet()
             val visible = bundle.channels

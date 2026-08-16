@@ -43,6 +43,29 @@ class ContentRepository(context: Context) {
         }
     }.getOrNull()
 
+    /**
+     * The #EXTM3U url-tvg header, persisted beside the playlist cache. It only
+     * exists in the playlist text, so it used to live solely in memory: a warm
+     * start published the cached bundle, the guide loaded against a null URL
+     * and failed as "No EPG source configured" — and the background refresh
+     * that then learned the URL re-produced an equal bundle, which StateFlow
+     * deduped, so nothing ever asked for the guide again until the 6-hour loop.
+     */
+    private fun tvgFile(sourceId: String) =
+        java.io.File(appContext.filesDir, "tvg-$sourceId.txt")
+
+    private fun readTvgUrl(sourceId: String): String? = runCatching {
+        tvgFile(sourceId).takeIf { it.exists() }?.readText()?.takeIf { it.isNotBlank() }
+    }.getOrNull()
+
+    private fun writeTvgUrl(sourceId: String, url: String?) {
+        runCatching {
+            // A removed header must not leave a stale URL to resurrect.
+            if (url.isNullOrBlank()) tvgFile(sourceId).delete()
+            else tvgFile(sourceId).writeText(url)
+        }
+    }
+
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     private fun writeCache(sourceId: String, bundle: ContentBundle) {
         runCatching {
@@ -73,6 +96,9 @@ class ContentRepository(context: Context) {
     @Volatile
     private var lastM3uTvgUrl: String? = null
 
+    /** What the last guide request was asked to prefer, for repo-initiated retries. */
+    private var lastEpgOverride: String? = null
+
     private var loadedSourceId: String? = null
 
     private val epgMutex = Mutex()
@@ -93,6 +119,11 @@ class ContentRepository(context: Context) {
         if (source.id == loadedSourceId && _content.value is ContentState.Ready) return
         val cached = withContext(Dispatchers.IO) { readCache(source.id) }
         if (cached != null && !cached.isEmpty) {
+            // Restored before the bundle is published, because publishing is
+            // what triggers the guide load that needs it.
+            if (source is PlaylistSource.M3u && lastM3uTvgUrl == null) {
+                lastM3uTvgUrl = withContext(Dispatchers.IO) { readTvgUrl(source.id) }
+            }
             loadedSourceId = source.id
             _content.value = ContentState.Ready(cached)
             load(source, quiet = true)
@@ -176,6 +207,7 @@ class ContentRepository(context: Context) {
     suspend fun removeSource(sourceId: String) {
         store.remove(sourceId)
         runCatching { cacheFile(sourceId).delete() }
+        runCatching { tvgFile(sourceId).delete() }
         if (loadedSourceId == sourceId) {
             loadedSourceId = null
             ensureLoaded()
@@ -202,6 +234,12 @@ class ContentRepository(context: Context) {
                     _content.value = ContentState.Ready(bundle)
                 }
                 withContext(Dispatchers.IO) { writeCache(source.id, bundle) }
+                // The refresh may have just learned something the failed guide
+                // load didn't have — an url-tvg header on the first run with no
+                // side file yet — and an unchanged bundle is deduped upstream,
+                // so nobody else will retry. Freshness inside loadEpg keeps
+                // this from re-downloading a guide that is already Ready.
+                if (_epg.value !is EpgState.Ready) loadEpg(lastEpgOverride)
             }
             .onFailure { e ->
                 android.util.Log.w("Agoro", "Playlist load failed: ${e.message}")
@@ -246,6 +284,7 @@ class ContentRepository(context: Context) {
                 throw IOException("That URL doesn't look like an M3U playlist")
             }
             lastM3uTvgUrl = parsed.tvgUrl
+            withContext(Dispatchers.IO) { writeTvgUrl(source.id, parsed.tvgUrl) }
             withContext(Dispatchers.Default) {
                 ContentClassifier.classify(parsed.entries)
             }
@@ -259,6 +298,7 @@ class ContentRepository(context: Context) {
      * pack) wins; otherwise Xtream's xmltv.php or the M3U url-tvg/epgUrl.
      */
     suspend fun loadEpg(overrideUrl: String? = null) {
+        lastEpgOverride = overrideUrl
         val source = activeSource.first() ?: return
         val url = overrideUrl?.takeIf { it.isNotBlank() } ?: when (source) {
             is PlaylistSource.Xtream -> xtreamClient(source).xmltvUrl
