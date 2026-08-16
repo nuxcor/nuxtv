@@ -36,8 +36,8 @@ android {
         applicationId = "com.nuxcor.nuxtv"
         minSdk = 23
         targetSdk = 36
-        versionCode = 35
-        versionName = "2.11.5"
+        versionCode = 36
+        versionName = "2.12.0"
 
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
 

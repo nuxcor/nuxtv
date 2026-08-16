@@ -117,29 +117,57 @@ internal fun guideDpPerMinute(screenWidth: Dp): Dp {
  */
 private val HEADER_HEIGHT = 120.dp
 
+/**
+ * The grid view of Live TV. Not a destination of its own: it is one of two ways
+ * to look at the same channels, so [categoryId] is owned by the caller and the
+ * two views share one filter. They each kept their own before, which meant
+ * picking a category in one and switching silently put you back on "All" in the
+ * other.
+ *
+ * [leading] is drawn as the first item of the control row — the view switch
+ * belongs there rather than above the grid, where it would cost the height of a
+ * channel row on a screen that only has four.
+ */
 @Composable
-fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
+fun GuideTab(
+    vm: MainViewModel,
+    bundle: ContentBundle,
+    onPlay: () -> Unit,
+    categoryId: String,
+    onCategoryId: (String) -> Unit,
+    leading: @Composable () -> Unit = {},
+) {
     val epgState by vm.epgState.collectAsState()
     val scope = rememberCoroutineScope()
 
     when (val state = epgState) {
+        // The switch is drawn above these two rather than only inside the ready
+        // grid, where it lives in the control row. Without it here, a guide that
+        // is loading or has failed is a room with no door: the view is empty,
+        // the control row that would switch back does not exist, and the mode
+        // outlives leaving the tab.
         is ContentRepository.EpgState.Idle,
-        is ContentRepository.EpgState.Loading ->
+        is ContentRepository.EpgState.Loading -> Column(modifier = Modifier.fillMaxSize()) {
+            leading()
             CenteredMessage(title = "Loading guide…", loading = true)
+        }
 
         // A dead end otherwise: the viewer would have to already know epgshare
         // exists and go looking for it in Settings. Only ever shown when the
         // playlist's own guide failed — a working guide is never second-guessed.
-        is ContentRepository.EpgState.Error -> NoGuidePane(
-            message = state.message,
-            categoryNames = bundle.liveCategories.map { it.name },
-            onPick = { cc -> vm.setEpgOverrideUrl(epgshareUrl(cc)) },
-        )
+        is ContentRepository.EpgState.Error -> Column(modifier = Modifier.fillMaxSize()) {
+            leading()
+            Spacer(Modifier.height(10.dp))
+            NoGuidePane(
+                message = state.message,
+                categoryNames = bundle.liveCategories.map { it.name },
+                onPick = { cc -> vm.setEpgOverrideUrl(epgshareUrl(cc)) },
+            )
+        }
 
         is ContentRepository.EpgState.Ready -> {
             val allChannels by vm.displayChannels.collectAsState()
             val favorites by vm.favorites.collectAsState()
-            var categoryId by rememberSaveable { mutableStateOf("__all__") }
             val categories = remember(bundle, favorites, allChannels) {
                 buildList {
                     add(Category("__all__", "All"))
@@ -228,6 +256,7 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(bottom = 10.dp),
                 ) {
+                    item(key = "__leading__") { leading() }
                     item(key = "__prev__") {
                         androidx.tv.material3.OutlinedButton(
                             onClick = { if (dayOffset > 0) dayOffset-- },
@@ -258,7 +287,7 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                         com.nuxcor.nuxtv.ui.screens.CategoryItem(
                             name = category.name,
                             selected = category.id == categoryId,
-                            onClick = { categoryId = category.id },
+                            onClick = { onCategoryId(category.id) },
                             modifier = Modifier,
                         )
                     }

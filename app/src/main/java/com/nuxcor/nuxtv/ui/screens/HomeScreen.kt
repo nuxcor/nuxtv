@@ -96,7 +96,6 @@ private val RAIL_WIDTH_EXPANDED = 190.dp
 enum class HomeTab(val label: String, val icon: ImageVector) {
     Search("Search", Icons.Default.Search),
     Live("Live TV", Icons.Default.LiveTv),
-    Guide("Guide", Icons.Default.CalendarViewWeek),
     Movies("Movies", Icons.Default.Movie),
     Series("Series", Icons.Default.VideoLibrary),
     Recordings("Recordings", Icons.Default.Videocam),
@@ -185,7 +184,6 @@ fun HomeScreen(
                             when (current) {
                                 HomeTab.Search -> SearchTab(vm, onOpenMovie, onOpenSeries, onPlay)
                                 HomeTab.Live -> LiveTab(vm, state.bundle, onPlay)
-                                HomeTab.Guide -> GuideTab(vm, state.bundle, onPlay)
                                 HomeTab.Movies -> MoviesTab(vm, state.bundle, onOpenMovie)
                                 HomeTab.Series -> SeriesTab(vm, state.bundle, onOpenSeries)
                                 HomeTab.Recordings -> RecordingsTab(vm, onPlay)
@@ -385,6 +383,21 @@ private fun RailItem(
 
 // --- Live TV -----------------------------------------------------------------
 
+/**
+ * List or grid, for the same channels. Drawn inside whichever control strip the
+ * current view already has — the category column in list view, the day/category
+ * row in the guide — so switching costs no vertical space on a screen that
+ * fits four guide rows.
+ */
+@Composable
+private fun LiveViewSwitch(guideMode: Boolean, onChange: (Boolean) -> Unit) {
+    SegmentedControl(
+        options = listOf("Channels", "Guide"),
+        selectedIndex = if (guideMode) 1 else 0,
+        onSelect = { onChange(it == 1) },
+    )
+}
+
 @Composable
 private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
     if (bundle.channels.isEmpty()) {
@@ -411,6 +424,9 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
         }
     }
     var selectedCategory by rememberSaveable(bundle.channels.size) { mutableStateOf("__all__") }
+    // The guide is a second view of these same channels rather than a separate
+    // destination, so it shares selectedCategory and costs no rail slot.
+    var guideMode by rememberSaveable { mutableStateOf(false) }
     // Same rest-before-select rule as the nav rail: travelling the category
     // list would otherwise re-filter the entire channel set on every step.
     var focusedCategory by remember { mutableStateOf<String?>(null) }
@@ -450,6 +466,16 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+    if (guideMode) {
+        GuideTab(
+            vm = vm,
+            bundle = bundle,
+            onPlay = onPlay,
+            categoryId = selectedCategory,
+            onCategoryId = { selectedCategory = it },
+            leading = { LiveViewSwitch(guideMode) { guideMode = it } },
+        )
+    } else {
     Row(
         modifier = Modifier.fillMaxSize(),
         horizontalArrangement = Arrangement.spacedBy(Space.m),
@@ -462,6 +488,10 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
             verticalArrangement = Arrangement.spacedBy(Space.xs),
             contentPadding = PaddingValues(bottom = Space.l),
         ) {
+            item(key = "__view__") {
+                LiveViewSwitch(guideMode) { guideMode = it }
+                Spacer(Modifier.height(Space.s))
+            }
             items(categories, key = { it.id }) { category ->
                 val locked = category.id in lockedIds
                 CategoryItem(
@@ -525,6 +555,7 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
             }
         }
         }
+    }
     }
     if (digitBuffer.isNotEmpty()) {
         Box(
