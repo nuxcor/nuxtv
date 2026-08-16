@@ -129,14 +129,31 @@ fun HomeScreen(
             exitArmed = false
         }
     }
+    val contentFocus = remember { FocusRequester() }
+    // Survives this screen leaving composition, which is what going to the
+    // player does: coming back is a return, not a launch.
+    var hasLaunched by rememberSaveable { mutableStateOf(false) }
+
     // Without this the first D-pad press lands wherever Compose's focus search
-    // happens to go. Park it on the rail so the app always starts somewhere
-    // predictable — and retry, since the rail composes a frame later.
+    // happens to go. Park it somewhere predictable — and retry, since the
+    // target composes a frame later.
+    //
+    // Where depends on why we are here. On launch that is the rail. Coming back
+    // from the player it is the content, restored to the row that was focused
+    // when the stream started: BACK out of a channel used to land on the rail,
+    // several presses from the list it had just left, which is not going back.
     LaunchedEffect(Unit) {
+        val target = if (hasLaunched) contentFocus else railFocus
         repeat(5) {
-            if (runCatching { railFocus.requestFocus() }.isSuccess) return@LaunchedEffect
+            if (runCatching { target.requestFocus() }.isSuccess) {
+                hasLaunched = true
+                return@LaunchedEffect
+            }
             kotlinx.coroutines.delay(60)
         }
+        // Whatever we aimed at never composed; the rail always exists.
+        runCatching { railFocus.requestFocus() }
+        hasLaunched = true
     }
 
     BackHandler(enabled = !railFocused) {
@@ -167,6 +184,8 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(start = Space.gutter, end = Space.gutter, top = Space.gutterVertical, bottom = Space.gutterVertical)
+                .focusRequester(contentFocus)
+                .focusRestorer()
         ) {
             when (val state = contentState) {
                 is ContentState.Loading -> CenteredMessage(title = state.message, loading = true)
