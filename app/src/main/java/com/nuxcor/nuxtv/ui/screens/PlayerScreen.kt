@@ -926,7 +926,8 @@ private fun CatchupOverlay(
             .sortedByDescending { it.startMs }
     }
 
-    val timeFmt = remember { SimpleDateFormat("EEE d MMM • HH:mm", Locale.getDefault()) }
+    val dayFmt = remember { SimpleDateFormat("EEE d MMM", Locale.getDefault()) }
+    val clockFmt = com.nuxcor.nuxtv.ui.components.rememberClockFormat()
 
     Box(
         modifier = Modifier
@@ -983,7 +984,8 @@ private fun CatchupOverlay(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    text = timeFmt.format(Date(program.startMs)) +
+                                    text = "${dayFmt.format(Date(program.startMs))} • " +
+                                        "${clockFmt.format(Date(program.startMs))}" +
                                         " – ${formatTime(program.endMs - program.startMs)}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = NuxColors.OnSurfaceDim,
@@ -1679,7 +1681,7 @@ private fun ChannelBanner(
         }
     }
     val nowNext = channel?.id?.let { nowNextMap[it] }
-    val timeFmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val timeFmt = com.nuxcor.nuxtv.ui.components.rememberClockFormat()
 
     Box(
         modifier = Modifier

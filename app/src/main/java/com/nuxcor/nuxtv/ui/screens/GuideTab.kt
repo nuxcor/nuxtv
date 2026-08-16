@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -52,6 +53,7 @@ import com.nuxcor.nuxtv.data.EpgProgram
 import com.nuxcor.nuxtv.data.LiveChannel
 import com.nuxcor.nuxtv.ui.components.Artwork
 import com.nuxcor.nuxtv.ui.components.CenteredMessage
+import com.nuxcor.nuxtv.ui.components.rememberClockFormat
 import com.nuxcor.nuxtv.ui.theme.NuxColors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -74,14 +76,6 @@ private const val MIN_CELL_MINUTES = 16f
  * a guide, which is why this is a minimum height and not a target.
  */
 private val HEADER_HEIGHT = 120.dp
-
-/**
- * The locale's own short time format, so the guide reads 12- or 24-hour the
- * way the rest of the device does. Hardcoding either left the ruler saying
- * "8:00 PM" above a cell saying "20:00".
- */
-private fun shortTimeFormat(): java.text.DateFormat =
-    java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT, Locale.getDefault())
 
 @Composable
 fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
@@ -194,7 +188,10 @@ fun GuideTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                     }
                     item(key = "__day__") {
                         Text(
-                            text = if (dayOffset == 0) "Today" else dayFmt.format(Date(windowStart)),
+                            // Same basis as the ruler: windowStart sits an hour
+                            // earlier and can fall on the previous date.
+                            text = if (dayOffset == 0) "Today"
+                            else dayFmt.format(Date(nowTick + dayOffset * 24 * 3600_000L)),
                             style = MaterialTheme.typography.titleSmall,
                             color = NuxColors.OnSurface,
                             modifier = Modifier.padding(horizontal = 4.dp),
@@ -309,16 +306,19 @@ private fun GuideHeader(
     playlistName: String?,
     categoryName: String?,
 ) {
-    val timeFmt = remember { shortTimeFormat() }
+    val timeFmt = rememberClockFormat()
     val dateFmt = remember { SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault()) }
     val current = channel()
     val currentProgram = program()
 
     Row(
-        // Min, not fixed: TV "Text size" settings scale this content, and a
-        // fixed height clips the description mid-glyph — the child's own
-        // ellipsis can't fire when the parent does the cutting.
-        modifier = Modifier.fillMaxWidth().heightIn(min = HEADER_HEIGHT),
+        // Fixed, deliberately. heightIn(min=) let the artwork's fillMaxSize
+        // resolve against all remaining height — a Column measures children
+        // against what's left — so the header swallowed the screen and the
+        // ruler and grid were laid out at zero height. A fixed height also
+        // keeps the grid from shifting vertically as focus moves between
+        // programmes with and without a synopsis.
+        modifier = Modifier.fillMaxWidth().height(HEADER_HEIGHT),
         horizontalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         // Channel artwork rather than a live preview: previewing on focus would
@@ -327,7 +327,7 @@ private fun GuideHeader(
         Box(
             modifier = Modifier
                 .width(200.dp)
-                .heightIn(min = HEADER_HEIGHT)
+                .fillMaxHeight()
                 .clip(RoundedCornerShape(12.dp))
                 .background(NuxColors.Surface),
             contentAlignment = Alignment.Center,
@@ -363,7 +363,13 @@ private fun GuideHeader(
                         )
                     }
                 }
-                Column(horizontalAlignment = Alignment.End) {
+                // Bounded: an unweighted sibling is measured against the full
+                // width first, so a long playlist name would leave the title a
+                // few characters before ellipsis.
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    modifier = Modifier.widthIn(max = 300.dp),
+                ) {
                     Text(
                         text = "${timeFmt.format(Date(nowMs))}  •  ${dateFmt.format(Date(nowMs))}",
                         style = MaterialTheme.typography.labelMedium,
@@ -384,7 +390,7 @@ private fun GuideHeader(
 
             // Progress only means something for whatever is on right now.
             if (currentProgram != null && nowMs in currentProgram.startMs until currentProgram.endMs) {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 val span = (currentProgram.endMs - currentProgram.startMs).coerceAtLeast(1)
                 val progress = ((nowMs - currentProgram.startMs).toFloat() / span).coerceIn(0f, 1f)
                 Row(
@@ -393,7 +399,7 @@ private fun GuideHeader(
                 ) {
                     Box(
                         modifier = Modifier
-                            .width(260.dp)
+                            .width(220.dp)
                             .height(5.dp)
                             .clip(RoundedCornerShape(3.dp))
                             .background(NuxColors.SurfaceVariant)
@@ -413,12 +419,13 @@ private fun GuideHeader(
                         text = if (minutesLeft == 1L) "1 minute left" else "$minutesLeft minutes left",
                         style = MaterialTheme.typography.labelMedium,
                         color = NuxColors.OnSurfaceDim,
+                        maxLines = 1,
                     )
                 }
             }
 
             if (!currentProgram?.description.isNullOrBlank()) {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(
                     text = currentProgram?.description.orEmpty(),
                     style = MaterialTheme.typography.bodyMedium,
@@ -497,7 +504,7 @@ private fun TimeRuler(
     dayMs: Long,
     timelineScroll: androidx.compose.foundation.ScrollState,
 ) {
-    val fmt = remember { shortTimeFormat() }
+    val fmt = rememberClockFormat()
     val dayFmt = remember { SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault()) }
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -590,7 +597,9 @@ private fun GuideRow(
                 Text(
                     text = channel.name,
                     style = MaterialTheme.typography.titleSmall,
-                    maxLines = 2,
+                    // One line: two lines of 24sp need 48dp and the row's
+                    // content box is 46dp, so the second was always clipped.
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
@@ -696,7 +705,7 @@ private fun ProgramCell(
 ) {
     val airingNow = nowMs in program.startMs until program.endMs
     val isPast = program.endMs <= nowMs
-    val fmt = remember { shortTimeFormat() }
+    val fmt = rememberClockFormat()
 
     Surface(
         onClick = {
