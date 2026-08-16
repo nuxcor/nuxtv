@@ -1,8 +1,8 @@
-# Dzidzi
+# Agoro
 
 A premium streaming player for **Android TV**, built with Jetpack Compose for TV, Media3/ExoPlayer and libVLC.
 
-Point it at an **Xtream Codes** login or a plain **M3U playlist link** and Dzidzi organizes everything into a real TV experience — Live channels, a Movies library, and Series with seasons and episodes.
+Point it at an **Xtream Codes** login or a plain **M3U playlist link** and Agoro organizes everything into a real TV experience — Live channels, a Movies library, and Series with seasons and episodes.
 
 ## Features
 
@@ -95,7 +95,7 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 | `ui/screens/` | Onboarding, Home (Live/Movies/Series/Settings tabs), detail screens, ExoPlayer screen |
 | `ui/components/` | Focus-aware TV cards, hero header, artwork with generated fallbacks |
 
-No content is bundled — Dzidzi is a player; you bring your own playlist.
+No content is bundled — Agoro is a player; you bring your own playlist.
 
 ## Roadmap
 

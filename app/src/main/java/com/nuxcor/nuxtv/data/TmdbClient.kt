@@ -32,7 +32,7 @@ class TmdbClient(private val http: OkHttpClient, private val apiKey: String) {
 
     private suspend fun get(url: String): JsonObject? = withContext(Dispatchers.IO) {
         runCatching {
-            val request = Request.Builder().url(url).header("User-Agent", "Dzidzi/1.0").build()
+            val request = Request.Builder().url(url).header("User-Agent", "Agoro/1.0").build()
             http.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) return@use null
                 json.parseToJsonElement(resp.body!!.string()).jsonObject

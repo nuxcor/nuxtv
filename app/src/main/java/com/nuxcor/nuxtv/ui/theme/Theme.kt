@@ -21,7 +21,7 @@ import androidx.tv.material3.Typography
 import androidx.tv.material3.darkColorScheme
 
 /**
- * Dzidzi palette — cinematic charcoal with a warm gold accent.
+ * Agoro palette — cinematic charcoal with a warm gold accent.
  *
  * The surface ramp is spaced for a 10-foot dark room: each step is a real
  * lightness increment (ΔL* ≈ 5), so resting cards are visible without focus.

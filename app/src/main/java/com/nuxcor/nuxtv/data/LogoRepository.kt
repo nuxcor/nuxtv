@@ -59,7 +59,7 @@ class LogoRepository(context: Context, private val http: OkHttpClient) {
                 val request = Request.Builder()
                     .url(TREE_URL)
                     .header("Accept", "application/vnd.github+json")
-                    .header("User-Agent", "Dzidzi/1.0")
+                    .header("User-Agent", "Agoro/1.0")
                     .build()
                 http.newCall(request).execute().use { resp ->
                     if (!resp.isSuccessful) error("HTTP ${resp.code}")

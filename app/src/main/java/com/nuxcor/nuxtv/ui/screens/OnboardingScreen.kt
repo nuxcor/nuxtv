@@ -136,7 +136,7 @@ fun OnboardingScreen(
                     )
                     Column {
                         Text(
-                            text = "DZIDZI",
+                            text = "AGORO",
                             style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Black),
                             color = NuxColors.Primary,
                         )

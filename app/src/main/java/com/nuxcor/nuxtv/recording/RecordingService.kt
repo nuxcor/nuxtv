@@ -102,7 +102,7 @@ class RecordingService : Service() {
             val startedAt = System.currentTimeMillis()
             RecordingManager.update(ActiveRecording(name, file, startedAt, 0))
             try {
-                val request = Request.Builder().url(url).header("User-Agent", "Dzidzi/2.1").build()
+                val request = Request.Builder().url(url).header("User-Agent", "Agoro/2.1").build()
                 val call = http.newCall(request)
                 activeCall = call
                 call.execute().use { response ->
@@ -169,7 +169,7 @@ class RecordingService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.presence_video_online)
             .setContentTitle("Recording $name")
-            .setContentText("Dzidzi is recording this channel")
+            .setContentText("Agoro is recording this channel")
             .setOngoing(true)
             .addAction(android.R.drawable.ic_media_pause, "Stop", stopIntent)
             .build()

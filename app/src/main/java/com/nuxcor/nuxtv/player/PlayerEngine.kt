@@ -10,7 +10,7 @@ import com.nuxcor.nuxtv.data.PlayableItem
  * can't decode can be retried on the other.
  */
 /** Some providers gate on a known UA, so both engines send the same one. */
-internal const val USER_AGENT = "Dzidzi/2.9"
+internal const val USER_AGENT = "Agoro/2.9"
 
 /** Sentinel id for "always the top rung", as opposed to a specific rendition. */
 const val HIGHEST_QUALITY = "highest"

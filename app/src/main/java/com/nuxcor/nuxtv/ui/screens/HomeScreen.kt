@@ -293,7 +293,7 @@ private fun NavRail(
         ) {
             androidx.compose.foundation.Image(
                 painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_splash),
-                contentDescription = "Dzidzi",
+                contentDescription = "Agoro",
                 modifier = Modifier.size(32.dp),
             )
             androidx.compose.animation.AnimatedVisibility(
@@ -304,7 +304,7 @@ private fun NavRail(
                 exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(80)),
             ) {
                 Text(
-                    text = "DZIDZI",
+                    text = "AGORO",
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black),
                     color = NuxColors.Primary,
                     maxLines = 1,

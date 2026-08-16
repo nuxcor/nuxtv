@@ -40,7 +40,7 @@ import com.nuxcor.nuxtv.ui.theme.NuxColors
 
 /**
  * Animated boot screen: the gold play mark springs in over a breathing glow
- * while the DZIDZI wordmark letters rise in one by one.
+ * while the AGORO wordmark letters rise in one by one.
  */
 @Composable
 fun BootScreen() {
@@ -93,7 +93,7 @@ fun BootScreen() {
             }
             Spacer(Modifier.height(20.dp))
             Row {
-                "DZIDZI".forEachIndexed { index, letter ->
+                "AGORO".forEachIndexed { index, letter ->
                     val reveal = ((letters.value - index * 0.09f) * 4f).coerceIn(0f, 1f)
                     Text(
                         text = letter.toString(),
