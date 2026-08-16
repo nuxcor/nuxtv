@@ -292,9 +292,12 @@ private fun NavRail(
                 .animateContentSize(),
         ) {
             androidx.compose.foundation.Image(
-                painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_splash),
+                painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_logo),
                 contentDescription = "Agoro",
-                modifier = Modifier.size(32.dp),
+                // ic_logo, not ic_splash: the splash copy is padded into a
+                // square and scaled for its circular mask, so drawing it here
+                // gave about 59% of the size asked for.
+                modifier = Modifier.height(32.dp).width(23.dp),
             )
             androidx.compose.animation.AnimatedVisibility(
                 visible = expanded,
