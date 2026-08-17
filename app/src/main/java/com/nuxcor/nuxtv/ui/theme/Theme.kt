@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -107,12 +108,26 @@ object NuxFocus {
     const val RowScale = 1.0f
     const val ButtonScale = 1.06f
 
-    // Allocated once: these are immutable and were previously rebuilt for
-    // every focusable item on every recomposition.
-    val ring: Border = Border(
-        border = BorderStroke(3.dp, NuxColors.FocusBorder),
-        shape = RoundedCornerShape(16.dp),
-    )
+    private val Stroke = BorderStroke(3.dp, NuxColors.FocusBorder)
+
+    // One ring per corner radius in use, allocated once.
+    //
+    // tv-material3 draws the focus border with the shape carried on the Border,
+    // not the surface's own shape, so a single fixed radius is only correct for
+    // surfaces that happen to share it. A 16dp ring on an 8dp cell bows visibly
+    // off the corner it is supposed to outline — worst in the guide, whose 62dp
+    // programme cells are the densest focus targets in the app. Pick the ring
+    // that matches the shape you passed to ClickableSurfaceDefaults.shape.
+    val ring8: Border = Border(Stroke, shape = RoundedCornerShape(8.dp))
+    val ring10: Border = Border(Stroke, shape = RoundedCornerShape(10.dp))
+    val ring12: Border = Border(Stroke, shape = RoundedCornerShape(12.dp))
+    val ring16: Border = Border(Stroke, shape = RoundedCornerShape(16.dp))
+    val ring18: Border = Border(Stroke, shape = RoundedCornerShape(18.dp))
+    val ring22: Border = Border(Stroke, shape = RoundedCornerShape(22.dp))
+    val ringCircle: Border = Border(Stroke, shape = CircleShape)
+
+    /** The card/row default — [NuxShapes.medium]. */
+    val ring: Border = ring16
 
     val cardGlow: Glow = Glow(
         elevationColor = NuxColors.Primary.copy(alpha = 0.30f),

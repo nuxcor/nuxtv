@@ -2,31 +2,27 @@
 
 package com.nuxcor.nuxtv.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,19 +32,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.nuxcor.nuxtv.MainViewModel
-import com.nuxcor.nuxtv.data.Category
 import com.nuxcor.nuxtv.data.ContentBundle
 import com.nuxcor.nuxtv.data.ContentRepository
 import com.nuxcor.nuxtv.data.EpgProgram
@@ -57,57 +48,12 @@ import com.nuxcor.nuxtv.ui.components.Artwork
 import com.nuxcor.nuxtv.ui.components.CenteredMessage
 import com.nuxcor.nuxtv.ui.components.rememberClockFormat
 import com.nuxcor.nuxtv.ui.theme.NuxColors
-import com.nuxcor.nuxtv.ui.theme.Space
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-/**
- * How many half-hour columns the timeline aims to show at once, the "on now"
- * one included. Two and a half hours of schedule is the point of a grid guide:
- * fewer and you are paging to answer "what's on after this", more and the cells
- * are too narrow to carry a title.
- */
-private const val TARGET_COLUMNS = 5
-
-/**
- * The scale is derived from the panel's own width rather than fixed, because
- * the same constant lands differently on every one of them: a 960dp
- * canvas has 572dp of lane once the TV-safe gutters, the navigation rail and
- * the channel column are paid for, while a 1280dp one has 892dp. A fixed 4dp
- * per minute showed 4.8 columns on the first and 7.4 on the second.
- *
- * Clamped at both ends: below the minimum a half-hour cell can't hold a title,
- * and above the maximum a wide panel would show two programmes and a lot of
- * empty rounding.
- */
-private val MIN_DP_PER_MINUTE = 2.6.dp
-private val MAX_DP_PER_MINUTE = 6.dp
-
-private val CHANNEL_COLUMN_WIDTH = 200.dp
-private val CHANNEL_COLUMN_GAP = 8.dp
-private val ROW_HEIGHT = 62.dp
-
-/** The narrowest cell that still shows a title and a focus ring — 61dp on a
- *  960dp panel, more on a wider one since the scale grows with it. */
-private const val MIN_CELL_MINUTES = 16f
-
-/**
- * Timeline scale for a panel [screenWidth] dp wide: the lane left after the
- * TV-safe gutters, the collapsed rail and the channel column, divided into
- * [TARGET_COLUMNS] half-hour columns.
- *
- * Internal and pure so the column arithmetic can be tested — getting it wrong
- * is invisible in code review and only shows up as a guide that pages too soon
- * on someone else's TV.
- */
-internal fun guideDpPerMinute(screenWidth: Dp): Dp {
-    val lane = screenWidth - Space.gutter * 2 - RAIL_WIDTH_COLLAPSED -
-        CHANNEL_COLUMN_WIDTH - CHANNEL_COLUMN_GAP
-    return (lane / (TARGET_COLUMNS * 30)).coerceIn(MIN_DP_PER_MINUTE, MAX_DP_PER_MINUTE)
-}
 
 /**
  * Budget on a 960x540dp TV canvas: 540 − 64 (screen gutters) − 50 (category
@@ -123,6 +69,10 @@ private val HEADER_HEIGHT = 120.dp
  * two views share one filter. They each kept their own before, which meant
  * picking a category in one and switching silently put you back on "All" in the
  * other.
+ *
+ * The grid itself lives in GuideGrid.kt, shared with the player's guide
+ * overlay; this file is the browse host — header, category row, day paging and
+ * the preview plumbing.
  *
  * [leading] is drawn as the first item of the control row — the view switch
  * belongs there rather than above the grid, where it would cost the height of a
@@ -166,6 +116,26 @@ fun GuideTab(
         }
 
         is ContentRepository.EpgState.Ready -> {
+            val coverage by vm.guideCoverage.collectAsState()
+            // Ready means the XMLTV parsed, not that any of it is this
+            // playlist's. When the ids don't line up, every row would read "No
+            // information" over a grid that looks like it is working — so this
+            // takes the same exit a failed download does, which is the screen
+            // that offers a guide that will match.
+            if (!coverage.matchesPlaylist) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    leading()
+                    Spacer(Modifier.height(10.dp))
+                    NoGuidePane(
+                        message = "The guide loaded, but none of its channels match this " +
+                            "playlist. Providers and guides often use different channel ids.",
+                        categoryNames = bundle.liveCategories.map { it.name },
+                        onPick = { cc -> vm.setEpgOverrideUrl(epgshareUrl(cc)) },
+                    )
+                }
+                return
+            }
+
             val allChannels by vm.displayChannels.collectAsState()
             val favorites by vm.favorites.collectAsState()
             val recents by vm.recentChannels.collectAsState()
@@ -186,6 +156,25 @@ fun GuideTab(
             val baseStart = remember {
                 val now = System.currentTimeMillis()
                 now - now % (30 * 60_000L) - 60 * 60_000L
+            }
+            // How far forward there is anything to page to. XMLTV feeds carry
+            // two to seven days and the parser keeps a 48-hour window, so
+            // without a ceiling `›` walked forever into identical screens of
+            // "No information" with nothing saying you had left the data.
+            val maxDayOffset = remember(coverage.lastProgramEndMs, baseStart) {
+                // The sentinel means "not computed yet", and the ViewModel's
+                // contract for it is optimism: mapping it to 0 disabled `›`
+                // until the background combine finished and clamped a restored
+                // dayOffset back to today. Cap generously instead and let the
+                // real ceiling take over when it lands.
+                if (coverage.lastProgramEndMs == Long.MAX_VALUE) 14
+                else ((coverage.lastProgramEndMs - baseStart) / (24 * 3600_000L))
+                    .toInt().coerceIn(0, 14)
+            }
+            // A guide that shrank under us (a refresh with less data) must not
+            // strand the viewer on a day that no longer exists.
+            LaunchedEffect(maxDayOffset) {
+                if (dayOffset > maxDayOffset) dayOffset = maxDayOffset
             }
             val windowStart = baseStart + dayOffset * 24 * 3600_000L
             val windowEnd = windowStart + 30 * 3600_000L
@@ -242,15 +231,38 @@ fun GuideTab(
             val screenWidth = LocalConfiguration.current.screenWidthDp.dp
             val dpPerMinute = remember(screenWidth) { guideDpPerMinute(screenWidth) }
 
-            // Start the timeline near "now".
             val density = LocalDensity.current
-            LaunchedEffect(Unit) {
-                val nowOffsetMin = ((System.currentTimeMillis() - windowStart) / 60_000L - 15)
+            // Where "now minus 15 minutes" sits on the timeline, in scroll px.
+            fun nowScrollPx(): Int {
+                val nowOffsetMin = ((System.currentTimeMillis() - baseStart) / 60_000L - 15)
                     .coerceAtLeast(0)
-                timelineScroll.scrollTo(
-                    with(density) { (dpPerMinute * nowOffsetMin.toInt()).roundToPx() }
-                )
+                return with(density) { (dpPerMinute * nowOffsetMin.toInt()).roundToPx() }
             }
+
+            fun jumpToNow() {
+                dayOffset = 0
+                scope.launch { timelineScroll.animateScrollTo(nowScrollPx()) }
+            }
+
+            // Start the timeline near "now".
+            LaunchedEffect(Unit) { timelineScroll.scrollTo(nowScrollPx()) }
+
+            // First BACK returns to now when the viewer has wandered — another
+            // day, or a couple of hours along the timeline. A second BACK then
+            // leaves the tab as usual. Getting home from deep in tomorrow's
+            // schedule was otherwise a long march of ‹ presses.
+            //
+            // derivedStateOf, because reading timelineScroll.value directly in
+            // composition would recompose the whole guide on every scrolled
+            // frame; this only invalidates when the answer flips.
+            val farThresholdPx = with(density) { (dpPerMinute * 120).roundToPx() }
+            val awayFromNow by remember(dayOffset, nowTick, farThresholdPx) {
+                val nowPx = nowScrollPx()
+                derivedStateOf {
+                    dayOffset != 0 || abs(timelineScroll.value - nowPx) > farThresholdPx
+                }
+            }
+            BackHandler(enabled = awayFromNow) { jumpToNow() }
 
             Column(modifier = Modifier.fillMaxSize()) {
                 statusMessage?.let {
@@ -284,11 +296,14 @@ fun GuideTab(
                         )
                     }
                     item(key = "__next__") {
-                        androidx.tv.material3.OutlinedButton(onClick = { dayOffset++ }) { Text("›") }
+                        androidx.tv.material3.OutlinedButton(
+                            onClick = { if (dayOffset < maxDayOffset) dayOffset++ },
+                            enabled = dayOffset < maxDayOffset,
+                        ) { Text("›") }
                     }
                     if (dayOffset != 0) {
                         item(key = "__now__") {
-                            androidx.tv.material3.OutlinedButton(onClick = { dayOffset = 0 }) { Text("Now") }
+                            androidx.tv.material3.OutlinedButton(onClick = { jumpToNow() }) { Text("Now") }
                         }
                     }
                     item(key = "__sep__") { Spacer(Modifier.width(12.dp)) }
@@ -322,72 +337,49 @@ fun GuideTab(
                     nowTick + dayOffset * 24 * 3600_000L, timelineScroll, dpPerMinute,
                 )
 
-                Box(modifier = Modifier.fillMaxSize()) {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    contentPadding = PaddingValues(bottom = 28.dp),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    items(channels, key = { it.id }) { channel ->
-                        GuideRow(
-                            vm = vm,
-                            channel = channel,
-                            windowStart = windowStart,
-                            windowEnd = windowEnd,
-                            nowMs = nowTick,
-                            timelineScroll = timelineScroll,
-                            dpPerMinute = dpPerMinute,
-                            onFocus = { program ->
-                                focusedChannel = channel
-                                focusedProgram = program
-                            },
-                            onPlayChannel = {
-                                // Hand the connection back before the player
-                                // asks for one. Two engines briefly alive at
-                                // once is one too many on a line that allows
-                                // two, and the stream refused is the one the
-                                // viewer just asked for.
+                GuideGrid(
+                    channels = channels,
+                    programsFor = { vm.programsFor(it) },
+                    programsKey = state,
+                    windowStart = windowStart,
+                    windowEnd = windowEnd,
+                    nowMs = nowTick,
+                    timelineScroll = timelineScroll,
+                    dpPerMinute = dpPerMinute,
+                    onFocus = { channel, program ->
+                        focusedChannel = channel
+                        focusedProgram = program
+                    },
+                    onPlayChannel = { channel ->
+                        // Hand the connection back before the player asks for
+                        // one. Two engines briefly alive at once is one too
+                        // many on a line that allows two, and the stream
+                        // refused is the one the viewer just asked for.
+                        preview.release()
+                        vm.playChannels(channels, channels.indexOf(channel))
+                        onPlay()
+                    },
+                    onCatchup = { channel, program ->
+                        scope.launch {
+                            val url = vm.catchupUrl(channel, program)
+                            if (url != null) {
                                 preview.release()
-                                vm.playChannels(channels, channels.indexOf(channel))
+                                vm.playCatchup(channel, program, url)
                                 onPlay()
-                            },
-                            onCatchup = { program ->
-                                scope.launch {
-                                    val url = vm.catchupUrl(channel, program)
-                                    if (url != null) {
-                                        preview.release()
-                                        vm.playCatchup(channel, program, url)
-                                        onPlay()
-                                    } else {
-                                        statusMessage = "Catch-up isn't available for this programme"
-                                    }
-                                }
-                            },
-                            onSchedule = { program ->
-                                statusMessage = if (vm.scheduleRecording(channel, program)) {
-                                    "Recording scheduled: ${program.title}"
-                                } else {
-                                    vm.scheduleReminder(channel, program)
-                                    "Reminder set: ${program.title}"
-                                }
-                            },
-                        )
-                    }
-                }
-                // The NOW marker — the defining element of an EPG.
-                val nowOffset = dpPerMinute * ((nowTick - windowStart) / 60_000f)
-                val scrolled = with(LocalDensity.current) { timelineScroll.value.toDp() }
-                val markerX = CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP + nowOffset - scrolled
-                if (markerX > CHANNEL_COLUMN_WIDTH) {
-                    Box(
-                        modifier = Modifier
-                            .padding(start = markerX)
-                            .width(2.dp)
-                            .fillMaxHeight()
-                            .background(NuxColors.Primary)
-                    )
-                }
-                }
+                            } else {
+                                statusMessage = "Catch-up isn't available for this programme"
+                            }
+                        }
+                    },
+                    onSchedule = { channel, program ->
+                        statusMessage = if (vm.scheduleRecording(channel, program)) {
+                            "Recording scheduled: ${program.title}"
+                        } else {
+                            vm.scheduleReminder(channel, program)
+                            "Reminder set: ${program.title}"
+                        }
+                    },
+                )
             }
         }
     }
@@ -596,275 +588,6 @@ private fun NoGuidePane(
                 "You can change this any time in Settings → EPG source.",
                 style = MaterialTheme.typography.labelSmall,
                 color = NuxColors.OnSurfaceDim,
-            )
-        }
-    }
-}
-
-@Composable
-private fun TimeRuler(
-    windowStart: Long,
-    windowEnd: Long,
-    nowMs: Long,
-    /** The day being viewed. windowStart sits an hour earlier and can fall on
-     *  the previous date between midnight and 01:00. */
-    dayMs: Long,
-    timelineScroll: androidx.compose.foundation.ScrollState,
-    dpPerMinute: Dp,
-) {
-    val fmt = rememberClockFormat()
-    val dayFmt = remember { SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault()) }
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text = dayFmt.format(Date(dayMs)),
-            style = MaterialTheme.typography.labelMedium,
-            color = NuxColors.OnSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.width(CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP),
-        )
-        Row(modifier = Modifier.horizontalScroll(timelineScroll, enabled = false)) {
-            var t = windowStart
-            while (t < windowEnd) {
-                // The half-hour containing "now" is called out instead of
-                // labelled with a time you'd have to compare against a clock.
-                val isNow = nowMs >= t && nowMs < t + 30 * 60_000L
-                Text(
-                    text = if (isNow) "ON NOW" else fmt.format(Date(t)),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (isNow) NuxColors.Error else NuxColors.OnSurfaceDim,
-                    modifier = Modifier.width(dpPerMinute * 30),
-                )
-                t += 30 * 60_000L
-            }
-        }
-    }
-    Spacer(Modifier.height(6.dp))
-}
-
-@Composable
-private fun GuideRow(
-    vm: MainViewModel,
-    channel: LiveChannel,
-    windowStart: Long,
-    windowEnd: Long,
-    nowMs: Long,
-    timelineScroll: androidx.compose.foundation.ScrollState,
-    dpPerMinute: Dp,
-    onFocus: (EpgProgram?) -> Unit,
-    onPlayChannel: () -> Unit,
-    onCatchup: (EpgProgram) -> Unit,
-    onSchedule: (EpgProgram) -> Unit,
-) {
-    // windowStart/windowEnd must be keys, not just captures. Without them,
-    // paging to tomorrow kept yesterday's list: every programme then clamped to
-    // zero width in the layout loop, so the lane drew empty — and because the
-    // list was non-empty the "No information" placeholder was suppressed too,
-    // leaving channel names beside a blank row.
-    val programs = remember(channel.id, vm.epgState.collectAsState().value, windowStart, windowEnd) {
-        vm.programsFor(channel).filter { it.endMs > windowStart && it.startMs < windowEnd }
-    }
-
-    Row(modifier = Modifier.fillMaxWidth().height(ROW_HEIGHT)) {
-        // Fixed channel cell.
-        Surface(
-            onClick = onPlayChannel,
-            modifier = Modifier
-                .width(CHANNEL_COLUMN_WIDTH)
-                .onFocusChanged {
-                    if (it.isFocused) {
-                        onFocus(programs.firstOrNull { p -> nowMs in p.startMs until p.endMs })
-                    }
-                },
-            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-            colors = ClickableSurfaceDefaults.colors(
-                containerColor = NuxColors.Surface,
-                focusedContainerColor = NuxColors.SurfaceRaised,
-                contentColor = NuxColors.OnSurface,
-                focusedContentColor = NuxColors.OnSurface,
-            ),
-            border = ClickableSurfaceDefaults.border(
-                border = androidx.tv.material3.Border(
-                    androidx.compose.foundation.BorderStroke(1.dp, NuxColors.Stroke),
-                    shape = RoundedCornerShape(8.dp),
-                ),
-                focusedBorder = com.nuxcor.nuxtv.ui.theme.NuxFocus.ring,
-            ),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            ) {
-                Artwork(
-                    imageUrl = channel.logo,
-                    title = channel.name,
-                    modifier = Modifier.size(width = 64.dp, height = 40.dp).clip(RoundedCornerShape(8.dp)),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                    monogramStyle = MaterialTheme.typography.labelMedium,
-                )
-                Text(
-                    text = channel.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    // One line: two lines of 24sp need 48dp and the row's
-                    // content box is 46dp, so the second was always clipped.
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                channel.number?.let { number ->
-                    Text(
-                        text = number.toString(),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = NuxColors.OnSurfaceDim,
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.width(CHANNEL_COLUMN_GAP))
-
-        // Programme lane sharing the timeline scroll.
-        Row(modifier = Modifier.horizontalScroll(timelineScroll)) {
-            if (programs.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .width(dpPerMinute * ((windowEnd - windowStart) / 60_000L).toInt())
-                        .height(ROW_HEIGHT)
-                        .padding(vertical = 6.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(NuxColors.Surface.copy(alpha = 0.35f)),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    Text(
-                        "No information — ${channel.name}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = NuxColors.OnSurfaceDim,
-                        modifier = Modifier.padding(start = 16.dp),
-                    )
-                }
-            } else {
-                // Widths are fractional minutes so rows line up with the ruler,
-                // but a cell narrower than MIN_CELL_MINUTES is an unreadable
-                // sliver and an near-invisible focus target. Short programmes
-                // borrow width from what follows and the debt is repaid out of
-                // the next long programme or gap, so the row re-syncs with the
-                // ruler within a slot or two instead of drifting.
-                var cursor = windowStart
-                var borrowedMinutes = 0f
-                programs.forEach { program ->
-                    val start = program.startMs.coerceIn(cursor, windowEnd)
-                    val end = program.endMs.coerceIn(start, windowEnd)
-                    if (end - start < 60_000) { cursor = end; return@forEach }
-
-                    var gapMinutes = (start - cursor) / 60_000f
-                    if (gapMinutes > 0f) {
-                        val repaid = minOf(gapMinutes, borrowedMinutes)
-                        gapMinutes -= repaid
-                        borrowedMinutes -= repaid
-                        if (gapMinutes > 0f) Spacer(Modifier.width(dpPerMinute * gapMinutes))
-                    }
-
-                    val naturalMinutes = (end - start) / 60_000f
-                    val widthMinutes: Float
-                    if (naturalMinutes >= MIN_CELL_MINUTES) {
-                        val repaid = minOf(borrowedMinutes, naturalMinutes - MIN_CELL_MINUTES)
-                        widthMinutes = naturalMinutes - repaid
-                        borrowedMinutes -= repaid
-                    } else {
-                        widthMinutes = MIN_CELL_MINUTES
-                        borrowedMinutes += MIN_CELL_MINUTES - naturalMinutes
-                    }
-
-                    ProgramCell(
-                        program = program,
-                        widthMinutes = widthMinutes,
-                        dpPerMinute = dpPerMinute,
-                        nowMs = nowMs,
-                        onFocus = { onFocus(program) },
-                        hasArchive = channel.archiveDays > 0,
-                        canRecord = channel.recordUrl != null,
-                        onPlayLive = onPlayChannel,
-                        onCatchup = { onCatchup(program) },
-                        onSchedule = { onSchedule(program) },
-                    )
-                    cursor = end
-                }
-
-                // Every row must end up the same total width. All rows share one
-                // ScrollState, so a short row (a channel whose guide data stops
-                // early) would otherwise set a smaller maxValue and clamp the
-                // scroll for every other row.
-                val tailMinutes = ((windowEnd - cursor) / 60_000f) - borrowedMinutes
-                if (tailMinutes > 0f) Spacer(Modifier.width(dpPerMinute * tailMinutes))
-            }
-        }
-    }
-}
-
-@Composable
-private fun ProgramCell(
-    program: EpgProgram,
-    widthMinutes: Float,
-    dpPerMinute: Dp,
-    nowMs: Long,
-    onFocus: () -> Unit,
-    hasArchive: Boolean,
-    canRecord: Boolean,
-    onPlayLive: () -> Unit,
-    onCatchup: () -> Unit,
-    onSchedule: () -> Unit,
-) {
-    val airingNow = nowMs in program.startMs until program.endMs
-    val isPast = program.endMs <= nowMs
-    val fmt = rememberClockFormat()
-
-    Surface(
-        onClick = {
-            when {
-                airingNow -> onPlayLive()
-                isPast && hasArchive -> onCatchup()
-                !isPast -> onSchedule() // records when possible, else sets a reminder
-                else -> Unit
-            }
-        },
-        modifier = Modifier
-            .onFocusChanged { if (it.isFocused) onFocus() }
-            // Caller has already reconciled this against the ruler; see GuideRow.
-            .width(dpPerMinute * widthMinutes)
-            .height(ROW_HEIGHT)
-            .padding(end = 2.dp, top = 6.dp, bottom = 6.dp),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-        border = ClickableSurfaceDefaults.border(
-            border = androidx.tv.material3.Border(
-                androidx.compose.foundation.BorderStroke(1.dp, NuxColors.Stroke),
-                shape = RoundedCornerShape(8.dp),
-            ),
-            focusedBorder = com.nuxcor.nuxtv.ui.theme.NuxFocus.ring,
-        ),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = when {
-                airingNow -> NuxColors.SurfaceVariant
-                isPast -> NuxColors.Surface
-                else -> NuxColors.Surface
-            },
-            focusedContainerColor = NuxColors.SurfaceRaised,
-            contentColor = if (isPast && !airingNow) NuxColors.OnSurfaceDim else NuxColors.OnSurface,
-            focusedContentColor = NuxColors.OnSurface,
-        ),
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-            Text(
-                text = program.title,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = fmt.format(Date(program.startMs)) +
-                    (if (airingNow) " • Now" else if (!isPast) (if (canRecord) " • OK to record" else " • OK to remind") else ""),
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
         }
     }

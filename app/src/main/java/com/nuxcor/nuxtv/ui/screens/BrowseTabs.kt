@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -16,7 +17,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,6 +29,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRestorer
@@ -46,20 +52,29 @@ import com.nuxcor.nuxtv.ui.components.PosterCard
 import com.nuxcor.nuxtv.ui.components.SectionTitle
 import com.nuxcor.nuxtv.ui.theme.NuxColors
 
-/** Groups items into category rows; items with no category land in "More". */
-private fun <T> rowsOf(
-    categories: List<Category>,
-    items: List<T>,
-    categoryId: (T) -> String?,
-): List<Pair<String, List<T>>> {
-    val byCategory = items.groupBy(categoryId)
-    val rows = categories.mapNotNull { cat ->
-        byCategory[cat.id]?.takeIf { it.isNotEmpty() }?.let { cat.name to it }
-    }
-    val uncategorized = byCategory.filterKeys { key -> key == null || categories.none { it.id == key } }
-        .values.flatten()
-    return if (uncategorized.isEmpty()) rows else rows + ("More" to uncategorized)
-}
+/**
+ * The category vocabulary of Movies and Series, mirroring [liveCategoryList].
+ *
+ * Both tabs used to render one row per category inside one scrolling column,
+ * with no filter, no jump and no index — so on a playlist carrying a few hundred
+ * VOD categories, reaching the last one was a D-pad press per row. Live TV had
+ * already solved this with a category column; these are the same pseudo-category
+ * ids, so the two halves of the app browse the same way.
+ */
+internal const val VOD_ALL = "__all__"
+internal const val VOD_CONTINUE = "__continue__"
+private const val VOD_MORE = "__more__"
+
+/** One poster, flattened out of Movie or Series so the browser can be shared. */
+internal data class VodEntry(
+    val id: String,
+    val title: String,
+    val subtitle: String?,
+    val poster: String?,
+    val progress: Float?,
+    val hero: HeroInfo,
+    val onOpen: () -> Unit,
+)
 
 data class HeroInfo(
     val title: String,
@@ -112,6 +127,101 @@ fun HeroHeader(hero: HeroInfo?) {
     }
 }
 
+/**
+ * Poster browsing with a category column — shared by Movies and Series, which
+ * differ only in what a card says and where it goes.
+ *
+ * The hero scrolls with the grid rather than sitting above it: it is 150dp of a
+ * 476dp lane, and pinning it would leave room for a single row of posters.
+ */
+@Composable
+private fun VodBrowser(
+    categories: List<Category>,
+    continueWatching: List<VodEntry>,
+    entriesFor: (String) -> List<VodEntry>,
+    initialHero: HeroInfo?,
+) {
+    var selectedCategory by rememberSaveable { mutableStateOf(VOD_ALL) }
+    val shown = remember(categories, continueWatching.isNotEmpty()) {
+        buildList {
+            add(Category(id = VOD_ALL, name = "All"))
+            // Only once there is something in it: an empty shortcut is a dead
+            // end that still costs a D-pad press to walk past.
+            if (continueWatching.isNotEmpty()) {
+                add(Category(id = VOD_CONTINUE, name = "Continue watching"))
+            }
+            addAll(categories)
+        }
+    }
+    val activeCategory = remember(selectedCategory, shown) {
+        if (shown.any { it.id == selectedCategory }) selectedCategory else VOD_ALL
+    }
+    // Same rest-before-select rule as the nav rail and Live TV: travelling the
+    // column would otherwise rebuild the whole grid on every step.
+    var focusedCategory by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(focusedCategory) {
+        val id = focusedCategory ?: return@LaunchedEffect
+        kotlinx.coroutines.delay(250)
+        selectedCategory = id
+    }
+
+    val entries = remember(activeCategory, continueWatching, entriesFor) {
+        if (activeCategory == VOD_CONTINUE) continueWatching else entriesFor(activeCategory)
+    }
+    var hero by remember(initialHero) { mutableStateOf(initialHero) }
+    // The grid is replaced wholesale on a category switch without focus moving
+    // inside it, so nothing else would clear the header of the item it was
+    // describing in a category that is no longer shown.
+    LaunchedEffect(activeCategory) { hero = entries.firstOrNull()?.hero ?: initialHero }
+
+    Row(
+        modifier = Modifier.fillMaxSize(),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .width(190.dp)
+                .fillMaxHeight()
+                .focusRestorer(),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            contentPadding = PaddingValues(bottom = 24.dp),
+        ) {
+            items(shown, key = { it.id }) { category ->
+                CategoryItem(
+                    name = category.name,
+                    selected = category.id == activeCategory,
+                    onClick = { selectedCategory = category.id },
+                    onFocus = { focusedCategory = category.id },
+                )
+            }
+        }
+        if (entries.isEmpty()) {
+            CenteredMessage(title = "Nothing in this category")
+            return@Row
+        }
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 150.dp),
+            modifier = Modifier.weight(1f).fillMaxHeight().focusRestorer(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+            contentPadding = PaddingValues(start = 4.dp, end = 8.dp, bottom = 36.dp),
+        ) {
+            item(key = "hero", span = { GridItemSpan(maxLineSpan) }) { HeroHeader(hero) }
+            items(entries, key = { it.id }) { entry ->
+                PosterCard(
+                    title = entry.title,
+                    subtitle = entry.subtitle,
+                    imageUrl = entry.poster,
+                    width = null,
+                    progress = entry.progress,
+                    onClick = entry.onOpen,
+                    onFocus = { hero = entry.hero },
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> Unit) {
     if (bundle.movies.isEmpty()) {
@@ -122,72 +232,49 @@ fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> 
     val resumeProgress by vm.resumeProgress.collectAsState()
     val pin by vm.parentalPin.collectAsState()
     val unlocked by vm.parentalUnlocked.collectAsState()
-    val rows = remember(bundle, pin, unlocked) {
-        val visibleCategories = bundle.movieCategories.filterNot { vm.isLockedCategory(it.name) }
-        val lockedIds = bundle.movieCategories.filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
-        rowsOf(visibleCategories, bundle.movies.filterNot { it.categoryId in lockedIds }) { it.categoryId }
-    }
-    val continueWatching = remember(bundle, resumePositions) {
-        bundle.movies.filter { it.url in resumePositions }
-    }
-    var hero by remember(bundle) { mutableStateOf(bundle.movies.firstOrNull()?.toHero()) }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(32.dp),
-            contentPadding = PaddingValues(bottom = 36.dp),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            item(key = "hero") { HeroHeader(hero) }
-            if (continueWatching.isNotEmpty()) {
-                item(key = "movies:continue") {
-                    Column {
-                        SectionTitle("Continue watching", continueWatching.size)
-                        LazyRow(
-                            modifier = Modifier.focusRestorer(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            contentPadding = PaddingValues(start = 4.dp, end = 24.dp),
-                        ) {
-                            items(continueWatching.size, key = { continueWatching[it].id }) { i ->
-                                val movie = continueWatching[i]
-                                PosterCard(
-                                    title = movie.name,
-                                    subtitle = movie.year?.toString(),
-                                    imageUrl = movie.poster,
-                                    progress = resumeProgress[movie.url],
-                                    onClick = { onOpenMovie(movie) },
-                                    onFocus = { hero = movie.toHero() },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            rows.forEach { (categoryName, movies) ->
-                item(key = "movies:$categoryName") {
-                    Column {
-                        SectionTitle(categoryName, movies.size)
-                        LazyRow(
-                            modifier = Modifier.focusRestorer(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            contentPadding = PaddingValues(start = 4.dp, end = 24.dp),
-                        ) {
-                            items(movies.size, key = { movies[it].id }) { i ->
-                                val movie = movies[i]
-                                PosterCard(
-                                    title = movie.name,
-                                    subtitle = movie.year?.toString(),
-                                    imageUrl = movie.poster,
-                                    onClick = { onOpenMovie(movie) },
-                                    onFocus = { hero = movie.toHero() },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    val visible = remember(bundle, pin, unlocked) {
+        val lockedIds = bundle.movieCategories
+            .filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
+        bundle.movieCategories.filterNot { vm.isLockedCategory(it.name) } to
+            bundle.movies.filterNot { it.categoryId in lockedIds }
     }
+    val (categories, movies) = visible
+    // Anything filed under a category the playlist never declared still has to
+    // be reachable, so it gets a category of its own rather than disappearing.
+    val shownCategories = remember(categories, movies) {
+        val known = categories.mapTo(HashSet()) { it.id }
+        if (movies.any { it.categoryId == null || it.categoryId !in known }) {
+            categories + Category(id = VOD_MORE, name = "More")
+        } else categories
+    }
+
+    fun Movie.entry() = VodEntry(
+        id = id,
+        title = name,
+        subtitle = year?.toString(),
+        poster = poster,
+        progress = resumeProgress[url],
+        hero = toHero(),
+        onOpen = { onOpenMovie(this) },
+    )
+
+    val continueWatching = remember(movies, resumePositions, resumeProgress) {
+        movies.filter { it.url in resumePositions }.map { it.entry() }
+    }
+    VodBrowser(
+        categories = shownCategories,
+        continueWatching = continueWatching,
+        entriesFor = { categoryId ->
+            val known = categories.mapTo(HashSet()) { it.id }
+            when (categoryId) {
+                VOD_ALL -> movies
+                VOD_MORE -> movies.filter { it.categoryId == null || it.categoryId !in known }
+                else -> movies.filter { it.categoryId == categoryId }
+            }.map { it.entry() }
+        },
+        initialHero = movies.firstOrNull()?.toHero(),
+    )
 }
 
 @Composable
@@ -200,75 +287,50 @@ fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -
     val resumeProgress by vm.resumeProgress.collectAsState()
     val pin by vm.parentalPin.collectAsState()
     val unlocked by vm.parentalUnlocked.collectAsState()
-    val rows = remember(bundle, pin, unlocked) {
-        val visibleCategories = bundle.seriesCategories.filterNot { vm.isLockedCategory(it.name) }
-        val lockedIds = bundle.seriesCategories.filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
-        rowsOf(visibleCategories, bundle.series.filterNot { it.categoryId in lockedIds }) { it.categoryId }
-    }
-    val continueWatching = remember(bundle, resumePositions) {
-        bundle.series.filter { series -> series.episodes?.any { it.url in resumePositions } == true }
-    }
-    var hero by remember(bundle) { mutableStateOf(bundle.series.firstOrNull()?.toHero()) }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(32.dp),
-            contentPadding = PaddingValues(bottom = 36.dp),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            item(key = "hero") { HeroHeader(hero) }
-            if (continueWatching.isNotEmpty()) {
-                item(key = "series:continue") {
-                    Column {
-                        SectionTitle("Continue watching", continueWatching.size)
-                        LazyRow(
-                            modifier = Modifier.focusRestorer(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            contentPadding = PaddingValues(start = 4.dp, end = 24.dp),
-                        ) {
-                            items(continueWatching.size, key = { continueWatching[it].id }) { i ->
-                                val series = continueWatching[i]
-                                PosterCard(
-                                    title = series.name,
-                                    subtitle = series.year?.toString(),
-                                    imageUrl = series.poster,
-                                    // The episode the viewer is actually part-way through.
-                                    progress = series.episodes
-                                        ?.firstNotNullOfOrNull { resumeProgress[it.url] },
-                                    onClick = { onOpenSeries(series) },
-                                    onFocus = { hero = series.toHero() },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            rows.forEach { (categoryName, seriesList) ->
-                item(key = "series:$categoryName") {
-                    Column {
-                        SectionTitle(categoryName, seriesList.size)
-                        LazyRow(
-                            modifier = Modifier.focusRestorer(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            contentPadding = PaddingValues(start = 4.dp, end = 24.dp),
-                        ) {
-                            items(seriesList.size, key = { seriesList[it].id }) { i ->
-                                val series = seriesList[i]
-                                PosterCard(
-                                    title = series.name,
-                                    subtitle = series.episodes?.let { "${it.size} episodes" }
-                                        ?: series.year?.toString(),
-                                    imageUrl = series.poster,
-                                    onClick = { onOpenSeries(series) },
-                                    onFocus = { hero = series.toHero() },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    val visible = remember(bundle, pin, unlocked) {
+        val lockedIds = bundle.seriesCategories
+            .filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
+        bundle.seriesCategories.filterNot { vm.isLockedCategory(it.name) } to
+            bundle.series.filterNot { it.categoryId in lockedIds }
     }
+    val (categories, seriesList) = visible
+    val shownCategories = remember(categories, seriesList) {
+        val known = categories.mapTo(HashSet()) { it.id }
+        if (seriesList.any { it.categoryId == null || it.categoryId !in known }) {
+            categories + Category(id = VOD_MORE, name = "More")
+        } else categories
+    }
+
+    fun Series.entry() = VodEntry(
+        id = id,
+        title = name,
+        subtitle = episodes?.let { "${it.size} episodes" } ?: year?.toString(),
+        poster = poster,
+        // The episode the viewer is actually part-way through.
+        progress = episodes?.firstNotNullOfOrNull { resumeProgress[it.url] },
+        hero = toHero(),
+        onOpen = { onOpenSeries(this) },
+    )
+
+    val continueWatching = remember(seriesList, resumePositions, resumeProgress) {
+        seriesList
+            .filter { series -> series.episodes?.any { it.url in resumePositions } == true }
+            .map { it.entry() }
+    }
+    VodBrowser(
+        categories = shownCategories,
+        continueWatching = continueWatching,
+        entriesFor = { categoryId ->
+            val known = categories.mapTo(HashSet()) { it.id }
+            when (categoryId) {
+                VOD_ALL -> seriesList
+                VOD_MORE -> seriesList.filter { it.categoryId == null || it.categoryId !in known }
+                else -> seriesList.filter { it.categoryId == categoryId }
+            }.map { it.entry() }
+        },
+        initialHero = seriesList.firstOrNull()?.toHero(),
+    )
 }
 
 private fun Movie.toHero() = HeroInfo(

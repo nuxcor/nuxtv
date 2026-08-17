@@ -68,9 +68,6 @@ private val ChipShape = RoundedCornerShape(8.dp)
 private val CardStroke = BorderStroke(1.dp, NuxColors.Stroke)
 private val RestingBorder = Border(CardStroke, shape = CardShape)
 
-@Composable
-fun focusBorder(): Border = NuxFocus.ring
-
 /**
  * Clock format honouring Android's "Use 24-hour format" toggle.
  *
@@ -180,7 +177,8 @@ fun PosterCard(
     title: String,
     imageUrl: String?,
     subtitle: String? = null,
-    width: Dp = 150.dp,
+    /** Fixed width in a row; null fills the cell it is given, as in a grid. */
+    width: Dp? = 150.dp,
     progress: Float? = null,
     onClick: () -> Unit,
     onFocus: () -> Unit = {},
@@ -188,7 +186,7 @@ fun PosterCard(
     Surface(
         onClick = onClick,
         modifier = Modifier
-            .width(width)
+            .then(if (width != null) Modifier.width(width) else Modifier.fillMaxWidth())
             .onFocusChanged { if (it.isFocused) onFocus() },
         shape = ClickableSurfaceDefaults.shape(CardShape),
         colors = ClickableSurfaceDefaults.colors(
@@ -288,6 +286,7 @@ fun WideItem(
     progress: Float? = null,
     selected: Boolean = false,
     leading: (@Composable () -> Unit)? = null,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     onFocus: () -> Unit = {},
@@ -295,7 +294,10 @@ fun WideItem(
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = Modifier
+        // Callers pass a FocusRequester through here to park focus on a
+        // specific row — the channel-number jump needs the row it scrolled to
+        // to also be the row the next D-pad press moves from.
+        modifier = modifier
             .fillMaxWidth()
             .onFocusChanged { if (it.isFocused) onFocus() },
         shape = ClickableSurfaceDefaults.shape(CardShape),
@@ -596,7 +598,8 @@ fun ContextMenu(
                         contentColor = if (action.destructive) NuxColors.Error else NuxColors.OnSurface,
                         focusedContentColor = if (action.destructive) NuxColors.Error else NuxColors.OnSurface,
                     ),
-                    border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = NuxFocus.RowScale),
+                    border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring12),
                 ) {
                     Text(
                         text = action.label,
@@ -824,7 +827,8 @@ fun SegmentedControl(
                     contentColor = if (selected) NuxColors.Primary else NuxColors.OnSurfaceDim,
                     focusedContentColor = if (selected) NuxColors.Primary else NuxColors.OnSurface,
                 ),
-                border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = NuxFocus.ButtonScale),
+                border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring12),
             ) {
                 Text(
                     text = option,

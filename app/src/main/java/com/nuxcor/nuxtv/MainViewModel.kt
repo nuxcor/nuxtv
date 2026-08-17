@@ -78,6 +78,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val guidePreview: StateFlow<Boolean> = playerPrefs.guidePreview
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    /** Whether Live TV opens on the grid guide (default) or the channel list. */
+    val liveGuideMode: StateFlow<Boolean> = playerPrefs.liveGuideMode
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
     /** Stream URLs of recently watched live channels, newest first. */
     val recentChannels: StateFlow<List<String>> = playerPrefs.recentChannels
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -148,10 +152,74 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         parentalPin.value != null && !_parentalUnlocked.value &&
             name != null && adultPattern.containsMatchIn(name)
 
+    /**
+     * Every category the parental filter matches, whether or not a PIN is set
+     * and whether or not this session is unlocked.
+     *
+     * Settings needs this to say which categories it will actually hide.
+     * [isLockedCategory] can't answer that — it folds the match together with
+     * "is the lock currently armed", so it reports nothing at all while the
+     * viewer is deciding whether to set a PIN, which is exactly when they want
+     * to know what the setting covers.
+     */
+    fun restrictedCategoryNames(bundle: ContentBundle?): List<String> {
+        val b = bundle ?: return emptyList()
+        return (b.liveCategories + b.movieCategories + b.seriesCategories)
+            .map { it.name }
+            .filter { adultPattern.containsMatchIn(it) }
+            .distinct()
+            .sorted()
+    }
+
     val schedules: StateFlow<List<ScheduledRecording>> = playerPrefs.schedules
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val epgState: StateFlow<ContentRepository.EpgState> = repo.epg
+
+    /**
+     * What the loaded guide actually covers.
+     *
+     * [ContentRepository.EpgState.Ready] only means the XMLTV downloaded and
+     * parsed — it says nothing about whether any of it belongs to this
+     * playlist. A tvg-id mismatch between playlist and guide is the most common
+     * EPG failure in IPTV and it produces a Ready state whose every row reads
+     * "No information", with no message and no route to a fix.
+     */
+    data class GuideCoverage(
+        /** False when the guide parsed but shares no channel with the playlist. */
+        val matchesPlaylist: Boolean,
+        /** End of the last programme in the guide; the ceiling for day paging. */
+        val lastProgramEndMs: Long,
+    )
+
+    val guideCoverage: StateFlow<GuideCoverage> =
+        kotlinx.coroutines.flow.combine(content, epgState) { c, epg ->
+            val unknown = GuideCoverage(matchesPlaylist = true, lastProgramEndMs = Long.MAX_VALUE)
+            val data = (epg as? ContentRepository.EpgState.Ready)?.data ?: return@combine unknown
+            val bundle = (c as? ContentState.Ready)?.bundle ?: return@combine unknown
+            GuideCoverage(
+                // Short-circuits on the first hit, so a healthy guide costs one
+                // map lookup rather than a walk of the whole channel list.
+                matchesPlaylist = bundle.channels.any { repo.programsFor(it).isNotEmpty() },
+                lastProgramEndMs = data.programmes.values
+                    .maxOfOrNull { list -> list.maxOfOrNull { it.endMs } ?: 0L } ?: 0L,
+            )
+        }
+            .flowOn(kotlinx.coroutines.Dispatchers.Default)
+            // Optimistic until it resolves: never flash "no guide" over a guide
+            // that is about to draw, and never disable day paging prematurely.
+            //
+            // Eagerly, not WhileSubscribed: the cached value survives leaving
+            // Live TV, so after fixing a mismatched EPG in Settings the guide
+            // briefly re-rendered the old playlist's "none of its channels
+            // match" verdict — on the very return trip made to check the fix.
+            // Kept warm, the verdict is recomputed the moment content or EPG
+            // change, and the walk is cheap and off the main thread.
+            .stateIn(
+                viewModelScope,
+                SharingStarted.Eagerly,
+                GuideCoverage(true, Long.MAX_VALUE),
+            )
 
     val activeRecording: StateFlow<ActiveRecording?> = RecordingManager.active
 
@@ -558,6 +626,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setGuidePreview(enabled: Boolean) {
         viewModelScope.launch { playerPrefs.setGuidePreview(enabled) }
+    }
+
+    fun setLiveGuideMode(enabled: Boolean) {
+        viewModelScope.launch { playerPrefs.setLiveGuideMode(enabled) }
     }
 
     fun clearRecentChannels() {

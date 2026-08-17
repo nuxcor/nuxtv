@@ -45,6 +45,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Text
 import com.nuxcor.nuxtv.MainViewModel
+import com.nuxcor.nuxtv.data.ContentState
 import com.nuxcor.nuxtv.data.Episode
 import com.nuxcor.nuxtv.data.Movie
 import com.nuxcor.nuxtv.data.Series
@@ -67,7 +68,7 @@ fun MovieDetailScreen(
     val contentState by vm.content.collectAsState()
     val base = remember(movieId, contentState) { vm.movieById(movieId) }
     if (base == null) {
-        CenteredMessage(title = "Movie not found", loading = true)
+        MissingItemPane("Movie", contentState, onBack)
         return
     }
     var movie by remember(movieId) { mutableStateOf(base) }
@@ -206,6 +207,46 @@ fun MovieDetailScreen(
     }
 }
 
+/**
+ * An id that didn't resolve — which is two states, not one.
+ *
+ * These used to share a single `CenteredMessage("… not found", loading = true)`:
+ * a spinner underneath a message announcing the search was over, with no control
+ * on screen to leave by. While the library is still loading the id simply isn't
+ * resolvable yet; once it is loaded, the item is genuinely gone.
+ */
+@Composable
+private fun MissingItemPane(kind: String, contentState: ContentState, onBack: () -> Unit) {
+    if (contentState !is ContentState.Ready) {
+        CenteredMessage(title = "Loading…", loading = true)
+        return
+    }
+    val backFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        repeat(5) {
+            if (runCatching { backFocus.requestFocus() }.isSuccess) return@LaunchedEffect
+            kotlinx.coroutines.delay(60)
+        }
+    }
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "$kind not found",
+                style = MaterialTheme.typography.titleLarge,
+                color = NuxColors.OnSurface,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "It may have been removed from this playlist.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuxColors.OnSurfaceDim,
+            )
+            Spacer(Modifier.height(20.dp))
+            Button(onClick = onBack, modifier = Modifier.focusRequester(backFocus)) { Text("Back") }
+        }
+    }
+}
+
 /** "1h 12m" — a resume offset a viewer can recognise at a glance. */
 private fun formatOffset(ms: Long): String {
     val totalMinutes = (ms / 60_000).coerceAtLeast(0)
@@ -224,7 +265,7 @@ fun SeriesDetailScreen(
     val contentState by vm.content.collectAsState()
     val base: Series? = remember(seriesId, contentState) { vm.seriesById(seriesId) }
     if (base == null) {
-        CenteredMessage(title = "Series not found", loading = true)
+        MissingItemPane("Series", contentState, onBack)
         return
     }
     var series by remember(seriesId) { mutableStateOf(base) }
@@ -240,6 +281,25 @@ fun SeriesDetailScreen(
     var menuEpisode by remember { mutableStateOf<Pair<Episode, Int>?>(null) }
 
     val eps = episodes
+
+    /**
+     * Where the viewer got to: the furthest episode carrying a resume position.
+     * Continue Watching promises resumption, and following it used to land here
+     * with no primary action, focus wherever Compose put it, and the season list
+     * parked on Season 1 while the part-watched episode sat in Season 3.
+     */
+    val resumeTarget = remember(eps, resumePositions) {
+        eps?.filter { (resumePositions[it.url] ?: 0L) > 0L }
+            ?.maxWithOrNull(compareBy({ it.season }, { it.episodeNum }))
+    }
+    val playFocus = remember { FocusRequester() }
+    LaunchedEffect(seriesId, eps != null) {
+        if (eps.isNullOrEmpty()) return@LaunchedEffect
+        repeat(5) {
+            if (runCatching { playFocus.requestFocus() }.isSuccess) return@LaunchedEffect
+            kotlinx.coroutines.delay(60)
+        }
+    }
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(28.dp),
@@ -280,6 +340,53 @@ fun SeriesDetailScreen(
                         maxLines = 3,
                     )
                 }
+
+                // The primary action, focused on arrival — the same shape the
+                // movie page has. Without it this screen was a list of episodes
+                // and nothing else, so Continue Watching handed the viewer a
+                // page and left them to find their own place in it again.
+                if (!eps.isNullOrEmpty()) {
+                    Spacer(Modifier.height(14.dp))
+                    val target = resumeTarget
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(
+                            onClick = {
+                                val season = target?.season ?: eps.first().season
+                                val list = eps.filter { it.season == season }
+                                val index = target
+                                    ?.let { list.indexOf(it).coerceAtLeast(0) } ?: 0
+                                vm.playEpisodes(series, list, index)
+                                onPlay()
+                            },
+                            modifier = Modifier.focusRequester(playFocus),
+                        ) {
+                            Icon(
+                                Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                if (target != null) {
+                                    "Resume S${target.season}E${target.episodeNum}"
+                                } else "Play"
+                            )
+                        }
+                        if (target != null) {
+                            OutlinedButton(onClick = {
+                                val list = eps.filter { it.season == target.season }
+                                vm.playEpisodes(
+                                    series,
+                                    list,
+                                    list.indexOf(target).coerceAtLeast(0),
+                                    startOver = true,
+                                )
+                                onPlay()
+                            }) { Text("Start over") }
+                        }
+                        OutlinedButton(onClick = onBack) { Text("Back") }
+                    }
+                }
             }
         }
         Spacer(Modifier.height(24.dp))
@@ -289,7 +396,12 @@ fun SeriesDetailScreen(
             eps.isEmpty() -> CenteredMessage(title = "No episodes found")
             else -> {
                 val seasons = remember(eps) { eps.map { it.season }.distinct().sorted() }
-                var selectedSeason by remember(eps) { mutableStateOf(seasons.first()) }
+                // Opens on the season the viewer is part-way through, not on
+                // Season 1 — otherwise resuming a late season means finding it
+                // again by hand every time.
+                var selectedSeason by remember(eps, resumeTarget) {
+                    mutableStateOf(resumeTarget?.season ?: seasons.first())
+                }
                 val seasonEpisodes = remember(eps, selectedSeason) {
                     eps.filter { it.season == selectedSeason }
                 }

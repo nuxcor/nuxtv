@@ -50,6 +50,7 @@ class PlayerPrefs(private val context: Context) {
     private val videoQualityKey = stringPreferencesKey("video_quality")
     private val recentChannelsKey = stringPreferencesKey("recent_channels")
     private val guidePreviewKey = stringPreferencesKey("guide_preview")
+    private val liveGuideModeKey = stringPreferencesKey("live_guide_mode")
 
     val engine: Flow<EngineChoice> = context.playerDataStore.data.map { prefs ->
         runCatching { EngineChoice.valueOf(prefs[engineKey] ?: "EXO") }.getOrDefault(EngineChoice.EXO)
@@ -235,6 +236,20 @@ class PlayerPrefs(private val context: Context) {
 
     suspend fun setGuidePreview(enabled: Boolean) {
         context.playerDataStore.edit { it[guidePreviewKey] = enabled.toString() }
+    }
+
+    /**
+     * Whether Live TV opens on the grid guide (true, the default) or the
+     * channel list. The default is the guide because it answers "what's on"
+     * without a further press; the list remains one switch away and the choice
+     * sticks, so a viewer who prefers zapping a list sets it once.
+     */
+    val liveGuideMode: Flow<Boolean> = context.playerDataStore.data.map { prefs ->
+        prefs[liveGuideModeKey] != "false"
+    }
+
+    suspend fun setLiveGuideMode(enabled: Boolean) {
+        context.playerDataStore.edit { it[liveGuideModeKey] = enabled.toString() }
     }
 
     /** 0 = provider order, 1 = A-Z, 2 = quality first. */

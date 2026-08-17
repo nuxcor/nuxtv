@@ -46,9 +46,9 @@ import com.nuxcor.nuxtv.data.EpgProgram
 import com.nuxcor.nuxtv.data.LiveChannel
 import com.nuxcor.nuxtv.ui.components.Artwork
 import com.nuxcor.nuxtv.ui.components.MetaChip
-import com.nuxcor.nuxtv.ui.components.focusBorder
 import com.nuxcor.nuxtv.ui.components.rememberClockFormat
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import com.nuxcor.nuxtv.ui.theme.NuxFocus
 import com.nuxcor.nuxtv.ui.theme.Space
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -244,8 +244,8 @@ private fun ScheduleRow(
             contentColor = NuxColors.OnSurface,
             focusedContentColor = NuxColors.OnSurface,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.0f),
-        border = ClickableSurfaceDefaults.border(focusedBorder = focusBorder()),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = NuxFocus.RowScale),
+        border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring10),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),

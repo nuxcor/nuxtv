@@ -53,8 +53,8 @@ import com.nuxcor.nuxtv.AddState
 import com.nuxcor.nuxtv.MainViewModel
 import com.nuxcor.nuxtv.data.PlaylistSource
 import com.nuxcor.nuxtv.ui.components.dpadFieldNavigation
-import com.nuxcor.nuxtv.ui.components.focusBorder
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import com.nuxcor.nuxtv.ui.theme.NuxFocus
 
 private enum class Step { Choose, Xtream, M3u }
 
@@ -345,13 +345,13 @@ private fun SourceOptionCard(
         ),
         // Focus was doing nothing but swapping a border colour. On a TV the
         // selected thing should visibly come forward.
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = NuxFocus.CardScale),
         border = ClickableSurfaceDefaults.border(
             border = androidx.tv.material3.Border(
                 androidx.compose.foundation.BorderStroke(1.dp, NuxColors.Stroke),
                 shape = RoundedCornerShape(18.dp),
             ),
-            focusedBorder = focusBorder(),
+            focusedBorder = NuxFocus.ring18,
         ),
     ) {
         Column(

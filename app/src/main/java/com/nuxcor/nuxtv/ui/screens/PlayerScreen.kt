@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Pause
@@ -92,6 +93,7 @@ import com.nuxcor.nuxtv.player.PlayerEngine
 import com.nuxcor.nuxtv.player.Track
 import com.nuxcor.nuxtv.player.VlcEngine
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import com.nuxcor.nuxtv.ui.theme.NuxFocus
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -143,6 +145,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     var controlsVisible by remember { mutableStateOf(false) } // banner first, not the transport bar
     var bannerTick by remember { mutableIntStateOf(0) }
     var bannerVisible by remember { mutableStateOf(false) }
+    var bannerShows by remember { mutableIntStateOf(0) }
     var videoSize by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     // True between OK's press and release, so the release can be swallowed
     // rather than activating the control the press just brought into focus.
@@ -152,6 +155,9 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     var catchupOpen by remember { mutableStateOf(false) }
     var tracksOpen by remember { mutableStateOf(false) }
     var miniGuideOpen by remember { mutableStateOf(false) }
+    // The grid guide over the video — the planning surface, where the
+    // mini-guide is the zapping one. GUIDE key or the controls' Guide button.
+    var gridGuideOpen by remember { mutableStateOf(false) }
     var digitBuffer by remember { mutableStateOf("") }
     var retriesLeft by remember(currentIndex) { mutableIntStateOf(2) }
     var sleepMinutes by remember { mutableIntStateOf(0) }
@@ -261,8 +267,15 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
 
     // The channel banner: shown on every zap, on the INFO key, and once when a
     // live stream starts, so changing channel is never blind.
+    //
+    // bannerShows also drives the key hints. Nothing on this screen said that
+    // LEFT opens the channel list, OK opens the controls or UP/DOWN zap — and a
+    // 10-foot UI has no hover, no tooltip and no menu key to fall back on, so an
+    // undocumented model is an undiscoverable one. Shown for the first few
+    // banners of a session, then it gets out of the way.
     LaunchedEffect(bannerTick, currentIndex, engine) {
         if (!request.isLive) return@LaunchedEffect
+        bannerShows++
         bannerVisible = true
         delay(5_000)
         bannerVisible = false
@@ -373,6 +386,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     // channel list now, so none of it is load-bearing: BACK can just go back.
     BackHandler {
         when {
+            gridGuideOpen -> gridGuideOpen = false
             miniGuideOpen -> miniGuideOpen = false
             tracksOpen -> tracksOpen = false
             catchupOpen -> catchupOpen = false
@@ -384,8 +398,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     // When the controls hide, their focused button leaves the composition and
     // focus would be lost — park it on the root so D-pad events keep arriving.
     val rootFocus = remember { FocusRequester() }
-    LaunchedEffect(controlsVisible, catchupOpen, tracksOpen, miniGuideOpen) {
-        if (!controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen) {
+    LaunchedEffect(controlsVisible, catchupOpen, tracksOpen, miniGuideOpen, gridGuideOpen) {
+        if (!controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen && !gridGuideOpen) {
             runCatching { rootFocus.requestFocus() }
         }
     }
@@ -398,7 +412,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             .focusable()
             .onPreviewKeyEvent { event ->
                 val code = event.key.nativeKeyCode
-                val overlayOpen = catchupOpen || tracksOpen || miniGuideOpen
+                val overlayOpen = catchupOpen || tracksOpen || miniGuideOpen || gridGuideOpen
                 val isCenter = code == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
                     code == AndroidKeyEvent.KEYCODE_ENTER
 
@@ -442,6 +456,24 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         if (request.isLive && !controlsVisible && !overlayOpen) { zap(-1); true } else false
                     AndroidKeyEvent.KEYCODE_LAST_CHANNEL, AndroidKeyEvent.KEYCODE_PROG_RED ->
                         if (request.isLive && previousIndex >= 0) { jumpTo(previousIndex); true } else false
+                    // A dedicated guide key toggles the grid from anywhere in
+                    // the player — including from inside the mini-guide, where
+                    // it trades the zapping list for the planning grid.
+                    AndroidKeyEvent.KEYCODE_GUIDE ->
+                        if (request.isLive) {
+                            gridGuideOpen = !gridGuideOpen
+                            if (gridGuideOpen) {
+                                // Every other panel yields — the guide would
+                                // otherwise open underneath an overlay drawn
+                                // later in the Box and take focus into a grid
+                                // the viewer can't see.
+                                controlsVisible = false
+                                miniGuideOpen = false
+                                tracksOpen = false
+                                catchupOpen = false
+                            }
+                            true
+                        } else false
                     AndroidKeyEvent.KEYCODE_MENU ->
                         if (!overlayOpen) { poke(); true } else false
                     // LEFT is the way out to the channel list and, from there,
@@ -479,36 +511,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             )
         }
 
-        // Top status chips: REC + transient messages + errors.
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(24.dp),
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            val rec = activeRecording
-            if (rec != null) {
-                PlayerBadge(text = "REC ${rec.channelName} • ${rec.bytesWritten / (1024 * 1024)} MB", color = NuxColors.Error)
-            }
-            statusMessage?.let { PlayerBadge(text = it, color = NuxColors.Secondary) }
-            if (digitBuffer.isNotEmpty()) {
-                PlayerBadge(text = "Channel $digitBuffer", color = NuxColors.FocusBorder)
-            }
-            if (!request.isLive && durationMs > 0 &&
-                durationMs - positionMs in 1_000..15_000 &&
-                currentIndex < request.items.size - 1
-            ) {
-                PlayerBadge(
-                    text = "Up next: ${request.items[currentIndex + 1].subtitle ?: request.items[currentIndex + 1].title}",
-                    color = NuxColors.Primary,
-                )
-            }
-            if (sleepMinutes > 0) {
-                PlayerBadge(text = "Sleep in ${sleepMinutes}m", color = NuxColors.OnSurfaceDim)
-            }
-        }
-
         // Channel banner: sits above the transport bar when both are up. On
         // live it also stays up for as long as the controls do — the controls
         // no longer carry a title there, so the banner is the only thing
@@ -516,7 +518,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         // out from under an open control bar.
         AnimatedVisibility(
             visible = (bannerVisible || (controlsVisible && request.isLive)) &&
-                !catchupOpen && !tracksOpen && !miniGuideOpen &&
+                !catchupOpen && !tracksOpen && !miniGuideOpen && !gridGuideOpen &&
                 !inPip && errorMessage == null,
             enter = fadeIn(),
             exit = fadeOut(),
@@ -529,11 +531,15 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 isLive = request.isLive,
                 resolution = videoSize,
                 liftAboveControls = controlsVisible,
+                // Only while the controls are down: with them open the viewer
+                // has already found the thing the hint points at.
+                showKeyHints = request.isLive && bannerShows <= 3 && !controlsVisible,
             )
         }
 
         AnimatedVisibility(
-            visible = controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen && !inPip,
+            visible = controlsVisible && !catchupOpen && !tracksOpen && !miniGuideOpen &&
+                !gridGuideOpen && !inPip,
             enter = fadeIn(),
             exit = fadeOut(),
         ) {
@@ -563,6 +569,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 },
                 onCatchup = { catchupOpen = true },
                 onChannels = { controlsVisible = false; miniGuideOpen = true },
+                onGuide = { controlsVisible = false; gridGuideOpen = true },
                 onEngineSwap = {
                     positionMs = engine.positionMs // survive the swap
                     engineChoice =
@@ -605,6 +612,28 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 },
                 onNext = { errorMessage = null; zap(+1) },
                 onBack = onExit,
+            )
+        }
+
+        if (gridGuideOpen && !inPip && request.isLive) {
+            PlayerGuideOverlay(
+                vm = vm,
+                playingChannelId = channel?.id,
+                // Tuning from the grid replaces the zap playlist, the same
+                // contract as picking a category in the mini-guide.
+                onTune = { channels, index ->
+                    gridGuideOpen = false
+                    previousIndex = -1 // the old playlist's index no longer means anything
+                    positionMs = 0
+                    vm.playChannels(channels, index)
+                },
+                onPlayCatchup = { catchupChannel, program, url ->
+                    gridGuideOpen = false
+                    positionMs = 0
+                    vm.playCatchup(catchupChannel, program, url)
+                },
+                onStatus = { statusMessage = it },
+                onDismiss = { gridGuideOpen = false },
             )
         }
 
@@ -656,6 +685,39 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 },
             )
         }
+
+        // Top status chips: REC + transient messages + errors. Composed after
+        // the overlays, deliberately: "Recording scheduled" and "Catch-up
+        // isn't available" are fired from inside the grid guide, and drawn
+        // earlier they would sit under its scrim and auto-clear unseen.
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            val rec = activeRecording
+            if (rec != null) {
+                PlayerBadge(text = "REC ${rec.channelName} • ${rec.bytesWritten / (1024 * 1024)} MB", color = NuxColors.Error)
+            }
+            statusMessage?.let { PlayerBadge(text = it, color = NuxColors.Secondary) }
+            if (digitBuffer.isNotEmpty()) {
+                PlayerBadge(text = "Channel $digitBuffer", color = NuxColors.FocusBorder)
+            }
+            if (!request.isLive && durationMs > 0 &&
+                durationMs - positionMs in 1_000..15_000 &&
+                currentIndex < request.items.size - 1
+            ) {
+                PlayerBadge(
+                    text = "Up next: ${request.items[currentIndex + 1].subtitle ?: request.items[currentIndex + 1].title}",
+                    color = NuxColors.Primary,
+                )
+            }
+            if (sleepMinutes > 0) {
+                PlayerBadge(text = "Sleep in ${sleepMinutes}m", color = NuxColors.OnSurfaceDim)
+            }
+        }
     }
 }
 
@@ -694,6 +756,7 @@ private fun PlayerControls(
     onRecordToggle: () -> Unit,
     onCatchup: () -> Unit,
     onChannels: () -> Unit,
+    onGuide: () -> Unit,
     onEngineSwap: () -> Unit,
     onPip: () -> Unit,
     onInteraction: () -> Unit,
@@ -805,6 +868,9 @@ private fun PlayerControls(
                         showLabel = labelled,
                     )
                 }
+                if (isLive) {
+                    ControlButton(Icons.Default.GridView, "Guide", onGuide, showLabel = labelled)
+                }
                 if (hasCatchup) {
                     ControlButton(Icons.Default.History, "Catch-up", onCatchup, showLabel = labelled)
                 }
@@ -834,17 +900,24 @@ private fun ControlButton(
     tint: Color = Color.White,
     showLabel: Boolean = false,
 ) {
+    // Same focus language as the rest of the app: a white ring over a lifted
+    // surface. This used to fill solid gold with no ring — the player taught the
+    // opposite of what every browse screen taught, and gold is the brand colour,
+    // not the focus colour. The ring reads over video; a fill alone did not.
     Surface(
         onClick = onClick,
         modifier = modifier,
         shape = ClickableSurfaceDefaults.shape(if (showLabel) RoundedCornerShape(22.dp) else CircleShape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (prominent) Color.White.copy(alpha = 0.14f) else Color.Transparent,
-            focusedContainerColor = NuxColors.Primary,
+            focusedContainerColor = NuxFocus.container,
             contentColor = tint,
-            focusedContentColor = NuxColors.OnAccent,
+            focusedContentColor = NuxColors.OnSurface,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.12f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = NuxFocus.ButtonScale),
+        border = ClickableSurfaceDefaults.border(
+            focusedBorder = if (showLabel) NuxFocus.ring22 else NuxFocus.ringCircle,
+        ),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -967,10 +1040,12 @@ private fun CatchupOverlay(
                             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
                             colors = ClickableSurfaceDefaults.colors(
                                 containerColor = NuxColors.Surface.copy(alpha = 0.6f),
-                                focusedContainerColor = NuxColors.SurfaceVariant,
+                                focusedContainerColor = NuxFocus.container,
                                 contentColor = NuxColors.OnSurface,
                                 focusedContentColor = NuxColors.OnSurface,
                             ),
+                            scale = ClickableSurfaceDefaults.scale(focusedScale = NuxFocus.RowScale),
+                            border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring10),
                         ) {
                             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
                                 Text(
@@ -1006,10 +1081,12 @@ private fun CatchupOverlay(
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = NuxColors.SurfaceVariant,
-                    focusedContainerColor = NuxColors.Primary,
+                    focusedContainerColor = NuxFocus.container,
                     contentColor = NuxColors.OnSurface,
-                    focusedContentColor = NuxColors.OnAccent,
+                    focusedContentColor = NuxColors.OnSurface,
                 ),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = NuxFocus.ButtonScale),
+                border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring10),
                 modifier = Modifier.widthIn(min = 120.dp).focusRequester(closeFocus),
             ) {
                 Text(
@@ -1207,10 +1284,12 @@ private fun TracksOverlay(
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = NuxColors.SurfaceVariant,
-                    focusedContainerColor = NuxColors.Primary,
+                    focusedContainerColor = NuxFocus.container,
                     contentColor = NuxColors.OnSurface,
-                    focusedContentColor = NuxColors.OnAccent,
+                    focusedContentColor = NuxColors.OnSurface,
                 ),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = NuxFocus.ButtonScale),
+                border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring10),
                 modifier = Modifier.widthIn(min = 120.dp).focusRequester(initialFocus),
             ) {
                 Text(
@@ -1234,7 +1313,7 @@ private fun TrackRow(track: Track, onClick: () -> Unit) {
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (track.selected) NuxColors.Primary.copy(alpha = 0.16f)
             else NuxColors.Surface.copy(alpha = 0.6f),
-            focusedContainerColor = NuxColors.SurfaceVariant,
+            focusedContainerColor = NuxFocus.container,
             contentColor = when {
                 !track.supported -> NuxColors.OnSurfaceDim
                 track.selected -> NuxColors.FocusBorder
@@ -1242,6 +1321,12 @@ private fun TrackRow(track: Track, onClick: () -> Unit) {
             },
             focusedContentColor = if (track.supported) NuxColors.OnSurface else NuxColors.OnSurfaceDim,
         ),
+        // Was inheriting tv-material3's 1.1 default and drawing no ring at all,
+        // so focus here was a background shift of about five points of lightness
+        // on a full-width row that also grew 10%. Selection is the gold tint;
+        // focus is the ring.
+        scale = ClickableSurfaceDefaults.scale(focusedScale = NuxFocus.RowScale),
+        border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring8),
     ) {
         Text(
             text = (if (track.selected) "✓  " else "") + track.label,
@@ -1273,10 +1358,12 @@ private fun OptionChips(
                     colors = ClickableSurfaceDefaults.colors(
                         containerColor = if (index == selectedIndex) NuxColors.Primary.copy(alpha = 0.2f)
                         else NuxColors.Surface.copy(alpha = 0.6f),
-                        focusedContainerColor = NuxColors.Primary,
+                        focusedContainerColor = NuxFocus.container,
                         contentColor = if (index == selectedIndex) NuxColors.FocusBorder else NuxColors.OnSurface,
-                        focusedContentColor = NuxColors.OnAccent,
+                        focusedContentColor = NuxColors.OnSurface,
                     ),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = NuxFocus.ButtonScale),
+                    border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring8),
                 ) {
                     Text(
                         text = option,
@@ -1426,9 +1513,15 @@ private fun MiniGuide(
                                     containerColor = if (selected) {
                                         NuxColors.Primary.copy(alpha = 0.18f)
                                     } else Color.Transparent,
-                                    focusedContainerColor = NuxColors.SurfaceVariant,
+                                    focusedContainerColor = NuxFocus.container,
                                     contentColor = if (selected) NuxColors.Primary else NuxColors.OnSurface,
                                     focusedContentColor = NuxColors.OnSurface,
+                                ),
+                                scale = ClickableSurfaceDefaults.scale(
+                                    focusedScale = NuxFocus.RowScale,
+                                ),
+                                border = ClickableSurfaceDefaults.border(
+                                    focusedBorder = NuxFocus.ring8,
                                 ),
                             ) {
                                 Text(
@@ -1502,9 +1595,15 @@ private fun MiniGuide(
                                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                                 colors = ClickableSurfaceDefaults.colors(
                                     containerColor = Color.Transparent,
-                                    focusedContainerColor = NuxColors.SurfaceVariant,
+                                    focusedContainerColor = NuxFocus.container,
                                     contentColor = NuxColors.OnSurfaceDim,
                                     focusedContentColor = NuxColors.OnSurface,
+                                ),
+                                scale = ClickableSurfaceDefaults.scale(
+                                    focusedScale = NuxFocus.RowScale,
+                                ),
+                                border = ClickableSurfaceDefaults.border(
+                                    focusedBorder = NuxFocus.ring8,
                                 ),
                             ) {
                                 Text(
@@ -1546,9 +1645,19 @@ private fun MiniGuide(
                                 containerColor = if (isCurrent) {
                                     NuxColors.Primary.copy(alpha = 0.18f)
                                 } else Color.Transparent,
-                                focusedContainerColor = NuxColors.SurfaceVariant,
+                                focusedContainerColor = NuxFocus.container,
                                 contentColor = NuxColors.OnSurface,
                                 focusedContentColor = NuxColors.OnSurface,
+                            ),
+                            // Explicit: tv-material3's 1.1 default grew a
+                            // full-width row about 20dp past each edge, and the
+                            // panel only has 14dp of trailing padding — so the
+                            // focused row spilled onto the video.
+                            scale = ClickableSurfaceDefaults.scale(
+                                focusedScale = NuxFocus.RowScale,
+                            ),
+                            border = ClickableSurfaceDefaults.border(
+                                focusedBorder = NuxFocus.ring8,
                             ),
                         ) {
                             Row(
@@ -1665,6 +1774,7 @@ private fun ChannelBanner(
     isLive: Boolean,
     resolution: Pair<Int, Int>?,
     liftAboveControls: Boolean,
+    showKeyHints: Boolean = false,
 ) {
     val nowNextMap by vm.nowNext.collectAsState()
     val favorites by vm.favorites.collectAsState()
@@ -1777,6 +1887,16 @@ private fun ChannelBanner(
                     Text(
                         text = "Next  ${timeFmt.format(Date(next.startMs))}  ${next.title}",
                         style = MaterialTheme.typography.labelMedium,
+                        color = NuxColors.OnSurfaceDim,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (showKeyHints) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "‹ Channels   ·   OK Options   ·   ▲▼ Change channel",
+                        style = MaterialTheme.typography.labelSmall,
                         color = NuxColors.OnSurfaceDim,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
