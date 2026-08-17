@@ -49,7 +49,6 @@ class PlayerPrefs(private val context: Context) {
     private val durationsKey = stringPreferencesKey("resume_durations")
     private val videoQualityKey = stringPreferencesKey("video_quality")
     private val recentChannelsKey = stringPreferencesKey("recent_channels")
-    private val guidePreviewKey = stringPreferencesKey("guide_preview")
     private val aspectModeKey = stringPreferencesKey("aspect_mode")
     private val aspectOverridesKey = stringPreferencesKey("aspect_overrides")
     private val audioLangKey = stringPreferencesKey("preferred_audio_lang")
@@ -57,6 +56,44 @@ class PlayerPrefs(private val context: Context) {
     private val vodSpeedKey = stringPreferencesKey("vod_speed")
     private val keyHintsVersionKey = stringPreferencesKey("key_hints_version")
     private val knownQualitiesKey = stringPreferencesKey("known_qualities")
+    private val liveTsMigratedKey = stringPreferencesKey("live_ts_migrated")
+
+    /**
+     * Live playback URLs changed from the panel's .m3u8 endpoint to the raw
+     * .ts mux (the .m3u8 re-wrap is what capped picture quality). Everything
+     * URL-keyed — favorites, hidden, recents, learned qualities, aspect
+     * overrides — would have been orphaned by that; re-key it once.
+     */
+    suspend fun migrateLiveUrlsToTs() {
+        context.playerDataStore.edit { prefs ->
+            if (prefs[liveTsMigratedKey] != null) return@edit
+            prefs[liveTsMigratedKey] = "1"
+            val live = Regex("""^(.+/live/.+)\.m3u8$""")
+            fun mig(url: String) = live.matchEntire(url)?.let { "${it.groupValues[1]}.ts" } ?: url
+            for (key in listOf(favoritesKey, hiddenKey)) {
+                prefs[key]?.let { raw ->
+                    runCatching { json.decodeFromString<Set<String>>(raw) }.getOrNull()?.let {
+                        prefs[key] = json.encodeToString(it.map(::mig).toSet())
+                    }
+                }
+            }
+            prefs[recentChannelsKey]?.let { raw ->
+                runCatching { json.decodeFromString<List<String>>(raw) }.getOrNull()?.let {
+                    prefs[recentChannelsKey] = json.encodeToString(it.map(::mig))
+                }
+            }
+            prefs[knownQualitiesKey]?.let { raw ->
+                runCatching { json.decodeFromString<Map<String, String>>(raw) }.getOrNull()?.let {
+                    prefs[knownQualitiesKey] = json.encodeToString(it.mapKeys { (k, _) -> mig(k) })
+                }
+            }
+            prefs[aspectOverridesKey]?.let { raw ->
+                runCatching { json.decodeFromString<Map<String, Int>>(raw) }.getOrNull()?.let {
+                    prefs[aspectOverridesKey] = json.encodeToString(it.mapKeys { (k, _) -> mig(k) })
+                }
+            }
+        }
+    }
 
     /**
      * Real decoded quality per stream URL, learned during playback. Providers
@@ -255,20 +292,6 @@ class PlayerPrefs(private val context: Context) {
 
     suspend fun setMergeDuplicates(enabled: Boolean) {
         context.playerDataStore.edit { it[mergeDupesKey] = enabled.toString() }
-    }
-
-    /**
-     * Whether the guide previews the focused channel. Off unless asked for: a
-     * preview holds one of the provider's concurrent connections, and plenty of
-     * subscriptions allow exactly one — on those, browsing the guide with this
-     * on would lock the viewer out of playing anything.
-     */
-    val guidePreview: Flow<Boolean> = context.playerDataStore.data.map { prefs ->
-        prefs[guidePreviewKey] == "true"
-    }
-
-    suspend fun setGuidePreview(enabled: Boolean) {
-        context.playerDataStore.edit { it[guidePreviewKey] = enabled.toString() }
     }
 
     /** 0 = provider order, 1 = A-Z, 2 = quality first. */

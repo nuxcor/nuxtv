@@ -54,40 +54,6 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit, onGoToGuide: (() -> Uni
     var confirmCancel by remember { mutableStateOf<com.nuxcor.nuxtv.data.ScheduledRecording?>(null) }
     var menuRecording by remember { mutableStateOf<com.nuxcor.nuxtv.recording.Recording?>(null) }
 
-    menuRecording?.let { recording ->
-        com.nuxcor.nuxtv.ui.components.ContextMenu(
-            title = recording.name,
-            actions = listOf(
-                com.nuxcor.nuxtv.ui.components.MenuAction("Play") {
-                    vm.playRecording(recording)
-                    onPlay()
-                },
-                com.nuxcor.nuxtv.ui.components.MenuAction("Delete", destructive = true) {
-                    confirmDelete = recording
-                },
-            ),
-            onDismiss = { menuRecording = null },
-        )
-    }
-
-    confirmDelete?.let { rec ->
-        com.nuxcor.nuxtv.ui.components.ConfirmDialog(
-            title = "Delete this recording?",
-            message = rec.name,
-            onConfirm = { vm.deleteRecording(rec) },
-            onDismiss = { confirmDelete = null },
-        )
-    }
-    confirmCancel?.let { schedule ->
-        com.nuxcor.nuxtv.ui.components.ConfirmDialog(
-            title = "Cancel this scheduled recording?",
-            message = schedule.title,
-            confirmLabel = "Cancel recording",
-            onConfirm = { vm.cancelSchedule(schedule.id) },
-            onDismiss = { confirmCancel = null },
-        )
-    }
-
     Column(
         modifier = Modifier.fillMaxSize(),
     ) {
@@ -187,5 +153,41 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit, onGoToGuide: (() -> Uni
                 )
             }
         }
+    }
+
+    // After the list, never before it: siblings draw in composition order,
+    // and a dialog composed first sits under the page — the list rendered
+    // straight through its panel.
+    menuRecording?.let { recording ->
+        com.nuxcor.nuxtv.ui.components.ContextMenu(
+            title = recording.name,
+            actions = listOf(
+                com.nuxcor.nuxtv.ui.components.MenuAction("Play") {
+                    vm.playRecording(recording)
+                    onPlay()
+                },
+                com.nuxcor.nuxtv.ui.components.MenuAction("Delete", destructive = true) {
+                    confirmDelete = recording
+                },
+            ),
+            onDismiss = { menuRecording = null },
+        )
+    }
+    confirmDelete?.let { rec ->
+        com.nuxcor.nuxtv.ui.components.ConfirmDialog(
+            title = "Delete this recording?",
+            message = rec.name,
+            onConfirm = { vm.deleteRecording(rec) },
+            onDismiss = { confirmDelete = null },
+        )
+    }
+    confirmCancel?.let { schedule ->
+        com.nuxcor.nuxtv.ui.components.ConfirmDialog(
+            title = "Cancel this scheduled recording?",
+            message = schedule.title,
+            confirmLabel = "Cancel recording",
+            onConfirm = { vm.cancelSchedule(schedule.id) },
+            onDismiss = { confirmCancel = null },
+        )
     }
 }

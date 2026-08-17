@@ -439,10 +439,17 @@ class ContentRepository(context: Context) {
         )
     }
 
-    suspend fun episodesFor(series: Series): List<Episode> {
+    /** Episodes for [series]; empty = the provider has none, null = the fetch failed. */
+    suspend fun episodesFor(series: Series): List<Episode>? {
         series.episodes?.let { return it }
         val source = activeSource.first() as? PlaylistSource.Xtream ?: return emptyList()
-        val id = series.xtreamId ?: return emptyList()
+        // Caches written before the xtreamId field existed deserialize it as
+        // null, which made every series "No episodes found" until a successful
+        // refresh. The numeric id also lives inside the series id ("series:123")
+        // — recover it from there.
+        val id = series.xtreamId
+            ?: series.id.removePrefix("series:").toIntOrNull()
+            ?: return emptyList()
         return try {
             xtreamClient(source).seriesEpisodes(id)
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -451,7 +458,7 @@ class ContentRepository(context: Context) {
             throw e
         } catch (e: Exception) {
             android.util.Log.w("Agoro", "Episode load failed for ${series.name}: ${e.message}")
-            emptyList()
+            null
         }
     }
 

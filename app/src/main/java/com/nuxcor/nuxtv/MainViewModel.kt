@@ -79,8 +79,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val hidden: StateFlow<Set<String>> = playerPrefs.hidden
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
-    val guidePreview: StateFlow<Boolean> = playerPrefs.guidePreview
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     /** Stream URLs of recently watched live channels, newest first. */
     val recentChannels: StateFlow<List<String>> = playerPrefs.recentChannels
@@ -318,8 +316,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         if (real == null || real == ch.quality) ch else ch.copy(quality = real)
                     }
                 val merged =
-                    if (merge) com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(corrected)
-                    else corrected
+                    if (merge) {
+                        com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(corrected, known.keys)
+                    } else corrected
                 when (order) {
                     1 -> merged.sortedBy { it.name.lowercase() }
                     2 -> merged.sortedWith(
@@ -343,6 +342,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val recordings: StateFlow<List<Recording>> = _recordings
 
     init {
+        // Before anything reads URL-keyed prefs: live URLs changed .m3u8 → .ts
+        // and favorites/hidden/learned-quality keys must follow them.
+        viewModelScope.launch { playerPrefs.migrateLiveUrlsToTs() }
         viewModelScope.launch { repo.ensureLoaded() }
         // Periodic quiet playlist refresh, mirroring the EPG's 6h cycle at a
         // gentler cadence — catalogs change daily, guides hourly. Checked
@@ -451,16 +453,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleHidden(channel: LiveChannel) {
         viewModelScope.launch { playerPrefs.toggleHidden(channel.url) }
-    }
-
-    /** Channels with the hidden set removed and (optionally) duplicates merged. */
-    fun visibleChannels(channels: List<LiveChannel>): List<LiveChannel> {
-        val hiddenSet = hidden.value
-        val visible =
-            if (hiddenSet.isEmpty()) channels else channels.filterNot { it.url in hiddenSet }
-        return if (mergeDuplicates.value) {
-            com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(visible)
-        } else visible
     }
 
     // --- backup / restore -----------------------------------------------------
@@ -595,6 +587,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         MutableStateFlow<com.nuxcor.nuxtv.data.XtreamClient.AccountInfo?>(null)
     val accountInfo: StateFlow<com.nuxcor.nuxtv.data.XtreamClient.AccountInfo?> = _accountInfo
 
+    /**
+     * Guide preview was a Settings toggle whose description told the viewer
+     * to go look up their connection limit — but the app already knows it.
+     * Now decided automatically: on when the provider allows a second
+     * connection, off on single-connection plans and M3U links (which report
+     * no limit, its own reason for caution).
+     */
+    val guidePreview: StateFlow<Boolean> =
+        accountInfo.map { (it?.maxConnections ?: 1) >= 2 }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     fun refreshAccountInfo() {
         viewModelScope.launch { _accountInfo.value = repo.accountInfo() }
     }
@@ -635,7 +638,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun movieDetails(movie: Movie): Movie = repo.movieDetails(movie, tmdbApiKey)
     suspend fun seriesDetails(series: Series): Series = repo.seriesDetails(series, tmdbApiKey)
-    suspend fun episodesFor(series: Series): List<Episode> = repo.episodesFor(series)
+    /** Episodes for [series]; empty = the provider has none, null = the fetch failed. */
+    suspend fun episodesFor(series: Series): List<Episode>? = repo.episodesFor(series)
     suspend fun epgFor(channel: LiveChannel): List<EpgProgram> = repo.epgFor(channel)
     suspend fun catchupUrl(channel: LiveChannel, program: EpgProgram): String? =
         repo.catchupUrl(channel, program)
@@ -665,10 +669,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun recordChannelVisit(url: String) {
         viewModelScope.launch { playerPrefs.recordChannelVisit(url) }
-    }
-
-    fun setGuidePreview(enabled: Boolean) {
-        viewModelScope.launch { playerPrefs.setGuidePreview(enabled) }
     }
 
     fun clearRecentChannels() {

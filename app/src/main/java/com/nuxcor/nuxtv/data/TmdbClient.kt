@@ -46,13 +46,24 @@ class TmdbClient(private val http: OkHttpClient, private val apiKey: String) {
 
     /** kind: "movie" or "tv". */
     suspend fun lookup(kind: String, title: String, year: Int?): TmdbInfo? {
-        val q = URLEncoder.encode(title, "UTF-8")
-        val yearParam = year?.let {
+        // Provider titles arrive as "EN - Avengers (2019) 4K HEVC" — searched
+        // verbatim, TMDB finds nothing and the details pane silently stays
+        // bare. Search with the cleaned title; if the year makes the search
+        // too narrow (release-date mismatches are common), retry without it.
+        val cleaned = searchTitle(title).ifBlank { title }
+        val effectiveYear = year ?: yearIn(title)
+        val q = URLEncoder.encode(cleaned, "UTF-8")
+        val yearParam = effectiveYear?.let {
             if (kind == "movie") "&year=$it" else "&first_air_date_year=$it"
         } ?: ""
-        val search = get(
+        var search = get(
             "https://api.themoviedb.org/3/search/$kind?api_key=$apiKey&query=$q$yearParam"
         ) ?: return null
+        if ((search["results"] as? JsonArray).isNullOrEmpty() && yearParam.isNotEmpty()) {
+            search = get(
+                "https://api.themoviedb.org/3/search/$kind?api_key=$apiKey&query=$q"
+            ) ?: return null
+        }
         val first = (search["results"] as? JsonArray)?.firstOrNull() as? JsonObject ?: return null
         val id = first.int("id") ?: return null
 
@@ -78,5 +89,42 @@ class TmdbClient(private val http: OkHttpClient, private val apiKey: String) {
             backdropUrl = first.str("backdrop_path")?.let { "https://image.tmdb.org/t/p/original$it" },
             reviews = reviews,
         )
+    }
+
+    companion object {
+        // Release/quality/codec noise that never belongs in a search query.
+        private val junk = Regex(
+            """(?i)\b(4k|uhd|fhd|full\s?hd|hd|sd|2160p|1080p|720p|480p|576p|hevc|h\.?26[45]|""" +
+                """x26[45]|10\s?bit|hdr10?\+?|dolby\s?vision|dv|web[-\s]?dl|webrip|bluray|""" +
+                """blu-ray|brrip|dvdrip|remux|multi|vostfr|dubbed|subbed|vod)\b"""
+        )
+
+        // "[EN]", "|FR|", "(MULTI)" style tags anywhere in the name.
+        private val bracketTags = Regex("""[\[|(][^\])|]{0,20}[\])|]""")
+
+        // "EN - ", "FR| ", "NL: " style prefixes.
+        private val langPrefix = Regex("""^\s*[A-Z]{2,3}\s*[-:|•]\s*""")
+
+        private val yearToken = Regex("""\b(19|20)\d{2}\b""")
+
+        /** The four-digit year buried in a raw provider title, if any. */
+        fun yearIn(rawTitle: String): Int? =
+            yearToken.find(rawTitle)?.value?.toIntOrNull()
+
+        /** Raw provider title reduced to something TMDB can actually match. */
+        fun searchTitle(rawTitle: String): String =
+            rawTitle
+                // A bracket group carrying the year would erase it before
+                // yearIn has run at the call site — the year is read from the
+                // raw title, so stripping here is safe.
+                .replace(bracketTags, " ")
+                .replace(langPrefix, "")
+                .replace(junk, " ")
+                .replace(yearToken, " ")
+                .replace(Regex("""\s[-–—:|•]+\s"""), " ")
+                .replace(Regex("""\s{2,}"""), " ")
+                .trim()
+                .trimEnd('-', ':', '|', '•')
+                .trim()
     }
 }

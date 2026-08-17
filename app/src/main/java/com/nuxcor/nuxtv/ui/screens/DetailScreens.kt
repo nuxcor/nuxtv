@@ -232,8 +232,14 @@ fun SeriesDetailScreen(
     LaunchedEffect(seriesId) { series = vm.seriesDetails(base) }
 
     var episodes by remember(seriesId) { mutableStateOf<List<Episode>?>(base.episodes) }
-    LaunchedEffect(seriesId) {
-        if (episodes == null) episodes = vm.episodesFor(base)
+    var episodesFailed by remember(seriesId) { mutableStateOf(false) }
+    var loadAttempt by remember(seriesId) { mutableStateOf(0) }
+    LaunchedEffect(seriesId, loadAttempt) {
+        if (episodes == null) {
+            episodesFailed = false
+            val result = vm.episodesFor(base)
+            if (result == null) episodesFailed = true else episodes = result
+        }
     }
 
     val resumePositions by vm.resumePositions.collectAsState()
@@ -352,8 +358,24 @@ fun SeriesDetailScreen(
         Spacer(Modifier.height(24.dp))
 
         when {
+            // A failed fetch and an empty series used to look identical — a
+            // silent "No episodes found" with no way to try again.
+            eps == null && episodesFailed -> StatusPane(
+                title = "Couldn't load episodes",
+                message = "The provider didn't answer. Check the connection and try again.",
+                primaryAction = com.nuxcor.nuxtv.ui.components.StatusAction("Retry") {
+                    loadAttempt++
+                },
+            )
             eps == null -> StatusPane(title = "Loading episodes…", loading = true)
-            eps.isEmpty() -> StatusPane(title = "No episodes found")
+            eps.isEmpty() -> StatusPane(
+                title = "No episodes found",
+                message = "The provider returned none for this series.",
+                primaryAction = com.nuxcor.nuxtv.ui.components.StatusAction("Retry") {
+                    episodes = null
+                    loadAttempt++
+                },
+            )
             else -> {
                 val seasons = remember(eps) { eps.map { it.season }.distinct().sorted() }
                 // Opens on the season the viewer is part-way through, not on

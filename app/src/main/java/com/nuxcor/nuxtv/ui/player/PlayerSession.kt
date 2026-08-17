@@ -140,7 +140,6 @@ class PlayerSession internal constructor(
     internal var vodSpeedLoaded: Boolean = false
 
     // --- failure ladder, reset per item ------------------------------------
-    private var engineSwappedForItem = false
     private var retriesLeft = RETRIES_PER_ITEM
     private var ladderItemIndex = initialRequest.startIndex
 
@@ -181,18 +180,16 @@ class PlayerSession internal constructor(
                 }
             }
             when {
-                // First failure on an item: try the other engine, once. The
-                // ladder resets per item, so a single flaky channel can't
-                // poison every channel after it.
-                !engineSwappedForItem -> {
-                    engineSwappedForItem = true
-                    statusMessage = "Reconnecting with a different player…"
-                    engineChoice =
-                        if (engineChoice == EngineChoice.EXO) EngineChoice.VLC
-                        else EngineChoice.EXO
-                }
-
-                request.isLive && retriesLeft > 0 -> {
+                // No engine hopping: an error retries on the SAME engine the
+                // viewer chose. The old "try the other player once" ladder
+                // silently landed people on VLC — which has no track
+                // selection and its own quality profile — for everything a
+                // flaky provider hiccuped on, and the two players rendering
+                // differently read as random quality changes.
+                // VOD included: the engine swap used to be VOD's only recovery
+                // path, so dropping the swap without this left films dying on
+                // the first hiccup.
+                retriesLeft > 0 -> {
                     // Backing off: the first reconnect is quick, the second
                     // gives a struggling provider room to breathe.
                     val attempt = RETRIES_PER_ITEM - retriesLeft
@@ -261,7 +258,6 @@ class PlayerSession internal constructor(
     private fun resetLadder(index: Int) {
         ladderItemIndex = index
         retriesLeft = RETRIES_PER_ITEM
-        engineSwappedForItem = false
     }
 
     fun clearError() {

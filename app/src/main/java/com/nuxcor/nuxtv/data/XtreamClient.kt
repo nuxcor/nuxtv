@@ -277,9 +277,15 @@ class XtreamClient(
     private fun episodeLeaves(el: JsonElement, seasonKey: Int?): List<Pair<Int?, JsonObject>> =
         when (el) {
             is JsonObject ->
-                // An episode object is recognised by its id/number fields;
-                // anything else keyed by numbers is a season container.
-                if ("id" in el || "episode_id" in el || "stream_id" in el || "episode_num" in el) {
+                // An episode object is recognised by fields only an episode
+                // has; anything else (keyed by season/episode numbers or
+                // names) is a container to walk into. The list is deliberately
+                // broad — a leaf that goes unrecognised is walked into and
+                // silently contributes nothing, which shows as "No episodes
+                // found" on panels that work fine in other players.
+                if ("id" in el || "episode_id" in el || "stream_id" in el ||
+                    "episode_num" in el || "container_extension" in el
+                ) {
                     listOf(seasonKey to el)
                 } else {
                     el.entries.flatMap { (k, v) -> episodeLeaves(v, seasonKey ?: k.toIntOrNull()) }

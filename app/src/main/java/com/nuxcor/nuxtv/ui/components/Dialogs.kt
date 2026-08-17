@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -55,8 +56,16 @@ fun DialogScaffold(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .graphicsLayer { alpha = progress.value }
-            .background(NuxColors.Scrim)
+            // The fade animates the scrim's own color, not a layer alpha over
+            // the whole subtree: the layer form made the panel itself
+            // translucent for as long as the entrance was in flight, and on
+            // hardware where the animation stalled the dialog stayed stuck
+            // half-transparent with the page text bleeding through it. The
+            // panel below is opaque from the first frame no matter what the
+            // clock does.
+            .drawBehind {
+                drawRect(NuxColors.Scrim.copy(alpha = NuxColors.Scrim.alpha * progress.value))
+            }
             .focusGroup(),
         contentAlignment = contentAlignment,
     ) {
