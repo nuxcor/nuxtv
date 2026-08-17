@@ -145,9 +145,13 @@ internal fun CatchupOverlay(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
+                                    // A time RANGE — "11:00 AM – 12:00 PM".
+                                    // The old third segment printed the raw
+                                    // duration ("1:00:00") after the dash,
+                                    // which read as a nonsense end time.
                                     text = "${dayFmt.format(Date(program.startMs))} • " +
                                         "${clockFmt.format(Date(program.startMs))}" +
-                                        " – ${formatPlayerTime(program.endMs - program.startMs)}",
+                                        " – ${clockFmt.format(Date(program.endMs))}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = NuxColors.OnSurfaceDim,
                                 )
