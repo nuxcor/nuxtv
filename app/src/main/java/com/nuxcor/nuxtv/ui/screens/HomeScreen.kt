@@ -92,11 +92,15 @@ fun HomeScreen(
     // (the splash dismissal's default placement) can never switch tabs.
     var lastKeyDownMs by remember { mutableStateOf(0L) }
     LaunchedEffect(Unit) {
-        val target = if (hasLaunched) contentFocus else railFocus
-        // A long window, deliberately: this races a COLD start, where the
-        // rail composes many frames in — not one.
-        if (!target.requestFocusRetrying(retries = 25, intervalMs = 80)) {
-            // Whatever we aimed at never composed; the rail always exists.
+        // Park on the CONTENT, always — on launch that is the Live guide,
+        // whose entry redirect lands focus on the current programme, so the
+        // app boots one OK away from watching. Parking on the rail was both
+        // worse UX and fragile: the splash screen's dismissal re-runs the
+        // window's default focus placement and could leave nothing focused
+        // at all. A long retry window, deliberately: this races a COLD
+        // start, where content composes many frames in — not one.
+        if (!contentFocus.requestFocusRetrying(retries = 25, intervalMs = 80)) {
+            // Content never composed (load error pane churn); the rail always exists.
             runCatching { railFocus.requestFocus() }
         }
         hasLaunched = true

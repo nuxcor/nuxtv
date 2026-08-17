@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.setValue
@@ -46,6 +47,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.nuxcor.nuxtv.MainViewModel
+import kotlinx.coroutines.launch
 import com.nuxcor.nuxtv.data.ContentBundle
 import com.nuxcor.nuxtv.data.LiveChannel
 import com.nuxcor.nuxtv.ui.components.ContextMenu
@@ -194,12 +196,31 @@ internal fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Uni
     // it; the tick then redirects to a programme cell (one frame late at
     // worst).
     var guideHasFocus by remember { mutableStateOf(false) }
+    val focusScope = rememberCoroutineScope()
+    var guideLossJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     Box(
         modifier = Modifier
             .fillMaxSize()
             .onFocusEvent { state ->
-                if (state.hasFocus && !guideHasFocus) entryFocusTick++
-                guideHasFocus = state.hasFocus
+                // Sustained-loss discipline: moving focus BETWEEN two children
+                // of this subtree reports a one-frame hasFocus=false blip, and
+                // treating that as a fresh entry made the tick yank focus back
+                // to the grid — the category chips could receive focus for one
+                // frame and never keep it. Only a real exit (>120ms outside)
+                // re-arms the entry redirect.
+                if (state.hasFocus) {
+                    guideLossJob?.cancel()
+                    guideLossJob = null
+                    if (!guideHasFocus) {
+                        guideHasFocus = true
+                        entryFocusTick++
+                    }
+                } else if (guideHasFocus) {
+                    guideLossJob = focusScope.launch {
+                        kotlinx.coroutines.delay(120)
+                        guideHasFocus = false
+                    }
+                }
             },
     ) {
     // One surface. The grid IS the channel list — its channel column carries

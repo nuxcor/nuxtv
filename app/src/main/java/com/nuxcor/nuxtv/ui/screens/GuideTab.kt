@@ -52,6 +52,8 @@ import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import com.nuxcor.nuxtv.ui.components.MetaChip
 import com.nuxcor.nuxtv.ui.components.StatusPane
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.focus.focusRequester
 import com.nuxcor.nuxtv.ui.theme.NuxColors
 import com.nuxcor.nuxtv.ui.theme.NuxShape
 import java.text.SimpleDateFormat
@@ -291,6 +293,7 @@ fun GuideTab(
                 }
                 // Category filter + day paging: a guide over hundreds of
                 // channels is unusable without both.
+                val chipsFocus = remember { androidx.compose.ui.focus.FocusRequester() }
                 androidx.compose.foundation.lazy.LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -318,16 +321,21 @@ fun GuideTab(
                         )
                     }
                     item(key = "__sep__") { Spacer(Modifier.width(12.dp)) }
-                    items(categories, key = { it.id }) { category ->
+                    itemsIndexed(categories, key = { _, c -> c.id }) { index, category ->
                         val locked = category.id in lockedIds
-                        com.nuxcor.nuxtv.ui.screens.CategoryItem(
+                        CategoryItem(
                             name = category.name,
                             selected = category.id == categoryId,
                             onClick = {
                                 if (locked) pinPromptOpen = true
                                 else onCategoryId(category.id)
                             },
-                            modifier = Modifier,
+                            // UP from the grid's top row lands on the first
+                            // chip — always composed at the row's start, so
+                            // the target requester is always attached.
+                            modifier = if (index == 0) {
+                                Modifier.focusRequester(chipsFocus)
+                            } else Modifier,
                             locked = locked,
                         )
                     }
@@ -355,6 +363,7 @@ fun GuideTab(
 
                 GuideGrid(
                     entryFocusTick = entryFocusTick,
+                    upFromTopRow = chipsFocus,
                     channels = channels,
                     programsFor = { vm.programsFor(it) },
                     programsKey = state,

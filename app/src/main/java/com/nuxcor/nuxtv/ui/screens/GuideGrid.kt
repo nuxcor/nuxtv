@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.KeyEventType
@@ -57,6 +58,7 @@ import androidx.tv.material3.Text
 import com.nuxcor.nuxtv.data.EpgProgram
 import com.nuxcor.nuxtv.data.LiveChannel
 import com.nuxcor.nuxtv.ui.components.Artwork
+import com.nuxcor.nuxtv.ui.components.requestFocusRetrying
 import com.nuxcor.nuxtv.ui.components.rememberClockFormat
 import com.nuxcor.nuxtv.ui.theme.NuxColors
 import com.nuxcor.nuxtv.ui.theme.NuxShape
@@ -309,6 +311,12 @@ internal fun GuideGrid(
      * ring; this routes entry to a real programme cell instead.
      */
     entryFocusTick: Int = 0,
+    /**
+     * Focus target for UP from the top row. Left to the geometric search it
+     * escaped diagonally to the nav rail; a directional override routes it
+     * to the host's controls row (category chips) instead.
+     */
+    upFromTopRow: FocusRequester? = null,
     onChannelLongPress: (LiveChannel) -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
 ) {
@@ -424,7 +432,18 @@ internal fun GuideGrid(
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key.nativeKeyCode) {
                     AndroidKeyEvent.KEYCODE_DPAD_DOWN -> moveFocusVertically(+1)
-                    AndroidKeyEvent.KEYCODE_DPAD_UP -> moveFocusVertically(-1)
+                    AndroidKeyEvent.KEYCODE_DPAD_UP ->
+                        // Top row exits to the controls (category chips).
+                        // Deferred a frame: a requestFocus made synchronously
+                        // inside key dispatch is dropped, and the cell's
+                        // focusProperties.up override is not consulted for
+                        // D-pad moves on this tv-material version.
+                        if (gridFocus.focusedRow == 0 && upFromTopRow != null) {
+                            scope.launch { upFromTopRow.requestFocusRetrying() }
+                            true
+                        } else {
+                            moveFocusVertically(-1)
+                        }
                     AndroidKeyEvent.KEYCODE_CHANNEL_UP -> pageChannels(+1)
                     AndroidKeyEvent.KEYCODE_CHANNEL_DOWN -> pageChannels(-1)
                     in AndroidKeyEvent.KEYCODE_0..AndroidKeyEvent.KEYCODE_9 -> {
@@ -445,6 +464,7 @@ internal fun GuideGrid(
                 GuideRow(
                     channel = channel,
                     rowIndex = index,
+                    upFromRow = if (index == 0) upFromTopRow else null,
                     programsFor = programsFor,
                     programsKey = programsKey,
                     windowStart = windowStart,
@@ -552,6 +572,7 @@ internal fun TimeRuler(
 private fun GuideRow(
     channel: LiveChannel,
     rowIndex: Int,
+    upFromRow: FocusRequester?,
     programsFor: (LiveChannel) -> List<EpgProgram>,
     programsKey: Any?,
     windowStart: Long,
@@ -613,6 +634,7 @@ private fun GuideRow(
             onLongClick = onChannelLongPress,
             modifier = Modifier
                 .width(CHANNEL_COLUMN_WIDTH)
+                .focusProperties { upFromRow?.let { up = it } }
                 .onFocusChanged {
                     if (it.isFocused) {
                         gridFocus.noteChannelFocus(rowIndex)
@@ -696,6 +718,7 @@ private fun GuideRow(
                     onClick = onPlayChannel,
                     modifier = Modifier
                         .focusRequester(placeholderRequester)
+                        .focusProperties { upFromRow?.let { up = it } }
                         .onFocusChanged {
                             if (it.isFocused) {
                                 gridFocus.noteCellFocus(rowIndex, windowStart, windowEnd, nowMs)
@@ -741,6 +764,7 @@ private fun GuideRow(
                     }
                     ProgramCell(
                         program = spec.program,
+                        upFocus = upFromRow,
                         widthMinutes = spec.widthMinutes,
                         startMinutesFromWindow = (spec.clampedStartMs - windowStart) / 60_000f,
                         timelineScroll = timelineScroll,
@@ -771,6 +795,7 @@ private fun GuideRow(
 @Composable
 private fun ProgramCell(
     program: EpgProgram,
+    upFocus: FocusRequester?,
     widthMinutes: Float,
     startMinutesFromWindow: Float,
     timelineScroll: ScrollState,
@@ -799,6 +824,7 @@ private fun ProgramCell(
         },
         modifier = Modifier
             .focusRequester(focusRequester)
+            .focusProperties { upFocus?.let { up = it } }
             .onFocusChanged { if (it.isFocused) onFocus() }
             // Caller has already reconciled this against the ruler; see layoutGuideRow.
             .width(dpPerMinute * widthMinutes)
