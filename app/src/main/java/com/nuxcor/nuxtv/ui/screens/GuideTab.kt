@@ -55,6 +55,7 @@ import com.nuxcor.nuxtv.ui.components.StatusPane
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.focus.focusRequester
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import com.nuxcor.nuxtv.ui.theme.NuxMotion
 import com.nuxcor.nuxtv.ui.theme.NuxShape
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -168,6 +169,18 @@ fun GuideTab(
             }
             val channels = remember(allChannels, categoryId, favorites, recents) {
                 channelsInCategory(categoryId, allChannels, favorites, recents)
+            }
+            // Same rest-before-select rule as every other category surface
+            // (nav rail, Movies/Series columns): resting on a chip selects it,
+            // debounced so travelling the row doesn't rebuild the grid on
+            // every step. This was lost when the redesign made the guide the
+            // only Live surface — chips highlighted on focus but only OK
+            // filtered, which read as "the category doesn't work".
+            var focusedCategory by remember { mutableStateOf<String?>(null) }
+            LaunchedEffect(focusedCategory) {
+                val id = focusedCategory ?: return@LaunchedEffect
+                kotlinx.coroutines.delay(NuxMotion.FocusDwellMs.toLong())
+                onCategoryId(id)
             }
             if (allChannels.isEmpty()) {
                 StatusPane(title = "No live channels")
@@ -330,6 +343,9 @@ fun GuideTab(
                                 if (locked) pinPromptOpen = true
                                 else onCategoryId(category.id)
                             },
+                            // Locked categories still need the OK press (and
+                            // its PIN prompt); dwell must not walk past a PIN.
+                            onFocus = { if (!locked) focusedCategory = category.id },
                             // UP from the grid's top row lands on the first
                             // chip — always composed at the row's start, so
                             // the target requester is always attached.
