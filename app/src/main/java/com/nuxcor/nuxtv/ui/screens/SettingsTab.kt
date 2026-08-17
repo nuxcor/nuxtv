@@ -132,65 +132,6 @@ internal fun SettingsTab(
         }
     }
 
-    if (epgDialogOpen) {
-        TextInputDialog(
-            title = "Custom XMLTV URL",
-            message = "Optional. Leave this unset and the guide from your playlist is used.",
-            initialValue = epgOverride.orEmpty(),
-            label = "XMLTV URL",
-            onConfirm = { entered ->
-                vm.setEpgOverrideUrl(entered)
-                statusMessage = if (entered.isBlank()) "EPG source: playlist default"
-                else "EPG source updated"
-            },
-            onDismiss = { epgDialogOpen = false },
-        )
-    }
-    if (pinDialogOpen) {
-        TextInputDialog(
-            title = "Parental PIN",
-            message = "Optional. Clearing the PIN turns parental control off.",
-            initialValue = parentalPin.orEmpty(),
-            label = "PIN",
-            digitsOnly = true,
-            onConfirm = { entered ->
-                vm.setParentalPin(entered)
-                statusMessage = if (entered.isBlank()) "Parental lock disabled"
-                else "Parental PIN saved"
-            },
-            onDismiss = { pinDialogOpen = false },
-        )
-    }
-
-    // A stale id (the playlist vanished under us) simply shows nothing.
-    sources.orEmpty().firstOrNull { it.id == sourceOptions }?.let { source ->
-        PlaylistOptionsDialog(
-            name = source.name,
-            onEdit = {
-                sourceOptions = null
-                onEditPlaylist(source.id)
-            },
-            onRemove = {
-                sourceOptions = null
-                confirmRemoveSource = source.id
-            },
-            onDismiss = { sourceOptions = null },
-        )
-    }
-
-    // Hoisted with the other dialogs, NOT inside a LazyColumn item: an item
-    // near the bottom of the list only composes once scrolled to, so a
-    // confirmation living there never appeared for actions triggered from the
-    // top of the screen — Remove playlist silently did nothing.
-    SettingsConfirmations(
-        vm = vm,
-        removeSourceId = confirmRemoveSource,
-        onRemoveHandled = { confirmRemoveSource = null },
-        importPending = confirmImport,
-        onImportHandled = { confirmImport = false },
-        onStatus = { statusMessage = it },
-    )
-
     if (manageOpen && shownBundle != null) {
         ChannelManager(vm = vm, bundle = shownBundle, onClose = { manageOpen = false })
         return
@@ -203,22 +144,7 @@ internal fun SettingsTab(
         contentPadding = PaddingValues(bottom = Space.xxl),
     ) {
         item(key = "header") {
-            Column {
-                ScreenTitle("Settings")
-                if (shownBundle != null) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        // Zero counts are noise on a live-TV-only playlist.
-                        listOfNotNull(
-                            "${shownBundle.channels.size} channels",
-                            shownBundle.movies.size.takeIf { it > 0 }?.let { "$it movies" },
-                            shownBundle.series.size.takeIf { it > 0 }?.let { "$it series" },
-                        ).joinToString(" • "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = NuxColors.OnSurfaceDim,
-                    )
-                }
-            }
+            ScreenTitle("Settings")
         }
 
         items(sources.orEmpty(), key = { it.id }) { source ->
@@ -348,36 +274,10 @@ internal fun SettingsTab(
             )
         }
 
-        item(key = "guide-preview") {
-            val preview by vm.guidePreview.collectAsState()
-            SettingsChoiceRow(
-                title = "Guide preview",
-                description = "Plays the focused channel muted in the guide's corner. " +
-                    "Uses one of your provider's connections — leave off on single-connection plans.",
-                options = listOf("Off", "On"),
-                selectedIndex = if (preview) 1 else 0,
-                onSelect = { vm.setGuidePreview(it == 1) },
-            ) {
-                // The number the provider reports, so the choice is made with
-                // the actual limit in view rather than a guess about it. Only
-                // Xtream accounts report one; an M3U link says nothing about
-                // its limits, which is its own argument for leaving this off.
-                val account by vm.accountInfo.collectAsState()
-                val maxConnections = account?.maxConnections
-                if (maxConnections != null) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = if (maxConnections == 1) {
-                            "Your provider allows 1 connection — a preview would use it."
-                        } else {
-                            "Your provider allows $maxConnections connections."
-                        },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (maxConnections == 1) NuxColors.Error else NuxColors.OnSurfaceDim,
-                    )
-                }
-            }
-        }
+        // No "Guide preview" row: the corner preview decides for itself now —
+        // on when the account reports a spare connection, off otherwise. The
+        // toggle's whole description was instructions for making that same
+        // decision by hand.
 
         item(key = "order") {
             val order by vm.channelOrder.collectAsState()
@@ -505,15 +405,15 @@ internal fun SettingsTab(
                         is UpdateManager.State.Available ->
                             "Version ${BuildConfig.VERSION_NAME} — ${u.version} is available" +
                                 (u.sizeBytes.takeIf { it > 0 }?.let { " (${it / 1048576} MB)" } ?: "")
-                        is UpdateManager.State.Downloading ->
-                            "Downloading update… ${u.progressPercent}%"
                         is UpdateManager.State.Ready ->
                             "Update downloaded — install when prompted"
                         is UpdateManager.State.UpToDate ->
                             "Version ${BuildConfig.VERSION_NAME} — up to date"
                         is UpdateManager.State.Error ->
                             "Update check failed: ${u.message}"
-                        is UpdateManager.State.Checking -> "Checking…"
+                        // Downloading and Checking: the button below already
+                        // carries the live progress — saying it twice, 40px
+                        // apart, read as a glitch.
                         else -> "Version ${BuildConfig.VERSION_NAME}"
                     },
                     style = MaterialTheme.typography.labelMedium,
@@ -569,6 +469,66 @@ internal fun SettingsTab(
         modifier = Modifier
             .align(Alignment.BottomEnd)
             .padding(bottom = Space.m, end = Space.s),
+    )
+
+    // Dialogs come AFTER the list inside this Box: siblings draw in
+    // composition order, so composed before the page they sat underneath it —
+    // the list's text rendered straight through the "open" dialog and the
+    // scrim dimmed nothing. (They still must not live inside a LazyColumn
+    // item: an item near the bottom only composes once scrolled to, so a
+    // confirmation living there never appeared for actions triggered from
+    // the top of the screen — Remove playlist silently did nothing.)
+    if (epgDialogOpen) {
+        TextInputDialog(
+            title = "Custom XMLTV URL",
+            message = "Optional. Leave this unset and the guide from your playlist is used.",
+            initialValue = epgOverride.orEmpty(),
+            label = "XMLTV URL",
+            onConfirm = { entered ->
+                vm.setEpgOverrideUrl(entered)
+                statusMessage = if (entered.isBlank()) "EPG source: playlist default"
+                else "EPG source updated"
+            },
+            onDismiss = { epgDialogOpen = false },
+        )
+    }
+    if (pinDialogOpen) {
+        TextInputDialog(
+            title = "Parental PIN",
+            message = "Optional. Clearing the PIN turns parental control off.",
+            initialValue = parentalPin.orEmpty(),
+            label = "PIN",
+            digitsOnly = true,
+            onConfirm = { entered ->
+                vm.setParentalPin(entered)
+                statusMessage = if (entered.isBlank()) "Parental lock disabled"
+                else "Parental PIN saved"
+            },
+            onDismiss = { pinDialogOpen = false },
+        )
+    }
+    // A stale id (the playlist vanished under us) simply shows nothing.
+    sources.orEmpty().firstOrNull { it.id == sourceOptions }?.let { source ->
+        PlaylistOptionsDialog(
+            name = source.name,
+            onEdit = {
+                sourceOptions = null
+                onEditPlaylist(source.id)
+            },
+            onRemove = {
+                sourceOptions = null
+                confirmRemoveSource = source.id
+            },
+            onDismiss = { sourceOptions = null },
+        )
+    }
+    SettingsConfirmations(
+        vm = vm,
+        removeSourceId = confirmRemoveSource,
+        onRemoveHandled = { confirmRemoveSource = null },
+        importPending = confirmImport,
+        onImportHandled = { confirmImport = false },
+        onStatus = { statusMessage = it },
     )
     }
 }

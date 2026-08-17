@@ -130,6 +130,25 @@ class QualityMergeTest {
     }
 
     @org.junit.Test
+    fun `on equal rank a measured variant beats a name-tagged one`() {
+        // Both claim FHD; only the second has actually decoded at FHD.
+        val claimed = ch("CNN FHD")
+        val proven = ch("CNN 1080p")
+        val merged = com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(
+            listOf(claimed, proven),
+            measured = setOf(proven.url),
+        )
+        org.junit.Assert.assertEquals(listOf(proven.name), merged.map { it.name })
+        // A measured lower tier still loses to a higher claimed tier — the
+        // overlay has already downgraded liars before merge sees them.
+        val merged2 = com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(
+            listOf(ch("CNN 4K"), proven),
+            measured = setOf(proven.url),
+        )
+        org.junit.Assert.assertEquals(listOf("CNN 4K"), merged2.map { it.name })
+    }
+
+    @org.junit.Test
     fun `separator junk entries are dropped`() {
         val bundle = com.nuxcor.nuxtv.data.ContentClassifier.classify(
             com.nuxcor.nuxtv.data.M3uParser.parse(

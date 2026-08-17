@@ -36,8 +36,16 @@ object QualityTag {
     /**
      * Collapses duplicate channels (same base name) down to the best-quality
      * variant, keeping the original order of first appearance.
+     *
+     * [measured] holds the URLs whose quality was learned from actual decoded
+     * playback rather than the stream's name. On equal rank the measured
+     * variant wins: a stream that demonstrably decodes at FHD beats one that
+     * merely says FHD — names overstate, measurements don't.
      */
-    fun mergeBestQuality(channels: List<LiveChannel>): List<LiveChannel> {
+    fun mergeBestQuality(
+        channels: List<LiveChannel>,
+        measured: Set<String> = emptySet(),
+    ): List<LiveChannel> {
         val best = LinkedHashMap<String, LiveChannel>()
         for (channel in channels) {
             // Scope by category so regional feeds with the same name don't
@@ -45,9 +53,14 @@ object QualityTag {
             val base = baseName(channel.name).ifBlank { channel.name.trim() }.lowercase()
             val key = "${channel.categoryId}|$base"
             val current = best[key]
-            if (current == null || rank(channel.quality) > rank(current.quality)) {
-                best[key] = channel
-            }
+            val challengerRank = rank(channel.quality)
+            val holderRank = current?.let { rank(it.quality) } ?: -1
+            val wins = current == null || challengerRank > holderRank ||
+                (
+                    challengerRank == holderRank &&
+                        channel.url in measured && current.url !in measured
+                    )
+            if (wins) best[key] = channel
         }
         return best.values.toList()
     }
