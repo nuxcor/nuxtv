@@ -653,25 +653,53 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val channels: List<LiveChannel> = emptyList(),
         val movies: List<Movie> = emptyList(),
         val series: List<Series> = emptyList(),
+        /** Current and upcoming programmes whose titles match. */
+        val programs: List<ProgramHit> = emptyList(),
     )
 
+    data class ProgramHit(val channel: LiveChannel, val program: EpgProgram)
+
     fun search(query: String): SearchResults {
-        val q = query.trim()
+        val q = foldForSearch(query.trim())
         if (q.length < 2) return SearchResults()
+        val tokens = q.split(' ').filter { it.isNotBlank() }
         val b = bundle ?: return SearchResults()
         val lockedLive = b.liveCategories.filter { isLockedCategory(it.name) }.map { it.id }.toSet()
         val lockedMovie = b.movieCategories.filter { isLockedCategory(it.name) }.map { it.id }.toSet()
         val lockedSeries = b.seriesCategories.filter { isLockedCategory(it.name) }.map { it.id }.toSet()
+
+        // Rank, then stable-sort: prefix beats word-start beats substring, and
+        // within a rank the playlist's own order survives.
+        fun <T> rankAndTake(items: List<T>, name: (T) -> String, allowed: (T) -> Boolean): List<T> =
+            items.mapNotNull { item ->
+                if (!allowed(item)) return@mapNotNull null
+                searchRank(name(item), q, tokens)?.let { rank -> rank to item }
+            }.sortedBy { it.first }.map { it.second }.take(30)
+
+        val channels = rankAndTake(b.channels, { it.name }) { it.categoryId !in lockedLive }
+
+        // Programme titles, the guide's other half: what is ON, not just what
+        // the channel is called. Current and upcoming only — a finished
+        // programme isn't something search can offer to watch.
+        val now = System.currentTimeMillis()
+        val programs = ArrayList<ProgramHit>()
+        outer@ for (channel in b.channels) {
+            if (channel.categoryId in lockedLive) continue
+            for (program in repo.programsFor(channel)) {
+                if (program.endMs <= now) continue
+                if (searchRank(program.title, q, tokens) != null) {
+                    programs.add(ProgramHit(channel, program))
+                    if (programs.size >= 20) break@outer
+                }
+            }
+        }
+        programs.sortBy { it.program.startMs }
+
         return SearchResults(
-            channels = b.channels
-                .filter { it.categoryId !in lockedLive && it.name.contains(q, ignoreCase = true) }
-                .take(30),
-            movies = b.movies
-                .filter { it.categoryId !in lockedMovie && it.name.contains(q, ignoreCase = true) }
-                .take(30),
-            series = b.series
-                .filter { it.categoryId !in lockedSeries && it.name.contains(q, ignoreCase = true) }
-                .take(30),
+            channels = channels,
+            movies = rankAndTake(b.movies, { it.name }) { it.categoryId !in lockedMovie },
+            series = rankAndTake(b.series, { it.name }) { it.categoryId !in lockedSeries },
+            programs = programs,
         )
     }
 
@@ -796,5 +824,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearPlayback() {
         playback = null
+    }
+}
+
+
+/** Case- and diacritic-insensitive text for matching ("Télé" matches "tele"). */
+private fun foldForSearch(text: String): String {
+    val normalized = java.text.Normalizer.normalize(text.lowercase(), java.text.Normalizer.Form.NFD)
+    return normalized.filterNot { it.code in 0x300..0x36F }
+}
+
+/**
+ * Null when [name] doesn't match; otherwise a rank — 0 name starts with the
+ * query, 1 a word starts with the first token, 2 plain substring. Every token
+ * must appear somewhere, in any order, so "one cinema" finds "Cinema One".
+ */
+private fun searchRank(name: String, query: String, tokens: List<String>): Int? {
+    val folded = foldForSearch(name)
+    if (!tokens.all { folded.contains(it) }) return null
+    return when {
+        folded.startsWith(query) -> 0
+        folded.split(' ', '-', '.', '(', '[').any { it.startsWith(tokens.first()) } -> 1
+        else -> 2
     }
 }

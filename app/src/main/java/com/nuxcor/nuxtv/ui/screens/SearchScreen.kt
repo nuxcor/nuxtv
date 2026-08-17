@@ -34,6 +34,7 @@ import com.nuxcor.nuxtv.data.Series
 import com.nuxcor.nuxtv.ui.components.NuxFieldDefaults
 import com.nuxcor.nuxtv.ui.components.StatusPane
 import com.nuxcor.nuxtv.ui.components.dpadFieldNavigation
+import com.nuxcor.nuxtv.ui.components.rememberClockFormat
 import com.nuxcor.nuxtv.ui.components.PosterCard
 import com.nuxcor.nuxtv.ui.components.SectionTitle
 import com.nuxcor.nuxtv.ui.components.WideItem
@@ -60,6 +61,7 @@ fun SearchTab(
         }
     }
 
+    val timeFmt = rememberClockFormat()
     Column(
         modifier = Modifier.fillMaxSize(),
     ) {
@@ -73,7 +75,8 @@ fun SearchTab(
         )
         Spacer(Modifier.height(20.dp))
 
-        val empty = results.channels.isEmpty() && results.movies.isEmpty() && results.series.isEmpty()
+        val empty = results.channels.isEmpty() && results.movies.isEmpty() &&
+            results.series.isEmpty() && results.programs.isEmpty()
         when {
             query.trim().length < 2 -> StatusPane(
                 title = "Search your library",
@@ -136,6 +139,27 @@ fun SearchTab(
                             imageUrl = channel.logo,
                             onClick = {
                                 vm.playChannels(results.channels, index)
+                                onPlay()
+                            },
+                        )
+                    }
+                }
+                if (results.programs.isNotEmpty()) {
+                    item(key = "programs-title") { SectionTitle("On TV", results.programs.size) }
+                    itemsIndexed(
+                        results.programs,
+                        key = { _, hit -> "${hit.channel.id}:${hit.program.startMs}" },
+                    ) { _, hit ->
+                        val airing = System.currentTimeMillis() in
+                            hit.program.startMs until hit.program.endMs
+                        WideItem(
+                            title = hit.program.title,
+                            subtitle = "${hit.channel.name} • " +
+                                timeFmt.format(java.util.Date(hit.program.startMs)),
+                            badge = if (airing) "ON NOW" else null,
+                            imageUrl = hit.channel.logo,
+                            onClick = {
+                                vm.playChannels(listOf(hit.channel), 0)
                                 onPlay()
                             },
                         )
