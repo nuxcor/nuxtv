@@ -1,14 +1,13 @@
 name: Release
 
-# Releasing is deliberate: run this workflow from the Actions tab (or push a v*
-# tag) when a build has actually been verified on a TV. It used to fire on every
-# merge to main, which meant code reached users minutes after being written and
-# device-only bugs — the kind unit tests can't reach — shipped before anyone
-# had run the app. Merges still build and test via build.yml; they just don't
-# publish any more.
+# Releases fire automatically on merge to main. The version guard below makes
+# this safe: a merge that didn't bump versionName finds its tag already
+# released and skips, so only deliberate version bumps publish. Manual runs
+# (Actions tab) and v* tags still work for out-of-band releases.
 on:
   workflow_dispatch:
   push:
+    branches: ['main']
     tags: ['v*']
 
 jobs:
