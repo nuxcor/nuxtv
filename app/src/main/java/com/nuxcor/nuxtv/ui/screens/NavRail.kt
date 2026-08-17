@@ -106,6 +106,7 @@ internal fun NavRail(
     // live dwell turned that into a tab switch before any keypress.
     var sessionHadFocus by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    var focusLossJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     LaunchedEffect(focusedItem, dwellEnabled) {
         if (!dwellEnabled) return@LaunchedEffect
         val item = focusedItem ?: return@LaunchedEffect
@@ -141,9 +142,21 @@ internal fun NavRail(
             .onFocusChanged {
                 expanded = it.hasFocus
                 onRailFocusChanged(it.hasFocus)
-                if (!it.hasFocus) {
-                    focusedItem = null // cancel pending select-on-focus
-                    sessionHadFocus = false // next landing is an arrival, not travel
+                if (it.hasFocus) {
+                    focusLossJob?.cancel()
+                    focusLossJob = null
+                } else {
+                    // Debounced, NOT immediate: moving focus between two rail
+                    // items reports a one-frame hasFocus=false on this parent,
+                    // and a synchronous reset made every hop register as a
+                    // fresh "arrival" — whose snap-back then yanked focus
+                    // straight back to the selected item, freezing rail
+                    // travel entirely. Only a real exit stays lost this long.
+                    focusLossJob = scope.launch {
+                        delay(150)
+                        focusedItem = null // cancel pending select-on-focus
+                        sessionHadFocus = false // next landing is an arrival
+                    }
                 }
             }
             .padding(horizontal = Space.s, vertical = Space.gutterVertical),
