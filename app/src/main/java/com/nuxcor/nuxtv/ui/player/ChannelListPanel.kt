@@ -306,7 +306,7 @@ internal fun ChannelListPanel(
                             items[index].channelId?.let { vm.channelById(it) }
                         }
                         val title = if (browsingCategory) {
-                            channel?.name.orEmpty()
+                            channel?.displayName.orEmpty()
                         } else {
                             items[index].title
                         }

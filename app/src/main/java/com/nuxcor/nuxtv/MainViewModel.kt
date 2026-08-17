@@ -805,7 +805,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             items = channels.map {
                 PlayableItem(
                     url = it.url,
-                    title = it.name,
+                    title = it.displayName,
                     subtitle = "Live",
                     artwork = it.logo,
                     channelId = it.id,

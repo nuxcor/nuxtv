@@ -53,7 +53,15 @@ data class LiveChannel(
     val recordUrl: String? = null,
     /** Advertised quality parsed from the raw name (4K/FHD/HD/SD). */
     val quality: String? = null,
-)
+) {
+    /**
+     * Name with quality tokens stripped, for every place a viewer reads it —
+     * the [quality] badge carries the tier, so "beIN Sports FHD" as text is
+     * saying it twice. Country/region prefixes stay: they distinguish feeds.
+     * The raw [name] remains the identity for grouping and EPG matching.
+     */
+    val displayName: String get() = QualityTag.baseName(name).ifBlank { name }
+}
 
 /** One EPG programme, used for the catch-up picker. */
 data class EpgProgram(

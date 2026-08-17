@@ -121,7 +121,7 @@ internal fun ChannelManager(vm: MainViewModel, bundle: ContentBundle, onClose: (
                 itemsIndexed(channels, key = { _, c -> c.id }) { index, channel ->
                     val isHidden = channel.url in hidden
                     WideItem(
-                        title = channel.name,
+                        title = channel.displayName,
                         subtitle = if (isHidden) "Hidden — select to unhide" else "Visible",
                         badge = channel.quality,
                         imageUrl = channel.logo,

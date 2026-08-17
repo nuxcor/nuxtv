@@ -214,7 +214,13 @@ class XtreamClient(
             val ext = obj.str("container_extension")?.takeIf { it.isNotBlank() } ?: "mp4"
             Movie(
                 id = "movie:$id",
-                name = obj.str("name") ?: "Movie $id",
+                // Cleaned for display, same as the M3U path: the year and
+                // quality live in their own fields, so "EN - Title (2019) 4K"
+                // in a poster grid is pure noise. Year is read from the raw
+                // name first, before the clean erases it.
+                name = obj.str("name")
+                    ?.let { ContentClassifier.cleanTitle(it).ifBlank { it } }
+                    ?: "Movie $id",
                 poster = obj.str("stream_icon")?.takeIf { it.isNotBlank() },
                 url = "$baseUrl/movie/$userP/$passP/$id.$ext",
                 categoryId = obj.str("category_id"),
@@ -230,10 +236,14 @@ class XtreamClient(
             val id = obj.int("series_id") ?: return@callList null
             Series(
                 id = "series:$id",
-                name = obj.str("name") ?: "Series $id",
+                name = obj.str("name")
+                    ?.let { ContentClassifier.cleanTitle(it).ifBlank { it } }
+                    ?: "Series $id",
                 poster = obj.str("cover")?.takeIf { it.isNotBlank() },
                 categoryId = obj.str("category_id"),
-                year = obj.int("year") ?: yearFrom(obj.str("releaseDate") ?: obj.str("release_date")),
+                year = obj.int("year")
+                    ?: yearFrom(obj.str("releaseDate") ?: obj.str("release_date"))
+                    ?: yearFrom(obj.str("name")),
                 rating = obj.dbl("rating_5based")?.times(2) ?: obj.dbl("rating"),
                 plot = obj.str("plot")?.takeIf { it.isNotBlank() },
                 genre = obj.str("genre")?.takeIf { it.isNotBlank() },
