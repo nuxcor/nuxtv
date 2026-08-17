@@ -504,8 +504,23 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         // key() forces a fresh surface when the engine is swapped — AndroidView's
         // factory runs once per node, so without this the new engine would render
         // into a view that was already released (black screen after fallback).
+        //
+        // While the grid guide is open the same view shrinks into the top-left
+        // slot PlayerGuideOverlay reserves — video and audio keep going, the
+        // guide fills the rest. A scrim over fullscreen video was tried first
+        // and read as "playback stopped"; broadcast guides embed the picture.
+        val guideVideoInset = gridGuideOpen && request.isLive && !inPip
         androidx.compose.runtime.key(engineChoice) {
-            AndroidView(modifier = Modifier.fillMaxSize(), factory = { engine.createView(it) })
+            AndroidView(
+                modifier = if (guideVideoInset) {
+                    Modifier
+                        .padding(start = PLAYER_GUIDE_PADDING, top = PLAYER_GUIDE_TOP_PADDING)
+                        .size(PLAYER_GUIDE_VIDEO_WIDTH, PLAYER_GUIDE_VIDEO_HEIGHT)
+                } else {
+                    Modifier.fillMaxSize()
+                },
+                factory = { engine.createView(it) },
+            )
         }
 
         if (buffering && errorMessage == null) {

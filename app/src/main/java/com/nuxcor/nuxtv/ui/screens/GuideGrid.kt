@@ -28,8 +28,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -296,10 +299,17 @@ internal fun GuideGrid(
     modifier: Modifier = Modifier,
     playingChannelId: String? = null,
     initialFocusChannelId: String? = null,
+    onChannelLongPress: (LiveChannel) -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
 ) {
     val gridFocus = remember { GuideGridFocus(anchorMs = nowMs) }
     val scope = rememberCoroutineScope()
+
+    // Number entry: the channel column is the channel list now, so the keypad
+    // jump lives here. Digits collect briefly, then the grid scrolls to the
+    // match and focus follows — scrolling alone leaves focus behind and the
+    // next D-pad press snaps straight back.
+    var digitBuffer by remember { mutableStateOf("") }
 
     // Day paging replaces the window; an anchor from yesterday would send every
     // vertical move to the nearest-edge fallback.
@@ -347,6 +357,29 @@ internal fun GuideGrid(
         return true
     }
 
+    LaunchedEffect(digitBuffer) {
+        if (digitBuffer.isEmpty()) return@LaunchedEffect
+        delay(1_200)
+        val typed = digitBuffer.toIntOrNull()
+        // No suspension between this write and the launch below: clearing the
+        // buffer restarts this effect, and the jump must survive that.
+        digitBuffer = ""
+        if (typed == null) return@LaunchedEffect
+        // Number first, position second — the same rule the row labels use, so
+        // typing what you see always lands on it.
+        val target = channels.indexOfFirst { it.number == typed }
+            .takeIf { it >= 0 } ?: (typed - 1)
+        if (target in channels.indices) {
+            scope.launch {
+                listState.scrollToItem(target)
+                repeat(5) {
+                    if (focusRow(target)) return@launch
+                    delay(60)
+                }
+            }
+        }
+    }
+
     // Land on the playing channel's current programme when the overlay opens.
     LaunchedEffect(initialFocusChannelId) {
         val id = initialFocusChannelId ?: return@LaunchedEffect
@@ -369,6 +402,10 @@ internal fun GuideGrid(
                     AndroidKeyEvent.KEYCODE_DPAD_UP -> moveFocusVertically(-1)
                     AndroidKeyEvent.KEYCODE_CHANNEL_UP -> pageChannels(+1)
                     AndroidKeyEvent.KEYCODE_CHANNEL_DOWN -> pageChannels(-1)
+                    in AndroidKeyEvent.KEYCODE_0..AndroidKeyEvent.KEYCODE_9 -> {
+                        digitBuffer += (event.key.nativeKeyCode - AndroidKeyEvent.KEYCODE_0).toString()
+                        true
+                    }
                     else -> false
                 }
             }
@@ -394,11 +431,14 @@ internal fun GuideGrid(
                     playing = channel.id == playingChannelId,
                     onFocus = { program -> onFocus(channel, program) },
                     onPlayChannel = { onPlayChannel(channel) },
+                    onChannelLongPress = { onChannelLongPress(channel) },
                     onCatchup = { program -> onCatchup(channel, program) },
                     onSchedule = { program -> onSchedule(channel, program) },
                 )
             }
         }
+
+        ChannelJumpBadge(digitBuffer, Modifier.align(Alignment.TopEnd).padding(8.dp))
 
         // The NOW marker — the defining element of an EPG. A dot caps the line
         // so it reads as a marker even where cell borders cross it.
@@ -480,6 +520,7 @@ private fun GuideRow(
     playing: Boolean,
     onFocus: (EpgProgram?) -> Unit,
     onPlayChannel: () -> Unit,
+    onChannelLongPress: () -> Unit,
     onCatchup: (EpgProgram) -> Unit,
     onSchedule: (EpgProgram) -> Unit,
 ) {
@@ -522,9 +563,11 @@ private fun GuideRow(
     }
 
     Row(modifier = Modifier.fillMaxWidth().height(ROW_HEIGHT)) {
-        // Fixed channel cell.
+        // Fixed channel cell. Long-press carries the list's secondary actions
+        // (What's on, favorite, hide) — the column is the channel list now.
         Surface(
             onClick = onPlayChannel,
+            onLongClick = onChannelLongPress,
             modifier = Modifier
                 .width(CHANNEL_COLUMN_WIDTH)
                 .onFocusChanged {

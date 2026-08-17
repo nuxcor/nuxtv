@@ -416,21 +416,6 @@ private fun RailItem(
 // --- Live TV -----------------------------------------------------------------
 
 /**
- * List or grid, for the same channels. Drawn inside whichever control strip the
- * current view already has — the category column in list view, the day/category
- * row in the guide — so switching costs no vertical space on a screen that
- * fits four guide rows.
- */
-@Composable
-private fun LiveViewSwitch(guideMode: Boolean, onChange: (Boolean) -> Unit) {
-    SegmentedControl(
-        options = listOf("Channels", "Guide"),
-        selectedIndex = if (guideMode) 1 else 0,
-        onSelect = { onChange(it == 1) },
-    )
-}
-
-/**
  * Channel-number entry for a channel list: collects digits, then jumps.
  *
  * Parks focus on the row it scrolls to, which is the part that was missing.
@@ -533,17 +518,10 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
         return
     }
     val favorites by vm.favorites.collectAsState()
-    var pinPromptOpen by remember { mutableStateOf(false) }
     var menuChannel by remember { mutableStateOf<com.nuxcor.nuxtv.data.LiveChannel?>(null) }
     var scheduleChannel by remember { mutableStateOf<com.nuxcor.nuxtv.data.LiveChannel?>(null) }
-    val pin by vm.parentalPin.collectAsState()
-    val unlocked by vm.parentalUnlocked.collectAsState()
-    val lockedIds = remember(bundle, pin, unlocked) {
-        bundle.liveCategories.filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
-    }
     // Filtering/merging happens off the main thread in the ViewModel.
     val allVisible by vm.displayChannels.collectAsState()
-    val nowNextMap by vm.nowNext.collectAsState()
     val recents by vm.recentChannels.collectAsState()
     val categories = remember(bundle, favorites, recents, allVisible) {
         liveCategoryList(bundle, allVisible, favorites, recents)
@@ -552,129 +530,28 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
     // Recent and Favorites come and go as the viewer watches and stars things,
     // so the selection can outlive the category it names.
     val activeCategory = resolveCategoryId(selectedCategory, categories)
-    // The guide is a second view of these same channels rather than a separate
-    // destination, so it shares selectedCategory and costs no rail slot.
-    // Persisted, guide first: the grid answers "what's on" without a further
-    // press, and a viewer who prefers the list flips the switch exactly once.
-    val guideMode by vm.liveGuideMode.collectAsState()
-    // Same rest-before-select rule as the nav rail: travelling the category
-    // list would otherwise re-filter the entire channel set on every step.
-    var focusedCategory by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(focusedCategory) {
-        val id = focusedCategory ?: return@LaunchedEffect
-        kotlinx.coroutines.delay(250)
-        selectedCategory = id
-    }
     // Ordering is applied in the ViewModel from the Settings preference.
+    // Needed here (not just inside the guide) because the schedule sheet and
+    // the context menu play from this list.
     val channels = remember(allVisible, activeCategory, favorites, recents) {
         channelsInCategory(activeCategory, allVisible, favorites, recents)
     }
-
-    // Restarts the stagger when the visible set changes (category switch), so
-    // the new list animates in but scrolling within it never does.
-    val listEntrance = rememberListEntrance(channels)
-
-    // Number entry: the only practical way to cross a few thousand channels
-    // with a remote.
-    val jump = rememberChannelJump(channels)
     val epgState by vm.epgState.collectAsState()
 
     Box(modifier = Modifier.fillMaxSize()) {
-    if (guideMode) {
-        GuideTab(
-            vm = vm,
-            bundle = bundle,
-            onPlay = onPlay,
-            categoryId = activeCategory,
-            onCategoryId = { selectedCategory = it },
-            leading = { LiveViewSwitch(guideMode) { vm.setLiveGuideMode(it) } },
-        )
-    } else {
-    Row(
-        modifier = Modifier.fillMaxSize(),
-        horizontalArrangement = Arrangement.spacedBy(Space.m),
-    ) {
-        LazyColumn(
-            modifier = Modifier
-                .width(190.dp)
-                .fillMaxHeight()
-                .focusRestorer(),
-            verticalArrangement = Arrangement.spacedBy(Space.xs),
-            contentPadding = PaddingValues(bottom = Space.l),
-        ) {
-            item(key = "__view__") {
-                LiveViewSwitch(guideMode) { vm.setLiveGuideMode(it) }
-                Spacer(Modifier.height(Space.s))
-            }
-            items(categories, key = { it.id }) { category ->
-                val locked = category.id in lockedIds
-                CategoryItem(
-                    name = category.name,
-                    locked = locked,
-                    selected = category.id == activeCategory,
-                    onClick = {
-                        if (locked) pinPromptOpen = true else selectedCategory = category.id
-                    },
-                    // Browsing the category list switches content once focus rests.
-                    onFocus = { if (!locked) focusedCategory = category.id },
-                )
-            }
-        }
-        Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
-        LazyColumn(
-            state = jump.listState,
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .focusRestorer()
-                .channelJumpKeys(jump),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            contentPadding = PaddingValues(bottom = Space.l),
-        ) {
-            itemsIndexed(channels, key = { _, c -> c.id }) { index, channel ->
-                val nowProgram = nowNextMap[channel.id]?.now
-                val nowMs = System.currentTimeMillis()
-                Box(modifier = Modifier.itemEntrance(index, listEntrance)) {
-                WideItem(
-                    title = channel.name,
-                    subtitle = nowProgram?.let { "Now: ${it.title}" } ?: listOfNotNull(
-                        // Falls back to position so the number shown here is
-                        // always the one the remote's keypad will jump to.
-                        "Channel ${channel.number ?: (index + 1)}",
-                        channel.archiveDays.takeIf { it > 0 }?.let { "$it-day catch-up" },
-                    ).joinToString("  •  ").ifBlank { null },
-                    badge = channel.quality,
-                    imageUrl = channel.logo,
-                    progress = nowProgram?.let { p ->
-                        ((nowMs - p.startMs).toFloat() / (p.endMs - p.startMs).coerceAtLeast(1))
-                            .coerceIn(0f, 1f)
-                    },
-                    selected = channel.url in favorites,
-                    // OK plays. It means the same thing here as it does in the
-                    // guide, in search and in the player's channel list — this
-                    // was the one place it didn't, and it was conditional on
-                    // guide data the viewer can't see, so the same key played
-                    // one channel and opened a sheet on the next one down with
-                    // nothing on either row to say which. The schedule is on
-                    // hold-OK now, beside the rest of the secondary actions.
-                    modifier = if (index == jump.targetIndex) {
-                        Modifier.focusRequester(jump.focusRequester)
-                    } else {
-                        Modifier
-                    },
-                    onClick = {
-                        vm.playChannels(channels, index)
-                        onPlay()
-                    },
-                    onLongClick = { menuChannel = channel },
-                )
-                }
-            }
-        }
-        }
-    }
-    }
-    ChannelJumpBadge(jump.digits, Modifier.align(Alignment.TopEnd))
+    // One surface. The grid IS the channel list — its channel column carries
+    // the logos, numbers, keypad jump and hold-OK menu the list view used to
+    // own, and every channel's schedule sits beside it instead of behind a
+    // toggle. Two views of the same channels meant the same press did
+    // different things depending on a switch set weeks ago.
+    GuideTab(
+        vm = vm,
+        bundle = bundle,
+        onPlay = onPlay,
+        categoryId = activeCategory,
+        onCategoryId = { selectedCategory = it },
+        onChannelLongPress = { menuChannel = it },
+    )
     scheduleChannel?.let { channel ->
         val programs = remember(channel.id, epgState) { vm.programsFor(channel) }
         ChannelSchedule(
@@ -749,12 +626,6 @@ private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit
                 add(MenuAction("Hide this channel") { vm.toggleHidden(channel) })
             },
             onDismiss = { menuChannel = null },
-        )
-    }
-    if (pinPromptOpen) {
-        PinPrompt(
-            onSubmit = { entered -> vm.tryUnlock(entered).also { ok -> if (ok) pinPromptOpen = false } },
-            onDismiss = { pinPromptOpen = false },
         )
     }
     }

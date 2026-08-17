@@ -86,6 +86,8 @@ fun GuideTab(
     categoryId: String,
     onCategoryId: (String) -> Unit,
     leading: @Composable () -> Unit = {},
+    /** Long-press on a channel cell — the host hangs its context menu here. */
+    onChannelLongPress: (LiveChannel) -> Unit = {},
 ) {
     val epgState by vm.epgState.collectAsState()
     val scope = rememberCoroutineScope()
@@ -139,6 +141,17 @@ fun GuideTab(
             val allChannels by vm.displayChannels.collectAsState()
             val favorites by vm.favorites.collectAsState()
             val recents by vm.recentChannels.collectAsState()
+            // Parental locks, same vocabulary as everywhere else: locked
+            // categories show a lock on their chip and ask for the PIN. Their
+            // channels are already filtered out of displayChannels, so without
+            // this the chip just opened an empty grid with no explanation.
+            val pin by vm.parentalPin.collectAsState()
+            val unlocked by vm.parentalUnlocked.collectAsState()
+            var pinPromptOpen by remember { mutableStateOf(false) }
+            val lockedIds = remember(bundle, pin, unlocked) {
+                bundle.liveCategories.filter { vm.isLockedCategory(it.name) }
+                    .map { it.id }.toSet()
+            }
             // Same list and same filtering as the channel view — see
             // LiveCategories.kt. The caller owns which one is selected.
             val categories = remember(bundle, favorites, recents, allChannels) {
@@ -308,11 +321,16 @@ fun GuideTab(
                     }
                     item(key = "__sep__") { Spacer(Modifier.width(12.dp)) }
                     items(categories, key = { it.id }) { category ->
+                        val locked = category.id in lockedIds
                         com.nuxcor.nuxtv.ui.screens.CategoryItem(
                             name = category.name,
                             selected = category.id == categoryId,
-                            onClick = { onCategoryId(category.id) },
+                            onClick = {
+                                if (locked) pinPromptOpen = true
+                                else onCategoryId(category.id)
+                            },
                             modifier = Modifier,
+                            locked = locked,
                         )
                     }
                 }
@@ -341,6 +359,7 @@ fun GuideTab(
                     channels = channels,
                     programsFor = { vm.programsFor(it) },
                     programsKey = state,
+                    onChannelLongPress = onChannelLongPress,
                     windowStart = windowStart,
                     windowEnd = windowEnd,
                     nowMs = nowTick,
@@ -379,6 +398,15 @@ fun GuideTab(
                             "Reminder set: ${program.title}"
                         }
                     },
+                )
+            }
+
+            if (pinPromptOpen) {
+                com.nuxcor.nuxtv.ui.components.PinPrompt(
+                    onSubmit = { entered ->
+                        vm.tryUnlock(entered).also { ok -> if (ok) pinPromptOpen = false }
+                    },
+                    onDismiss = { pinPromptOpen = false },
                 )
             }
         }

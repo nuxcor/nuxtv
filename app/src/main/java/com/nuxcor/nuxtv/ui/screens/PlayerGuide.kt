@@ -4,19 +4,25 @@ package com.nuxcor.nuxtv.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -27,6 +33,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -43,26 +50,40 @@ import com.nuxcor.nuxtv.data.LiveChannel
 import com.nuxcor.nuxtv.ui.components.CenteredMessage
 import com.nuxcor.nuxtv.ui.components.rememberClockFormat
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Overscan-safe inset for a full-bleed overlay; the player route skips the
- *  TvSafe wrapper, so the overlay pays its own margins. Matches the banner's. */
-private val OVERLAY_PADDING = 40.dp
+/** Overscan-safe insets for the full-bleed player; the player route skips the
+ *  TvSafe wrapper, so the guide pays its own margins. PlayerScreen positions
+ *  the shrunken video with these same values, which is what keeps the video
+ *  exactly inside the slot this layout reserves for it. */
+internal val PLAYER_GUIDE_PADDING = 40.dp
+internal val PLAYER_GUIDE_TOP_PADDING = 28.dp
+
+/** The video corner while the guide is open — 16:9, sized so the details
+ *  beside it get a readable column on a 960dp canvas and the grid below keeps
+ *  five channel rows. */
+internal val PLAYER_GUIDE_VIDEO_WIDTH = 332.dp
+internal val PLAYER_GUIDE_VIDEO_HEIGHT = 187.dp
 
 /**
- * The grid guide over live playback: a TiviMate-style scrim overlay — video
- * and audio keep running behind it — so browsing the schedule no longer means
- * leaving the player for the Live TV tab and finding your way back.
+ * The guide embedded around live playback: the video shrinks into the top-left
+ * corner and keeps playing — sound and all — while the focused programme's
+ * details sit beside it and the grid fills the rest of the screen. One
+ * surface, the way every broadcast guide lays it out; not a curtain drawn over
+ * the video.
  *
- * The mini-guide stays for what it is good at (fast zapping down a list); this
- * is the planning surface. Tuning a channel here replaces the zap playlist,
- * same as picking a category in the mini-guide.
+ * The shrinking itself happens in PlayerScreen (the engine's view is resized
+ * to the slot this file reserves); this overlay only draws around it, which is
+ * why its root deliberately has no background — the player's black shows
+ * through everywhere except the video slot.
  *
- * Deliberately does not use the GuidePreview machinery: the player's own
- * engine is already holding a provider connection behind the scrim, and a
- * preview would open a second one — the thing GuidePreview.kt exists to avoid.
+ * Tuning a channel here replaces the zap playlist, same contract as the
+ * mini-guide. No GuidePreview machinery: the player's engine already holds the
+ * provider connection, and a preview would open a second one.
  */
 @Composable
 internal fun PlayerGuideOverlay(
@@ -118,7 +139,7 @@ internal fun PlayerGuideOverlay(
     val dpPerMinute = remember(screenWidth) {
         guideDpPerMinute(
             screenWidth,
-            fixedCosts = OVERLAY_PADDING * 2 + CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP,
+            fixedCosts = PLAYER_GUIDE_PADDING * 2 + CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP,
         )
     }
     val density = LocalDensity.current
@@ -147,18 +168,42 @@ internal fun PlayerGuideOverlay(
     }
 
     Column(
+        // No background: the player's black canvas is the page, and the video
+        // slot below must stay a hole in this layout for the resized engine
+        // view to show through.
         modifier = Modifier
             .fillMaxSize()
-            .background(NuxColors.Scrim)
             .focusGroup()
-            .padding(horizontal = OVERLAY_PADDING, vertical = 28.dp),
+            .padding(
+                start = PLAYER_GUIDE_PADDING,
+                end = PLAYER_GUIDE_PADDING,
+                top = PLAYER_GUIDE_TOP_PADDING,
+                bottom = 24.dp,
+            ),
     ) {
-        OverlayHeader(
-            channel = { focusedChannel },
-            program = { focusedProgram },
-            nowMs = nowTick,
-        )
-        Spacer(Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth().height(PLAYER_GUIDE_VIDEO_HEIGHT),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+        ) {
+            // The video slot. The engine's view is positioned exactly here by
+            // PlayerScreen; this box only draws the hairline that visually
+            // ties it into the layout.
+            Box(
+                modifier = Modifier
+                    .size(PLAYER_GUIDE_VIDEO_WIDTH, PLAYER_GUIDE_VIDEO_HEIGHT)
+                    .border(1.dp, NuxColors.Stroke, RoundedCornerShape(2.dp)),
+            )
+            GuideDetails(
+                // Lambdas, not values: read in this scope they would recompose
+                // the whole overlay — grid included — on every cell the cursor
+                // passes over.
+                channel = { focusedChannel },
+                program = { focusedProgram },
+                nowMs = nowTick,
+                categoryName = categories.firstOrNull { it.id == categoryId }?.name,
+            )
+        }
+        Spacer(Modifier.height(14.dp))
 
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -245,62 +290,119 @@ internal fun PlayerGuideOverlay(
 }
 
 /**
- * One line of orientation over the scrim: the focused programme spelled out,
- * the clock, and the two keys that aren't obvious. Compact on purpose — the
- * grid is the point, and the browse guide's tall header would cost two rows.
+ * The focused programme, described in full beside the still-playing video:
+ * title, span, live progress, synopsis — plus the clock and the two keys that
+ * aren't obvious. The grid can only ever show a truncated title; this is where
+ * the rest of it lives.
  */
 @Composable
-private fun OverlayHeader(
+private fun GuideDetails(
     channel: () -> LiveChannel?,
     program: () -> EpgProgram?,
     nowMs: Long,
+    categoryName: String?,
 ) {
     val timeFmt = rememberClockFormat()
+    val dateFmt = remember { SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault()) }
     val current = channel()
     val currentProgram = program()
 
-    Row(
-        modifier = Modifier.fillMaxWidth().height(52.dp),
-        horizontalArrangement = Arrangement.spacedBy(20.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
+    Row(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = currentProgram?.title ?: current?.name ?: "Guide",
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
                 color = NuxColors.OnSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            val detail = buildString {
-                if (currentProgram != null) {
-                    append(timeFmt.format(Date(currentProgram.startMs)))
-                    append(" – ")
-                    append(timeFmt.format(Date(currentProgram.endMs)))
-                    current?.name?.let { append("  •  ").append(it) }
-                    currentProgram.description?.takeIf { it.isNotBlank() }
-                        ?.let { append("  •  ").append(it) }
-                } else {
-                    current?.name?.let { append(it) }
-                }
-            }
-            if (detail.isNotBlank()) {
+            if (currentProgram != null) {
+                Spacer(Modifier.height(4.dp))
                 Text(
-                    text = detail,
-                    style = MaterialTheme.typography.labelMedium,
+                    text = buildString {
+                        append(timeFmt.format(Date(currentProgram.startMs)))
+                        append(" – ")
+                        append(timeFmt.format(Date(currentProgram.endMs)))
+                        current?.name?.let { append("   •   ").append(it) }
+                    },
+                    style = MaterialTheme.typography.labelLarge,
                     color = NuxColors.OnSurfaceDim,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+
+            // Progress only means something for whatever is on right now.
+            if (currentProgram != null &&
+                nowMs in currentProgram.startMs until currentProgram.endMs
+            ) {
+                Spacer(Modifier.height(8.dp))
+                val span = (currentProgram.endMs - currentProgram.startMs).coerceAtLeast(1)
+                val progress = ((nowMs - currentProgram.startMs).toFloat() / span).coerceIn(0f, 1f)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(220.dp)
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(NuxColors.SurfaceVariant)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(progress)
+                                .background(NuxColors.Primary)
+                        )
+                    }
+                    // Rounded up: integer division reported "0 minutes left"
+                    // for the last minute, beside a bar that wasn't full.
+                    val minutesLeft =
+                        ((currentProgram.endMs - nowMs + 59_999) / 60_000L).coerceAtLeast(0L)
+                    Text(
+                        text = if (minutesLeft == 1L) "1 minute left" else "$minutesLeft minutes left",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = NuxColors.OnSurfaceDim,
+                        maxLines = 1,
+                    )
+                }
+            }
+
+            if (!currentProgram?.description.isNullOrBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = currentProgram?.description.orEmpty(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NuxColors.OnSurfaceDim,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
-        Column(horizontalAlignment = Alignment.End) {
+
+        Column(
+            horizontalAlignment = Alignment.End,
+            modifier = Modifier.widthIn(max = 280.dp).padding(start = 16.dp),
+        ) {
             Text(
-                text = timeFmt.format(Date(nowMs)),
+                text = "${timeFmt.format(Date(nowMs))}  •  ${dateFmt.format(Date(nowMs))}",
                 style = MaterialTheme.typography.labelMedium,
                 color = NuxColors.OnSurface,
+                maxLines = 1,
             )
-            Spacer(Modifier.height(4.dp))
+            if (categoryName != null) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = categoryName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NuxColors.OnSurfaceDim,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
             Text(
                 text = "CH +/− page  •  BACK resume",
                 style = MaterialTheme.typography.labelSmall,

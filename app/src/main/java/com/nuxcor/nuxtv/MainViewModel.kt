@@ -78,10 +78,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val guidePreview: StateFlow<Boolean> = playerPrefs.guidePreview
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    /** Whether Live TV opens on the grid guide (default) or the channel list. */
-    val liveGuideMode: StateFlow<Boolean> = playerPrefs.liveGuideMode
-        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
-
     /** Stream URLs of recently watched live channels, newest first. */
     val recentChannels: StateFlow<List<String>> = playerPrefs.recentChannels
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -626,10 +622,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setGuidePreview(enabled: Boolean) {
         viewModelScope.launch { playerPrefs.setGuidePreview(enabled) }
-    }
-
-    fun setLiveGuideMode(enabled: Boolean) {
-        viewModelScope.launch { playerPrefs.setLiveGuideMode(enabled) }
     }
 
     fun clearRecentChannels() {
