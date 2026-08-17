@@ -491,6 +491,12 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                             digitBuffer += (code - AndroidKeyEvent.KEYCODE_0).toString()
                             true
                         } else false
+                    // BACK must not poke: its KeyDown would raise the controls
+                    // and its KeyUp's back dispatch would then find them open
+                    // and close them again — every press cancelling itself, so
+                    // BACK could never reach onExit() and playback had no way
+                    // out from the remote.
+                    AndroidKeyEvent.KEYCODE_BACK -> false
                     else -> { if (!overlayOpen) poke(); false }
                 }
             }
