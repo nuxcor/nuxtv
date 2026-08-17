@@ -87,28 +87,22 @@ internal fun NavRail(
     railFocus: FocusRequester,
     onRailFocusChanged: (Boolean) -> Unit,
     /**
-     * Off during launch focus-parking: on a cold start the system's default
-     * focus can touch the first rail item (Search) before parking lands on
-     * the selected one, and a live dwell then switched the whole screen to
-     * Search before the viewer pressed anything.
+     * Uptime of the last real key press anywhere on the screen. The dwell
+     * only acts on focus changes that closely follow one: the system also
+     * moves focus by itself (splash dismissal re-runs default placement,
+     * restorers fire), and those moves are indistinguishable from user
+     * travel by timing alone — selecting a tab from them changed the screen
+     * before the viewer pressed anything.
      */
-    dwellEnabled: Boolean = true,
+    lastUserKeyMs: () -> Long,
 ) {
     // Mirrors the caller's copy, which drives the content lane's width.
     var expanded by remember { mutableStateOf(false) }
     // Focus travel selects a tab only after the focus rests briefly, so
     // moving down the rail doesn't compose every tab it passes through.
     var focusedItem by remember { mutableStateOf<HomeTab?>(null) }
-    // The first item focus lands on when the rail GAINS focus never
-    // dwell-selects — only travel within the rail expresses intent. The
-    // system hands out stray initial focus (splash dismissal re-runs the
-    // window's default placement onto the first focusable, Search) and a
-    // live dwell turned that into a tab switch before any keypress.
-    var sessionHadFocus by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    var focusLossJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    LaunchedEffect(focusedItem, dwellEnabled) {
-        if (!dwellEnabled) return@LaunchedEffect
+    LaunchedEffect(focusedItem) {
         val item = focusedItem ?: return@LaunchedEffect
         delay(NuxMotion.FocusDwellMs.toLong())
         onSelect(item)
@@ -142,22 +136,7 @@ internal fun NavRail(
             .onFocusChanged {
                 expanded = it.hasFocus
                 onRailFocusChanged(it.hasFocus)
-                if (it.hasFocus) {
-                    focusLossJob?.cancel()
-                    focusLossJob = null
-                } else {
-                    // Debounced, NOT immediate: moving focus between two rail
-                    // items reports a one-frame hasFocus=false on this parent,
-                    // and a synchronous reset made every hop register as a
-                    // fresh "arrival" — whose snap-back then yanked focus
-                    // straight back to the selected item, freezing rail
-                    // travel entirely. Only a real exit stays lost this long.
-                    focusLossJob = scope.launch {
-                        delay(150)
-                        focusedItem = null // cancel pending select-on-focus
-                        sessionHadFocus = false // next landing is an arrival
-                    }
-                }
+                if (!it.hasFocus) focusedItem = null // cancel pending select-on-focus
             }
             .padding(horizontal = Space.s, vertical = Space.gutterVertical),
         verticalArrangement = Arrangement.spacedBy(Space.xs),
@@ -207,18 +186,15 @@ internal fun NavRail(
                 expanded = expanded,
                 onClick = { onSelect(item) },
                 onItemFocused = {
-                    if (sessionHadFocus) {
+                    val userDriven =
+                        android.os.SystemClock.uptimeMillis() - lastUserKeyMs() < 1_200
+                    if (userDriven) {
                         focusedItem = item
-                    } else {
-                        // Arrival landing: note the session, select nothing —
-                        // and if the system parked it on the wrong item (the
-                        // splash's stray default landed on Search), snap the
-                        // ring to the selected tab so the resting state is
-                        // always honest.
-                        sessionHadFocus = true
-                        if (item != selected) {
-                            scope.launch { runCatching { railFocus.requestFocus() } }
-                        }
+                    } else if (item != selected) {
+                        // A system-driven move (no key behind it): never select
+                        // from it, and put the ring back on the selected tab so
+                        // the resting state stays honest.
+                        scope.launch { runCatching { railFocus.requestFocus() } }
                     }
                 },
                 modifier = if (item == selected) {

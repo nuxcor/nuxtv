@@ -311,15 +311,20 @@ fun GuideTab(
                         )
                     }
                     item(key = "__day__") {
-                        Text(
-                            // Same basis as the ruler: windowStart sits an hour
-                            // earlier and can fall on the previous date.
-                            text = if (dayOffset == 0) "Today"
-                            else dayFmt.format(Date(nowTick + dayOffset * 24 * 3600_000L)),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = NuxColors.OnSurface,
-                            modifier = Modifier.padding(horizontal = 4.dp),
-                        )
+                        // A real control, not a label: it names the day being
+                        // viewed AND pressing it returns to now — today's
+                        // guide, timeline centred on the current programme.
+                        // (It used to be inert text styled like its neighbour
+                        // buttons, which read as a button that does nothing.)
+                        androidx.tv.material3.OutlinedButton(onClick = { jumpToNow() }) {
+                            Text(
+                                // Same basis as the ruler: windowStart sits an
+                                // hour earlier and can fall on the previous date.
+                                text = if (dayOffset == 0) "Today"
+                                else dayFmt.format(Date(nowTick + dayOffset * 24 * 3600_000L)),
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                        }
                     }
                     item(key = "__next__") {
                         DayPagerChevron(
@@ -328,11 +333,6 @@ fun GuideTab(
                             enabled = dayOffset < maxDayOffset,
                             onClick = { if (dayOffset < maxDayOffset) dayOffset++ },
                         )
-                    }
-                    if (dayOffset != 0) {
-                        item(key = "__now__") {
-                            androidx.tv.material3.OutlinedButton(onClick = { jumpToNow() }) { Text("Now") }
-                        }
                     }
                     item(key = "__sep__") { Spacer(Modifier.width(12.dp)) }
                     items(categories, key = { it.id }) { category ->

@@ -22,6 +22,9 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
@@ -84,11 +87,10 @@ fun HomeScreen(
     // from the player it is the content, restored to the row that was focused
     // when the stream started: BACK out of a channel used to land on the rail,
     // several presses from the list it had just left, which is not going back.
-    // The rail's dwell-select stays disarmed until parking has settled: on a
-    // cold start the system's default focus touches the first rail item
-    // before parking wins the race, and a live dwell turned that stray frame
-    // of focus into a full tab switch.
-    var parked by remember { mutableStateOf(false) }
+    // Uptime of the last real key press; the rail's dwell-select only acts
+    // on focus changes that closely follow one, so system-driven focus moves
+    // (the splash dismissal's default placement) can never switch tabs.
+    var lastKeyDownMs by remember { mutableStateOf(0L) }
     LaunchedEffect(Unit) {
         val target = if (hasLaunched) contentFocus else railFocus
         // A long window, deliberately: this races a COLD start, where the
@@ -98,7 +100,6 @@ fun HomeScreen(
             runCatching { railFocus.requestFocus() }
         }
         hasLaunched = true
-        parked = true
     }
 
     BackHandler(enabled = !railFocused) {
@@ -119,7 +120,16 @@ fun HomeScreen(
         label = "railLane",
     )
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    lastKeyDownMs = android.os.SystemClock.uptimeMillis()
+                }
+                false // observe only; never consume
+            },
+    ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -202,7 +212,7 @@ fun HomeScreen(
         onSelect = { tab = it },
         railFocus = railFocus,
         onRailFocusChanged = { railFocused = it; railExpanded = it },
-        dwellEnabled = parked,
+        lastUserKeyMs = { lastKeyDownMs },
     )
     androidx.compose.animation.AnimatedVisibility(
         visible = exitArmed,
