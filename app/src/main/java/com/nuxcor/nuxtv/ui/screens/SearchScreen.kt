@@ -77,7 +77,8 @@ fun SearchTab(
         when {
             query.trim().length < 2 -> StatusPane(
                 title = "Search your library",
-                message = "Type at least two characters to search channels, movies and series.",
+                // The field's own label already names what is searchable.
+                message = "Type at least two characters.",
                 icon = androidx.compose.material.icons.Icons.Default.Search,
             )
 

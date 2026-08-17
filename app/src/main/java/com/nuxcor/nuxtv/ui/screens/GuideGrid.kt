@@ -503,8 +503,11 @@ internal fun TimeRuler(
     val fmt = rememberClockFormat()
     val dayFmt = remember { SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault()) }
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        // The date names the day being VIEWED — on today it duplicated the
+        // header's clock corner an inch away, so it only renders when paging.
+        val viewingToday = dayFmt.format(Date(dayMs)) == dayFmt.format(Date(nowMs))
         Text(
-            text = dayFmt.format(Date(dayMs)),
+            text = if (viewingToday) "" else dayFmt.format(Date(dayMs)),
             style = MaterialTheme.typography.labelMedium,
             color = NuxColors.OnSurface,
             maxLines = 1,
@@ -853,8 +856,11 @@ private fun ProgramCell(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
+                    // Time only. "OK to record" repeated on every future
+                    // cell was the same sentence dozens of times per screen;
+                    // the header teaches it once, for the focused cell.
                     text = fmt.format(Date(program.startMs)) +
-                        (if (airingNow) " • Now" else if (!isPast) (if (canRecord) " • OK to record" else " • OK to remind") else ""),
+                        (if (airingNow) " • Now" else ""),
                     style = MaterialTheme.typography.labelMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

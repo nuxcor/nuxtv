@@ -501,10 +501,21 @@ private fun GuideHeader(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false),
                         )
-                        if (currentProgram != null &&
-                            nowMs in currentProgram.startMs until currentProgram.endMs
-                        ) {
-                            MetaChip("ON NOW", accent = true)
+                        // One contextual chip teaches what OK does to the
+                        // focused programme — the grid's cells stay clean.
+                        if (currentProgram != null) {
+                            when {
+                                nowMs in currentProgram.startMs until currentProgram.endMs ->
+                                    MetaChip("ON NOW", accent = true)
+                                currentProgram.startMs > nowMs ->
+                                    MetaChip(
+                                        if (current?.recordUrl != null) "OK to record"
+                                        else "OK to remind"
+                                    )
+                                (current?.archiveDays ?: 0) > 0 ->
+                                    MetaChip("OK for catch-up")
+                                else -> Unit
+                            }
                         }
                     }
                     if (currentProgram != null) {
@@ -529,10 +540,12 @@ private fun GuideHeader(
                         style = MaterialTheme.typography.labelMedium,
                         color = NuxColors.OnSurface,
                     )
-                    if (playlistName != null || categoryName != null) {
+                    // Playlist only: the active category is already the gold
+                    // chip in the row directly above.
+                    if (playlistName != null) {
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = listOfNotNull(playlistName, categoryName).joinToString("  •  "),
+                            text = playlistName,
                             style = MaterialTheme.typography.labelSmall,
                             color = NuxColors.OnSurfaceDim,
                             maxLines = 1,

@@ -208,7 +208,12 @@ internal fun SettingsTab(
                 if (shownBundle != null) {
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "${shownBundle.channels.size} channels • ${shownBundle.movies.size} movies • ${shownBundle.series.size} series",
+                        // Zero counts are noise on a live-TV-only playlist.
+                        listOfNotNull(
+                            "${shownBundle.channels.size} channels",
+                            shownBundle.movies.size.takeIf { it > 0 }?.let { "$it movies" },
+                            shownBundle.series.size.takeIf { it > 0 }?.let { "$it series" },
+                        ).joinToString(" • "),
                         style = MaterialTheme.typography.bodySmall,
                         color = NuxColors.OnSurfaceDim,
                     )
@@ -347,9 +352,8 @@ internal fun SettingsTab(
             val preview by vm.guidePreview.collectAsState()
             SettingsChoiceRow(
                 title = "Guide preview",
-                description = "Play the focused channel, muted, in the guide's corner. " +
-                    "Uses one of your provider's connections while it runs, " +
-                    "so leave it off if your subscription only allows one.",
+                description = "Plays the focused channel muted in the guide's corner. " +
+                    "Uses one of your provider's connections — leave off on single-connection plans.",
                 options = listOf("Off", "On"),
                 selectedIndex = if (preview) 1 else 0,
                 onSelect = { vm.setGuidePreview(it == 1) },
@@ -390,8 +394,7 @@ internal fun SettingsTab(
             val quality by vm.videoQuality.collectAsState()
             SettingsChoiceRow(
                 title = "Picture quality",
-                description = "Highest is sharper the moment a channel opens, but never drops " +
-                    "when the connection sags — on a weak line that becomes buffering. " +
+                description = "Highest is sharpest but can buffer on a weak line; " +
                     "Auto starts lower and climbs. Only affects streams that offer " +
                     "more than one quality.",
                 options = listOf("Auto", "Highest"),
