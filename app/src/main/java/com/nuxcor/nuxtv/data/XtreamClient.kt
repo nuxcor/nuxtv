@@ -160,7 +160,11 @@ class XtreamClient(
                 id = "live:$id",
                 name = obj.str("name") ?: "Channel $id",
                 logo = obj.str("stream_icon")?.takeIf { it.isNotBlank() },
-                url = "$baseUrl/live/$userP/$passP/$id.m3u8",
+                // The raw MPEG-TS mux, not the panel's .m3u8 endpoint: many
+                // panels serve HLS as a re-segmented (often transcoded and
+                // bitrate-capped) copy of the source, so playing .m3u8 caps
+                // picture quality no matter what the player asks for.
+                url = "$baseUrl/live/$userP/$passP/$id.ts",
                 categoryId = obj.str("category_id"),
                 number = obj.int("num"),
                 epgId = obj.str("epg_channel_id"),
@@ -237,24 +241,22 @@ class XtreamClient(
             )
         }
 
-    /** Loads episodes for a series; tolerates both map-of-seasons and array forms. */
-    suspend fun seriesEpisodes(seriesId: Int): List<Episode> {
-        val root = call("get_series_info", mapOf("series_id" to seriesId.toString())).jsonObject
+    /** Loads episodes for a series; tolerates every container shape panels emit. */
+    suspend fun seriesEpisodes(seriesId: Int): List<Episode> =
+        parseEpisodes(call("get_series_info", mapOf("series_id" to seriesId.toString())))
+
+    internal fun parseEpisodes(rootEl: JsonElement): List<Episode> {
+        val root = rootEl as? JsonObject ?: return emptyList()
         val episodesEl = root["episodes"] ?: return emptyList()
-        val seasonArrays: List<JsonArray> = when (episodesEl) {
-            is JsonObject -> episodesEl.values.mapNotNull { it as? JsonArray }
-            is JsonArray -> episodesEl.mapNotNull { it as? JsonArray }
-            else -> emptyList()
-        }
-        return seasonArrays.flatten().mapNotNull { el ->
-            val obj = el as? JsonObject ?: return@mapNotNull null
-            val id = obj.str("id") ?: obj.int("id")?.toString() ?: return@mapNotNull null
+        return episodeLeaves(episodesEl, seasonKey = null).mapNotNull { (seasonKey, obj) ->
+            val id = obj.str("id") ?: obj.str("episode_id") ?: obj.str("stream_id")
+                ?: return@mapNotNull null
             val ext = obj.str("container_extension")?.takeIf { it.isNotBlank() } ?: "mp4"
             val info = obj["info"] as? JsonObject
             Episode(
                 id = "ep:$id",
                 title = obj.str("title") ?: "Episode",
-                season = obj.int("season") ?: 1,
+                season = obj.int("season") ?: seasonKey ?: 1,
                 episodeNum = obj.int("episode_num") ?: 0,
                 url = "$baseUrl/series/$userP/$passP/$id.$ext",
                 poster = info?.str("movie_image")?.takeIf { it.isNotBlank() },
@@ -262,6 +264,29 @@ class XtreamClient(
             )
         }.sortedWith(compareBy({ it.season }, { it.episodeNum }))
     }
+
+    /**
+     * Panels emit the `episodes` container in at least four shapes:
+     * `{"1":[{…}]}` (map of season → array), `[[{…}]]` (array of arrays),
+     * `[{…}]` (flat array of episode objects), and `{"1":{"1":{…}}}`
+     * (map of season → map of episode-number → object). Walk any of them
+     * and collect (seasonKey, episodeObject) pairs, where seasonKey is the
+     * outermost numeric container key on the path (inner keys are episode
+     * numbers) — the only place some panels record the season at all.
+     */
+    private fun episodeLeaves(el: JsonElement, seasonKey: Int?): List<Pair<Int?, JsonObject>> =
+        when (el) {
+            is JsonObject ->
+                // An episode object is recognised by its id/number fields;
+                // anything else keyed by numbers is a season container.
+                if ("id" in el || "episode_id" in el || "stream_id" in el || "episode_num" in el) {
+                    listOf(seasonKey to el)
+                } else {
+                    el.entries.flatMap { (k, v) -> episodeLeaves(v, seasonKey ?: k.toIntOrNull()) }
+                }
+            is JsonArray -> el.flatMap { episodeLeaves(it, seasonKey) }
+            else -> emptyList()
+        }
 
     /** Enriches a movie with plot/genre/duration from get_vod_info. */
     suspend fun movieDetails(movie: Movie): Movie {
