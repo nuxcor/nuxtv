@@ -8,12 +8,6 @@ import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -34,10 +28,16 @@ class UpdateManager(private val context: Context, private val http: OkHttpClient
         data class Error(val message: String) : State()
     }
 
-    private val json = Json { ignoreUnknownKeys = true }
-
     private companion object {
-        const val LATEST_URL = "https://api.github.com/repos/nuxcor/nuxtv/releases/latest"
+        /**
+         * The website, not api.github.com: the API allows 60 unauthenticated
+         * requests per hour PER IP, shared by everyone behind it — on carrier
+         * NAT the check answered 403 routinely. The web URL redirects to
+         * /releases/tag/vX.Y.Z, which carries everything the check needs, and
+         * is not rate-limited like the API.
+         */
+        const val LATEST_URL = "https://github.com/nuxcor/nuxtv/releases/latest"
+        const val DOWNLOAD_BASE = "https://github.com/nuxcor/nuxtv/releases/download"
 
         /** true when [remote] (e.g. "v2.4.0") is newer than [local] ("2.3.1"). */
         fun isNewer(remote: String, local: String): Boolean {
@@ -58,30 +58,41 @@ class UpdateManager(private val context: Context, private val http: OkHttpClient
 
     suspend fun check(): State = withContext(Dispatchers.IO) {
         runCatching {
+            // Redirects handled by hand: the Location header IS the answer.
+            val probe = http.newBuilder()
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .build()
             val request = Request.Builder()
                 .url(LATEST_URL)
-                .header("Accept", "application/vnd.github+json")
+                .head()
                 .header("User-Agent", "Agoro/${BuildConfig.VERSION_NAME}")
                 .build()
-            http.newCall(request).execute().use { resp ->
-                if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
-                val root = json.parseToJsonElement(resp.body!!.string()).jsonObject
-                val tag = (root["tag_name"] as? JsonPrimitive)?.contentOrNull
-                    ?: throw IOException("No tag in release")
-                val asset = (root["assets"] as? JsonArray)
-                    ?.filterIsInstance<JsonObject>()
-                    ?.firstOrNull {
-                        (it["name"] as? JsonPrimitive)?.contentOrNull?.endsWith(".apk") == true
-                    } ?: throw IOException("No APK in latest release")
-                val url = (asset["browser_download_url"] as? JsonPrimitive)?.contentOrNull
-                    ?: throw IOException("No download URL")
-                val size = (asset["size"] as? JsonPrimitive)?.contentOrNull?.toLongOrNull() ?: 0L
-                if (isNewer(tag, BuildConfig.VERSION_NAME)) {
-                    State.Available(version = tag, apkUrl = url, sizeBytes = size)
-                } else {
-                    State.UpToDate
+            val tag = probe.newCall(request).execute().use { resp ->
+                val location = resp.header("Location")
+                if (resp.code !in 300..399 || location == null) {
+                    throw IOException("HTTP ${resp.code}")
                 }
+                location.substringAfter("/releases/tag/", "")
+                    .substringBefore('?')
+                    .takeIf { it.isNotBlank() }
+                    ?: throw IOException("No release tag")
             }
+            if (!isNewer(tag, BuildConfig.VERSION_NAME)) return@runCatching State.UpToDate
+            // Pinned to the tag, so a release published mid-download can't
+            // swap the file under us. The workflow guarantees a plain
+            // agoro.apk asset on every release.
+            val apkUrl = "$DOWNLOAD_BASE/$tag/agoro.apk"
+            // Size is cosmetic ("(88 MB)" in Settings); a failed HEAD is not
+            // a failed check.
+            val size = runCatching {
+                http.newCall(
+                    Request.Builder().url(apkUrl).head()
+                        .header("User-Agent", "Agoro/${BuildConfig.VERSION_NAME}")
+                        .build()
+                ).execute().use { it.header("Content-Length")?.toLongOrNull() }
+            }.getOrNull() ?: 0L
+            State.Available(version = tag, apkUrl = apkUrl, sizeBytes = size)
         }.getOrElse { e -> State.Error(e.message ?: "Update check failed") }
     }
 
