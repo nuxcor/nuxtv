@@ -49,7 +49,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** Bump when the key map changes so the banner hints re-teach once. */
-private const val KEY_HINTS_VERSION = 2
+private const val KEY_HINTS_VERSION = 3
 
 /**
  * PiP params from the actual decoded size, not an assumed 16:9. The platform
@@ -296,7 +296,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     // live stream starts, so changing channel is never blind.
     //
     // bannerShows also drives the key hints. Nothing on this screen said that
-    // OK opens the channel list, MENU the options or UP/DOWN zap — and a
+    // OK opens the channel options, LEFT the channel list or UP/DOWN zap — and a
     // 10-foot UI has no hover, no tooltip and no menu key to fall back on, so an
     // undocumented model is an undiscoverable one. Shown for the first few
     // banners after a key-map change, then it gets out of the way for good
@@ -640,7 +640,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     channel = channel,
                     isLive = request.isLive,
                     resolution = session.videoSize,
-                    engineName = engine.name,
                     isRecording = activeRecording != null,
                     // Only while the controls are down: with them open the
                     // viewer has already found the thing the hint points at.

@@ -53,7 +53,6 @@ internal fun ChannelBanner(
     channel: LiveChannel?,
     isLive: Boolean,
     resolution: Pair<Int, Int>?,
-    engineName: String,
     isRecording: Boolean,
     showKeyHints: Boolean = false,
 ) {
@@ -171,7 +170,7 @@ internal fun ChannelBanner(
             if (showKeyHints) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "OK Channels  ·  MENU Options  ·  ▲▼ Change channel  ·  INFO Info",
+                    text = "OK Options  ·  ◀ Channels  ·  ▲▼ Change channel  ·  INFO Info",
                     style = MaterialTheme.typography.labelSmall,
                     color = NuxColors.OnSurfaceDim,
                     maxLines = 1,
@@ -206,7 +205,9 @@ internal fun ChannelBanner(
                 if (isRecording) {
                     PlayerBadge(text = "REC", color = NuxColors.Error)
                 }
-                com.nuxcor.nuxtv.ui.components.MetaChip(engineName)
+                // No engine-name chip here: which decoder is playing is
+                // diagnostics, not viewing information — it lives in the
+                // options sheet instead.
             }
         }
     }

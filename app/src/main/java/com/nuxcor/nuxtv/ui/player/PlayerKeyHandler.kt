@@ -23,7 +23,7 @@ internal sealed interface PlayerKeyAction {
     data object ToggleGuide : PlayerKeyAction
     data object OpenChannelList : PlayerKeyAction
 
-    /** The channel options menu (live) — MENU or long-press OK. */
+    /** The channel options menu (live) — OK, MENU, or long-press OK. */
     data object OpenOptions : PlayerKeyAction
 
     /** The tracks/options sheet (VOD) — MENU or long-press OK. */
@@ -63,7 +63,7 @@ internal data class PlayerKeyResult(
  * [PlayerKeyResult.consumed] from its onPreviewKeyEvent.
  *
  * The live no-chrome map, TiviMate-style:
- *   OK → channel list (browse without tuning) · long-OK / MENU → options
+ *   OK → channel options (favorite, etc.) · long-OK / MENU → options
  *   LEFT → channel list · RIGHT → controls · INFO → banner (again → controls)
  *   UP/DOWN & CH± → zap · GUIDE → grid · digits → number tune
  *   LAST_CHANNEL/RED → back to previous · PLAY_PAUSE → pause · BACK → exit
@@ -91,11 +91,15 @@ internal fun playerKeyAction(
     // Zapping stays available from the error card: UP/DOWN onto another
     // channel is the natural way out of a dead stream, and it clears the error.
     val zapFromBare = chromeFree || layer == PlayerLayer.Error
+    // NUMPAD_ENTER and BUTTON_A are what HID-style remotes and gamepads send
+    // for their select key — without them OK does nothing on those devices.
     val isCenter = code == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
-        code == AndroidKeyEvent.KEYCODE_ENTER
+        code == AndroidKeyEvent.KEYCODE_ENTER ||
+        code == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER ||
+        code == AndroidKeyEvent.KEYCODE_BUTTON_A
 
     // OK on bare playback: press arms, hold opens options, release opens the
-    // channel list. Acting on the release is what keeps the two press lengths
+    // channel options. Acting on the release is what keeps the two press lengths
     // distinguishable — and it doubles as the swallow that used to exist
     // here: an unhandled KeyUp would land on whatever the action just
     // focused and activate it immediately.
@@ -121,7 +125,7 @@ internal fun playerKeyAction(
             }
             return PlayerKeyResult(
                 consumed = true,
-                action = if (isLive && hasMultipleItems) PlayerKeyAction.OpenChannelList
+                action = if (isLive) PlayerKeyAction.OpenOptions
                 else PlayerKeyAction.ShowControls,
             )
         }
