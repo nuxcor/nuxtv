@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
@@ -51,9 +52,15 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.nuxcor.nuxtv.AddState
 import com.nuxcor.nuxtv.MainViewModel
+import com.nuxcor.nuxtv.data.PairingServer
 import com.nuxcor.nuxtv.data.PlaylistSource
+import com.nuxcor.nuxtv.ui.components.QrCode
 import com.nuxcor.nuxtv.ui.components.dpadFieldNavigation
+import androidx.compose.animation.togetherWith
+import com.nuxcor.nuxtv.ui.components.NuxFieldDefaults
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import com.nuxcor.nuxtv.ui.theme.NuxMotion
+import com.nuxcor.nuxtv.ui.theme.NuxShape
 import com.nuxcor.nuxtv.ui.theme.NuxFocus
 
 private enum class Step { Choose, Xtream, M3u }
@@ -113,7 +120,7 @@ fun OnboardingScreen(
             .fillMaxSize()
             .background(
                 Brush.radialGradient(
-                    colors = listOf(Color(0xFF2B2413), NuxColors.Background),
+                    colors = listOf(NuxColors.AccentGlow, NuxColors.Background),
                     radius = 1600f,
                 )
             )
@@ -131,38 +138,9 @@ fun OnboardingScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            // The chooser gets the full lockup; forms keep just a small mark
-            // so every field and the Connect button fit on a TV screen.
-            if (step == Step.Choose) {
-                // Same lockup as the launcher banner — mark a little over twice
-                // the cap height, spaced by roughly a third of it — so the first
-                // screen and the tile it was launched from are the same mark.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(18.dp),
-                ) {
-                    // Derived from the wordmark rather than fixed at 64dp: the
-                    // text scales with the TV's font-size setting and the mark
-                    // did not, so the banner's 2.81:1 held only at font scale 1
-                    // and the Row outgrew its width everywhere else. aspectRatio
-                    // keeps ic_logo's own 55:76 instead of a rounded 46:64.
-                    val wordSize = MaterialTheme.typography.headlineLarge.fontSize
-                    val markHeight = with(androidx.compose.ui.platform.LocalDensity.current) {
-                        wordSize.toDp() * 2f
-                    }
-                    androidx.compose.foundation.Image(
-                        painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_logo),
-                        contentDescription = null,
-                        modifier = Modifier.height(markHeight).aspectRatio(55f / 76f),
-                    )
-                    Text(
-                        text = "AGORO",
-                        style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Black),
-                        color = NuxColors.Primary,
-                    )
-                }
-                Spacer(Modifier.height(38.dp))
-            } else {
+            // Forms keep a small mark on top; the chooser carries the full
+            // lockup inside its own left column, so nothing composes above it.
+            if (step != Step.Choose) {
                 androidx.compose.foundation.Image(
                     painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_logo),
                     contentDescription = null,
@@ -186,7 +164,7 @@ fun OnboardingScreen(
             // the screen and pushing the lockup up regardless.
             Column(
                 modifier = Modifier
-                    .widthIn(max = 560.dp)
+                    .widthIn(max = if (step == Step.Choose) 1040.dp else 560.dp)
                     .fillMaxWidth()
                     .weight(1f, fill = false)
                     .verticalScroll(rememberScrollState())
@@ -200,12 +178,28 @@ fun OnboardingScreen(
                     .padding(vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                when (step) {
+                androidx.compose.animation.AnimatedContent(
+                    targetState = step,
+                    transitionSpec = {
+                        androidx.compose.animation.fadeIn(
+                            androidx.compose.animation.core.tween(
+                                NuxMotion.StandardMs, easing = NuxMotion.StandardEasing,
+                            )
+                        ) togetherWith androidx.compose.animation.fadeOut(
+                            androidx.compose.animation.core.tween(
+                                NuxMotion.FastMs, easing = NuxMotion.ExitEasing,
+                            )
+                        )
+                    },
+                    label = "onboardingStep",
+                ) { currentStep ->
+                when (currentStep) {
                     Step.Choose -> ChooseStep(
                         vm = vm,
                         cancellable = cancellable,
                         onXtream = { vm.resetAddState(); step = Step.Xtream },
                         onCancel = onCancel,
+                        onDone = onDone,
                     )
 
                     Step.Xtream -> XtreamForm(
@@ -247,6 +241,7 @@ fun OnboardingScreen(
                         },
                     )
                 }
+                }
             }
         }
     }
@@ -258,62 +253,158 @@ private fun ChooseStep(
     cancellable: Boolean,
     onXtream: () -> Unit,
     onCancel: () -> Unit,
+    onDone: () -> Unit,
 ) {
     // Nothing held focus when this screen opened — the forms below request it
     // but the chooser never did, so the first press of the D-pad went wherever
     // Compose decided and until then the screen looked inert.
-    val firstCard = remember { androidx.compose.ui.focus.FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { firstCard.requestFocus() } }
+    val firstFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
 
-    Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        // No heading, no standfirst. The card says Xtream Codes and names the
-        // three things it wants; a title saying "Add your playlist" above one
-        // card said nothing the card didn't, and it was two of the lines
-        // competing for a screen that had none to spare.
-        //
-        // Playlists already added as M3U keep working and stay editable through
-        // their own form — this is only how a new one is added.
-        SourceOptionCard(
-            title = "Xtream Codes",
-            subtitle = "Server URL, username and password",
-            icon = Icons.Default.Dns,
-            onClick = onXtream,
-            modifier = Modifier.fillMaxWidth().focusRequester(firstCard),
-        )
-        Spacer(Modifier.height(26.dp))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-        ) {
-            if (cancellable) {
-                OutlinedButton(onClick = onCancel) { Text("Cancel") }
-            }
-            // Updates don't need a playlist or an account — reachable here so a
-            // first-run user never has to sideload again. Kept quiet: it is
-            // maintenance, and it was sitting level with the only two controls
-            // this screen exists to offer.
-            val update by vm.updateState.collectAsState()
-            OutlinedButton(onClick = {
-                when (update) {
-                    is com.nuxcor.nuxtv.data.UpdateManager.State.Available,
-                    is com.nuxcor.nuxtv.data.UpdateManager.State.Ready ->
-                        vm.downloadAndInstallUpdate()
-                    is com.nuxcor.nuxtv.data.UpdateManager.State.Downloading,
-                    is com.nuxcor.nuxtv.data.UpdateManager.State.Checking -> Unit
-                    else -> vm.checkForUpdates()
+    // Phone-assisted sign-in: the server lives exactly as long as this step —
+    // its DisposableEffect stops it when a form opens or the screen leaves.
+    val pairing = remember {
+        PairingServer { name, server, user, pass ->
+            vm.addXtream(name, server, user, pass, onSuccess = onDone)
+        }
+    }
+    var pairingUrl by remember { mutableStateOf<String?>(null) }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        pairingUrl = pairing.start()
+        onDispose { pairing.stop() }
+    }
+    val addState = vm.addState
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(56.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            // Same lockup as the launcher banner — mark a little over twice
+            // the cap height — so the first screen and the tile it launched
+            // from are the same mark. Height derives from the wordmark so it
+            // tracks the TV's font-size setting; aspectRatio keeps ic_logo's
+            // own 55:76.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                val wordSize = MaterialTheme.typography.headlineLarge.fontSize
+                val markHeight = with(androidx.compose.ui.platform.LocalDensity.current) {
+                    wordSize.toDp() * 2f
                 }
-            }) {
+                androidx.compose.foundation.Image(
+                    painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_logo),
+                    contentDescription = null,
+                    modifier = Modifier.height(markHeight).aspectRatio(55f / 76f),
+                )
                 Text(
-                    when (val u = update) {
-                        is com.nuxcor.nuxtv.data.UpdateManager.State.Available -> "Update to ${u.version}"
-                        is com.nuxcor.nuxtv.data.UpdateManager.State.Ready -> "Install update"
-                        is com.nuxcor.nuxtv.data.UpdateManager.State.Downloading -> "Downloading… ${u.progressPercent}%"
-                        is com.nuxcor.nuxtv.data.UpdateManager.State.Checking -> "Checking…"
-                        is com.nuxcor.nuxtv.data.UpdateManager.State.UpToDate -> "Up to date"
-                        else -> "Check for updates"
-                    }
+                    text = "AGORO",
+                    style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Black),
+                    color = NuxColors.Primary,
                 )
             }
+            Spacer(Modifier.height(26.dp))
+            Text(
+                text = if (pairingUrl != null) "Sign in from your phone"
+                else "Connect your provider",
+                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = NuxColors.OnSurface,
+            )
+            if (pairingUrl != null) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = "Scan the code with your phone's camera.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NuxColors.OnSurfaceDim,
+                )
+            }
+            // The phone flow reports here: this screen stays up while the
+            // provider is checked, so its progress and errors must be visible
+            // on the TV, not just implied on the phone.
+            when (addState) {
+                is AddState.Loading -> {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "Connecting to your provider…",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = NuxColors.Secondary,
+                    )
+                }
+                is AddState.Error -> {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = addState.message,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = NuxColors.Error,
+                    )
+                }
+                else -> Unit
+            }
+            Spacer(Modifier.height(26.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(
+                    onClick = onXtream,
+                    modifier = Modifier.focusRequester(firstFocus),
+                ) { Text("Enter on TV instead") }
+                if (cancellable) {
+                    OutlinedButton(onClick = onCancel) { Text("Cancel") }
+                }
+                // Updates don't need a playlist or an account — reachable here
+                // so a first-run user never has to sideload again.
+                val update by vm.updateState.collectAsState()
+                OutlinedButton(onClick = {
+                    when (update) {
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Available,
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Ready ->
+                            vm.downloadAndInstallUpdate()
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Downloading,
+                        is com.nuxcor.nuxtv.data.UpdateManager.State.Checking -> Unit
+                        else -> vm.checkForUpdates()
+                    }
+                }) {
+                    Text(
+                        when (val u = update) {
+                            is com.nuxcor.nuxtv.data.UpdateManager.State.Available -> "Update to ${u.version}"
+                            is com.nuxcor.nuxtv.data.UpdateManager.State.Ready -> "Install update"
+                            is com.nuxcor.nuxtv.data.UpdateManager.State.Downloading -> "Downloading… ${u.progressPercent}%"
+                            is com.nuxcor.nuxtv.data.UpdateManager.State.Checking -> "Checking…"
+                            is com.nuxcor.nuxtv.data.UpdateManager.State.UpToDate -> "Up to date"
+                            else -> "Check for updates"
+                        }
+                    )
+                }
+            }
+        }
+
+        val url = pairingUrl
+        if (url != null) {
+            // The QR is the hero: a white tile, because a QR needs light
+            // ground and dark modules to scan — the one place the charcoal
+            // theme steps aside.
+            Box(
+                modifier = Modifier
+                    .size(236.dp)
+                    .clip(NuxShape.Card)
+                    .background(Color.White)
+                    .padding(16.dp),
+            ) {
+                QrCode(
+                    data = url,
+                    contentDescription = "Sign-in QR code",
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        } else {
+            // No LAN address (no network yet): the manual card is the flow.
+            SourceOptionCard(
+                title = "Xtream Codes",
+                subtitle = "Server URL, username and password",
+                icon = Icons.Default.Dns,
+                onClick = onXtream,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }
@@ -336,7 +427,7 @@ private fun SourceOptionCard(
     Surface(
         onClick = onClick,
         modifier = modifier,
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(18.dp)),
+        shape = ClickableSurfaceDefaults.shape(NuxShape.Card),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = NuxColors.Surface,
             focusedContainerColor = NuxColors.SurfaceRaised,
@@ -349,19 +440,25 @@ private fun SourceOptionCard(
         border = ClickableSurfaceDefaults.border(
             border = androidx.tv.material3.Border(
                 androidx.compose.foundation.BorderStroke(1.dp, NuxColors.Stroke),
-                shape = RoundedCornerShape(18.dp),
+                shape = NuxShape.Card,
             ),
-            focusedBorder = NuxFocus.ring18,
+            focusedBorder = NuxFocus.ring16,
         ),
     ) {
-        Column(
+        // Horizontal: icon chip, then the text, then an affordance chevron.
+        // The old stacked layout (icon above text) was shaped for a grid of
+        // two cards; alone at 560dp it left a field of dead space beside the
+        // floating icon.
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 26.dp, vertical = 24.dp),
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Box(
                 modifier = Modifier
-                    .size(54.dp)
+                    .size(46.dp)
                     .clip(CircleShape)
                     .background(NuxColors.Primary.copy(alpha = 0.14f)),
                 contentAlignment = Alignment.Center,
@@ -373,16 +470,24 @@ private fun SourceOptionCard(
                     modifier = Modifier.size(27.dp),
                 )
             }
-            Spacer(Modifier.height(20.dp))
-            Text(
-                title,
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = NuxColors.OnSurfaceDim,
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NuxColors.OnSurfaceDim,
+                )
+            }
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = NuxColors.OnSurfaceDim,
+                modifier = Modifier.size(28.dp),
             )
         }
     }
@@ -540,16 +645,6 @@ private fun NuxTextField(
             // TV remotes navigate fields with the D-pad; the m3 TextField
             // swallows those keys by default. Down advances the form.
             .dpadFieldNavigation(onDown = advance),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedTextColor = NuxColors.OnSurface,
-            unfocusedTextColor = NuxColors.OnSurface,
-            focusedContainerColor = NuxColors.Surface,
-            unfocusedContainerColor = NuxColors.Surface.copy(alpha = 0.6f),
-            focusedBorderColor = NuxColors.Primary,
-            unfocusedBorderColor = NuxColors.SurfaceVariant,
-            focusedLabelColor = NuxColors.Primary,
-            unfocusedLabelColor = NuxColors.OnSurfaceDim,
-            cursorColor = NuxColors.Primary,
-        ),
+        colors = NuxFieldDefaults.colors(),
     )
 }

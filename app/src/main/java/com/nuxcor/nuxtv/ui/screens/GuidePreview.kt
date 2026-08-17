@@ -92,8 +92,13 @@ fun rememberGuidePreview(engineChoice: EngineChoice, highestQuality: Boolean): G
     // setting changed still constructing engines with the old value.
     val controller = remember(engineChoice, highestQuality) {
         GuidePreviewController {
-            if (engineChoice == EngineChoice.VLC) VlcEngine(context, highestQuality)
-            else ExoEngine(context)
+            // requestAudioFocus = false: a muted preview must never steal
+            // audio focus or transport keys from whatever is actually playing.
+            if (engineChoice == EngineChoice.VLC) {
+                VlcEngine(context, highestQuality, requestAudioFocus = false)
+            } else {
+                ExoEngine(context, requestAudioFocus = false)
+            }
         }
     }
     DisposableEffect(controller) { onDispose { controller.release() } }

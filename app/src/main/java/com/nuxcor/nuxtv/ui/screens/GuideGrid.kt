@@ -57,6 +57,7 @@ import com.nuxcor.nuxtv.data.LiveChannel
 import com.nuxcor.nuxtv.ui.components.Artwork
 import com.nuxcor.nuxtv.ui.components.rememberClockFormat
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import com.nuxcor.nuxtv.ui.theme.NuxShape
 import com.nuxcor.nuxtv.ui.theme.Space
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -580,7 +581,7 @@ private fun GuideRow(
                         )
                     }
                 },
-            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+            shape = ClickableSurfaceDefaults.shape(NuxShape.Chip),
             colors = ClickableSurfaceDefaults.colors(
                 // The gold tint marks the channel the player is tuned to — the
                 // overlay's "you are here". Same treatment as a selected
@@ -605,7 +606,7 @@ private fun GuideRow(
             border = ClickableSurfaceDefaults.border(
                 border = androidx.tv.material3.Border(
                     androidx.compose.foundation.BorderStroke(1.dp, NuxColors.Stroke),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = NuxShape.Chip,
                 ),
                 focusedBorder = com.nuxcor.nuxtv.ui.theme.NuxFocus.ring8,
             ),
@@ -618,7 +619,7 @@ private fun GuideRow(
                 Artwork(
                     imageUrl = channel.logo,
                     title = channel.name,
-                    modifier = Modifier.size(width = 64.dp, height = 40.dp).clip(RoundedCornerShape(8.dp)),
+                    modifier = Modifier.size(width = 64.dp, height = 40.dp).clip(NuxShape.Chip),
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                     monogramStyle = MaterialTheme.typography.labelMedium,
                 )
@@ -664,7 +665,7 @@ private fun GuideRow(
                         .padding(end = 2.dp, top = 6.dp, bottom = 6.dp),
                     // 8dp like the programme cells beside it, so one ring token
                     // serves the whole lane.
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    shape = ClickableSurfaceDefaults.shape(NuxShape.Chip),
                     colors = ClickableSurfaceDefaults.colors(
                         containerColor = NuxColors.Surface.copy(alpha = 0.35f),
                         focusedContainerColor = NuxColors.SurfaceRaised,
@@ -757,14 +758,14 @@ private fun ProgramCell(
             .width(dpPerMinute * widthMinutes)
             .height(ROW_HEIGHT)
             .padding(end = 2.dp, top = 6.dp, bottom = 6.dp),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+        shape = ClickableSurfaceDefaults.shape(NuxShape.Chip),
         scale = ClickableSurfaceDefaults.scale(
             focusedScale = com.nuxcor.nuxtv.ui.theme.NuxFocus.RowScale,
         ),
         border = ClickableSurfaceDefaults.border(
             border = androidx.tv.material3.Border(
                 androidx.compose.foundation.BorderStroke(1.dp, NuxColors.Stroke),
-                shape = RoundedCornerShape(8.dp),
+                shape = NuxShape.Chip,
             ),
             focusedBorder = com.nuxcor.nuxtv.ui.theme.NuxFocus.ring8,
         ),

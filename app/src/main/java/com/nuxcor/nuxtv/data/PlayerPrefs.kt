@@ -50,6 +50,12 @@ class PlayerPrefs(private val context: Context) {
     private val videoQualityKey = stringPreferencesKey("video_quality")
     private val recentChannelsKey = stringPreferencesKey("recent_channels")
     private val guidePreviewKey = stringPreferencesKey("guide_preview")
+    private val aspectModeKey = stringPreferencesKey("aspect_mode")
+    private val aspectOverridesKey = stringPreferencesKey("aspect_overrides")
+    private val audioLangKey = stringPreferencesKey("preferred_audio_lang")
+    private val subtitleLangKey = stringPreferencesKey("preferred_subtitle_lang")
+    private val vodSpeedKey = stringPreferencesKey("vod_speed")
+    private val keyHintsVersionKey = stringPreferencesKey("key_hints_version")
 
     val engine: Flow<EngineChoice> = context.playerDataStore.data.map { prefs ->
         runCatching { EngineChoice.valueOf(prefs[engineKey] ?: "EXO") }.getOrDefault(EngineChoice.EXO)
@@ -260,6 +266,90 @@ class PlayerPrefs(private val context: Context) {
         context.playerDataStore.edit { it[videoQualityKey] = mode.toString() }
     }
 
+    // --- player picture/audio memory ------------------------------------------
+    // What the viewer sets in the player's options sheet used to evaporate on
+    // exit; these keep it. Aspect is a global default plus per-channel
+    // overrides (a 4:3 archive channel wants Stretch; nothing else does).
+
+    /** 0 = fit, 1 = stretch, 2 = zoom — the default for streams with no override. */
+    val aspectMode: Flow<Int> = context.playerDataStore.data.map { prefs ->
+        prefs[aspectModeKey]?.toIntOrNull() ?: 0
+    }
+
+    suspend fun setAspectMode(mode: Int) {
+        context.playerDataStore.edit { it[aspectModeKey] = mode.toString() }
+    }
+
+    /** The aspect mode for [url]: its override if set, else the global default. */
+    suspend fun aspectModeFor(url: String): Int {
+        val prefs = context.playerDataStore.data.first()
+        val overrides = prefs[aspectOverridesKey]?.let {
+            runCatching { json.decodeFromString<Map<String, Int>>(it) }.getOrNull()
+        } ?: emptyMap()
+        return overrides[url] ?: prefs[aspectModeKey]?.toIntOrNull() ?: 0
+    }
+
+    /** Remembers an aspect override per stream URL. Keeps the newest 200. */
+    suspend fun setAspectOverride(url: String, mode: Int) {
+        context.playerDataStore.edit { prefs ->
+            val map = prefs[aspectOverridesKey]?.let {
+                runCatching { json.decodeFromString<LinkedHashMap<String, Int>>(it) }.getOrNull()
+            } ?: LinkedHashMap()
+            map.remove(url) // re-inserting moves the entry to the newest slot
+            map[url] = mode
+            val trimmed =
+                if (map.size > 200) map.entries.drop(map.size - 200).associate { it.toPair() }
+                else map
+            prefs[aspectOverridesKey] = json.encodeToString(trimmed)
+        }
+    }
+
+    /** Language code or name from the last audio track the viewer picked. */
+    val preferredAudioLanguage: Flow<String?> = context.playerDataStore.data.map { prefs ->
+        prefs[audioLangKey]?.takeIf { it.isNotBlank() }
+    }
+
+    suspend fun setPreferredAudioLanguage(language: String?) {
+        context.playerDataStore.edit { prefs ->
+            if (language.isNullOrBlank()) prefs.remove(audioLangKey)
+            else prefs[audioLangKey] = language
+        }
+    }
+
+    /** Preferred subtitle language; null means "off unless asked". */
+    val preferredSubtitleLanguage: Flow<String?> = context.playerDataStore.data.map { prefs ->
+        prefs[subtitleLangKey]?.takeIf { it.isNotBlank() }
+    }
+
+    suspend fun setPreferredSubtitleLanguage(language: String?) {
+        context.playerDataStore.edit { prefs ->
+            if (language.isNullOrBlank()) prefs.remove(subtitleLangKey)
+            else prefs[subtitleLangKey] = language
+        }
+    }
+
+    /** Playback speed for VOD; live always plays at 1x. */
+    val vodSpeed: Flow<Float> = context.playerDataStore.data.map { prefs ->
+        prefs[vodSpeedKey]?.toFloatOrNull() ?: 1f
+    }
+
+    suspend fun setVodSpeed(speed: Float) {
+        context.playerDataStore.edit { it[vodSpeedKey] = speed.toString() }
+    }
+
+    /**
+     * The key-map generation whose banner hints this install has already been
+     * shown. The player bumps its own constant when the key model changes, so
+     * the hints re-teach once and then retire — across sessions, not per one.
+     */
+    val keyHintsVersion: Flow<Int> = context.playerDataStore.data.map { prefs ->
+        prefs[keyHintsVersionKey]?.toIntOrNull() ?: 0
+    }
+
+    suspend fun setKeyHintsVersion(version: Int) {
+        context.playerDataStore.edit { it[keyHintsVersionKey] = version.toString() }
+    }
+
     val parentalPin: Flow<String?> = context.playerDataStore.data.map { prefs ->
         prefs[pinKey]?.takeIf { it.isNotBlank() }
     }
@@ -286,6 +376,12 @@ class PlayerPrefs(private val context: Context) {
         val channelOrder: Int = 0,
         val schedules: List<ScheduledRecording> = emptyList(),
         val sources: List<PlaylistSource> = emptyList(),
+        // Defaulted so backups written before these existed still restore.
+        val aspectMode: Int = 0,
+        val aspectOverrides: Map<String, Int> = emptyMap(),
+        val preferredAudioLang: String? = null,
+        val preferredSubtitleLang: String? = null,
+        val vodSpeed: Float = 1f,
     )
 
     suspend fun snapshot(sources: List<PlaylistSource>): String {
@@ -306,6 +402,13 @@ class PlayerPrefs(private val context: Context) {
                 runCatching { json.decodeFromString<List<ScheduledRecording>>(it) }.getOrNull()
             } ?: emptyList(),
             sources = sources,
+            aspectMode = prefs[aspectModeKey]?.toIntOrNull() ?: 0,
+            aspectOverrides = prefs[aspectOverridesKey]?.let {
+                runCatching { json.decodeFromString<Map<String, Int>>(it) }.getOrNull()
+            } ?: emptyMap(),
+            preferredAudioLang = prefs[audioLangKey]?.takeIf { it.isNotBlank() },
+            preferredSubtitleLang = prefs[subtitleLangKey]?.takeIf { it.isNotBlank() },
+            vodSpeed = prefs[vodSpeedKey]?.toFloatOrNull() ?: 1f,
         )
         return json.encodeToString(backup)
     }
@@ -322,6 +425,13 @@ class PlayerPrefs(private val context: Context) {
             prefs[mergeDupesKey] = backup.mergeDuplicates.toString()
             prefs[channelOrderKey] = backup.channelOrder.toString()
             prefs[schedulesKey] = json.encodeToString(backup.schedules)
+            prefs[aspectModeKey] = backup.aspectMode.toString()
+            prefs[aspectOverridesKey] = json.encodeToString(backup.aspectOverrides)
+            backup.preferredAudioLang?.let { prefs[audioLangKey] = it }
+                ?: prefs.remove(audioLangKey)
+            backup.preferredSubtitleLang?.let { prefs[subtitleLangKey] = it }
+                ?: prefs.remove(subtitleLangKey)
+            prefs[vodSpeedKey] = backup.vodSpeed.toString()
         }
         return backup.sources
     }

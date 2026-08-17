@@ -2,7 +2,6 @@
 
 package com.nuxcor.nuxtv.ui.components
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
@@ -57,16 +56,15 @@ import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import com.nuxcor.nuxtv.ui.theme.NuxBorders
+import com.nuxcor.nuxtv.ui.theme.NuxMotion
+import com.nuxcor.nuxtv.ui.theme.NuxShape
 import com.nuxcor.nuxtv.ui.theme.NuxFocus
 import com.nuxcor.nuxtv.ui.theme.Space
 
-private val CardShape = RoundedCornerShape(16.dp)
-private val ChipShape = RoundedCornerShape(8.dp)
-
-// Hoisted: these are immutable value holders. Allocating them per item per
-// recomposition is the classic scroll-stutter source on TV hardware.
-private val CardStroke = BorderStroke(1.dp, NuxColors.Stroke)
-private val RestingBorder = Border(CardStroke, shape = CardShape)
+private val CardShape = NuxShape.Card
+private val ChipShape = NuxShape.Chip
+private val RestingBorder = NuxBorders.restingCard
 
 /**
  * Clock format honouring Android's "Use 24-hour format" toggle.
@@ -155,7 +153,7 @@ fun Artwork(
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
                         .data(imageUrl)
-                        .crossfade(220)
+                        .crossfade(NuxMotion.ImageCrossfadeMs)
                         .build(),
                     contentDescription = title,
                     contentScale = contentScale,
@@ -267,12 +265,17 @@ fun Modifier.itemEntrance(index: Int, listStartedAtMs: Long): Modifier {
     val progress = remember { androidx.compose.animation.core.Animatable(if (animate) 0f else 1f) }
     LaunchedEffect(Unit) {
         if (!animate) return@LaunchedEffect
-        kotlinx.coroutines.delay((index.coerceAtMost(8) * 28).toLong())
-        progress.animateTo(1f, androidx.compose.animation.core.tween(260))
+        kotlinx.coroutines.delay(
+            (index.coerceAtMost(NuxMotion.StaggerCap) * NuxMotion.StaggerStepMs).toLong()
+        )
+        progress.animateTo(
+            1f,
+            androidx.compose.animation.core.tween(NuxMotion.StandardMs, easing = NuxMotion.StandardEasing),
+        )
     }
     return this.graphicsLayer {
         alpha = progress.value
-        translationY = (1f - progress.value) * 24f
+        translationY = (1f - progress.value) * NuxMotion.EntranceRise.toPx()
     }
 }
 
@@ -327,7 +330,7 @@ fun WideItem(
                     modifier = Modifier
                         .width(4.dp)
                         .height(40.dp)
-                        .clip(RoundedCornerShape(2.dp))
+                        .clip(NuxShape.Track)
                         .background(NuxColors.Primary)
                 )
             }
@@ -366,7 +369,7 @@ fun WideItem(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(3.dp)
-                            .clip(RoundedCornerShape(2.dp))
+                            .clip(NuxShape.Track)
                             .background(Color.White.copy(alpha = 0.2f))
                     ) {
                         Box(
@@ -454,35 +457,6 @@ fun SectionTitle(text: String, count: Int? = null, modifier: Modifier = Modifier
     }
 }
 
-@Composable
-fun CenteredMessage(
-    title: String,
-    subtitle: String? = null,
-    loading: Boolean = false,
-) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            if (loading) {
-                CircularProgressIndicator(color = NuxColors.Primary, modifier = Modifier.size(32.dp))
-                Spacer(Modifier.height(Space.l))
-            }
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                color = NuxColors.OnSurface,
-            )
-            if (subtitle != null) {
-                Spacer(Modifier.height(Space.s))
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = NuxColors.OnSurfaceDim,
-                )
-            }
-        }
-    }
-}
-
 /** Full-screen PIN prompt for parental-locked content. */
 @Composable
 fun PinPrompt(
@@ -493,21 +467,11 @@ fun PinPrompt(
     var error by remember { mutableStateOf(false) }
     val fieldFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { fieldFocus.requestFocus() } }
-    androidx.activity.compose.BackHandler(onBack = onDismiss)
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(NuxColors.Scrim),
-        contentAlignment = Alignment.Center,
+    DialogScaffold(
+        onDismiss = onDismiss,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier
-                .clip(RoundedCornerShape(20.dp))
-                .background(NuxColors.Surface)
-                .border(1.dp, NuxColors.Stroke, RoundedCornerShape(20.dp))
-                .padding(Space.xl),
-        ) {
+        run {
             Text("Enter PIN", style = MaterialTheme.typography.titleLarge, color = NuxColors.OnSurface)
             if (error) {
                 Spacer(Modifier.height(Space.xs))
@@ -558,21 +522,12 @@ fun ContextMenu(
 ) {
     val firstFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
-    androidx.activity.compose.BackHandler(onBack = onDismiss)
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(NuxColors.Scrim)
-            .focusGroup(),
-        contentAlignment = Alignment.Center,
+    DialogScaffold(
+        onDismiss = onDismiss,
+        width = 420.dp,
+        padding = Space.l,
     ) {
         Column(
-            modifier = Modifier
-                .width(420.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(NuxColors.Surface)
-                .border(1.dp, NuxColors.Stroke, RoundedCornerShape(20.dp))
-                .padding(Space.l),
             verticalArrangement = Arrangement.spacedBy(Space.s),
         ) {
             Text(
@@ -591,7 +546,7 @@ fun ContextMenu(
                     } else {
                         Modifier.fillMaxWidth()
                     },
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                    shape = ClickableSurfaceDefaults.shape(NuxShape.Row),
                     colors = ClickableSurfaceDefaults.colors(
                         containerColor = NuxColors.SurfaceVariant,
                         focusedContainerColor = NuxColors.SurfaceRaised,
@@ -626,23 +581,12 @@ fun PlaylistOptionsDialog(
 ) {
     val editFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { editFocus.requestFocus() } }
-    androidx.activity.compose.BackHandler(onBack = onDismiss)
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(NuxColors.Scrim)
-            .focusGroup(),
-        contentAlignment = Alignment.Center,
+    DialogScaffold(
+        onDismiss = onDismiss,
+        width = 460.dp,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(
-            modifier = Modifier
-                .width(460.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(NuxColors.Surface)
-                .border(1.dp, NuxColors.Stroke, RoundedCornerShape(20.dp))
-                .padding(Space.xl),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
+        run {
             Text(name, style = MaterialTheme.typography.titleLarge, color = NuxColors.OnSurface)
             Spacer(Modifier.height(Space.s))
             Text(
@@ -674,23 +618,12 @@ fun ConfirmDialog(
 ) {
     val cancelFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { cancelFocus.requestFocus() } }
-    androidx.activity.compose.BackHandler(onBack = onDismiss)
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(NuxColors.Scrim)
-            .focusGroup(),
-        contentAlignment = Alignment.Center,
+    DialogScaffold(
+        onDismiss = onDismiss,
+        width = 460.dp,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(
-            modifier = Modifier
-                .width(460.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(NuxColors.Surface)
-                .border(1.dp, NuxColors.Stroke, RoundedCornerShape(20.dp))
-                .padding(Space.xl),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
+        run {
             Text(title, style = MaterialTheme.typography.titleLarge, color = NuxColors.OnSurface)
             if (message != null) {
                 Spacer(Modifier.height(Space.s))
@@ -736,22 +669,11 @@ fun TextInputDialog(
     var value by remember { mutableStateOf(initialValue) }
     val fieldFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { fieldFocus.requestFocus() } }
-    androidx.activity.compose.BackHandler(onBack = onDismiss)
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(NuxColors.Scrim)
-            .focusGroup(),
-        contentAlignment = Alignment.Center,
+    DialogScaffold(
+        onDismiss = onDismiss,
+        width = 620.dp,
     ) {
-        Column(
-            modifier = Modifier
-                .width(620.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(NuxColors.Surface)
-                .border(1.dp, NuxColors.Stroke, RoundedCornerShape(20.dp))
-                .padding(Space.xl),
-        ) {
+        run {
             Text(title, style = MaterialTheme.typography.titleLarge, color = NuxColors.OnSurface)
             if (message != null) {
                 Spacer(Modifier.height(Space.s))
@@ -774,17 +696,7 @@ fun TextInputDialog(
                 } else {
                     androidx.compose.ui.text.input.VisualTransformation.None
                 },
-                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = NuxColors.OnSurface,
-                    unfocusedTextColor = NuxColors.OnSurface,
-                    focusedContainerColor = NuxColors.SurfaceVariant,
-                    unfocusedContainerColor = NuxColors.SurfaceVariant,
-                    focusedBorderColor = NuxColors.Primary,
-                    unfocusedBorderColor = NuxColors.Stroke,
-                    focusedLabelColor = NuxColors.Primary,
-                    unfocusedLabelColor = NuxColors.OnSurfaceDim,
-                    cursorColor = NuxColors.Primary,
-                ),
+                colors = NuxFieldDefaults.colors(),
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(fieldFocus)
@@ -819,7 +731,7 @@ fun SegmentedControl(
             val selected = index == selectedIndex
             Surface(
                 onClick = { onSelect(index) },
-                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                shape = ClickableSurfaceDefaults.shape(NuxShape.Row),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = if (selected) NuxColors.Primary.copy(alpha = 0.18f)
                     else NuxColors.Surface,

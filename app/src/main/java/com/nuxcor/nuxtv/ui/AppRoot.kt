@@ -22,7 +22,7 @@ import com.nuxcor.nuxtv.MainViewModel
 import com.nuxcor.nuxtv.ui.screens.HomeScreen
 import com.nuxcor.nuxtv.ui.screens.MovieDetailScreen
 import com.nuxcor.nuxtv.ui.screens.OnboardingScreen
-import com.nuxcor.nuxtv.ui.screens.PlayerScreen
+import com.nuxcor.nuxtv.ui.player.PlayerScreen
 import com.nuxcor.nuxtv.ui.screens.SeriesDetailScreen
 import com.nuxcor.nuxtv.ui.theme.NuxColors
 import com.nuxcor.nuxtv.ui.theme.Space

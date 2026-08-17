@@ -26,6 +26,12 @@ data class Track(
      * track leaves the viewer with no picture quality and no reason.
      */
     val supported: Boolean = true,
+    /**
+     * The track's language as the engine reports it — a code ("en", "eng") or
+     * a spelled-out name, or null when the stream doesn't say. Used to apply
+     * and persist the viewer's preferred audio/subtitle language.
+     */
+    val language: String? = null,
 )
 
 /**
@@ -50,10 +56,30 @@ fun qualityLabel(width: Int, height: Int, bitrate: Int = -1): String {
 interface PlayerEngine {
     val name: String
 
+    /**
+     * Transport-key intents from system surfaces (media session, CEC,
+     * assistant). When set, they route through the owning session — which
+     * knows about live stale-buffer rejoin — instead of hitting the raw
+     * engine. Null (the default, e.g. the muted guide preview) falls back to
+     * the engine's own playPause.
+     */
+    var onTransportPlay: (() -> Unit)?
+    var onTransportPause: (() -> Unit)?
+
     /** The video surface this engine renders into. Created once per engine instance. */
     fun createView(context: Context): View
 
-    fun prepare(items: List<PlayableItem>, startIndex: Int, startPositionMs: Long = 0L)
+    /**
+     * @param isLive Live streams have no legitimate end: an end-of-stream
+     * signal on one is a dropped connection and is reported through
+     * [Listener.onError] so recovery can run, not as a quiet pause.
+     */
+    fun prepare(
+        items: List<PlayableItem>,
+        startIndex: Int,
+        startPositionMs: Long = 0L,
+        isLive: Boolean = false,
+    )
     fun playPause()
     fun seekTo(positionMs: Long)
     fun next()

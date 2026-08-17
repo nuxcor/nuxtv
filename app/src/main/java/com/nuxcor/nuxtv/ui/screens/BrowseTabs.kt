@@ -46,11 +46,16 @@ import com.nuxcor.nuxtv.data.ContentBundle
 import com.nuxcor.nuxtv.data.Movie
 import com.nuxcor.nuxtv.data.Series
 import com.nuxcor.nuxtv.ui.components.Artwork
-import com.nuxcor.nuxtv.ui.components.CenteredMessage
+import com.nuxcor.nuxtv.ui.components.BackdropLayer
+import com.nuxcor.nuxtv.ui.components.StatusPane
 import com.nuxcor.nuxtv.ui.components.MetaChip
 import com.nuxcor.nuxtv.ui.components.PosterCard
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import com.nuxcor.nuxtv.ui.components.itemEntrance
+import com.nuxcor.nuxtv.ui.components.rememberListEntrance
 import com.nuxcor.nuxtv.ui.components.SectionTitle
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import com.nuxcor.nuxtv.ui.theme.NuxMotion
 
 /**
  * The category vocabulary of Movies and Series, mirroring [liveCategoryList].
@@ -79,6 +84,7 @@ internal data class VodEntry(
 data class HeroInfo(
     val title: String,
     val poster: String?,
+    val backdrop: String?,
     val chips: List<String>,
     val plot: String?,
 )
@@ -86,17 +92,14 @@ data class HeroInfo(
 @Composable
 fun HeroHeader(hero: HeroInfo?) {
     if (hero == null) return
-    // Debounced so travelling a poster row doesn't hard-cut the text 5x/second.
-    var shown by remember { mutableStateOf(hero) }
-    LaunchedEffect(hero) {
-        kotlinx.coroutines.delay(180)
-        shown = hero
-    }
     androidx.compose.animation.AnimatedContent(
-        targetState = shown,
+        targetState = hero,
         transitionSpec = {
-            androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(280)) togetherWith
-                androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120))
+            androidx.compose.animation.fadeIn(
+                androidx.compose.animation.core.tween(NuxMotion.EmphasizedMs, easing = NuxMotion.StandardEasing)
+            ) togetherWith androidx.compose.animation.fadeOut(
+                androidx.compose.animation.core.tween(NuxMotion.FastMs, easing = NuxMotion.ExitEasing)
+            )
         },
         label = "hero",
     ) { current ->
@@ -161,7 +164,7 @@ private fun VodBrowser(
     var focusedCategory by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(focusedCategory) {
         val id = focusedCategory ?: return@LaunchedEffect
-        kotlinx.coroutines.delay(250)
+        kotlinx.coroutines.delay(NuxMotion.FocusDwellMs.toLong())
         selectedCategory = id
     }
 
@@ -174,6 +177,17 @@ private fun VodBrowser(
     // describing in a category that is no longer shown.
     LaunchedEffect(activeCategory) { hero = entries.firstOrNull()?.hero ?: initialHero }
 
+    // Debounced so travelling a poster row doesn't hard-cut the hero (text and
+    // backdrop together) 5x/second.
+    var shownHero by remember { mutableStateOf(hero) }
+    LaunchedEffect(hero) {
+        kotlinx.coroutines.delay(NuxMotion.HeroDebounceMs.toLong())
+        shownHero = hero
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+    // Ambient artwork for the focused entry behind the whole browse pane.
+    BackdropLayer(shownHero?.backdrop ?: shownHero?.poster)
     Row(
         modifier = Modifier.fillMaxSize(),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -196,9 +210,10 @@ private fun VodBrowser(
             }
         }
         if (entries.isEmpty()) {
-            CenteredMessage(title = "Nothing in this category")
+            StatusPane(title = "Nothing in this category")
             return@Row
         }
+        val gridEntrance = rememberListEntrance(activeCategory)
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 150.dp),
             modifier = Modifier.weight(1f).fillMaxHeight().focusRestorer(),
@@ -206,26 +221,29 @@ private fun VodBrowser(
             verticalArrangement = Arrangement.spacedBy(20.dp),
             contentPadding = PaddingValues(start = 4.dp, end = 8.dp, bottom = 36.dp),
         ) {
-            item(key = "hero", span = { GridItemSpan(maxLineSpan) }) { HeroHeader(hero) }
-            items(entries, key = { it.id }) { entry ->
-                PosterCard(
-                    title = entry.title,
-                    subtitle = entry.subtitle,
-                    imageUrl = entry.poster,
-                    width = null,
-                    progress = entry.progress,
-                    onClick = entry.onOpen,
-                    onFocus = { hero = entry.hero },
-                )
+            item(key = "hero", span = { GridItemSpan(maxLineSpan) }) { HeroHeader(shownHero) }
+            itemsIndexed(entries, key = { _, e -> e.id }) { index, entry ->
+                Box(modifier = Modifier.itemEntrance(index, gridEntrance)) {
+                    PosterCard(
+                        title = entry.title,
+                        subtitle = entry.subtitle,
+                        imageUrl = entry.poster,
+                        width = null,
+                        progress = entry.progress,
+                        onClick = entry.onOpen,
+                        onFocus = { hero = entry.hero },
+                    )
+                }
             }
         }
+    }
     }
 }
 
 @Composable
 fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> Unit) {
     if (bundle.movies.isEmpty()) {
-        CenteredMessage(title = "No movies", subtitle = "This playlist has no movie content")
+        StatusPane(title = "No movies", message = "This playlist has no movie content")
         return
     }
     val resumePositions by vm.resumePositions.collectAsState()
@@ -280,7 +298,7 @@ fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> 
 @Composable
 fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -> Unit) {
     if (bundle.series.isEmpty()) {
-        CenteredMessage(title = "No series", subtitle = "This playlist has no series content")
+        StatusPane(title = "No series", message = "This playlist has no series content")
         return
     }
     val resumePositions by vm.resumePositions.collectAsState()
@@ -336,6 +354,7 @@ fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -
 private fun Movie.toHero() = HeroInfo(
     title = name,
     poster = poster,
+    backdrop = backdrop,
     chips = listOfNotNull(
         "Movie",
         year?.toString(),
@@ -348,6 +367,7 @@ private fun Movie.toHero() = HeroInfo(
 private fun Series.toHero() = HeroInfo(
     title = name,
     poster = poster,
+    backdrop = backdrop,
     chips = listOfNotNull(
         "Series",
         year?.toString(),

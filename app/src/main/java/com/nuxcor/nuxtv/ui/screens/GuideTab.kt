@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.items
@@ -45,9 +46,14 @@ import com.nuxcor.nuxtv.data.ContentRepository
 import com.nuxcor.nuxtv.data.EpgProgram
 import com.nuxcor.nuxtv.data.LiveChannel
 import com.nuxcor.nuxtv.ui.components.Artwork
-import com.nuxcor.nuxtv.ui.components.CenteredMessage
 import com.nuxcor.nuxtv.ui.components.rememberClockFormat
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import com.nuxcor.nuxtv.ui.components.MetaChip
+import com.nuxcor.nuxtv.ui.components.StatusPane
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import com.nuxcor.nuxtv.ui.theme.NuxShape
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -101,7 +107,7 @@ fun GuideTab(
         is ContentRepository.EpgState.Idle,
         is ContentRepository.EpgState.Loading -> Column(modifier = Modifier.fillMaxSize()) {
             leading()
-            CenteredMessage(title = "Loading guide…", loading = true)
+            StatusPane(title = "Loading guide…", loading = true)
         }
 
         // A dead end otherwise: the viewer would have to already know epgshare
@@ -161,7 +167,7 @@ fun GuideTab(
                 channelsInCategory(categoryId, allChannels, favorites, recents)
             }
             if (allChannels.isEmpty()) {
-                CenteredMessage(title = "No live channels")
+                StatusPane(title = "No live channels")
                 return
             }
 
@@ -295,7 +301,13 @@ fun GuideTab(
                         androidx.tv.material3.OutlinedButton(
                             onClick = { if (dayOffset > 0) dayOffset-- },
                             enabled = dayOffset > 0,
-                        ) { Text("‹") }
+                        ) {
+                            androidx.tv.material3.Icon(
+                                androidx.compose.material.icons.Icons.Default.ChevronLeft,
+                                contentDescription = "Previous day",
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                     item(key = "__day__") {
                         Text(
@@ -312,7 +324,13 @@ fun GuideTab(
                         androidx.tv.material3.OutlinedButton(
                             onClick = { if (dayOffset < maxDayOffset) dayOffset++ },
                             enabled = dayOffset < maxDayOffset,
-                        ) { Text("›") }
+                        ) {
+                            androidx.tv.material3.Icon(
+                                androidx.compose.material.icons.Icons.Default.ChevronRight,
+                                contentDescription = "Next day",
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                     if (dayOffset != 0) {
                         item(key = "__now__") {
@@ -451,7 +469,7 @@ private fun GuideHeader(
             modifier = Modifier
                 .width(200.dp)
                 .fillMaxHeight()
-                .clip(RoundedCornerShape(12.dp))
+                .clip(NuxShape.Row)
                 .background(NuxColors.Surface),
             contentAlignment = Alignment.Center,
         ) {
@@ -471,15 +489,26 @@ private fun GuideHeader(
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.Top) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = currentProgram?.title ?: current?.name ?: "Guide",
-                        style = MaterialTheme.typography.headlineSmall.copy(
-                            fontWeight = FontWeight.SemiBold
-                        ),
-                        color = NuxColors.OnSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            text = currentProgram?.title ?: current?.name ?: "Guide",
+                            style = MaterialTheme.typography.headlineSmall.copy(
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = NuxColors.OnSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        if (currentProgram != null &&
+                            nowMs in currentProgram.startMs until currentProgram.endMs
+                        ) {
+                            MetaChip("ON NOW", accent = true)
+                        }
+                    }
                     if (currentProgram != null) {
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -528,7 +557,7 @@ private fun GuideHeader(
                         modifier = Modifier
                             .width(220.dp)
                             .height(5.dp)
-                            .clip(RoundedCornerShape(3.dp))
+                            .clip(NuxShape.Track)
                             .background(NuxColors.SurfaceVariant)
                     ) {
                         Box(
@@ -578,20 +607,11 @@ private fun NoGuidePane(
     }
     val narrowed = suggested.size < EPGSHARE_PACKS.size
 
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                "No guide available",
-                style = MaterialTheme.typography.titleLarge,
-                color = NuxColors.OnSurface,
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = NuxColors.OnSurfaceDim,
-            )
-            Spacer(Modifier.height(20.dp))
+    StatusPane(
+        title = "No guide available",
+        message = message,
+        footnote = "You can change this any time in Settings → EPG source.",
+        extras = {
             Text(
                 if (narrowed) "Your playlist looks like it covers these — try a free guide:"
                 else "Try a free guide from epgshare01:",
@@ -603,7 +623,7 @@ private fun NoGuidePane(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(suggested, key = { it }) { cc ->
-                    com.nuxcor.nuxtv.ui.screens.CategoryItem(
+                    CategoryItem(
                         name = cc,
                         selected = false,
                         onClick = { onPick(cc) },
@@ -611,12 +631,6 @@ private fun NoGuidePane(
                     )
                 }
             }
-            Spacer(Modifier.height(14.dp))
-            Text(
-                "You can change this any time in Settings → EPG source.",
-                style = MaterialTheme.typography.labelSmall,
-                color = NuxColors.OnSurfaceDim,
-            )
-        }
-    }
+        },
+    )
 }

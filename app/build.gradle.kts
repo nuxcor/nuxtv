@@ -117,11 +117,15 @@ dependencies {
     implementation(libs.media3.exoplayer.rtsp)
     implementation(libs.media3.datasource.rtmp)
     implementation(libs.media3.ui)
+    implementation(libs.media3.session)
+    // MediaSessionCompat for the VLC engine's minimal session.
+    implementation(libs.androidx.media)
     implementation(libs.libvlc)
 
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.okhttp)
+    implementation(libs.zxing.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.coroutines.android)

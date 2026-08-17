@@ -50,13 +50,18 @@ import com.nuxcor.nuxtv.data.Episode
 import com.nuxcor.nuxtv.data.Movie
 import com.nuxcor.nuxtv.data.Series
 import com.nuxcor.nuxtv.ui.components.Artwork
-import com.nuxcor.nuxtv.ui.components.CenteredMessage
+import com.nuxcor.nuxtv.ui.components.BackdropLayer
+import com.nuxcor.nuxtv.ui.components.StatusAction
+import com.nuxcor.nuxtv.ui.components.StatusPane
 import com.nuxcor.nuxtv.ui.components.ContextMenu
 import com.nuxcor.nuxtv.ui.components.MenuAction
 import com.nuxcor.nuxtv.ui.components.MetaChip
 import com.nuxcor.nuxtv.ui.components.RatingStars
 import com.nuxcor.nuxtv.ui.components.WideItem
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import com.nuxcor.nuxtv.ui.theme.Space
+import com.nuxcor.nuxtv.ui.theme.NuxShape
+import com.nuxcor.nuxtv.ui.components.requestFocusRetrying
 
 @Composable
 fun MovieDetailScreen(
@@ -80,41 +85,15 @@ fun MovieDetailScreen(
     // Focus the primary action on arrival so the page is one press from playing.
     val playFocus = remember { FocusRequester() }
     LaunchedEffect(movieId) {
-        repeat(5) {
-            if (runCatching { playFocus.requestFocus() }.isSuccess) return@LaunchedEffect
-            kotlinx.coroutines.delay(60)
-        }
+        playFocus.requestFocusRetrying()
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-    movie.backdrop?.let { backdrop ->
-        coil3.compose.AsyncImage(
-            model = backdrop,
-            contentDescription = null,
-            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxWidth(0.7f)
-                .fillMaxHeight()
-                .align(Alignment.TopEnd),
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    androidx.compose.ui.graphics.Brush.horizontalGradient(
-                        listOf(
-                            NuxColors.Background,
-                            NuxColors.Background.copy(alpha = 0.94f),
-                            NuxColors.Background.copy(alpha = 0.35f),
-                        )
-                    )
-                )
-        )
-    }
+    BackdropLayer(movie.backdrop)
     Row(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .padding(horizontal = Space.s, vertical = Space.s),
         horizontalArrangement = Arrangement.spacedBy(40.dp),
     ) {
         Artwork(
@@ -123,7 +102,7 @@ fun MovieDetailScreen(
             modifier = Modifier
                 .width(220.dp)
                 .height(330.dp)
-                .clip(RoundedCornerShape(16.dp)),
+                .clip(NuxShape.Card),
         )
         Column(
             modifier = Modifier
@@ -218,33 +197,14 @@ fun MovieDetailScreen(
 @Composable
 private fun MissingItemPane(kind: String, contentState: ContentState, onBack: () -> Unit) {
     if (contentState !is ContentState.Ready) {
-        CenteredMessage(title = "Loading…", loading = true)
+        StatusPane(title = "Loading…", loading = true)
         return
     }
-    val backFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        repeat(5) {
-            if (runCatching { backFocus.requestFocus() }.isSuccess) return@LaunchedEffect
-            kotlinx.coroutines.delay(60)
-        }
-    }
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = "$kind not found",
-                style = MaterialTheme.typography.titleLarge,
-                color = NuxColors.OnSurface,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "It may have been removed from this playlist.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = NuxColors.OnSurfaceDim,
-            )
-            Spacer(Modifier.height(20.dp))
-            Button(onClick = onBack, modifier = Modifier.focusRequester(backFocus)) { Text("Back") }
-        }
-    }
+    StatusPane(
+        title = "$kind not found",
+        message = "It may have been removed from this playlist.",
+        primaryAction = StatusAction("Back", onBack),
+    )
 }
 
 /** "1h 12m" — a resume offset a viewer can recognise at a glance. */
@@ -295,11 +255,11 @@ fun SeriesDetailScreen(
     val playFocus = remember { FocusRequester() }
     LaunchedEffect(seriesId, eps != null) {
         if (eps.isNullOrEmpty()) return@LaunchedEffect
-        repeat(5) {
-            if (runCatching { playFocus.requestFocus() }.isSuccess) return@LaunchedEffect
-            kotlinx.coroutines.delay(60)
-        }
+        playFocus.requestFocusRetrying()
     }
+    Box(modifier = Modifier.fillMaxSize()) {
+    // Same grammar as the movie page: ambient backdrop, poster, display title.
+    BackdropLayer(series.backdrop ?: series.poster)
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(28.dp),
@@ -309,14 +269,14 @@ fun SeriesDetailScreen(
                 imageUrl = series.poster,
                 title = series.name,
                 modifier = Modifier
-                    .width(110.dp)
-                    .height(160.dp)
-                    .clip(RoundedCornerShape(12.dp)),
+                    .width(150.dp)
+                    .height(225.dp)
+                    .clip(NuxShape.Card),
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = series.name,
-                    style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
                     color = NuxColors.OnSurface,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -335,7 +295,7 @@ fun SeriesDetailScreen(
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = series.plot.orEmpty(),
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = NuxColors.OnSurfaceDim,
                         maxLines = 3,
                     )
@@ -392,8 +352,8 @@ fun SeriesDetailScreen(
         Spacer(Modifier.height(24.dp))
 
         when {
-            eps == null -> CenteredMessage(title = "Loading episodes…", loading = true)
-            eps.isEmpty() -> CenteredMessage(title = "No episodes found")
+            eps == null -> StatusPane(title = "Loading episodes…", loading = true)
+            eps.isEmpty() -> StatusPane(title = "No episodes found")
             else -> {
                 val seasons = remember(eps) { eps.map { it.season }.distinct().sorted() }
                 // Opens on the season the viewer is part-way through, not on
@@ -464,5 +424,6 @@ fun SeriesDetailScreen(
                 }
             }
         }
+    }
     }
 }
