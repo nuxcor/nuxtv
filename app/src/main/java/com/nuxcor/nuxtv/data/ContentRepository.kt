@@ -147,6 +147,23 @@ class ContentRepository(context: Context) {
         activeSource.first()?.let { load(it, quiet = true) }
     }
 
+    /**
+     * Quiet refresh, gated on the catalog actually being old. The cache
+     * file's mtime is the persisted "last successful refresh" stamp —
+     * [writeCache] rewrites the file on every successful load, so it can't
+     * drift from the truth and survives process death, which the in-memory
+     * 12-hour timer never did: the countdown restarted from zero on every
+     * launch, so a playlist opened for an hour a day was never refreshed.
+     */
+    suspend fun refreshIfStale(maxAgeMs: Long) {
+        val source = activeSource.first() ?: return
+        val ageMs = withContext(Dispatchers.IO) {
+            val stamp = cacheFile(source.id).lastModified()
+            if (stamp == 0L) Long.MAX_VALUE else System.currentTimeMillis() - stamp
+        }
+        if (ageMs >= maxAgeMs) refreshQuiet()
+    }
+
     /** Validates a new source by fully loading it, then persists it as active. */
     suspend fun validateAndAdd(source: PlaylistSource): Result<Unit> {
         val previous = _content.value
@@ -426,7 +443,16 @@ class ContentRepository(context: Context) {
         series.episodes?.let { return it }
         val source = activeSource.first() as? PlaylistSource.Xtream ?: return emptyList()
         val id = series.xtreamId ?: return emptyList()
-        return runCatching { xtreamClient(source).seriesEpisodes(id) }.getOrDefault(emptyList())
+        return try {
+            xtreamClient(source).seriesEpisodes(id)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // runCatching here used to swallow cancellation too, which latched
+            // an empty list into the detail screen with no way to retry.
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("Agoro", "Episode load failed for ${series.name}: ${e.message}")
+            emptyList()
+        }
     }
 
     /** Provider account health, or null for M3U sources. */

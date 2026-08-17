@@ -47,6 +47,19 @@ private fun TvSafe(content: @Composable () -> Unit) {
 fun AppRoot(vm: MainViewModel = viewModel()) {
     val sources by vm.sources.collectAsState()
 
+    // Coming back to the app is the natural moment for a catalog catch-up:
+    // the in-app hourly cycle only helps while the app stays open, and TV
+    // apps live most of their lives suspended behind the launcher. Gated on
+    // cache age inside, so a same-evening resume costs nothing.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) vm.refreshIfStale()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // The system splash stays up until sources resolve (see MainActivity), so
     // Boot is only ever reached if that hold hit its deadline. It is a bare
     // background rather than a second animated logo: the splash already showed

@@ -45,6 +45,9 @@ sealed class AddState {
 private const val BACKUP_FILE = "agoro-backup.json"
 private const val LEGACY_BACKUP_FILE = "dzidzi-backup.json"
 
+/** How old the cached catalog may grow before a quiet refresh re-fetches it. */
+private const val PLAYLIST_MAX_AGE_MS = 12 * 60 * 60 * 1000L
+
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repo: ContentRepository = (app as NuxTvApp).repository
@@ -342,11 +345,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     init {
         viewModelScope.launch { repo.ensureLoaded() }
         // Periodic quiet playlist refresh, mirroring the EPG's 6h cycle at a
-        // gentler cadence — catalogs change daily, guides hourly.
+        // gentler cadence — catalogs change daily, guides hourly. Checked
+        // hourly against the persisted cache age rather than delaying a full
+        // cycle: the old form only fired after 12h of *continuous* runtime,
+        // which a TV app that is opened for an evening never accumulates.
         viewModelScope.launch {
             while (true) {
-                kotlinx.coroutines.delay(12 * 60 * 60 * 1000L)
-                runCatching { repo.refreshQuiet() }
+                runCatching { repo.refreshIfStale(PLAYLIST_MAX_AGE_MS) }
+                kotlinx.coroutines.delay(60 * 60 * 1000L)
             }
         }
         refreshRecordings()
@@ -579,6 +585,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refresh() = viewModelScope.launch { repo.refresh() }
+
+    /** Resume-time catch-up: re-fetch the catalog only if it has gone stale. */
+    fun refreshIfStale() = viewModelScope.launch {
+        runCatching { repo.refreshIfStale(PLAYLIST_MAX_AGE_MS) }
+    }
 
     private val _accountInfo =
         MutableStateFlow<com.nuxcor.nuxtv.data.XtreamClient.AccountInfo?>(null)

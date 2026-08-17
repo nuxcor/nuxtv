@@ -48,7 +48,7 @@ class PlayerKeyHandlerTest {
     }
 
     @Test
-    fun `OK short press release opens the channel list on live`() {
+    fun `OK short press release opens the channel options on live`() {
         val up = press(
             KeyEvent.KEYCODE_DPAD_CENTER,
             centerArmed = true,
@@ -56,7 +56,20 @@ class PlayerKeyHandlerTest {
             isKeyUp = true,
         )
         assertTrue(up.consumed)
-        assertEquals(PlayerKeyAction.OpenChannelList, up.action)
+        assertEquals(PlayerKeyAction.OpenOptions, up.action)
+    }
+
+    @Test
+    fun `NUMPAD_ENTER and BUTTON_A count as OK`() {
+        // HID-style remotes and gamepads send these for their select key.
+        for (code in listOf(KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_BUTTON_A)) {
+            val down = press(code)
+            assertTrue(down.consumed)
+            assertEquals(PlayerKeyAction.CenterArm, down.action)
+            val up = press(code, centerArmed = true, isKeyDown = false, isKeyUp = true)
+            assertTrue(up.consumed)
+            assertEquals(PlayerKeyAction.OpenOptions, up.action)
+        }
     }
 
     @Test

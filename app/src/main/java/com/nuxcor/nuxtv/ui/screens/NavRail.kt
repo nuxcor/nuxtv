@@ -41,9 +41,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -116,11 +117,18 @@ internal fun NavRail(
         modifier = Modifier
             .fillMaxHeight()
             .width(width)
-            // Restore to the SELECTED tab's item when there is no history.
-            // The bare restorer fell back to the first child — Search — so
-            // entering the rail from any tab landed there, and the dwell then
-            // switched the whole screen to Search out from under the viewer.
-            .focusRestorer { railFocus }
+            // Every entry into the rail lands on the SELECTED tab's item.
+            // Left to the geometric search, a LEFT from the content lane
+            // landed on whichever rail item was vertically adjacent (the
+            // logo lockup offsets the items ~70dp below the category list,
+            // so the top categories beam onto Search and Live), and the
+            // dwell then switched the whole screen to that tab. A
+            // focusRestorer could not fix this: without a focus group the
+            // restorer's onEnter never fires, and the key-less forEach
+            // below gives all six items one compositeKeyHash, so a restore
+            // always resolved to the first item — Search.
+            .focusProperties { onEnter = { railFocus.requestFocus() } }
+            .focusGroup()
             // Opaque so overlaid content never shows through the rail.
             .background(NuxColors.Background)
             // A hairline on the trailing edge so the rail reads as a plane, not
