@@ -84,13 +84,21 @@ fun HomeScreen(
     // from the player it is the content, restored to the row that was focused
     // when the stream started: BACK out of a channel used to land on the rail,
     // several presses from the list it had just left, which is not going back.
+    // The rail's dwell-select stays disarmed until parking has settled: on a
+    // cold start the system's default focus touches the first rail item
+    // before parking wins the race, and a live dwell turned that stray frame
+    // of focus into a full tab switch.
+    var parked by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         val target = if (hasLaunched) contentFocus else railFocus
-        if (!target.requestFocusRetrying()) {
+        // A long window, deliberately: this races a COLD start, where the
+        // rail composes many frames in — not one.
+        if (!target.requestFocusRetrying(retries = 25, intervalMs = 80)) {
             // Whatever we aimed at never composed; the rail always exists.
             runCatching { railFocus.requestFocus() }
         }
         hasLaunched = true
+        parked = true
     }
 
     BackHandler(enabled = !railFocused) {
@@ -194,6 +202,7 @@ fun HomeScreen(
         onSelect = { tab = it },
         railFocus = railFocus,
         onRailFocusChanged = { railFocused = it; railExpanded = it },
+        dwellEnabled = parked,
     )
     androidx.compose.animation.AnimatedVisibility(
         visible = exitArmed,

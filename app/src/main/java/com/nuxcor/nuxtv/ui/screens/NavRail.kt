@@ -84,13 +84,27 @@ internal fun NavRail(
     onSelect: (HomeTab) -> Unit,
     railFocus: FocusRequester,
     onRailFocusChanged: (Boolean) -> Unit,
+    /**
+     * Off during launch focus-parking: on a cold start the system's default
+     * focus can touch the first rail item (Search) before parking lands on
+     * the selected one, and a live dwell then switched the whole screen to
+     * Search before the viewer pressed anything.
+     */
+    dwellEnabled: Boolean = true,
 ) {
     // Mirrors the caller's copy, which drives the content lane's width.
     var expanded by remember { mutableStateOf(false) }
     // Focus travel selects a tab only after the focus rests briefly, so
     // moving down the rail doesn't compose every tab it passes through.
     var focusedItem by remember { mutableStateOf<HomeTab?>(null) }
-    LaunchedEffect(focusedItem) {
+    // The first item focus lands on when the rail GAINS focus never
+    // dwell-selects — only travel within the rail expresses intent. The
+    // system hands out stray initial focus (splash dismissal re-runs the
+    // window's default placement onto the first focusable, Search) and a
+    // live dwell turned that into a tab switch before any keypress.
+    var sessionHadFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(focusedItem, dwellEnabled) {
+        if (!dwellEnabled) return@LaunchedEffect
         val item = focusedItem ?: return@LaunchedEffect
         delay(NuxMotion.FocusDwellMs.toLong())
         onSelect(item)
@@ -124,7 +138,10 @@ internal fun NavRail(
             .onFocusChanged {
                 expanded = it.hasFocus
                 onRailFocusChanged(it.hasFocus)
-                if (!it.hasFocus) focusedItem = null // cancel pending select-on-focus
+                if (!it.hasFocus) {
+                    focusedItem = null // cancel pending select-on-focus
+                    sessionHadFocus = false // next landing is an arrival, not travel
+                }
             }
             .padding(horizontal = Space.s, vertical = Space.gutterVertical),
         verticalArrangement = Arrangement.spacedBy(Space.xs),
@@ -173,7 +190,14 @@ internal fun NavRail(
                 selected = item == selected,
                 expanded = expanded,
                 onClick = { onSelect(item) },
-                onItemFocused = { focusedItem = item },
+                onItemFocused = {
+                    if (sessionHadFocus) {
+                        focusedItem = item
+                    } else {
+                        // Arrival landing: note the session, select nothing.
+                        sessionHadFocus = true
+                    }
+                },
                 modifier = if (item == selected) {
                     Modifier.fillMaxWidth().focusRequester(railFocus)
                 } else {

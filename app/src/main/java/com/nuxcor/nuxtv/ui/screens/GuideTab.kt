@@ -86,6 +86,7 @@ private val HEADER_HEIGHT = 120.dp
  */
 @Composable
 fun GuideTab(
+    entryFocusTick: Int,
     vm: MainViewModel,
     bundle: ContentBundle,
     onPlay: () -> Unit,
@@ -298,16 +299,16 @@ fun GuideTab(
                 ) {
                     item(key = "__leading__") { leading() }
                     item(key = "__prev__") {
-                        androidx.tv.material3.OutlinedButton(
-                            onClick = { if (dayOffset > 0) dayOffset-- },
+                        // Disabled tv-material buttons stay focusable (by
+                        // design) but paint no ring — an invisible focus trap
+                        // that swallowed the first RIGHT into this tab. When
+                        // there is nothing to page to, render a plain icon.
+                        DayPagerChevron(
+                            icon = androidx.compose.material.icons.Icons.Default.ChevronLeft,
+                            contentDescription = "Previous day",
                             enabled = dayOffset > 0,
-                        ) {
-                            androidx.tv.material3.Icon(
-                                androidx.compose.material.icons.Icons.Default.ChevronLeft,
-                                contentDescription = "Previous day",
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
+                            onClick = { if (dayOffset > 0) dayOffset-- },
+                        )
                     }
                     item(key = "__day__") {
                         Text(
@@ -321,16 +322,12 @@ fun GuideTab(
                         )
                     }
                     item(key = "__next__") {
-                        androidx.tv.material3.OutlinedButton(
-                            onClick = { if (dayOffset < maxDayOffset) dayOffset++ },
+                        DayPagerChevron(
+                            icon = androidx.compose.material.icons.Icons.Default.ChevronRight,
+                            contentDescription = "Next day",
                             enabled = dayOffset < maxDayOffset,
-                        ) {
-                            androidx.tv.material3.Icon(
-                                androidx.compose.material.icons.Icons.Default.ChevronRight,
-                                contentDescription = "Next day",
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
+                            onClick = { if (dayOffset < maxDayOffset) dayOffset++ },
+                        )
                     }
                     if (dayOffset != 0) {
                         item(key = "__now__") {
@@ -374,6 +371,7 @@ fun GuideTab(
                 )
 
                 GuideGrid(
+                    entryFocusTick = entryFocusTick,
                     channels = channels,
                     programsFor = { vm.programsFor(it) },
                     programsKey = state,
@@ -633,4 +631,38 @@ private fun NoGuidePane(
             }
         },
     )
+}
+
+
+/**
+ * Day-pager chevron that is only focusable while it can act. tv-material's
+ * disabled buttons deliberately stay focusable but draw no focus ring, which
+ * here made the first focus entry into the tab land on an invisible, inert
+ * control.
+ */
+@Composable
+private fun DayPagerChevron(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    if (enabled) {
+        androidx.tv.material3.OutlinedButton(onClick = onClick) {
+            androidx.tv.material3.Icon(
+                icon,
+                contentDescription = contentDescription,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    } else {
+        Box(modifier = Modifier.padding(horizontal = 10.dp)) {
+            androidx.tv.material3.Icon(
+                icon,
+                contentDescription = null,
+                tint = NuxColors.OnSurfaceDim.copy(alpha = 0.4f),
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
 }

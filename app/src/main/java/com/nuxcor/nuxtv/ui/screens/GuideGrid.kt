@@ -300,6 +300,13 @@ internal fun GuideGrid(
     modifier: Modifier = Modifier,
     playingChannelId: String? = null,
     initialFocusChannelId: String? = null,
+    /**
+     * Bumped by the host when focus enters the guide from outside (the nav
+     * rail). Compose's geometric search otherwise lands on whatever sits
+     * nearest — the day pager, or a clipped sliver cell with an invisible
+     * ring; this routes entry to a real programme cell instead.
+     */
+    entryFocusTick: Int = 0,
     onChannelLongPress: (LiveChannel) -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
 ) {
@@ -378,6 +385,21 @@ internal fun GuideGrid(
                     delay(60)
                 }
             }
+        }
+    }
+
+    // Focus entry from the rail: land on the playing channel's row, or the
+    // first row. Same retry as every arrival focus — the row composes a
+    // frame after the scroll.
+    LaunchedEffect(entryFocusTick) {
+        if (entryFocusTick == 0) return@LaunchedEffect
+        val index = channels.indexOfFirst { it.id == playingChannelId }
+            .takeIf { it >= 0 } ?: 0
+        if (index !in channels.indices) return@LaunchedEffect
+        listState.scrollToItem(index)
+        repeat(5) {
+            if (focusRow(index)) return@LaunchedEffect
+            delay(60)
         }
     }
 

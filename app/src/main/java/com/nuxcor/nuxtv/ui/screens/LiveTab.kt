@@ -1,4 +1,7 @@
-@file:OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
+@file:OptIn(
+    androidx.tv.material3.ExperimentalTvMaterial3Api::class,
+    androidx.compose.ui.ExperimentalComposeUiApi::class,
+)
 
 package com.nuxcor.nuxtv.ui.screens
 
@@ -7,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -174,13 +178,37 @@ internal fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Uni
     }
     val epgState by vm.epgState.collectAsState()
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    // Focus discipline for the guide, both directions:
+    // - Entering from the rail redirects to a programme cell (via the tick),
+    //   instead of Compose's geometric landing — which picked the day pager
+    //   or a clipped sliver cell with no visible ring.
+    // - Leaving is LEFT-only (to the rail) — a DOWN from the day pager used
+    //   to land geometrically on the rail, where the dwell then switched the
+    //   whole screen to another tab.
+    var entryFocusTick by remember { mutableStateOf(0) }
+    // Focus-entry detection via the subtree's focus state, not
+    // focusProperties.onEnter: Compose's directional (2D) search treats
+    // group boundaries as transparent and never calls onEnter, so that hook
+    // silently missed every D-pad entry. hasFocus on the wrapper flips when
+    // any descendant takes focus — that edge IS the entry, whatever caused
+    // it; the tick then redirects to a programme cell (one frame late at
+    // worst).
+    var guideHasFocus by remember { mutableStateOf(false) }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onFocusEvent { state ->
+                if (state.hasFocus && !guideHasFocus) entryFocusTick++
+                guideHasFocus = state.hasFocus
+            },
+    ) {
     // One surface. The grid IS the channel list — its channel column carries
     // the logos, numbers, keypad jump and hold-OK menu the list view used to
     // own, and every channel's schedule sits beside it instead of behind a
     // toggle. Two views of the same channels meant the same press did
     // different things depending on a switch set weeks ago.
     GuideTab(
+        entryFocusTick = entryFocusTick,
         vm = vm,
         bundle = bundle,
         onPlay = onPlay,
