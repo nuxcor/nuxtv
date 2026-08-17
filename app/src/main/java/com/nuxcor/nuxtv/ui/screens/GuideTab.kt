@@ -291,7 +291,6 @@ fun GuideTab(
                 }
                 // Category filter + day paging: a guide over hundreds of
                 // channels is unusable without both.
-                val dayFmt = remember { SimpleDateFormat("EEE d MMM", Locale.getDefault()) }
                 androidx.compose.foundation.lazy.LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -309,22 +308,6 @@ fun GuideTab(
                             enabled = dayOffset > 0,
                             onClick = { if (dayOffset > 0) dayOffset-- },
                         )
-                    }
-                    item(key = "__day__") {
-                        // A real control, not a label: it names the day being
-                        // viewed AND pressing it returns to now — today's
-                        // guide, timeline centred on the current programme.
-                        // (It used to be inert text styled like its neighbour
-                        // buttons, which read as a button that does nothing.)
-                        androidx.tv.material3.OutlinedButton(onClick = { jumpToNow() }) {
-                            Text(
-                                // Same basis as the ruler: windowStart sits an
-                                // hour earlier and can fall on the previous date.
-                                text = if (dayOffset == 0) "Today"
-                                else dayFmt.format(Date(nowTick + dayOffset * 24 * 3600_000L)),
-                                style = MaterialTheme.typography.titleSmall,
-                            )
-                        }
                     }
                     item(key = "__next__") {
                         DayPagerChevron(
