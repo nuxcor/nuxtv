@@ -47,6 +47,8 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
@@ -96,7 +98,7 @@ private const val TARGET_COLUMNS = 5
 private val MIN_DP_PER_MINUTE = 2.6.dp
 private val MAX_DP_PER_MINUTE = 6.dp
 
-internal val CHANNEL_COLUMN_WIDTH = 200.dp
+internal val CHANNEL_COLUMN_WIDTH = 230.dp
 internal val CHANNEL_COLUMN_GAP = 8.dp
 private val ROW_HEIGHT = 62.dp
 
@@ -515,11 +517,26 @@ internal fun TimeRuler(
                 // The half-hour containing "now" is called out instead of
                 // labelled with a time you'd have to compare against a clock.
                 val isNow = nowMs >= t && nowMs < t + 30 * 60_000L
+                val slotStart = t
                 Text(
                     text = if (isNow) "ON NOW" else fmt.format(Date(t)),
                     style = MaterialTheme.typography.labelMedium,
                     color = if (isNow) NuxColors.Error else NuxColors.OnSurfaceDim,
-                    modifier = Modifier.width(dpPerMinute * 30),
+                    // Pinned within its slot while partially scrolled off, so
+                    // the label never clips to a fragment at the pane edge.
+                    modifier = Modifier
+                        .width(dpPerMinute * 30)
+                        .offset {
+                            val perMinPx = dpPerMinute.toPx()
+                            val startPx =
+                                ((slotStart - windowStart) / 60_000f) * perMinPx
+                            val maxPin = (30f * perMinPx - 72.dp.toPx()).coerceAtLeast(0f)
+                            IntOffset(
+                                (timelineScroll.value - startPx)
+                                    .coerceIn(0f, maxPin).toInt(),
+                                0,
+                            )
+                        },
                 )
                 t += 30 * 60_000L
             }
@@ -641,7 +658,7 @@ private fun GuideRow(
                 Artwork(
                     imageUrl = channel.logo,
                     title = channel.name,
-                    modifier = Modifier.size(width = 64.dp, height = 40.dp).clip(NuxShape.Chip),
+                    modifier = Modifier.size(width = 52.dp, height = 40.dp).clip(NuxShape.Chip),
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                     monogramStyle = MaterialTheme.typography.labelMedium,
                 )
@@ -722,6 +739,8 @@ private fun GuideRow(
                     ProgramCell(
                         program = spec.program,
                         widthMinutes = spec.widthMinutes,
+                        startMinutesFromWindow = (spec.clampedStartMs - windowStart) / 60_000f,
+                        timelineScroll = timelineScroll,
                         dpPerMinute = dpPerMinute,
                         nowMs = nowMs,
                         focusRequester = cellRequesters[i],
@@ -750,6 +769,8 @@ private fun GuideRow(
 private fun ProgramCell(
     program: EpgProgram,
     widthMinutes: Float,
+    startMinutesFromWindow: Float,
+    timelineScroll: ScrollState,
     dpPerMinute: Dp,
     nowMs: Long,
     focusRequester: FocusRequester,
@@ -806,7 +827,25 @@ private fun ProgramCell(
         ),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            // Pin the text to the visible edge while the cell is partially
+            // scrolled off, the way broadcast guides do — otherwise a long
+            // programme's title leaves the screen minutes before the cell
+            // does. The offset lambda reads the scroll during placement, so
+            // scrolling never recomposes the cell.
+            Column(
+                modifier = Modifier
+                    .offset {
+                        val perMinPx = dpPerMinute.toPx()
+                        val startPx = startMinutesFromWindow * perMinPx
+                        val cellPx = widthMinutes * perMinPx
+                        val maxPin = (cellPx - 120.dp.toPx()).coerceAtLeast(0f)
+                        IntOffset(
+                            (timelineScroll.value - startPx).coerceIn(0f, maxPin).toInt(),
+                            0,
+                        )
+                    }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            ) {
                 Text(
                     text = program.title,
                     style = MaterialTheme.typography.titleSmall,

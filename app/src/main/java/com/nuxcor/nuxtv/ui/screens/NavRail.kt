@@ -34,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Box
@@ -62,6 +63,7 @@ import com.nuxcor.nuxtv.ui.theme.NuxMotion
 import com.nuxcor.nuxtv.ui.theme.NuxShape
 import com.nuxcor.nuxtv.ui.theme.Space
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** Shared by the rail and the content lane so the two can never disagree. */
 // Not private: the guide sizes its timeline against the width it will actually
@@ -103,6 +105,7 @@ internal fun NavRail(
     // window's default placement onto the first focusable, Search) and a
     // live dwell turned that into a tab switch before any keypress.
     var sessionHadFocus by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     LaunchedEffect(focusedItem, dwellEnabled) {
         if (!dwellEnabled) return@LaunchedEffect
         val item = focusedItem ?: return@LaunchedEffect
@@ -194,8 +197,15 @@ internal fun NavRail(
                     if (sessionHadFocus) {
                         focusedItem = item
                     } else {
-                        // Arrival landing: note the session, select nothing.
+                        // Arrival landing: note the session, select nothing —
+                        // and if the system parked it on the wrong item (the
+                        // splash's stray default landed on Search), snap the
+                        // ring to the selected tab so the resting state is
+                        // always honest.
                         sessionHadFocus = true
+                        if (item != selected) {
+                            scope.launch { runCatching { railFocus.requestFocus() } }
+                        }
                     }
                 },
                 modifier = if (item == selected) {
