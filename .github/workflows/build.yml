@@ -28,3 +28,37 @@ jobs:
         with:
           name: nuxtv-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+
+  # Releases fire on merge to main, but release.yml quietly skips when
+  # versionName is already published — so a PR that changes the app without
+  # bumping the version used to merge green and then release nothing. This
+  # guard moves that discovery to the PR: app changes with an already-released
+  # versionName fail here, before the merge.
+  version-guard:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require a version bump when app code changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          base="origin/${{ github.base_ref }}"
+          changed=$(git diff --name-only "$base"...HEAD)
+          if ! echo "$changed" | grep -q '^app/'; then
+            echo "No app/ changes — no version bump required."
+            exit 0
+          fi
+          name=$(sed -n 's/.*versionName[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' app/build.gradle.kts)
+          if [ -z "$name" ]; then
+            echo "::error::Could not read versionName from app/build.gradle.kts"
+            exit 1
+          fi
+          if gh release view "v$name" >/dev/null 2>&1; then
+            echo "::error::This PR changes app/ but versionName is still $name, which is already released — merging would skip the automatic release. Bump versionName (and versionCode) in app/build.gradle.kts."
+            exit 1
+          fi
+          echo "versionName $name is unreleased — merge will publish v$name."
