@@ -136,6 +136,17 @@ class ContentRepository(context: Context) {
         activeSource.first()?.let { load(it) }
     }
 
+    /**
+     * Background catalog refresh: no Loading state, current library stays on
+     * screen, failures keep the cache. For the periodic cycle — a TV app can
+     * stay open for days, and without this a provider's added channels only
+     * appeared after a relaunch or a manual refresh.
+     */
+    suspend fun refreshQuiet() {
+        if (_content.value !is ContentState.Ready) return
+        activeSource.first()?.let { load(it, quiet = true) }
+    }
+
     /** Validates a new source by fully loading it, then persists it as active. */
     suspend fun validateAndAdd(source: PlaylistSource): Result<Unit> {
         val previous = _content.value

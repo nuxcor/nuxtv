@@ -341,6 +341,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch { repo.ensureLoaded() }
+        // Periodic quiet playlist refresh, mirroring the EPG's 6h cycle at a
+        // gentler cadence — catalogs change daily, guides hourly.
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(12 * 60 * 60 * 1000L)
+                runCatching { repo.refreshQuiet() }
+            }
+        }
         refreshRecordings()
         // Reload the guide when a playlist loads or the EPG override changes,
         // fill in missing channel logos, and keep schedules' alarms registered.
