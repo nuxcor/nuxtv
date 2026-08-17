@@ -105,7 +105,7 @@ internal fun NavRail(
     val scope = rememberCoroutineScope()
     LaunchedEffect(focusedItem) {
         val item = focusedItem ?: return@LaunchedEffect
-        delay(NuxMotion.FocusDwellMs.toLong())
+        delay(NuxMotion.TabDwellMs.toLong())
         onSelect(item)
     }
     val width by animateDpAsState(

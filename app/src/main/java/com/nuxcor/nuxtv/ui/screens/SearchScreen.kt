@@ -133,7 +133,7 @@ fun SearchTab(
                     item(key = "channels-title") { SectionTitle("Live channels", results.channels.size) }
                     itemsIndexed(results.channels, key = { _, c -> c.id }) { index, channel ->
                         WideItem(
-                            title = channel.name,
+                            title = channel.displayName,
                             subtitle = channel.number?.let { "Channel $it" },
                             badge = channel.quality,
                             imageUrl = channel.logo,
@@ -154,7 +154,7 @@ fun SearchTab(
                             hit.program.startMs until hit.program.endMs
                         WideItem(
                             title = hit.program.title,
-                            subtitle = "${hit.channel.name} • " +
+                            subtitle = "${hit.channel.displayName} • " +
                                 timeFmt.format(java.util.Date(hit.program.startMs)),
                             badge = if (airing) "ON NOW" else null,
                             imageUrl = hit.channel.logo,

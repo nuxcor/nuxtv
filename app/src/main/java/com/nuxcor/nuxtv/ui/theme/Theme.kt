@@ -124,8 +124,17 @@ object NuxMotion {
     const val StaggerStepMs = 28
     const val StaggerCap = 8
 
-    /** Dwell before a focused rail/category item selects itself. */
+    /** Dwell before a focused category item selects itself. */
     const val FocusDwellMs = 250
+
+    /**
+     * Dwell before a focused rail TAB selects itself — deliberately longer
+     * than [FocusDwellMs]: a tab switch replaces the whole screen, and at
+     * 250ms merely pausing on Recordings while travelling the rail swapped
+     * the pane out from under the viewer. Deliberate rests still switch;
+     * pass-through travel no longer does.
+     */
+    const val TabDwellMs = 450
     /** Debounce before the browse hero swaps to the focused item. */
     const val HeroDebounceMs = 180
     /** Coil image crossfade. */

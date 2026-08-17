@@ -96,7 +96,7 @@ internal fun ChannelBanner(
                 // posters, which is why it is the default, but never for logos.
                 com.nuxcor.nuxtv.ui.components.Artwork(
                     imageUrl = channel.logo,
-                    title = channel.name,
+                    title = channel.displayName,
                     modifier = Modifier.size(width = 78.dp, height = 46.dp),
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                 )
@@ -110,7 +110,7 @@ internal fun ChannelBanner(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
-                    text = channel?.name ?: item?.title.orEmpty(),
+                    text = channel?.displayName ?: item?.title.orEmpty(),
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                     color = NuxColors.OnSurface,
                     maxLines = 1,
@@ -237,7 +237,7 @@ internal fun TuneCard(
         if (channel != null) {
             com.nuxcor.nuxtv.ui.components.Artwork(
                 imageUrl = channel.logo,
-                title = channel.name,
+                title = channel.displayName,
                 modifier = Modifier
                     .size(width = 86.dp, height = 54.dp)
                     .clip(PlayerTheme.ChipShape),
@@ -257,7 +257,7 @@ internal fun TuneCard(
                     )
                 }
                 Text(
-                    text = channel?.name ?: item?.title.orEmpty(),
+                    text = channel?.displayName ?: item?.title.orEmpty(),
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
                     color = NuxColors.OnSurface,
                     maxLines = 1,

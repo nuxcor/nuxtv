@@ -127,14 +127,14 @@ fun ChannelSchedule(
             ) {
                 Artwork(
                     imageUrl = channel.logo,
-                    title = channel.name,
+                    title = channel.displayName,
                     modifier = Modifier.size(width = 86.dp, height = 54.dp)
                         .clip(NuxShape.Chip),
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = channel.name,
+                        text = channel.displayName,
                         style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
                         color = NuxColors.OnSurface,
                         maxLines = 1,

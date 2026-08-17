@@ -682,13 +682,13 @@ private fun GuideRow(
             ) {
                 Artwork(
                     imageUrl = channel.logo,
-                    title = channel.name,
+                    title = channel.displayName,
                     modifier = Modifier.size(width = 52.dp, height = 40.dp).clip(NuxShape.Chip),
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                     monogramStyle = MaterialTheme.typography.labelMedium,
                 )
                 Text(
-                    text = channel.name,
+                    text = channel.displayName,
                     style = MaterialTheme.typography.titleSmall,
                     // One line: two lines of 24sp need 48dp and the row's
                     // content box is 46dp, so the second was always clipped.
@@ -696,6 +696,9 @@ private fun GuideRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                // The tier the name used to carry — corrected by measured
+                // playback where the app has seen the stream decode.
+                channel.quality?.let { com.nuxcor.nuxtv.ui.components.MetaChip(it) }
                 channel.number?.let { number ->
                     Text(
                         text = number.toString(),

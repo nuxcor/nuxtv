@@ -290,7 +290,7 @@ internal fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Uni
             vm.programsFor(channel).any { it.endMs > now }
         }
         ContextMenu(
-            title = channel.name,
+            title = channel.displayName,
             actions = buildList {
                 add(
                     MenuAction("Play") {
