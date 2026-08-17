@@ -2,7 +2,11 @@ package com.nuxcor.nuxtv
 
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.nuxcor.nuxtv.ui.screens.CHANNEL_COLUMN_GAP
+import com.nuxcor.nuxtv.ui.screens.CHANNEL_COLUMN_WIDTH
+import com.nuxcor.nuxtv.ui.screens.RAIL_WIDTH_COLLAPSED
 import com.nuxcor.nuxtv.ui.screens.guideDpPerMinute
+import com.nuxcor.nuxtv.ui.theme.Space
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,8 +19,13 @@ import org.junit.Test
  */
 class GuideTimelineTest {
 
-    /** Everything the timeline doesn't get: gutters, collapsed rail, channel column. */
-    private val fixedCosts = 58.dp * 2 + 64.dp + 200.dp + 8.dp
+    /**
+     * Everything the timeline doesn't get: gutters, collapsed rail, channel
+     * column. Built from the production constants — a hardcoded copy silently
+     * diverged when the channel column widened.
+     */
+    private val fixedCosts =
+        Space.gutter * 2 + RAIL_WIDTH_COLLAPSED + CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP
 
     private fun columnsVisible(screenWidth: Dp): Float {
         val lane = screenWidth - fixedCosts

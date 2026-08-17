@@ -29,7 +29,12 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Text
 import com.nuxcor.nuxtv.MainViewModel
-import com.nuxcor.nuxtv.ui.components.CenteredMessage
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.ui.graphics.graphicsLayer
+import com.nuxcor.nuxtv.ui.components.ScreenTitle
+import com.nuxcor.nuxtv.ui.components.SectionTitle
+import com.nuxcor.nuxtv.ui.components.StatusAction
+import com.nuxcor.nuxtv.ui.components.StatusPane
 import com.nuxcor.nuxtv.ui.components.WideItem
 import com.nuxcor.nuxtv.ui.theme.NuxColors
 import java.text.SimpleDateFormat
@@ -37,7 +42,7 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit) {
+fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit, onGoToGuide: (() -> Unit)? = null) {
     val recordings by vm.recordings.collectAsState()
     val active by vm.activeRecording.collectAsState()
     val schedules by vm.schedules.collectAsState()
@@ -86,11 +91,7 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize(),
     ) {
-        Text(
-            "Recordings",
-            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
-            color = NuxColors.OnSurface,
-        )
+        ScreenTitle("Recordings")
         Spacer(Modifier.height(16.dp))
 
         val rec = active
@@ -99,7 +100,23 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit) {
                 title = "Recording now: ${rec.channelName}",
                 subtitle = "${rec.bytesWritten / (1024 * 1024)} MB written — select to stop",
                 leading = {
-                    Icon(Icons.Default.FiberManualRecord, contentDescription = "Recording in progress", tint = NuxColors.Error)
+                    // Alpha-only pulse: reads as "live" without animating layout.
+                    val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "recPulse")
+                    val alpha by pulse.animateFloat(
+                        initialValue = 1f,
+                        targetValue = 0.35f,
+                        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                            animation = androidx.compose.animation.core.tween(900),
+                            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+                        ),
+                        label = "recPulseAlpha",
+                    )
+                    Icon(
+                        Icons.Default.FiberManualRecord,
+                        contentDescription = "Recording in progress",
+                        tint = NuxColors.Error,
+                        modifier = Modifier.graphicsLayer { this.alpha = alpha },
+                    )
                 },
                 onClick = { vm.stopRecording() },
             )
@@ -107,9 +124,11 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit) {
         }
 
         if (recordings.isEmpty() && rec == null && schedules.isEmpty()) {
-            CenteredMessage(
+            StatusPane(
                 title = "No recordings yet",
-                subtitle = "Record from the player, or schedule from the Guide",
+                message = "Record from the player, or schedule from the Guide.",
+                icon = Icons.Default.Videocam,
+                primaryAction = onGoToGuide?.let { StatusAction("Open the guide", it) },
             )
             return@Column
         }
@@ -120,11 +139,7 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit) {
         ) {
             if (schedules.isNotEmpty()) {
                 item(key = "sched-header") {
-                    Text(
-                        "Scheduled",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = NuxColors.OnSurfaceDim,
-                    )
+                    SectionTitle("Scheduled", schedules.size)
                 }
                 items(schedules.sortedBy { it.startMs }, key = { it.id }) { schedule ->
                     WideItem(
@@ -142,10 +157,9 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit) {
                     )
                 }
                 item(key = "rec-header") {
-                    Text(
+                    SectionTitle(
                         "Recorded",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = NuxColors.OnSurfaceDim,
+                        recordings.size,
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 }

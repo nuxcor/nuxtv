@@ -10,14 +10,34 @@ import org.videolan.libvlc.MediaPlayer
 import org.videolan.libvlc.util.VLCVideoLayout
 
 /**
+ * libVLC doesn't expose a track's language separately — it folds it into the
+ * display name, usually in brackets: "Track 1 - [English]". Best-effort
+ * extraction; null when the name carries no bracketed language.
+ */
+private fun languageFromTrackName(name: String?): String? =
+    name?.let { Regex("\\[([^\\]]+)\\]").find(it)?.groupValues?.get(1)?.trim() }
+        ?.takeIf { it.isNotBlank() }
+
+/**
  * libVLC backend. VLC's demuxers/decoders handle many streams ExoPlayer
  * rejects (odd TS muxing, exotic codecs), which is why it exists here.
  * The playlist is managed manually — VLC plays one Media at a time.
  */
-class VlcEngine(context: Context, preferHighestQuality: Boolean = true) : PlayerEngine {
+/**
+ * @param requestAudioFocus Whether this player takes audio focus and exposes
+ * a media session. The guide's muted preview passes false — a silent preview
+ * must never yank focus or transport keys from actual playback.
+ */
+class VlcEngine(
+    context: Context,
+    preferHighestQuality: Boolean = true,
+    requestAudioFocus: Boolean = true,
+) : PlayerEngine {
 
     override val name = "VLC"
     override var listener: PlayerEngine.Listener? = null
+    override var onTransportPlay: (() -> Unit)? = null
+    override var onTransportPause: (() -> Unit)? = null
 
     private val libVlc = LibVLC(
         context.applicationContext,
@@ -48,16 +68,84 @@ class VlcEngine(context: Context, preferHighestQuality: Boolean = true) : Player
     private var videoLayout: VLCVideoLayout? = null
     private var items: List<PlayableItem> = emptyList()
     private var index: Int = 0
+    private var live = false
     private var playing = false
     private var released = false
     private var pendingSeekMs: Long = 0
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    // libVLC doesn't manage audio focus itself the way ExoPlayer does, so the
+    // engine drives it: request on play, abandon on pause/release. Loss
+    // pauses; a duck request lowers volume instead.
+    private val audioFocus: AudioFocusHelper? = if (requestAudioFocus) {
+        AudioFocusHelper(
+            context,
+            onLoss = {
+                mainHandler.post { if (!released && mediaPlayer.isPlaying) mediaPlayer.pause() }
+            },
+            onDuck = { ducked ->
+                mainHandler.post { if (!released) mediaPlayer.volume = if (ducked) 30 else 100 }
+            },
+        )
+    } else null
+
+    // Minimal MediaSessionCompat shim so assistant/CEC play-pause reaches VLC
+    // playback too; media3's session wraps a Player interface VLC doesn't
+    // implement. Posts no notification of its own.
+    private val mediaSession: android.support.v4.media.session.MediaSessionCompat? =
+        if (requestAudioFocus) {
+            android.support.v4.media.session.MediaSessionCompat(
+                context.applicationContext,
+                "AgoroVlcSession",
+            ).apply {
+                setCallback(object : android.support.v4.media.session.MediaSessionCompat.Callback() {
+                    // Route through the owning session when one is attached —
+                    // it knows a long-paused live stream must rejoin the live
+                    // edge, not play out a dead buffer.
+                    override fun onPlay() {
+                        if (released || mediaPlayer.isPlaying) return
+                        onTransportPlay?.invoke() ?: playPause()
+                    }
+
+                    override fun onPause() {
+                        if (released || !mediaPlayer.isPlaying) return
+                        onTransportPause?.invoke() ?: playPause()
+                    }
+
+                    override fun onStop() {
+                        if (released || !mediaPlayer.isPlaying) return
+                        onTransportPause?.invoke() ?: playPause()
+                    }
+                })
+                isActive = true
+            }
+        } else null
+
+    private fun updateSessionState(playing: Boolean) {
+        val session = mediaSession ?: return
+        val state = android.support.v4.media.session.PlaybackStateCompat.Builder()
+            .setActions(
+                android.support.v4.media.session.PlaybackStateCompat.ACTION_PLAY or
+                    android.support.v4.media.session.PlaybackStateCompat.ACTION_PAUSE or
+                    android.support.v4.media.session.PlaybackStateCompat.ACTION_PLAY_PAUSE or
+                    android.support.v4.media.session.PlaybackStateCompat.ACTION_STOP
+            )
+            .setState(
+                if (playing) android.support.v4.media.session.PlaybackStateCompat.STATE_PLAYING
+                else android.support.v4.media.session.PlaybackStateCompat.STATE_PAUSED,
+                positionMs,
+                1f,
+            )
+            .build()
+        mainHandler.post { if (!released) session.setPlaybackState(state) }
+    }
 
     init {
         mediaPlayer.setEventListener { event ->
             when (event.type) {
                 MediaPlayer.Event.Playing -> {
                     playing = true
+                    updateSessionState(playing = true)
                     // VLC ignores seeks before the media is open; apply them now.
                     if (pendingSeekMs > 0) {
                         val seek = pendingSeekMs
@@ -69,6 +157,7 @@ class VlcEngine(context: Context, preferHighestQuality: Boolean = true) : Player
 
                 MediaPlayer.Event.Paused, MediaPlayer.Event.Stopped -> {
                     playing = false
+                    updateSessionState(playing = false)
                     listener?.onPlayingChanged(playing = false, buffering = false)
                 }
 
@@ -77,8 +166,18 @@ class VlcEngine(context: Context, preferHighestQuality: Boolean = true) : Player
 
                 MediaPlayer.Event.EndReached ->
                     // Never mutate the MediaPlayer from its own event thread.
-                    if (index < items.size - 1) mainHandler.post { playAt(index + 1) }
-                    else listener?.onPlayingChanged(playing = false, buffering = false)
+                    if (index < items.size - 1) {
+                        mainHandler.post { playAt(index + 1) }
+                    } else if (live) {
+                        // A live stream has no legitimate end — libVLC emits
+                        // EndReached (not EncounteredError) when the provider
+                        // closes the connection. Reported as a pause, this
+                        // showed a Paused icon over a dead picture and the
+                        // reconnect/fallback ladder never ran.
+                        listener?.onError("The stream ended unexpectedly")
+                    } else {
+                        listener?.onPlayingChanged(playing = false, buffering = false)
+                    }
 
                 MediaPlayer.Event.EncounteredError ->
                     listener?.onError("VLC could not play this stream")
@@ -93,8 +192,14 @@ class VlcEngine(context: Context, preferHighestQuality: Boolean = true) : Player
             mediaPlayer.attachViews(layout, null, false, false)
         }
 
-    override fun prepare(items: List<PlayableItem>, startIndex: Int, startPositionMs: Long) {
+    override fun prepare(
+        items: List<PlayableItem>,
+        startIndex: Int,
+        startPositionMs: Long,
+        isLive: Boolean,
+    ) {
         this.items = items
+        this.live = isLive
         pendingSeekMs = startPositionMs
         playAt(startIndex)
     }
@@ -106,6 +211,7 @@ class VlcEngine(context: Context, preferHighestQuality: Boolean = true) : Player
         media.setHWDecoderEnabled(true, false)
         mediaPlayer.media = media
         media.release()
+        audioFocus?.request()
         mediaPlayer.play()
         listener?.onItemChanged(index)
     }
@@ -116,7 +222,13 @@ class VlcEngine(context: Context, preferHighestQuality: Boolean = true) : Player
     // is being swapped for the ExoPlayer fallback — crashed the app.
     override fun playPause() {
         if (released) return
-        if (mediaPlayer.isPlaying) mediaPlayer.pause() else mediaPlayer.play()
+        if (mediaPlayer.isPlaying) {
+            audioFocus?.abandon()
+            mediaPlayer.pause()
+        } else {
+            audioFocus?.request()
+            mediaPlayer.play()
+        }
     }
 
     override fun seekTo(positionMs: Long) {
@@ -137,6 +249,11 @@ class VlcEngine(context: Context, preferHighestQuality: Boolean = true) : Player
     override fun release() {
         released = true
         listener = null
+        audioFocus?.abandon()
+        mediaSession?.run {
+            isActive = false
+            release()
+        }
         mediaPlayer.setEventListener(null)
         mediaPlayer.stop()
         mediaPlayer.detachViews()
@@ -160,13 +277,27 @@ class VlcEngine(context: Context, preferHighestQuality: Boolean = true) : Player
         if (released) emptyList()
         else mediaPlayer.audioTracks.orEmpty()
             .filter { it.id != -1 } // -1 is VLC's "Disable" pseudo-track
-            .map { Track(id = it.id.toString(), label = it.name, selected = it.id == mediaPlayer.audioTrack) }
+            .map {
+                Track(
+                    id = it.id.toString(),
+                    label = it.name,
+                    selected = it.id == mediaPlayer.audioTrack,
+                    language = languageFromTrackName(it.name),
+                )
+            }
 
     override fun textTracks(): List<Track> =
         if (released) emptyList()
         else mediaPlayer.spuTracks.orEmpty()
             .filter { it.id != -1 }
-            .map { Track(id = it.id.toString(), label = it.name, selected = it.id == mediaPlayer.spuTrack) }
+            .map {
+                Track(
+                    id = it.id.toString(),
+                    label = it.name,
+                    selected = it.id == mediaPlayer.spuTrack,
+                    language = languageFromTrackName(it.name),
+                )
+            }
 
     /**
      * VLC resolves adaptive ladders internally and exposes only the rung it is

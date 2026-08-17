@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.items
@@ -45,9 +46,16 @@ import com.nuxcor.nuxtv.data.ContentRepository
 import com.nuxcor.nuxtv.data.EpgProgram
 import com.nuxcor.nuxtv.data.LiveChannel
 import com.nuxcor.nuxtv.ui.components.Artwork
-import com.nuxcor.nuxtv.ui.components.CenteredMessage
 import com.nuxcor.nuxtv.ui.components.rememberClockFormat
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import com.nuxcor.nuxtv.ui.components.MetaChip
+import com.nuxcor.nuxtv.ui.components.StatusPane
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.focus.focusRequester
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import com.nuxcor.nuxtv.ui.theme.NuxShape
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -80,6 +88,7 @@ private val HEADER_HEIGHT = 120.dp
  */
 @Composable
 fun GuideTab(
+    entryFocusTick: Int,
     vm: MainViewModel,
     bundle: ContentBundle,
     onPlay: () -> Unit,
@@ -101,7 +110,7 @@ fun GuideTab(
         is ContentRepository.EpgState.Idle,
         is ContentRepository.EpgState.Loading -> Column(modifier = Modifier.fillMaxSize()) {
             leading()
-            CenteredMessage(title = "Loading guide…", loading = true)
+            StatusPane(title = "Loading guide…", loading = true)
         }
 
         // A dead end otherwise: the viewer would have to already know epgshare
@@ -161,7 +170,7 @@ fun GuideTab(
                 channelsInCategory(categoryId, allChannels, favorites, recents)
             }
             if (allChannels.isEmpty()) {
-                CenteredMessage(title = "No live channels")
+                StatusPane(title = "No live channels")
                 return
             }
 
@@ -284,7 +293,7 @@ fun GuideTab(
                 }
                 // Category filter + day paging: a guide over hundreds of
                 // channels is unusable without both.
-                val dayFmt = remember { SimpleDateFormat("EEE d MMM", Locale.getDefault()) }
+                val chipsFocus = remember { androidx.compose.ui.focus.FocusRequester() }
                 androidx.compose.foundation.lazy.LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -292,44 +301,41 @@ fun GuideTab(
                 ) {
                     item(key = "__leading__") { leading() }
                     item(key = "__prev__") {
-                        androidx.tv.material3.OutlinedButton(
-                            onClick = { if (dayOffset > 0) dayOffset-- },
+                        // Disabled tv-material buttons stay focusable (by
+                        // design) but paint no ring — an invisible focus trap
+                        // that swallowed the first RIGHT into this tab. When
+                        // there is nothing to page to, render a plain icon.
+                        DayPagerChevron(
+                            icon = androidx.compose.material.icons.Icons.Default.ChevronLeft,
+                            contentDescription = "Previous day",
                             enabled = dayOffset > 0,
-                        ) { Text("‹") }
-                    }
-                    item(key = "__day__") {
-                        Text(
-                            // Same basis as the ruler: windowStart sits an hour
-                            // earlier and can fall on the previous date.
-                            text = if (dayOffset == 0) "Today"
-                            else dayFmt.format(Date(nowTick + dayOffset * 24 * 3600_000L)),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = NuxColors.OnSurface,
-                            modifier = Modifier.padding(horizontal = 4.dp),
+                            onClick = { if (dayOffset > 0) dayOffset-- },
                         )
                     }
                     item(key = "__next__") {
-                        androidx.tv.material3.OutlinedButton(
-                            onClick = { if (dayOffset < maxDayOffset) dayOffset++ },
+                        DayPagerChevron(
+                            icon = androidx.compose.material.icons.Icons.Default.ChevronRight,
+                            contentDescription = "Next day",
                             enabled = dayOffset < maxDayOffset,
-                        ) { Text("›") }
-                    }
-                    if (dayOffset != 0) {
-                        item(key = "__now__") {
-                            androidx.tv.material3.OutlinedButton(onClick = { jumpToNow() }) { Text("Now") }
-                        }
+                            onClick = { if (dayOffset < maxDayOffset) dayOffset++ },
+                        )
                     }
                     item(key = "__sep__") { Spacer(Modifier.width(12.dp)) }
-                    items(categories, key = { it.id }) { category ->
+                    itemsIndexed(categories, key = { _, c -> c.id }) { index, category ->
                         val locked = category.id in lockedIds
-                        com.nuxcor.nuxtv.ui.screens.CategoryItem(
+                        CategoryItem(
                             name = category.name,
                             selected = category.id == categoryId,
                             onClick = {
                                 if (locked) pinPromptOpen = true
                                 else onCategoryId(category.id)
                             },
-                            modifier = Modifier,
+                            // UP from the grid's top row lands on the first
+                            // chip — always composed at the row's start, so
+                            // the target requester is always attached.
+                            modifier = if (index == 0) {
+                                Modifier.focusRequester(chipsFocus)
+                            } else Modifier,
                             locked = locked,
                         )
                     }
@@ -356,6 +362,8 @@ fun GuideTab(
                 )
 
                 GuideGrid(
+                    entryFocusTick = entryFocusTick,
+                    upFromTopRow = chipsFocus,
                     channels = channels,
                     programsFor = { vm.programsFor(it) },
                     programsKey = state,
@@ -451,7 +459,7 @@ private fun GuideHeader(
             modifier = Modifier
                 .width(200.dp)
                 .fillMaxHeight()
-                .clip(RoundedCornerShape(12.dp))
+                .clip(NuxShape.Row)
                 .background(NuxColors.Surface),
             contentAlignment = Alignment.Center,
         ) {
@@ -471,15 +479,37 @@ private fun GuideHeader(
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.Top) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = currentProgram?.title ?: current?.name ?: "Guide",
-                        style = MaterialTheme.typography.headlineSmall.copy(
-                            fontWeight = FontWeight.SemiBold
-                        ),
-                        color = NuxColors.OnSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            text = currentProgram?.title ?: current?.name ?: "Guide",
+                            style = MaterialTheme.typography.headlineSmall.copy(
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = NuxColors.OnSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        // One contextual chip teaches what OK does to the
+                        // focused programme — the grid's cells stay clean.
+                        if (currentProgram != null) {
+                            when {
+                                nowMs in currentProgram.startMs until currentProgram.endMs ->
+                                    MetaChip("ON NOW", accent = true)
+                                currentProgram.startMs > nowMs ->
+                                    MetaChip(
+                                        if (current?.recordUrl != null) "OK to record"
+                                        else "OK to remind"
+                                    )
+                                (current?.archiveDays ?: 0) > 0 ->
+                                    MetaChip("OK for catch-up")
+                                else -> Unit
+                            }
+                        }
+                    }
                     if (currentProgram != null) {
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -502,10 +532,12 @@ private fun GuideHeader(
                         style = MaterialTheme.typography.labelMedium,
                         color = NuxColors.OnSurface,
                     )
-                    if (playlistName != null || categoryName != null) {
+                    // Playlist only: the active category is already the gold
+                    // chip in the row directly above.
+                    if (playlistName != null) {
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = listOfNotNull(playlistName, categoryName).joinToString("  •  "),
+                            text = playlistName,
                             style = MaterialTheme.typography.labelSmall,
                             color = NuxColors.OnSurfaceDim,
                             maxLines = 1,
@@ -528,7 +560,7 @@ private fun GuideHeader(
                         modifier = Modifier
                             .width(220.dp)
                             .height(5.dp)
-                            .clip(RoundedCornerShape(3.dp))
+                            .clip(NuxShape.Track)
                             .background(NuxColors.SurfaceVariant)
                     ) {
                         Box(
@@ -578,20 +610,11 @@ private fun NoGuidePane(
     }
     val narrowed = suggested.size < EPGSHARE_PACKS.size
 
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                "No guide available",
-                style = MaterialTheme.typography.titleLarge,
-                color = NuxColors.OnSurface,
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = NuxColors.OnSurfaceDim,
-            )
-            Spacer(Modifier.height(20.dp))
+    StatusPane(
+        title = "No guide available",
+        message = message,
+        footnote = "You can change this any time in Settings → EPG source.",
+        extras = {
             Text(
                 if (narrowed) "Your playlist looks like it covers these — try a free guide:"
                 else "Try a free guide from epgshare01:",
@@ -603,7 +626,7 @@ private fun NoGuidePane(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(suggested, key = { it }) { cc ->
-                    com.nuxcor.nuxtv.ui.screens.CategoryItem(
+                    CategoryItem(
                         name = cc,
                         selected = false,
                         onClick = { onPick(cc) },
@@ -611,11 +634,39 @@ private fun NoGuidePane(
                     )
                 }
             }
-            Spacer(Modifier.height(14.dp))
-            Text(
-                "You can change this any time in Settings → EPG source.",
-                style = MaterialTheme.typography.labelSmall,
-                color = NuxColors.OnSurfaceDim,
+        },
+    )
+}
+
+
+/**
+ * Day-pager chevron that is only focusable while it can act. tv-material's
+ * disabled buttons deliberately stay focusable but draw no focus ring, which
+ * here made the first focus entry into the tab land on an invisible, inert
+ * control.
+ */
+@Composable
+private fun DayPagerChevron(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    if (enabled) {
+        androidx.tv.material3.OutlinedButton(onClick = onClick) {
+            androidx.tv.material3.Icon(
+                icon,
+                contentDescription = contentDescription,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    } else {
+        Box(modifier = Modifier.padding(horizontal = 10.dp)) {
+            androidx.tv.material3.Icon(
+                icon,
+                contentDescription = null,
+                tint = NuxColors.OnSurfaceDim.copy(alpha = 0.4f),
+                modifier = Modifier.size(18.dp),
             )
         }
     }

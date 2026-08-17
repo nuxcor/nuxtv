@@ -2,9 +2,6 @@
 
 package com.nuxcor.nuxtv.ui.screens
 
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,7 +29,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,11 +41,14 @@ import androidx.tv.material3.Text
 import com.nuxcor.nuxtv.data.EpgProgram
 import com.nuxcor.nuxtv.data.LiveChannel
 import com.nuxcor.nuxtv.ui.components.Artwork
+import com.nuxcor.nuxtv.ui.components.DialogScaffold
 import com.nuxcor.nuxtv.ui.components.MetaChip
 import com.nuxcor.nuxtv.ui.components.rememberClockFormat
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import com.nuxcor.nuxtv.ui.theme.NuxShape
 import com.nuxcor.nuxtv.ui.theme.NuxFocus
 import com.nuxcor.nuxtv.ui.theme.Space
+import com.nuxcor.nuxtv.ui.components.requestFocusRetrying
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -92,13 +91,8 @@ fun ChannelSchedule(
     // and a single attempt that lands too early leaves the sheet with nothing
     // focused — which on a TV is a dialog that ignores the remote.
     LaunchedEffect(channel.id) {
-        repeat(5) {
-            if (runCatching { watchFocus.requestFocus() }.isSuccess) return@LaunchedEffect
-            kotlinx.coroutines.delay(60)
-        }
+        watchFocus.requestFocusRetrying()
     }
-    BackHandler(onBack = onDismiss)
-
     val timeFmt = rememberClockFormat()
     val dayFmt = remember { SimpleDateFormat("EEE d MMM", Locale.getDefault()) }
 
@@ -118,21 +112,13 @@ fun ChannelSchedule(
     val upcoming = remember(programs, tick) { programs.filter { it.endMs > tick } }
     val listState = rememberLazyListState()
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(NuxColors.Scrim)
-            .focusGroup(),
-        contentAlignment = Alignment.Center,
+    DialogScaffold(
+        onDismiss = onDismiss,
+        width = 680.dp,
+        padding = Space.l,
     ) {
         Column(
-            modifier = Modifier
-                .width(680.dp)
-                .heightIn(max = 460.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(NuxColors.Surface)
-                .border(1.dp, NuxColors.Stroke, RoundedCornerShape(20.dp))
-                .padding(Space.l),
+            modifier = Modifier.heightIn(max = 460.dp),
             verticalArrangement = Arrangement.spacedBy(Space.s),
         ) {
             Row(
@@ -143,7 +129,7 @@ fun ChannelSchedule(
                     imageUrl = channel.logo,
                     title = channel.name,
                     modifier = Modifier.size(width = 86.dp, height = 54.dp)
-                        .clip(RoundedCornerShape(8.dp)),
+                        .clip(NuxShape.Chip),
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                 )
                 Column(modifier = Modifier.weight(1f)) {
@@ -237,7 +223,7 @@ private fun ScheduleRow(
     Surface(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+        shape = ClickableSurfaceDefaults.shape(NuxShape.Row),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (onNow) NuxColors.SurfaceVariant else NuxColors.Surface,
             focusedContainerColor = NuxColors.SurfaceRaised,
@@ -245,7 +231,7 @@ private fun ScheduleRow(
             focusedContentColor = NuxColors.OnSurface,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = NuxFocus.RowScale),
-        border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring10),
+        border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring12),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),

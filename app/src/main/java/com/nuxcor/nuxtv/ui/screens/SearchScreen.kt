@@ -10,11 +10,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -31,7 +31,10 @@ import androidx.tv.material3.Text
 import com.nuxcor.nuxtv.MainViewModel
 import com.nuxcor.nuxtv.data.Movie
 import com.nuxcor.nuxtv.data.Series
+import com.nuxcor.nuxtv.ui.components.NuxFieldDefaults
+import com.nuxcor.nuxtv.ui.components.StatusPane
 import com.nuxcor.nuxtv.ui.components.dpadFieldNavigation
+import com.nuxcor.nuxtv.ui.components.rememberClockFormat
 import com.nuxcor.nuxtv.ui.components.PosterCard
 import com.nuxcor.nuxtv.ui.components.SectionTitle
 import com.nuxcor.nuxtv.ui.components.WideItem
@@ -58,6 +61,7 @@ fun SearchTab(
         }
     }
 
+    val timeFmt = rememberClockFormat()
     Column(
         modifier = Modifier.fillMaxSize(),
     ) {
@@ -67,32 +71,24 @@ fun SearchTab(
             label = { androidx.compose.material3.Text("Search channels, movies and series") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().dpadFieldNavigation(),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = NuxColors.OnSurface,
-                unfocusedTextColor = NuxColors.OnSurface,
-                focusedContainerColor = NuxColors.Surface,
-                unfocusedContainerColor = NuxColors.Surface.copy(alpha = 0.6f),
-                focusedBorderColor = NuxColors.Primary,
-                unfocusedBorderColor = NuxColors.SurfaceVariant,
-                focusedLabelColor = NuxColors.Primary,
-                unfocusedLabelColor = NuxColors.OnSurfaceDim,
-                cursorColor = NuxColors.Primary,
-            ),
+            colors = NuxFieldDefaults.colors(),
         )
         Spacer(Modifier.height(20.dp))
 
-        val empty = results.channels.isEmpty() && results.movies.isEmpty() && results.series.isEmpty()
+        val empty = results.channels.isEmpty() && results.movies.isEmpty() &&
+            results.series.isEmpty() && results.programs.isEmpty()
         when {
-            query.trim().length < 2 -> Text(
-                "Type at least two characters to search your library.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = NuxColors.OnSurfaceDim,
+            query.trim().length < 2 -> StatusPane(
+                title = "Search your library",
+                // The field's own label already names what is searchable.
+                message = "Type at least two characters.",
+                icon = androidx.compose.material.icons.Icons.Default.Search,
             )
 
-            empty -> Text(
-                "No results for \"${query.trim()}\".",
-                style = MaterialTheme.typography.bodyMedium,
-                color = NuxColors.OnSurfaceDim,
+            empty -> StatusPane(
+                title = "No results for \"${query.trim()}\"",
+                message = "Check the spelling, or try a shorter word.",
+                icon = androidx.compose.material.icons.Icons.Default.Search,
             )
 
             else -> LazyColumn(
@@ -143,6 +139,27 @@ fun SearchTab(
                             imageUrl = channel.logo,
                             onClick = {
                                 vm.playChannels(results.channels, index)
+                                onPlay()
+                            },
+                        )
+                    }
+                }
+                if (results.programs.isNotEmpty()) {
+                    item(key = "programs-title") { SectionTitle("On TV", results.programs.size) }
+                    itemsIndexed(
+                        results.programs,
+                        key = { _, hit -> "${hit.channel.id}:${hit.program.startMs}" },
+                    ) { _, hit ->
+                        val airing = System.currentTimeMillis() in
+                            hit.program.startMs until hit.program.endMs
+                        WideItem(
+                            title = hit.program.title,
+                            subtitle = "${hit.channel.name} • " +
+                                timeFmt.format(java.util.Date(hit.program.startMs)),
+                            badge = if (airing) "ON NOW" else null,
+                            imageUrl = hit.channel.logo,
+                            onClick = {
+                                vm.playChannels(listOf(hit.channel), 0)
                                 onPlay()
                             },
                         )

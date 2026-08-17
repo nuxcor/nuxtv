@@ -3,6 +3,7 @@ package com.nuxcor.nuxtv.player
 import android.content.Context
 import android.view.View
 import androidx.annotation.OptIn
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -38,11 +39,19 @@ private fun mimeHintFor(url: String): String? {
     }
 }
 
+/**
+ * @param requestAudioFocus Whether this player takes audio focus (ducking
+ * music apps and pausing for other media, the way every TV player should).
+ * The guide's muted preview passes false — a silent preview must never yank
+ * focus from whatever is actually being listened to.
+ */
 @OptIn(UnstableApi::class)
-class ExoEngine(context: Context) : PlayerEngine {
+class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEngine {
 
     override val name = "ExoPlayer"
     override var listener: PlayerEngine.Listener? = null
+    override var onTransportPlay: (() -> Unit)? = null
+    override var onTransportPause: (() -> Unit)? = null
 
     private val trackSelector = DefaultTrackSelector(context).apply {
         parameters = buildUponParameters()
@@ -99,6 +108,17 @@ class ExoEngine(context: Context) : PlayerEngine {
                     .setPrioritizeTimeOverSizeThresholds(true)
                     .build()
             )
+            // Proper audio-focus citizenship: request focus as media playback
+            // and pause when headphones unplug, instead of talking over
+            // whatever was already playing.
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                /* handleAudioFocus = */ requestAudioFocus,
+            )
+            .setHandleAudioBecomingNoisy(requestAudioFocus)
             .build()
     }
 
@@ -128,6 +148,30 @@ class ExoEngine(context: Context) : PlayerEngine {
         })
     }
 
+    // Only the real player gets a media session: the muted guide preview
+    // must stay invisible to system media surfaces, and two live sessions
+    // would fight over transport keys. The session sees a forwarding wrapper
+    // so transport intents route through the owning PlayerSession (which
+    // knows about live stale-buffer rejoin) when one is attached.
+    private val mediaSession: PlayerMediaSession? =
+        if (requestAudioFocus) {
+            PlayerMediaSession(
+                context,
+                @OptIn(UnstableApi::class)
+                object : androidx.media3.common.ForwardingPlayer(player) {
+                    override fun play() {
+                        val handler = onTransportPlay
+                        if (handler != null) handler() else super.play()
+                    }
+
+                    override fun pause() {
+                        val handler = onTransportPause
+                        if (handler != null) handler() else super.pause()
+                    }
+                },
+            )
+        } else null
+
     private var playerView: PlayerView? = null
 
     override fun createView(context: Context): View =
@@ -150,7 +194,14 @@ class ExoEngine(context: Context) : PlayerEngine {
         player.setPlaybackSpeed(speed)
     }
 
-    override fun prepare(items: List<PlayableItem>, startIndex: Int, startPositionMs: Long) {
+    override fun prepare(
+        items: List<PlayableItem>,
+        startIndex: Int,
+        startPositionMs: Long,
+        isLive: Boolean,
+    ) {
+        // isLive is unused here: ExoPlayer reports live end-of-stream through
+        // onPlayerError, so the session's ladder already sees it.
         player.setMediaItems(
             items.map { item ->
                 MediaItem.Builder()
@@ -189,6 +240,7 @@ class ExoEngine(context: Context) : PlayerEngine {
 
     override fun release() {
         listener = null
+        mediaSession?.release() // must go before the player it wraps
         player.release()
     }
 
@@ -218,6 +270,7 @@ class ExoEngine(context: Context) : PlayerEngine {
                         id = "$groupIndex:$trackIndex",
                         label = label,
                         selected = group.isTrackSelected(trackIndex),
+                        language = format.language,
                     )
                 }
             }

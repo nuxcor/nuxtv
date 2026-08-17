@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.KeyEventType
@@ -47,6 +48,8 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
@@ -55,8 +58,10 @@ import androidx.tv.material3.Text
 import com.nuxcor.nuxtv.data.EpgProgram
 import com.nuxcor.nuxtv.data.LiveChannel
 import com.nuxcor.nuxtv.ui.components.Artwork
+import com.nuxcor.nuxtv.ui.components.requestFocusRetrying
 import com.nuxcor.nuxtv.ui.components.rememberClockFormat
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import com.nuxcor.nuxtv.ui.theme.NuxShape
 import com.nuxcor.nuxtv.ui.theme.Space
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -95,7 +100,7 @@ private const val TARGET_COLUMNS = 5
 private val MIN_DP_PER_MINUTE = 2.6.dp
 private val MAX_DP_PER_MINUTE = 6.dp
 
-internal val CHANNEL_COLUMN_WIDTH = 200.dp
+internal val CHANNEL_COLUMN_WIDTH = 230.dp
 internal val CHANNEL_COLUMN_GAP = 8.dp
 private val ROW_HEIGHT = 62.dp
 
@@ -299,6 +304,19 @@ internal fun GuideGrid(
     modifier: Modifier = Modifier,
     playingChannelId: String? = null,
     initialFocusChannelId: String? = null,
+    /**
+     * Bumped by the host when focus enters the guide from outside (the nav
+     * rail). Compose's geometric search otherwise lands on whatever sits
+     * nearest — the day pager, or a clipped sliver cell with an invisible
+     * ring; this routes entry to a real programme cell instead.
+     */
+    entryFocusTick: Int = 0,
+    /**
+     * Focus target for UP from the top row. Left to the geometric search it
+     * escaped diagonally to the nav rail; a directional override routes it
+     * to the host's controls row (category chips) instead.
+     */
+    upFromTopRow: FocusRequester? = null,
     onChannelLongPress: (LiveChannel) -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
 ) {
@@ -380,6 +398,21 @@ internal fun GuideGrid(
         }
     }
 
+    // Focus entry from the rail: land on the playing channel's row, or the
+    // first row. Same retry as every arrival focus — the row composes a
+    // frame after the scroll.
+    LaunchedEffect(entryFocusTick) {
+        if (entryFocusTick == 0) return@LaunchedEffect
+        val index = channels.indexOfFirst { it.id == playingChannelId }
+            .takeIf { it >= 0 } ?: 0
+        if (index !in channels.indices) return@LaunchedEffect
+        listState.scrollToItem(index)
+        repeat(5) {
+            if (focusRow(index)) return@LaunchedEffect
+            delay(60)
+        }
+    }
+
     // Land on the playing channel's current programme when the overlay opens.
     LaunchedEffect(initialFocusChannelId) {
         val id = initialFocusChannelId ?: return@LaunchedEffect
@@ -399,7 +432,18 @@ internal fun GuideGrid(
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key.nativeKeyCode) {
                     AndroidKeyEvent.KEYCODE_DPAD_DOWN -> moveFocusVertically(+1)
-                    AndroidKeyEvent.KEYCODE_DPAD_UP -> moveFocusVertically(-1)
+                    AndroidKeyEvent.KEYCODE_DPAD_UP ->
+                        // Top row exits to the controls (category chips).
+                        // Deferred a frame: a requestFocus made synchronously
+                        // inside key dispatch is dropped, and the cell's
+                        // focusProperties.up override is not consulted for
+                        // D-pad moves on this tv-material version.
+                        if (gridFocus.focusedRow == 0 && upFromTopRow != null) {
+                            scope.launch { upFromTopRow.requestFocusRetrying() }
+                            true
+                        } else {
+                            moveFocusVertically(-1)
+                        }
                     AndroidKeyEvent.KEYCODE_CHANNEL_UP -> pageChannels(+1)
                     AndroidKeyEvent.KEYCODE_CHANNEL_DOWN -> pageChannels(-1)
                     in AndroidKeyEvent.KEYCODE_0..AndroidKeyEvent.KEYCODE_9 -> {
@@ -420,6 +464,7 @@ internal fun GuideGrid(
                 GuideRow(
                     channel = channel,
                     rowIndex = index,
+                    upFromRow = if (index == 0) upFromTopRow else null,
                     programsFor = programsFor,
                     programsKey = programsKey,
                     windowStart = windowStart,
@@ -478,8 +523,11 @@ internal fun TimeRuler(
     val fmt = rememberClockFormat()
     val dayFmt = remember { SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault()) }
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        // The date names the day being VIEWED — on today it duplicated the
+        // header's clock corner an inch away, so it only renders when paging.
+        val viewingToday = dayFmt.format(Date(dayMs)) == dayFmt.format(Date(nowMs))
         Text(
-            text = dayFmt.format(Date(dayMs)),
+            text = if (viewingToday) "" else dayFmt.format(Date(dayMs)),
             style = MaterialTheme.typography.labelMedium,
             color = NuxColors.OnSurface,
             maxLines = 1,
@@ -492,11 +540,26 @@ internal fun TimeRuler(
                 // The half-hour containing "now" is called out instead of
                 // labelled with a time you'd have to compare against a clock.
                 val isNow = nowMs >= t && nowMs < t + 30 * 60_000L
+                val slotStart = t
                 Text(
                     text = if (isNow) "ON NOW" else fmt.format(Date(t)),
                     style = MaterialTheme.typography.labelMedium,
                     color = if (isNow) NuxColors.Error else NuxColors.OnSurfaceDim,
-                    modifier = Modifier.width(dpPerMinute * 30),
+                    // Pinned within its slot while partially scrolled off, so
+                    // the label never clips to a fragment at the pane edge.
+                    modifier = Modifier
+                        .width(dpPerMinute * 30)
+                        .offset {
+                            val perMinPx = dpPerMinute.toPx()
+                            val startPx =
+                                ((slotStart - windowStart) / 60_000f) * perMinPx
+                            val maxPin = (30f * perMinPx - 72.dp.toPx()).coerceAtLeast(0f)
+                            IntOffset(
+                                (timelineScroll.value - startPx)
+                                    .coerceIn(0f, maxPin).toInt(),
+                                0,
+                            )
+                        },
                 )
                 t += 30 * 60_000L
             }
@@ -509,6 +572,7 @@ internal fun TimeRuler(
 private fun GuideRow(
     channel: LiveChannel,
     rowIndex: Int,
+    upFromRow: FocusRequester?,
     programsFor: (LiveChannel) -> List<EpgProgram>,
     programsKey: Any?,
     windowStart: Long,
@@ -570,6 +634,7 @@ private fun GuideRow(
             onLongClick = onChannelLongPress,
             modifier = Modifier
                 .width(CHANNEL_COLUMN_WIDTH)
+                .focusProperties { upFromRow?.let { up = it } }
                 .onFocusChanged {
                     if (it.isFocused) {
                         gridFocus.noteChannelFocus(rowIndex)
@@ -580,7 +645,7 @@ private fun GuideRow(
                         )
                     }
                 },
-            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+            shape = ClickableSurfaceDefaults.shape(NuxShape.Chip),
             colors = ClickableSurfaceDefaults.colors(
                 // The gold tint marks the channel the player is tuned to — the
                 // overlay's "you are here". Same treatment as a selected
@@ -605,7 +670,7 @@ private fun GuideRow(
             border = ClickableSurfaceDefaults.border(
                 border = androidx.tv.material3.Border(
                     androidx.compose.foundation.BorderStroke(1.dp, NuxColors.Stroke),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = NuxShape.Chip,
                 ),
                 focusedBorder = com.nuxcor.nuxtv.ui.theme.NuxFocus.ring8,
             ),
@@ -618,7 +683,7 @@ private fun GuideRow(
                 Artwork(
                     imageUrl = channel.logo,
                     title = channel.name,
-                    modifier = Modifier.size(width = 64.dp, height = 40.dp).clip(RoundedCornerShape(8.dp)),
+                    modifier = Modifier.size(width = 52.dp, height = 40.dp).clip(NuxShape.Chip),
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                     monogramStyle = MaterialTheme.typography.labelMedium,
                 )
@@ -653,6 +718,7 @@ private fun GuideRow(
                     onClick = onPlayChannel,
                     modifier = Modifier
                         .focusRequester(placeholderRequester)
+                        .focusProperties { upFromRow?.let { up = it } }
                         .onFocusChanged {
                             if (it.isFocused) {
                                 gridFocus.noteCellFocus(rowIndex, windowStart, windowEnd, nowMs)
@@ -664,7 +730,7 @@ private fun GuideRow(
                         .padding(end = 2.dp, top = 6.dp, bottom = 6.dp),
                     // 8dp like the programme cells beside it, so one ring token
                     // serves the whole lane.
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    shape = ClickableSurfaceDefaults.shape(NuxShape.Chip),
                     colors = ClickableSurfaceDefaults.colors(
                         containerColor = NuxColors.Surface.copy(alpha = 0.35f),
                         focusedContainerColor = NuxColors.SurfaceRaised,
@@ -698,7 +764,10 @@ private fun GuideRow(
                     }
                     ProgramCell(
                         program = spec.program,
+                        upFocus = upFromRow,
                         widthMinutes = spec.widthMinutes,
+                        startMinutesFromWindow = (spec.clampedStartMs - windowStart) / 60_000f,
+                        timelineScroll = timelineScroll,
                         dpPerMinute = dpPerMinute,
                         nowMs = nowMs,
                         focusRequester = cellRequesters[i],
@@ -726,7 +795,10 @@ private fun GuideRow(
 @Composable
 private fun ProgramCell(
     program: EpgProgram,
+    upFocus: FocusRequester?,
     widthMinutes: Float,
+    startMinutesFromWindow: Float,
+    timelineScroll: ScrollState,
     dpPerMinute: Dp,
     nowMs: Long,
     focusRequester: FocusRequester,
@@ -752,19 +824,20 @@ private fun ProgramCell(
         },
         modifier = Modifier
             .focusRequester(focusRequester)
+            .focusProperties { upFocus?.let { up = it } }
             .onFocusChanged { if (it.isFocused) onFocus() }
             // Caller has already reconciled this against the ruler; see layoutGuideRow.
             .width(dpPerMinute * widthMinutes)
             .height(ROW_HEIGHT)
             .padding(end = 2.dp, top = 6.dp, bottom = 6.dp),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+        shape = ClickableSurfaceDefaults.shape(NuxShape.Chip),
         scale = ClickableSurfaceDefaults.scale(
             focusedScale = com.nuxcor.nuxtv.ui.theme.NuxFocus.RowScale,
         ),
         border = ClickableSurfaceDefaults.border(
             border = androidx.tv.material3.Border(
                 androidx.compose.foundation.BorderStroke(1.dp, NuxColors.Stroke),
-                shape = RoundedCornerShape(8.dp),
+                shape = NuxShape.Chip,
             ),
             focusedBorder = com.nuxcor.nuxtv.ui.theme.NuxFocus.ring8,
         ),
@@ -783,7 +856,25 @@ private fun ProgramCell(
         ),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            // Pin the text to the visible edge while the cell is partially
+            // scrolled off, the way broadcast guides do — otherwise a long
+            // programme's title leaves the screen minutes before the cell
+            // does. The offset lambda reads the scroll during placement, so
+            // scrolling never recomposes the cell.
+            Column(
+                modifier = Modifier
+                    .offset {
+                        val perMinPx = dpPerMinute.toPx()
+                        val startPx = startMinutesFromWindow * perMinPx
+                        val cellPx = widthMinutes * perMinPx
+                        val maxPin = (cellPx - 120.dp.toPx()).coerceAtLeast(0f)
+                        IntOffset(
+                            (timelineScroll.value - startPx).coerceIn(0f, maxPin).toInt(),
+                            0,
+                        )
+                    }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            ) {
                 Text(
                     text = program.title,
                     style = MaterialTheme.typography.titleSmall,
@@ -791,8 +882,11 @@ private fun ProgramCell(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
+                    // Time only. "OK to record" repeated on every future
+                    // cell was the same sentence dozens of times per screen;
+                    // the header teaches it once, for the focused cell.
                     text = fmt.format(Date(program.startMs)) +
-                        (if (airingNow) " • Now" else if (!isPast) (if (canRecord) " • OK to record" else " • OK to remind") else ""),
+                        (if (airingNow) " • Now" else ""),
                     style = MaterialTheme.typography.labelMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

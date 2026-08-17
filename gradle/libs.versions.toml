@@ -8,9 +8,11 @@ composeBom = "2025.07.00"
 navigationCompose = "2.9.0"
 tvMaterial = "1.0.1"
 media3 = "1.8.0"
+media = "1.7.1"
 libvlc = "3.6.5"
 coil = "3.2.0"
 okhttp = "4.12.0"
+zxing = "3.5.3"
 serializationJson = "1.8.1"
 datastore = "1.1.7"
 splashscreen = "1.0.1"
@@ -37,10 +39,13 @@ media3-exoplayer-smoothstreaming = { group = "androidx.media3", name = "media3-e
 media3-exoplayer-rtsp = { group = "androidx.media3", name = "media3-exoplayer-rtsp", version.ref = "media3" }
 media3-datasource-rtmp = { group = "androidx.media3", name = "media3-datasource-rtmp", version.ref = "media3" }
 media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
+media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
+androidx-media = { group = "androidx.media", name = "media", version.ref = "media" }
 libvlc = { group = "org.videolan.android", name = "libvlc-all", version.ref = "libvlc" }
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serializationJson" }
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 androidx-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "splashscreen" }

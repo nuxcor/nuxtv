@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -292,25 +293,40 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             },
             playerPrefs.channelOrder,
         ) { c, hiddenSet, merge, effectivePin, order ->
-            val bundle = (c as? ContentState.Ready)?.bundle ?: return@combine emptyList()
+            val bundle = (c as? ContentState.Ready)?.bundle
+                ?: return@combine Triple(emptyList<LiveChannel>(), false, 0)
             val lockedIds = if (effectivePin != null) {
                 bundle.liveCategories.filter { isLockedCategory(it.name) }.map { it.id }.toSet()
             } else emptySet()
             val visible = bundle.channels
                 .filterNot { it.url in hiddenSet }
                 .filterNot { it.categoryId in lockedIds }
-            val merged =
-                if (merge) com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(visible) else visible
-            when (order) {
-                1 -> merged.sortedBy { it.name.lowercase() }
-                2 -> merged.sortedWith(
-                    compareByDescending<LiveChannel> {
-                        com.nuxcor.nuxtv.data.QualityTag.rank(it.quality)
-                    }.thenBy { it.name.lowercase() }
-                )
-                else -> merged
-            }
+            Triple(visible, merge, order)
         }
+            // Separate combine: the typed overloads stop at five flows. The
+            // decoded-quality overlay runs before merge/sort so duplicate
+            // merging and the quality ordering act on the truth, not on
+            // whatever tag the provider typed into the stream name.
+            .combine(playerPrefs.knownQualities) { (visible, merge, order), known ->
+                val corrected =
+                    if (known.isEmpty()) visible
+                    else visible.map { ch ->
+                        val real = known[ch.url]
+                        if (real == null || real == ch.quality) ch else ch.copy(quality = real)
+                    }
+                val merged =
+                    if (merge) com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(corrected)
+                    else corrected
+                when (order) {
+                    1 -> merged.sortedBy { it.name.lowercase() }
+                    2 -> merged.sortedWith(
+                        compareByDescending<LiveChannel> {
+                            com.nuxcor.nuxtv.data.QualityTag.rank(it.quality)
+                        }.thenBy { it.name.lowercase() }
+                    )
+                    else -> merged
+                }
+            }
             .flowOn(kotlinx.coroutines.Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -325,6 +341,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch { repo.ensureLoaded() }
+        // Periodic quiet playlist refresh, mirroring the EPG's 6h cycle at a
+        // gentler cadence — catalogs change daily, guides hourly.
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(12 * 60 * 60 * 1000L)
+                runCatching { repo.refreshQuiet() }
+            }
+        }
         refreshRecordings()
         // Reload the guide when a playlist loads or the EPG override changes,
         // fill in missing channel logos, and keep schedules' alarms registered.
@@ -607,6 +631,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun programsFor(channel: LiveChannel): List<EpgProgram> = repo.programsFor(channel)
 
+    /** Latest learned real tiers, for synchronous consumers (search). */
+    private val knownQualitiesNow: StateFlow<Map<String, String>> =
+        playerPrefs.knownQualities.stateIn(
+            viewModelScope, SharingStarted.Eagerly, emptyMap(),
+        )
+
+    /** Remember what a stream really decodes at, so lists stop repeating the name's lie. */
+    fun recordDecodedQuality(url: String, height: Int) {
+        val tier = com.nuxcor.nuxtv.data.QualityTag.tierOf(height) ?: return
+        viewModelScope.launch { playerPrefs.setKnownQuality(url, tier) }
+    }
+
     fun toggleFavorite(channel: LiveChannel) {
         viewModelScope.launch { playerPrefs.toggleFavorite(channel.url) }
     }
@@ -653,25 +689,55 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val channels: List<LiveChannel> = emptyList(),
         val movies: List<Movie> = emptyList(),
         val series: List<Series> = emptyList(),
+        /** Current and upcoming programmes whose titles match. */
+        val programs: List<ProgramHit> = emptyList(),
     )
 
+    data class ProgramHit(val channel: LiveChannel, val program: EpgProgram)
+
     fun search(query: String): SearchResults {
-        val q = query.trim()
+        val q = foldForSearch(query.trim())
         if (q.length < 2) return SearchResults()
+        val tokens = q.split(' ').filter { it.isNotBlank() }
         val b = bundle ?: return SearchResults()
         val lockedLive = b.liveCategories.filter { isLockedCategory(it.name) }.map { it.id }.toSet()
         val lockedMovie = b.movieCategories.filter { isLockedCategory(it.name) }.map { it.id }.toSet()
         val lockedSeries = b.seriesCategories.filter { isLockedCategory(it.name) }.map { it.id }.toSet()
+
+        // Rank, then stable-sort: prefix beats word-start beats substring, and
+        // within a rank the playlist's own order survives.
+        fun <T> rankAndTake(items: List<T>, name: (T) -> String, allowed: (T) -> Boolean): List<T> =
+            items.mapNotNull { item ->
+                if (!allowed(item)) return@mapNotNull null
+                searchRank(name(item), q, tokens)?.let { rank -> rank to item }
+            }.sortedBy { it.first }.map { it.second }.take(30)
+
+        val known = knownQualitiesNow.value
+        val channels = rankAndTake(b.channels, { it.name }) { it.categoryId !in lockedLive }
+            .map { ch -> known[ch.url]?.let { real -> ch.copy(quality = real) } ?: ch }
+
+        // Programme titles, the guide's other half: what is ON, not just what
+        // the channel is called. Current and upcoming only — a finished
+        // programme isn't something search can offer to watch.
+        val now = System.currentTimeMillis()
+        val programs = ArrayList<ProgramHit>()
+        outer@ for (channel in b.channels) {
+            if (channel.categoryId in lockedLive) continue
+            for (program in repo.programsFor(channel)) {
+                if (program.endMs <= now) continue
+                if (searchRank(program.title, q, tokens) != null) {
+                    programs.add(ProgramHit(channel, program))
+                    if (programs.size >= 20) break@outer
+                }
+            }
+        }
+        programs.sortBy { it.program.startMs }
+
         return SearchResults(
-            channels = b.channels
-                .filter { it.categoryId !in lockedLive && it.name.contains(q, ignoreCase = true) }
-                .take(30),
-            movies = b.movies
-                .filter { it.categoryId !in lockedMovie && it.name.contains(q, ignoreCase = true) }
-                .take(30),
-            series = b.series
-                .filter { it.categoryId !in lockedSeries && it.name.contains(q, ignoreCase = true) }
-                .take(30),
+            channels = channels,
+            movies = rankAndTake(b.movies, { it.name }) { it.categoryId !in lockedMovie },
+            series = rankAndTake(b.series, { it.name }) { it.categoryId !in lockedSeries },
+            programs = programs,
         )
     }
 
@@ -796,5 +862,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearPlayback() {
         playback = null
+    }
+}
+
+
+/** Case- and diacritic-insensitive text for matching ("Télé" matches "tele"). */
+private fun foldForSearch(text: String): String {
+    val normalized = java.text.Normalizer.normalize(text.lowercase(), java.text.Normalizer.Form.NFD)
+    return normalized.filterNot { it.code in 0x300..0x36F }
+}
+
+/**
+ * Null when [name] doesn't match; otherwise a rank — 0 name starts with the
+ * query, 1 a word starts with the first token, 2 plain substring. Every token
+ * must appear somewhere, in any order, so "one cinema" finds "Cinema One".
+ */
+private fun searchRank(name: String, query: String, tokens: List<String>): Int? {
+    val folded = foldForSearch(name)
+    if (!tokens.all { folded.contains(it) }) return null
+    return when {
+        folded.startsWith(query) -> 0
+        folded.split(' ', '-', '.', '(', '[').any { it.startsWith(tokens.first()) } -> 1
+        else -> 2
     }
 }

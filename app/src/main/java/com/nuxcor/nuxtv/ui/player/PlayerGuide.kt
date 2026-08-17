@@ -1,6 +1,6 @@
 @file:OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
 
-package com.nuxcor.nuxtv.ui.screens
+package com.nuxcor.nuxtv.ui.player
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -47,27 +46,24 @@ import com.nuxcor.nuxtv.data.ContentRepository
 import com.nuxcor.nuxtv.data.ContentState
 import com.nuxcor.nuxtv.data.EpgProgram
 import com.nuxcor.nuxtv.data.LiveChannel
-import com.nuxcor.nuxtv.ui.components.CenteredMessage
+import com.nuxcor.nuxtv.ui.components.StatusPane
 import com.nuxcor.nuxtv.ui.components.rememberClockFormat
+import com.nuxcor.nuxtv.ui.screens.CATEGORY_ALL
+import com.nuxcor.nuxtv.ui.screens.CHANNEL_COLUMN_GAP
+import com.nuxcor.nuxtv.ui.screens.CHANNEL_COLUMN_WIDTH
+import com.nuxcor.nuxtv.ui.screens.CategoryItem
+import com.nuxcor.nuxtv.ui.screens.GuideGrid
+import com.nuxcor.nuxtv.ui.screens.TimeRuler
+import com.nuxcor.nuxtv.ui.screens.channelsInCategory
+import com.nuxcor.nuxtv.ui.screens.guideDpPerMinute
+import com.nuxcor.nuxtv.ui.screens.liveCategoryList
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import com.nuxcor.nuxtv.ui.theme.NuxShape
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-/** Overscan-safe insets for the full-bleed player; the player route skips the
- *  TvSafe wrapper, so the guide pays its own margins. PlayerScreen positions
- *  the shrunken video with these same values, which is what keeps the video
- *  exactly inside the slot this layout reserves for it. */
-internal val PLAYER_GUIDE_PADDING = 40.dp
-internal val PLAYER_GUIDE_TOP_PADDING = 28.dp
-
-/** The video corner while the guide is open — 16:9, sized so the details
- *  beside it get a readable column on a 960dp canvas and the grid below keeps
- *  five channel rows. */
-internal val PLAYER_GUIDE_VIDEO_WIDTH = 332.dp
-internal val PLAYER_GUIDE_VIDEO_HEIGHT = 187.dp
 
 /**
  * The guide embedded around live playback: the video shrinks into the top-left
@@ -77,8 +73,8 @@ internal val PLAYER_GUIDE_VIDEO_HEIGHT = 187.dp
  * the video.
  *
  * The shrinking itself happens in PlayerScreen (the engine's view is resized
- * to the slot this file reserves); this overlay only draws around it, which is
- * why its root deliberately has no background — the player's black shows
+ * to the slot PlayerTheme reserves); this overlay only draws around it, which
+ * is why its root deliberately has no background — the player's black shows
  * through everywhere except the video slot.
  *
  * Tuning a channel here replaces the zap playlist, same contract as the
@@ -162,7 +158,10 @@ internal fun PlayerGuideOverlay(
     // Falls back to the first row when what's playing can't be resolved to a
     // channel (a raw-URL stream): without a landing the overlay opens with
     // focus parked nowhere and the remote goes dead until BACK.
-    val initialFocusChannelId = remember {
+    // Keyed on list-emptiness, not unkeyed: the channels flow starts empty,
+    // and an overlay composed a frame before it emits would otherwise pin
+    // null forever — no landing, dead remote.
+    val initialFocusChannelId = remember(channels.isEmpty()) {
         playingChannelId?.takeIf { id -> channels.any { it.id == id } }
             ?: channels.firstOrNull()?.id
     }
@@ -191,7 +190,7 @@ internal fun PlayerGuideOverlay(
             Box(
                 modifier = Modifier
                     .size(PLAYER_GUIDE_VIDEO_WIDTH, PLAYER_GUIDE_VIDEO_HEIGHT)
-                    .border(1.dp, NuxColors.Stroke, RoundedCornerShape(2.dp)),
+                    .border(1.dp, NuxColors.Stroke, NuxShape.Track),
             )
             GuideDetails(
                 // Lambdas, not values: read in this scope they would recompose
@@ -225,17 +224,17 @@ internal fun PlayerGuideOverlay(
             // guide that will appear in a few seconds sends them to Settings
             // for nothing. Only a guide that actually failed gets the CTA.
             epgState is ContentRepository.EpgState.Idle ||
-                epgState is ContentRepository.EpgState.Loading -> CenteredMessage(
+                epgState is ContentRepository.EpgState.Loading -> StatusPane(
                 title = "Loading guide…",
                 loading = true,
             )
 
-            epgState is ContentRepository.EpgState.Error -> CenteredMessage(
+            epgState is ContentRepository.EpgState.Error -> StatusPane(
                 title = "Guide not available",
-                subtitle = "This playlist's guide failed to load — set one up in Settings → EPG source.",
+                message = "This playlist's guide failed to load — set one up in Settings → EPG source.",
             )
 
-            channels.isEmpty() -> CenteredMessage(title = "No channels in this category")
+            channels.isEmpty() -> StatusPane(title = "No channels in this category")
 
             else -> {
                 TimeRuler(windowStart, windowEnd, nowTick, nowTick, timelineScroll, dpPerMinute)
@@ -347,7 +346,7 @@ private fun GuideDetails(
                         modifier = Modifier
                             .width(220.dp)
                             .height(5.dp)
-                            .clip(RoundedCornerShape(3.dp))
+                            .clip(NuxShape.Track)
                             .background(NuxColors.SurfaceVariant)
                     ) {
                         Box(

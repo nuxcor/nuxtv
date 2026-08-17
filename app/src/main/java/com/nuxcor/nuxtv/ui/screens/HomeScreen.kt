@@ -1,105 +1,51 @@
-@file:OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
+@file:OptIn(
+    androidx.tv.material3.ExperimentalTvMaterial3Api::class,
+    androidx.compose.ui.ExperimentalComposeUiApi::class,
+)
 
 package com.nuxcor.nuxtv.ui.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CalendarViewWeek
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.VideoLibrary
-import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.nativeKeyCode
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Button
-import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.OutlinedButton
-import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.nuxcor.nuxtv.MainViewModel
-import com.nuxcor.nuxtv.data.Category
-import com.nuxcor.nuxtv.data.ContentBundle
 import com.nuxcor.nuxtv.data.ContentState
-import com.nuxcor.nuxtv.data.EngineChoice
 import com.nuxcor.nuxtv.data.Movie
-import com.nuxcor.nuxtv.data.PlaylistSource
 import com.nuxcor.nuxtv.data.Series
-import com.nuxcor.nuxtv.ui.components.CenteredMessage
-import com.nuxcor.nuxtv.ui.components.ConfirmDialog
-import com.nuxcor.nuxtv.ui.components.ContextMenu
-import com.nuxcor.nuxtv.ui.components.MenuAction
-import com.nuxcor.nuxtv.ui.components.SegmentedControl
-import com.nuxcor.nuxtv.ui.components.itemEntrance
-import com.nuxcor.nuxtv.ui.components.rememberListEntrance
-import com.nuxcor.nuxtv.ui.components.PinPrompt
-import com.nuxcor.nuxtv.ui.components.WideItem
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
+import com.nuxcor.nuxtv.ui.components.StatusAction
+import com.nuxcor.nuxtv.ui.components.StatusPane
+import com.nuxcor.nuxtv.ui.components.requestFocusRetrying
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import com.nuxcor.nuxtv.ui.theme.NuxMotion
+import com.nuxcor.nuxtv.ui.theme.NuxShape
 import com.nuxcor.nuxtv.ui.theme.Space
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-
-/** Shared by the rail and the content lane so the two can never disagree. */
-// Not private: the guide sizes its timeline against the width it will actually
-// have, and the rail is part of that budget.
-internal val RAIL_WIDTH_COLLAPSED = 64.dp
-private val RAIL_WIDTH_EXPANDED = 190.dp
-
-enum class HomeTab(val label: String, val icon: ImageVector) {
-    Search("Search", Icons.Default.Search),
-    Live("Live TV", Icons.Default.LiveTv),
-    Movies("Movies", Icons.Default.Movie),
-    Series("Series", Icons.Default.VideoLibrary),
-    Recordings("Recordings", Icons.Default.Videocam),
-    Settings("Settings", Icons.Default.Settings),
-}
+import kotlinx.coroutines.delay
 
 @Composable
 fun HomeScreen(
@@ -115,16 +61,16 @@ fun HomeScreen(
     val contentState by vm.content.collectAsState()
     var railFocused by remember { mutableStateOf(false) }
     var railExpanded by remember { mutableStateOf(false) }
-    val railFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val railFocus = remember { FocusRequester() }
     // Hoisted above the Ready branch so a refresh cycle doesn't wipe tab state.
-    val tabStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    val tabStateHolder = rememberSaveableStateHolder()
 
     // BACK from inside the content pane jumps focus to the rail first; on the
     // rail, BACK asks for confirmation instead of instantly quitting the app.
     var exitArmed by remember { mutableStateOf(false) }
     LaunchedEffect(exitArmed) {
         if (exitArmed) {
-            kotlinx.coroutines.delay(2_500)
+            delay(2_500)
             exitArmed = false
         }
     }
@@ -141,17 +87,22 @@ fun HomeScreen(
     // from the player it is the content, restored to the row that was focused
     // when the stream started: BACK out of a channel used to land on the rail,
     // several presses from the list it had just left, which is not going back.
+    // Uptime of the last real key press; the rail's dwell-select only acts
+    // on focus changes that closely follow one, so system-driven focus moves
+    // (the splash dismissal's default placement) can never switch tabs.
+    var lastKeyDownMs by remember { mutableStateOf(0L) }
     LaunchedEffect(Unit) {
-        val target = if (hasLaunched) contentFocus else railFocus
-        repeat(5) {
-            if (runCatching { target.requestFocus() }.isSuccess) {
-                hasLaunched = true
-                return@LaunchedEffect
-            }
-            kotlinx.coroutines.delay(60)
+        // Park on the CONTENT, always — on launch that is the Live guide,
+        // whose entry redirect lands focus on the current programme, so the
+        // app boots one OK away from watching. Parking on the rail was both
+        // worse UX and fragile: the splash screen's dismissal re-runs the
+        // window's default focus placement and could leave nothing focused
+        // at all. A long retry window, deliberately: this races a COLD
+        // start, where content composes many frames in — not one.
+        if (!contentFocus.requestFocusRetrying(retries = 25, intervalMs = 80)) {
+            // Content never composed (load error pane churn); the rail always exists.
+            runCatching { railFocus.requestFocus() }
         }
-        // Whatever we aimed at never composed; the rail always exists.
-        runCatching { railFocus.requestFocus() }
         hasLaunched = true
     }
 
@@ -173,7 +124,16 @@ fun HomeScreen(
         label = "railLane",
     )
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    lastKeyDownMs = android.os.SystemClock.uptimeMillis()
+                }
+                false // observe only; never consume
+            },
+    ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -197,6 +157,23 @@ fun HomeScreen(
             // focus was lost, the counts and "Manage channels" vanished — then
             // all of it again in reverse when the load landed.
             val current = tab
+            // One-shot entrance on tab switch: the tree still swaps instantly
+            // (no Crossfade, see above) — only alpha/translation animate, so
+            // focus targeting and the guide's registry see final layout on
+            // frame one.
+            val tabEntrance = remember(current) { Animatable(0f) }
+            LaunchedEffect(current) {
+                tabEntrance.animateTo(
+                    1f,
+                    tween(NuxMotion.StandardMs, easing = NuxMotion.StandardEasing),
+                )
+            }
+            Box(
+                modifier = Modifier.graphicsLayer {
+                    alpha = tabEntrance.value
+                    translationY = (1f - tabEntrance.value) * (NuxMotion.EntranceRise.toPx() * 0.66f)
+                }
+            ) {
             tabStateHolder.SaveableStateProvider(current.name) {
                 if (current == HomeTab.Settings) {
                     SettingsTab(
@@ -206,22 +183,31 @@ fun HomeScreen(
                         onEditPlaylist = onEditPlaylist,
                     )
                 } else when (val state = contentState) {
-                    is ContentState.Loading -> CenteredMessage(title = state.message, loading = true)
-                    is ContentState.Error ->
-                        ErrorPane(message = state.message, onRetry = { vm.refresh() })
-                    is ContentState.Empty -> CenteredMessage(
+                    is ContentState.Loading -> StatusPane(title = state.message, loading = true)
+                    is ContentState.Error -> StatusPane(
+                        title = "Couldn't load your playlist",
+                        message = state.message,
+                        primaryAction = StatusAction("Retry") { vm.refresh() },
+                    )
+                    is ContentState.Empty -> StatusPane(
                         title = "No playlist loaded",
-                        subtitle = "Add a playlist in Settings",
+                        message = "Connect your provider to start watching.",
+                        primaryAction = StatusAction("Add playlist", onAddPlaylist),
                     )
                     is ContentState.Ready -> when (current) {
                         HomeTab.Search -> SearchTab(vm, onOpenMovie, onOpenSeries, onPlay)
                         HomeTab.Live -> LiveTab(vm, state.bundle, onPlay)
                         HomeTab.Movies -> MoviesTab(vm, state.bundle, onOpenMovie)
                         HomeTab.Series -> SeriesTab(vm, state.bundle, onOpenSeries)
-                        HomeTab.Recordings -> RecordingsTab(vm, onPlay)
+                        HomeTab.Recordings -> RecordingsTab(
+                            vm,
+                            onPlay,
+                            onGoToGuide = { tab = HomeTab.Live },
+                        )
                         HomeTab.Settings -> Unit // composed above, state-independent
                     }
                 }
+            }
             }
         }
     }
@@ -230,13 +216,24 @@ fun HomeScreen(
         onSelect = { tab = it },
         railFocus = railFocus,
         onRailFocusChanged = { railFocused = it; railExpanded = it },
+        lastUserKeyMs = { lastKeyDownMs },
     )
-    if (exitArmed) {
+    androidx.compose.animation.AnimatedVisibility(
+        visible = exitArmed,
+        enter = androidx.compose.animation.fadeIn(
+            tween(NuxMotion.StandardMs, easing = NuxMotion.StandardEasing)
+        ) + androidx.compose.animation.slideInVertically(
+            tween(NuxMotion.StandardMs, easing = NuxMotion.StandardEasing)
+        ) { it / 2 },
+        exit = androidx.compose.animation.fadeOut(
+            tween(NuxMotion.FastMs, easing = NuxMotion.ExitEasing)
+        ),
+        modifier = Modifier.align(Alignment.BottomCenter),
+    ) {
         Box(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
                 .padding(bottom = 24.dp)
-                .background(NuxColors.Scrim, RoundedCornerShape(10.dp))
+                .background(NuxColors.Scrim, NuxShape.Row)
                 .padding(horizontal = 18.dp, vertical = 10.dp),
         ) {
             Text(
@@ -246,1205 +243,5 @@ fun HomeScreen(
             )
         }
     }
-    }
-}
-
-@Composable
-private fun ErrorPane(message: String, onRetry: () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                "Couldn't load your playlist",
-                style = MaterialTheme.typography.titleMedium,
-                color = NuxColors.OnSurface,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(message, style = MaterialTheme.typography.bodySmall, color = NuxColors.OnSurfaceDim)
-            Spacer(Modifier.height(18.dp))
-            Button(onClick = onRetry) { Text("Retry") }
-        }
-    }
-}
-
-// --- navigation rail ---------------------------------------------------------
-
-@Composable
-private fun NavRail(
-    selected: HomeTab,
-    onSelect: (HomeTab) -> Unit,
-    railFocus: androidx.compose.ui.focus.FocusRequester,
-    onRailFocusChanged: (Boolean) -> Unit,
-) {
-    // Mirrors the caller's copy, which drives the content lane's width.
-    var expanded by remember { mutableStateOf(false) }
-    // Focus travel selects a tab only after the focus rests briefly, so
-    // moving down the rail doesn't compose every tab it passes through.
-    var focusedItem by remember { mutableStateOf<HomeTab?>(null) }
-    androidx.compose.runtime.LaunchedEffect(focusedItem) {
-        val item = focusedItem ?: return@LaunchedEffect
-        kotlinx.coroutines.delay(250)
-        onSelect(item)
-    }
-    val width by animateDpAsState(
-        targetValue = if (expanded) RAIL_WIDTH_EXPANDED else RAIL_WIDTH_COLLAPSED,
-        label = "railWidth",
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxHeight()
-            .width(width)
-            .focusRestorer()
-            // Opaque so overlaid content never shows through the rail.
-            .background(NuxColors.Background)
-            .onFocusChanged {
-                expanded = it.hasFocus
-                onRailFocusChanged(it.hasFocus)
-                if (!it.hasFocus) focusedItem = null // cancel pending select-on-focus
-            }
-            .padding(horizontal = Space.s, vertical = Space.gutterVertical),
-        verticalArrangement = Arrangement.spacedBy(Space.xs),
-    ) {
-        // The brand mark itself, not a letter standing in for it. Same lockup
-        // as onboarding: mark alone when collapsed, mark plus wordmark when
-        // there is room for it.
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier
-                .padding(start = 10.dp, bottom = 20.dp)
-                .animateContentSize(),
-        ) {
-            androidx.compose.foundation.Image(
-                painter = androidx.compose.ui.res.painterResource(com.nuxcor.nuxtv.R.drawable.ic_logo),
-                contentDescription = "Agoro",
-                // ic_logo, not ic_splash: the splash copy is padded into a
-                // square and scaled for its circular mask, so drawing it here
-                // gave about 59% of the size asked for.
-                //
-                // 48dp against titleLarge's 17.1dp cap height is the banner's
-                // 2.81:1. The old 32dp was inherited from the square drawable
-                // rather than derived from anything, and came out at 1.88:1 —
-                // the mark reading as an afterthought beside its own wordmark.
-                // 35dp wide clears the 54dp the collapsed rail leaves.
-                modifier = Modifier.height(48.dp).width(35.dp),
-            )
-            androidx.compose.animation.AnimatedVisibility(
-                visible = expanded,
-                enter = androidx.compose.animation.fadeIn(
-                    androidx.compose.animation.core.tween(160, delayMillis = 120)
-                ),
-                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(80)),
-            ) {
-                Text(
-                    text = "AGORO",
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black),
-                    color = NuxColors.Primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Clip,
-                )
-            }
-        }
-        HomeTab.entries.forEach { item ->
-            RailItem(
-                item = item,
-                selected = item == selected,
-                expanded = expanded,
-                onClick = { onSelect(item) },
-                onItemFocused = { focusedItem = item },
-                modifier = if (item == selected) {
-                    Modifier.fillMaxWidth().focusRequester(railFocus)
-                } else {
-                    Modifier.fillMaxWidth()
-                },
-            )
-        }
-    }
-}
-
-@Composable
-private fun RailItem(
-    item: HomeTab,
-    selected: Boolean,
-    expanded: Boolean,
-    onClick: () -> Unit,
-    onItemFocused: () -> Unit = onClick,
-    modifier: Modifier = Modifier.fillMaxWidth(),
-) {
-    Surface(
-        onClick = onClick,
-        // Tabs switch as focus travels the rail — no OK press needed.
-        modifier = modifier.onFocusChanged { if (it.isFocused) onItemFocused() },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (selected) NuxColors.Primary.copy(alpha = 0.18f) else androidx.compose.ui.graphics.Color.Transparent,
-            focusedContainerColor = NuxColors.SurfaceRaised,
-            contentColor = if (selected) NuxColors.Primary else NuxColors.OnSurfaceDim,
-            focusedContentColor = NuxColors.OnSurface,
-        ),
-        scale = ClickableSurfaceDefaults.scale(
-            focusedScale = com.nuxcor.nuxtv.ui.theme.NuxFocus.RowScale,
-        ),
-        border = ClickableSurfaceDefaults.border(focusedBorder = com.nuxcor.nuxtv.ui.theme.NuxFocus.ring10),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(item.icon, contentDescription = item.label, modifier = Modifier.size(22.dp))
-            androidx.compose.animation.AnimatedVisibility(
-                visible = expanded,
-                enter = androidx.compose.animation.fadeIn(
-                    androidx.compose.animation.core.tween(160, delayMillis = 120)
-                ),
-                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(80)),
-            ) {
-                Text(
-                    text = item.label,
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Clip,
-                )
-            }
-        }
-    }
-}
-
-// --- Live TV -----------------------------------------------------------------
-
-/**
- * Channel-number entry for a channel list: collects digits, then jumps.
- *
- * Parks focus on the row it scrolls to, which is the part that was missing.
- * Scrolling alone left the focused row where it was — off-screen — so the next
- * D-pad press moved from *there* and the list snapped straight back to where it
- * started. The jump appeared to work and then undid itself on the following
- * press, which reads as the feature being broken rather than as focus being in
- * the wrong place.
- */
-@androidx.compose.runtime.Stable
-internal class ChannelJump(val listState: androidx.compose.foundation.lazy.LazyListState) {
-    val focusRequester = FocusRequester()
-    var digits by mutableStateOf("")
-    var targetIndex by androidx.compose.runtime.mutableIntStateOf(-1)
-
-    /** Hand-off from the digit collector to the executor. A state counter, so
-     *  the executor effect restarts per jump; the number itself is a plain
-     *  field because nothing needs to observe it. */
-    var jumpTick by androidx.compose.runtime.mutableIntStateOf(0)
-    var jumpNumber: Int = -1
-}
-
-@Composable
-internal fun rememberChannelJump(
-    channels: List<com.nuxcor.nuxtv.data.LiveChannel>,
-): ChannelJump {
-    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-    val jump = remember(listState) { ChannelJump(listState) }
-    // Two effects, not one: this collector clears digits, and an effect keyed
-    // on digits cancels itself the moment it does that — the scroll and the
-    // focus retries below were dying at their first suspension point, leaving
-    // exactly the scrolled-but-not-focused snap-back this class exists to fix.
-    LaunchedEffect(jump.digits) {
-        if (jump.digits.isEmpty()) return@LaunchedEffect
-        kotlinx.coroutines.delay(1_200)
-        val typed = jump.digits.toIntOrNull()
-        // No suspension after this write: cancellation is cooperative, so the
-        // hand-off still runs.
-        jump.digits = ""
-        if (typed != null) {
-            jump.jumpNumber = typed
-            jump.jumpTick++
-        }
-    }
-    LaunchedEffect(jump.jumpTick, channels) {
-        if (jump.jumpTick == 0) return@LaunchedEffect
-        // Number first, position second — the same rule the row labels and the
-        // player's keypad use, so typing what you see always lands on it.
-        val target = channels.indexOfFirst { it.number == jump.jumpNumber }
-            .takeIf { it >= 0 } ?: (jump.jumpNumber - 1)
-        if (target !in channels.indices) return@LaunchedEffect
-        jump.targetIndex = target
-        jump.listState.scrollToItem(target)
-        // The row composes a frame after the scroll; retry briefly, the same way
-        // the nav rail and the mini-guide do.
-        repeat(5) {
-            if (runCatching { jump.focusRequester.requestFocus() }.isSuccess) {
-                return@LaunchedEffect
-            }
-            kotlinx.coroutines.delay(60)
-        }
-    }
-    return jump
-}
-
-/** Collects digit presses into [jump]. Goes on the list that scrolls. */
-internal fun Modifier.channelJumpKeys(jump: ChannelJump): Modifier =
-    this.onPreviewKeyEvent { event ->
-        if (event.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) {
-            return@onPreviewKeyEvent false
-        }
-        val code = event.key.nativeKeyCode
-        if (code in android.view.KeyEvent.KEYCODE_0..android.view.KeyEvent.KEYCODE_9) {
-            jump.digits += (code - android.view.KeyEvent.KEYCODE_0).toString()
-            true
-        } else false
-    }
-
-/** The "Channel 205" readout while digits are still being collected. */
-@Composable
-internal fun ChannelJumpBadge(digits: String, modifier: Modifier = Modifier) {
-    if (digits.isEmpty()) return
-    Box(
-        modifier = modifier
-            .background(NuxColors.Scrim, RoundedCornerShape(10.dp))
-            .padding(horizontal = 18.dp, vertical = 10.dp),
-    ) {
-        Text(
-            "Channel $digits",
-            style = MaterialTheme.typography.titleMedium,
-            color = NuxColors.Primary,
-        )
-    }
-}
-
-@Composable
-private fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
-    if (bundle.channels.isEmpty()) {
-        CenteredMessage(title = "No live channels", subtitle = "This playlist has no live streams")
-        return
-    }
-    val favorites by vm.favorites.collectAsState()
-    var menuChannel by remember { mutableStateOf<com.nuxcor.nuxtv.data.LiveChannel?>(null) }
-    var scheduleChannel by remember { mutableStateOf<com.nuxcor.nuxtv.data.LiveChannel?>(null) }
-    // Filtering/merging happens off the main thread in the ViewModel.
-    val allVisible by vm.displayChannels.collectAsState()
-    val recents by vm.recentChannels.collectAsState()
-    val categories = remember(bundle, favorites, recents, allVisible) {
-        liveCategoryList(bundle, allVisible, favorites, recents)
-    }
-    var selectedCategory by rememberSaveable(bundle.channels.size) { mutableStateOf(CATEGORY_ALL) }
-    // Recent and Favorites come and go as the viewer watches and stars things,
-    // so the selection can outlive the category it names.
-    val activeCategory = resolveCategoryId(selectedCategory, categories)
-    // Ordering is applied in the ViewModel from the Settings preference.
-    // Needed here (not just inside the guide) because the schedule sheet and
-    // the context menu play from this list.
-    val channels = remember(allVisible, activeCategory, favorites, recents) {
-        channelsInCategory(activeCategory, allVisible, favorites, recents)
-    }
-    val epgState by vm.epgState.collectAsState()
-
-    Box(modifier = Modifier.fillMaxSize()) {
-    // One surface. The grid IS the channel list — its channel column carries
-    // the logos, numbers, keypad jump and hold-OK menu the list view used to
-    // own, and every channel's schedule sits beside it instead of behind a
-    // toggle. Two views of the same channels meant the same press did
-    // different things depending on a switch set weeks ago.
-    GuideTab(
-        vm = vm,
-        bundle = bundle,
-        onPlay = onPlay,
-        categoryId = activeCategory,
-        onCategoryId = { selectedCategory = it },
-        onChannelLongPress = { menuChannel = it },
-    )
-    scheduleChannel?.let { channel ->
-        val programs = remember(channel.id, epgState) { vm.programsFor(channel) }
-        ChannelSchedule(
-            channel = channel,
-            programs = programs,
-            nowMs = System.currentTimeMillis(),
-            onWatch = {
-                scheduleChannel = null
-                vm.playChannels(channels, channels.indexOf(channel).coerceAtLeast(0))
-                onPlay()
-            },
-            onSelectProgram = { program ->
-                // Same rules as the guide: what a programme offers depends on
-                // whether it is on now or still to come.
-                //
-                // "Started already" rather than "on now", because the list is
-                // filtered against a clock that ticks every 30 seconds while
-                // this reads the real one. In the seconds after a programme
-                // ends the row still says ON NOW, and treating that press as a
-                // future programme sent it to scheduleRecording — which
-                // succeeds for any recordable channel and clamps its alarm to
-                // now, so a press meant to watch instead began recording
-                // something already over. Both cases play the channel.
-                val now = System.currentTimeMillis()
-                if (program.startMs <= now) {
-                    scheduleChannel = null
-                    vm.playChannels(channels, channels.indexOf(channel).coerceAtLeast(0))
-                    onPlay()
-                    null
-                } else if (vm.scheduleRecording(channel, program)) {
-                    "Recording scheduled: ${program.title}"
-                } else {
-                    // Same fallback the guide uses: a channel the provider
-                    // won't let us record can still be remembered. Sending the
-                    // viewer to the guide to do what this screen could have
-                    // done is not an answer.
-                    vm.scheduleReminder(channel, program)
-                    "Reminder set: ${program.title}"
-                }
-            },
-            onDismiss = { scheduleChannel = null },
-        )
-    }
-    menuChannel?.let { channel ->
-        val isFav = channel.url in favorites
-        // Counted the way the schedule sheet counts, which is not the same as
-        // "has any programmes at all": the parsed window keeps 30 hours of
-        // finished ones, while the sheet lists only what has yet to end.
-        val hasSchedule = remember(channel.id, epgState) {
-            val now = System.currentTimeMillis()
-            vm.programsFor(channel).any { it.endMs > now }
-        }
-        ContextMenu(
-            title = channel.name,
-            actions = buildList {
-                add(
-                    MenuAction("Play") {
-                        vm.playChannels(channels, channels.indexOf(channel).coerceAtLeast(0))
-                        onPlay()
-                    }
-                )
-                // Offered only when there is something to show — otherwise this
-                // is a menu row that opens an empty sheet.
-                if (hasSchedule) {
-                    add(MenuAction("What's on") { scheduleChannel = channel })
-                }
-                add(
-                    MenuAction(if (isFav) "Remove from favorites" else "Add to favorites") {
-                        vm.toggleFavorite(channel)
-                    }
-                )
-                add(MenuAction("Hide this channel") { vm.toggleHidden(channel) })
-            },
-            onDismiss = { menuChannel = null },
-        )
-    }
-    }
-}
-
-@Composable
-fun CategoryItem(
-    name: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier.fillMaxWidth(),
-    locked: Boolean = false,
-    onFocus: () -> Unit = {},
-) {
-    Surface(
-        onClick = onClick,
-        modifier = modifier.onFocusChanged { if (it.isFocused) onFocus() },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (selected) NuxColors.Primary.copy(alpha = 0.16f) else androidx.compose.ui.graphics.Color.Transparent,
-            focusedContainerColor = NuxColors.SurfaceRaised,
-            // Selected stays gold even while focused.
-            contentColor = if (selected) NuxColors.Primary else NuxColors.OnSurfaceDim,
-            focusedContentColor = if (selected) NuxColors.Primary else NuxColors.OnSurface,
-        ),
-        scale = ClickableSurfaceDefaults.scale(
-            focusedScale = com.nuxcor.nuxtv.ui.theme.NuxFocus.ButtonScale,
-        ),
-        border = ClickableSurfaceDefaults.border(
-            focusedBorder = com.nuxcor.nuxtv.ui.theme.NuxFocus.ring8,
-        ),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        ) {
-            Text(
-                text = name,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            if (locked) {
-                Icon(
-                    Icons.Default.Lock,
-                    contentDescription = "Locked category",
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-        }
-    }
-}
-
-// --- Settings ----------------------------------------------------------------
-
-internal val EPGSHARE_PACKS = listOf("US", "UK", "CA", "DE", "FR", "IN", "ZA")
-
-/**
- * Which country packs plausibly match a playlist, judged from its own category
- * names ("US| NEWS", "UK| SPORT", "DSTV") rather than from where the device is.
- * A viewer's location says nothing about their lineup — IPTV playlists are
- * routinely watched from another continent — whereas the categories describe
- * exactly what is in there.
- */
-internal fun suggestedEpgPacks(categoryNames: List<String>): List<String> {
-    val hints = mapOf(
-        "US" to listOf("us", "usa", "united states", "america"),
-        "UK" to listOf("uk", "gb", "britain", "british", "united kingdom"),
-        "CA" to listOf("ca", "canada", "canadian"),
-        "DE" to listOf("de", "german", "germany", "deutsch"),
-        "FR" to listOf("fr", "france", "french"),
-        "IN" to listOf("in", "india", "indian", "hindi"),
-        "ZA" to listOf("za", "south africa", "dstv", "supersport"),
-    )
-    val haystack = categoryNames.map { it.lowercase() }
-    return EPGSHARE_PACKS.filter { code ->
-        val needles = hints[code].orEmpty()
-        haystack.any { name ->
-            needles.any { needle ->
-                // Word-boundary match so "in" doesn't fire on "entertainment".
-                Regex("""(^|[^a-z])${Regex.escape(needle)}([^a-z]|$)""").containsMatchIn(name)
-            }
-        }
-    }
-}
-
-internal fun epgshareUrl(cc: String) =
-    "https://epgshare01.online/epgshare01/epg_ripper_${cc}1.xml.gz"
-
-@Composable
-private fun SettingsTab(
-    vm: MainViewModel,
-    bundle: ContentBundle?,
-    onAddPlaylist: () -> Unit,
-    onEditPlaylist: (String) -> Unit,
-) {
-    val sources by vm.sources.collectAsState()
-    val active by vm.activeSource.collectAsState()
-    val engine by vm.engine.collectAsState()
-    val epgOverride by vm.epgOverrideUrl.collectAsState()
-    val contentState by vm.content.collectAsState()
-
-    // The library reads null for the duration of a load. Holding the last one
-    // keeps the counts, the "Manage channels" button and an open channel manager
-    // from blinking out and back every time the playlist reloads underneath.
-    var lastBundle by remember { mutableStateOf(bundle) }
-    LaunchedEffect(bundle) { if (bundle != null) lastBundle = bundle }
-    val shownBundle = lastBundle
-
-    val parentalPin by vm.parentalPin.collectAsState()
-    var manageOpen by remember { mutableStateOf(false) }
-    // Text entry happens in dialogs, not inline: a focused TextField on TV
-    // opens the keyboard on its own, so a field in the scroll path grabs the
-    // remote every time you D-pad past it.
-    var epgDialogOpen by remember { mutableStateOf(false) }
-    var pinDialogOpen by remember { mutableStateOf(false) }
-    var statusMessage by remember { mutableStateOf<String?>(null) }
-    var confirmRemoveSource by remember { mutableStateOf<String?>(null) }
-    var sourceOptions by remember { mutableStateOf<String?>(null) }
-    var confirmImport by remember { mutableStateOf(false) }
-
-    // Status used to sit in the header item of the scrolling list, six to
-    // fifteen rows above the buttons that set it — so "Backup failed" and
-    // "Parental PIN saved" were reported off-screen and every one of those
-    // presses looked like it had done nothing. It is pinned to the pane now,
-    // and it clears itself; before, it never did.
-    LaunchedEffect(statusMessage) {
-        if (statusMessage != null) {
-            kotlinx.coroutines.delay(4_000)
-            statusMessage = null
-        }
-    }
-
-    // Refresh has no completion signal of its own: the repository deliberately
-    // keeps a working library rather than replacing it with a loading or error
-    // state once one is loaded. Watching the transition out of Loading is the
-    // only honest way to tell the viewer their press finished.
-    val loadingNow = contentState is ContentState.Loading
-    var sawLoading by remember { mutableStateOf(false) }
-    var pendingLoadMessage by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(loadingNow) {
-        if (loadingNow) {
-            sawLoading = true
-        } else if (sawLoading) {
-            sawLoading = false
-            // The queued message is a success message, and leaving Loading is
-            // not success: a refresh that lands in Error kept announcing
-            // "Playlist refreshed" over the stale library it did not refresh —
-            // on the very screen the button lives on, which shows no error of
-            // its own.
-            val landed = contentState
-            statusMessage = if (landed is ContentState.Error) {
-                "Refresh failed — ${landed.message}"
-            } else {
-                pendingLoadMessage
-            }
-            pendingLoadMessage = null
-        }
-    }
-
-    if (epgDialogOpen) {
-        com.nuxcor.nuxtv.ui.components.TextInputDialog(
-            title = "Custom XMLTV URL",
-            message = "Optional. Leave this unset and the guide from your playlist is used.",
-            initialValue = epgOverride.orEmpty(),
-            label = "XMLTV URL",
-            onConfirm = { entered ->
-                vm.setEpgOverrideUrl(entered)
-                statusMessage = if (entered.isBlank()) "EPG source: playlist default"
-                else "EPG source updated"
-            },
-            onDismiss = { epgDialogOpen = false },
-        )
-    }
-    if (pinDialogOpen) {
-        com.nuxcor.nuxtv.ui.components.TextInputDialog(
-            title = "Parental PIN",
-            message = "Optional. Clearing the PIN turns parental control off.",
-            initialValue = parentalPin.orEmpty(),
-            label = "PIN",
-            digitsOnly = true,
-            onConfirm = { entered ->
-                vm.setParentalPin(entered)
-                statusMessage = if (entered.isBlank()) "Parental lock disabled"
-                else "Parental PIN saved"
-            },
-            onDismiss = { pinDialogOpen = false },
-        )
-    }
-
-    // A stale id (the playlist vanished under us) simply shows nothing.
-    sources.orEmpty().firstOrNull { it.id == sourceOptions }?.let { source ->
-        com.nuxcor.nuxtv.ui.components.PlaylistOptionsDialog(
-            name = source.name,
-            onEdit = {
-                sourceOptions = null
-                onEditPlaylist(source.id)
-            },
-            onRemove = {
-                sourceOptions = null
-                confirmRemoveSource = source.id
-            },
-            onDismiss = { sourceOptions = null },
-        )
-    }
-
-    if (manageOpen && shownBundle != null) {
-        ChannelManager(vm = vm, bundle = shownBundle, onClose = { manageOpen = false })
-        return
-    }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(Space.m),
-        contentPadding = PaddingValues(bottom = Space.xxl),
-    ) {
-        item(key = "header") {
-            Column {
-                Text(
-                    "Settings",
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = NuxColors.OnSurface,
-                )
-                if (shownBundle != null) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "${shownBundle.channels.size} channels • ${shownBundle.movies.size} movies • ${shownBundle.series.size} series",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = NuxColors.OnSurfaceDim,
-                    )
-                }
-            }
-        }
-
-        items(sources.orEmpty(), key = { it.id }) { source ->
-            val isActive = source.id == active?.id
-            WideItem(
-                title = source.name,
-                selected = isActive,
-                // Hold OK for options on any playlist; the active one has
-                // nothing to switch to, so a plain OK opens them too.
-                onLongClick = { sourceOptions = source.id },
-                subtitle = when (source) {
-                    is PlaylistSource.Xtream -> "Xtream • ${source.serverUrl}"
-                    is PlaylistSource.M3u -> "M3U • ${source.url}"
-                },
-                leading = {
-                    Icon(
-                        if (source is PlaylistSource.Xtream) Icons.Default.LiveTv else Icons.Default.Movie,
-                        contentDescription = null,
-                        tint = if (isActive) NuxColors.Primary else NuxColors.OnSurfaceDim,
-                    )
-                },
-                onClick = {
-                    if (isActive) {
-                        sourceOptions = source.id
-                    } else {
-                        pendingLoadMessage = "Switched to ${source.name}"
-                        vm.selectSource(source.id)
-                    }
-                },
-            )
-        }
-
-        item(key = "account") {
-            val account by vm.accountInfo.collectAsState()
-            account?.let { info ->
-                val dayMs = 24 * 3600_000L
-                val daysLeft = info.expiresAtMs?.let { (it - System.currentTimeMillis()) / dayMs }
-                val expiringSoon = daysLeft != null && daysLeft in 0..7
-                val inactive = info.status != null && !info.status.equals("Active", ignoreCase = true)
-                val expired = daysLeft != null && daysLeft < 0
-                val fmt = remember { SimpleDateFormat("d MMM yyyy", Locale.getDefault()) }
-                Column {
-                    Text(
-                        "Account",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = NuxColors.OnSurface,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = buildList {
-                            info.status?.let { add(it) }
-                            info.expiresAtMs?.let {
-                                add(
-                                    when {
-                                        expired -> "Expired ${fmt.format(Date(it))}"
-                                        else -> "Expires ${fmt.format(Date(it))}"
-                                    }
-                                )
-                            }
-                            if (info.maxConnections != null) {
-                                add("${info.activeConnections ?: 0} of ${info.maxConnections} connections in use")
-                            }
-                        }.joinToString("   •   "),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (expired || inactive || expiringSoon) NuxColors.Error
-                        else NuxColors.OnSurfaceDim,
-                    )
-                    if (expiringSoon || expired || inactive) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = when {
-                                expired -> "Your subscription has ended — streams will fail until it is renewed."
-                                inactive -> "Your provider reports this account as inactive."
-                                else -> "Your subscription renews soon."
-                            },
-                            style = MaterialTheme.typography.labelMedium,
-                            color = NuxColors.OnSurfaceDim,
-                        )
-                    }
-                }
-            }
-        }
-
-        item(key = "playlist-buttons") {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = onAddPlaylist) { Text("Add playlist") }
-                // The label is the progress indicator: one stable button, so a
-                // load in flight can't move focus out from under the press.
-                OutlinedButton(
-                    onClick = {
-                        pendingLoadMessage = "Playlist refreshed"
-                        vm.refresh()
-                    },
-                    enabled = !loadingNow,
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh playlist", modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (loadingNow) "Refreshing…" else "Refresh")
-                }
-                // No "Remove current" here. Holding OK on any playlist row
-                // already offers Edit and Remove, and works for every playlist
-                // rather than only the active one — so this button was the
-                // narrower of two routes to the same thing, sitting in the
-                // primary row where it was the easiest control to hit by
-                // accident.
-                if (shownBundle != null) {
-                    OutlinedButton(onClick = { manageOpen = true }) { Text("Manage channels") }
-                }
-                // Only offered when there is something to clear: a button that
-                // does nothing still costs a press to walk past.
-                val recentChannels by vm.recentChannels.collectAsState()
-                if (recentChannels.isNotEmpty()) {
-                    OutlinedButton(onClick = { vm.clearRecentChannels() }) { Text("Clear recent") }
-                }
-            }
-        }
-
-        item(key = "duplicates") {
-            Column {
-                Text(
-                    "Duplicate channels",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = NuxColors.OnSurface,
-                )
-                Text(
-                    "Merge SD/HD/FHD variants of the same channel and keep the best quality.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = NuxColors.OnSurfaceDim,
-                )
-                Spacer(Modifier.height(8.dp))
-                val mergeDupes by vm.mergeDuplicates.collectAsState()
-                SegmentedControl(
-                    options = listOf("Show all", "Best quality only"),
-                    selectedIndex = if (mergeDupes) 1 else 0,
-                    onSelect = { vm.setMergeDuplicates(it == 1) },
-                )
-            }
-        }
-
-        item(key = "guide-preview") {
-            Column {
-                Text(
-                    "Guide preview",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = NuxColors.OnSurface,
-                )
-                Text(
-                    "Play the focused channel, muted, in the guide's corner. " +
-                        "Uses one of your provider's connections while it runs, " +
-                        "so leave it off if your subscription only allows one.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = NuxColors.OnSurfaceDim,
-                )
-                Spacer(Modifier.height(8.dp))
-                val preview by vm.guidePreview.collectAsState()
-                SegmentedControl(
-                    options = listOf("Off", "On"),
-                    selectedIndex = if (preview) 1 else 0,
-                    onSelect = { vm.setGuidePreview(it == 1) },
-                )
-                // The number the provider reports, so the choice is made with
-                // the actual limit in view rather than a guess about it. Only
-                // Xtream accounts report one; an M3U link says nothing about
-                // its limits, which is its own argument for leaving this off.
-                val account by vm.accountInfo.collectAsState()
-                val maxConnections = account?.maxConnections
-                if (maxConnections != null) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = if (maxConnections == 1) {
-                            "Your provider allows 1 connection — a preview would use it."
-                        } else {
-                            "Your provider allows $maxConnections connections."
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (maxConnections == 1) NuxColors.Error else NuxColors.OnSurfaceDim,
-                    )
-                }
-            }
-        }
-
-        item(key = "order") {
-            Column {
-                Text(
-                    "Channel order",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = NuxColors.OnSurface,
-                )
-                Text(
-                    "How Live TV lists channels within a category.",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = NuxColors.OnSurfaceDim,
-                )
-                Spacer(Modifier.height(8.dp))
-                val order by vm.channelOrder.collectAsState()
-                SegmentedControl(
-                    options = listOf("Provider order", "A–Z", "Best quality first"),
-                    selectedIndex = order,
-                    onSelect = { vm.setChannelOrder(it) },
-                )
-            }
-        }
-
-        item(key = "quality") {
-            Column {
-                Text(
-                    "Picture quality",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = NuxColors.OnSurface,
-                )
-                Text(
-                    "Highest is sharper the moment a channel opens, but never drops " +
-                        "when the connection sags — on a weak line that becomes buffering. " +
-                        "Auto starts lower and climbs. Only affects streams that offer " +
-                        "more than one quality.",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = NuxColors.OnSurfaceDim,
-                )
-                Spacer(Modifier.height(8.dp))
-                val quality by vm.videoQuality.collectAsState()
-                SegmentedControl(
-                    options = listOf("Auto", "Highest"),
-                    selectedIndex = quality,
-                    onSelect = { vm.setVideoQuality(it) },
-                )
-            }
-        }
-
-        item(key = "engine") {
-            Column {
-                Text(
-                    "Default player engine",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = NuxColors.OnSurface,
-                )
-                Spacer(Modifier.height(8.dp))
-                val engines = remember { EngineChoice.entries.toList() }
-                SegmentedControl(
-                    options = engines.map { if (it == EngineChoice.EXO) "ExoPlayer" else "VLC" },
-                    selectedIndex = engines.indexOf(engine).coerceAtLeast(0),
-                    onSelect = { vm.setEngine(engines[it]) },
-                )
-            }
-        }
-
-        item(key = "epg") {
-            Column {
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "EPG source",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = NuxColors.OnSurface,
-                )
-                Text(
-                    "Auto uses your playlist's guide; pick an epgshare01 pack or paste any XMLTV URL. Guides refresh every 6 hours.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = NuxColors.OnSurfaceDim,
-                )
-                Spacer(Modifier.height(8.dp))
-                val epgOptions = remember { listOf("Auto") + EPGSHARE_PACKS }
-                SegmentedControl(
-                    options = epgOptions,
-                    selectedIndex = when {
-                        epgOverride.isNullOrBlank() -> 0
-                        else -> EPGSHARE_PACKS.indexOfFirst { epgshareUrl(it) == epgOverride }
-                            .let { if (it >= 0) it + 1 else -1 }
-                    },
-                    onSelect = { index ->
-                        if (index == 0) {
-                            vm.setEpgOverrideUrl(null)
-                            statusMessage = "EPG source: playlist default"
-                        } else {
-                            val cc = EPGSHARE_PACKS[index - 1]
-                            vm.setEpgOverrideUrl(epgshareUrl(cc))
-                            statusMessage = "EPG source: epgshare01 $cc pack"
-                        }
-                    },
-                )
-                Spacer(Modifier.height(8.dp))
-                val custom = epgOverride
-                    ?.takeIf { url -> url.isNotBlank() && EPGSHARE_PACKS.none { epgshareUrl(it) == url } }
-                WideItem(
-                    title = "Custom XMLTV URL",
-                    subtitle = custom ?: "Not set — the playlist's own guide is used",
-                    leading = {
-                        Icon(
-                            Icons.Default.CalendarViewWeek,
-                            contentDescription = null,
-                            tint = if (custom != null) NuxColors.Primary else NuxColors.OnSurfaceDim,
-                        )
-                    },
-                    onClick = { epgDialogOpen = true },
-                )
-            }
-        }
-
-        item(key = "parental") {
-            Column {
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "Parental control",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = NuxColors.OnSurface,
-                )
-                // Says what it actually does. "Restricted categories" implied a
-                // set the viewer had chosen; it is detected from the category
-                // names the provider supplies, and the names it matches are
-                // listed below so the setting can be judged before it is set —
-                // not discovered later by finding something unlocked.
-                Text(
-                    "Optional. Categories whose names look adult are hidden everywhere " +
-                        "until you enter the PIN.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = NuxColors.OnSurfaceDim,
-                )
-                val restricted = remember(shownBundle) { vm.restrictedCategoryNames(shownBundle) }
-                if (shownBundle != null) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = if (restricted.isEmpty()) {
-                            "Nothing in this playlist matches — a PIN would hide nothing."
-                        } else {
-                            "In this playlist: ${restricted.take(6).joinToString(", ")}" +
-                                if (restricted.size > 6) " and ${restricted.size - 6} more" else ""
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (restricted.isEmpty()) NuxColors.OnSurfaceDim else NuxColors.Primary,
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                WideItem(
-                    title = if (parentalPin.isNullOrBlank()) "Set a PIN" else "Change or remove PIN",
-                    subtitle = if (parentalPin.isNullOrBlank()) "Off — nothing is hidden"
-                    else "On — ${restricted.size} categories are locked",
-                    leading = {
-                        Icon(
-                            Icons.Default.Lock,
-                            contentDescription = null,
-                            tint = if (parentalPin.isNullOrBlank()) NuxColors.OnSurfaceDim
-                            else NuxColors.Primary,
-                        )
-                    },
-                    onClick = { pinDialogOpen = true },
-                )
-            }
-        }
-
-        item(key = "updates") {
-            Column {
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "App updates",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = NuxColors.OnSurface,
-                )
-                val update by vm.updateState.collectAsState()
-                Text(
-                    text = when (val u = update) {
-                        is com.nuxcor.nuxtv.data.UpdateManager.State.Available ->
-                            "Version ${com.nuxcor.nuxtv.BuildConfig.VERSION_NAME} — ${u.version} is available" +
-                                (u.sizeBytes.takeIf { it > 0 }?.let { " (${it / 1048576} MB)" } ?: "")
-                        is com.nuxcor.nuxtv.data.UpdateManager.State.Downloading ->
-                            "Downloading update… ${u.progressPercent}%"
-                        is com.nuxcor.nuxtv.data.UpdateManager.State.Ready ->
-                            "Update downloaded — install when prompted"
-                        is com.nuxcor.nuxtv.data.UpdateManager.State.UpToDate ->
-                            "Version ${com.nuxcor.nuxtv.BuildConfig.VERSION_NAME} — up to date"
-                        is com.nuxcor.nuxtv.data.UpdateManager.State.Error ->
-                            "Update check failed: ${u.message}"
-                        is com.nuxcor.nuxtv.data.UpdateManager.State.Checking -> "Checking…"
-                        else -> "Version ${com.nuxcor.nuxtv.BuildConfig.VERSION_NAME}"
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = when (update) {
-                        is com.nuxcor.nuxtv.data.UpdateManager.State.Available -> NuxColors.Secondary
-                        is com.nuxcor.nuxtv.data.UpdateManager.State.Error -> NuxColors.Error
-                        else -> NuxColors.OnSurfaceDim
-                    },
-                )
-                Spacer(Modifier.height(8.dp))
-                // One stable button — swapping composables per state would drop
-                // D-pad focus mid-download.
-                Button(onClick = {
-                    when (update) {
-                        is com.nuxcor.nuxtv.data.UpdateManager.State.Available,
-                        is com.nuxcor.nuxtv.data.UpdateManager.State.Ready ->
-                            vm.downloadAndInstallUpdate()
-                        is com.nuxcor.nuxtv.data.UpdateManager.State.Downloading,
-                        is com.nuxcor.nuxtv.data.UpdateManager.State.Checking -> Unit
-                        else -> vm.checkForUpdates()
-                    }
-                }) {
-                    Text(
-                        when (val u = update) {
-                            is com.nuxcor.nuxtv.data.UpdateManager.State.Available -> "Update now"
-                            is com.nuxcor.nuxtv.data.UpdateManager.State.Ready -> "Install"
-                            is com.nuxcor.nuxtv.data.UpdateManager.State.Downloading ->
-                                "Downloading… ${u.progressPercent}%"
-                            is com.nuxcor.nuxtv.data.UpdateManager.State.Checking -> "Checking…"
-                            else -> "Check for updates"
-                        }
-                    )
-                }
-            }
-        }
-
-        item(key = "confirmations") {
-            SettingsConfirmations(
-                vm = vm,
-                removeSourceId = confirmRemoveSource,
-                onRemoveHandled = { confirmRemoveSource = null },
-                importPending = confirmImport,
-                onImportHandled = { confirmImport = false },
-                onStatus = { statusMessage = it },
-            )
-        }
-
-        item(key = "backup") {
-            Column {
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "Backup & restore",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = NuxColors.OnSurface,
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(onClick = {
-                        vm.exportBackup { path ->
-                            statusMessage = path?.let { "Backup saved to $it" } ?: "Backup failed"
-                        }
-                    }) { Text("Export backup") }
-                    OutlinedButton(onClick = { confirmImport = true }) { Text("Import backup") }
-                }
-            }
-        }
-    }
-    // Pinned to the pane, not to a row that scrolls away.
-    statusMessage?.let {
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(bottom = Space.m, end = Space.s)
-                .background(NuxColors.Scrim, RoundedCornerShape(10.dp))
-                .padding(horizontal = 18.dp, vertical = 10.dp),
-        ) {
-            Text(
-                text = it,
-                style = MaterialTheme.typography.labelLarge,
-                color = NuxColors.Secondary,
-            )
-        }
-    }
-    }
-}
-
-@Composable
-private fun SettingsConfirmations(
-    vm: MainViewModel,
-    removeSourceId: String?,
-    onRemoveHandled: () -> Unit,
-    importPending: Boolean,
-    onImportHandled: () -> Unit,
-    onStatus: (String) -> Unit,
-) {
-    if (removeSourceId != null) {
-        ConfirmDialog(
-            title = "Remove this playlist?",
-            message = "Its cached channels are deleted. Recordings are kept.",
-            confirmLabel = "Remove",
-            onConfirm = { vm.removeSource(removeSourceId) },
-            onDismiss = onRemoveHandled,
-        )
-    }
-    if (importPending) {
-        ConfirmDialog(
-            title = "Restore from backup?",
-            message = "This replaces your current playlists and settings.",
-            confirmLabel = "Restore",
-            onConfirm = {
-                vm.importBackup { ok -> onStatus(if (ok) "Backup restored" else "No backup found") }
-            },
-            onDismiss = onImportHandled,
-        )
-    }
-}
-
-
-@Composable
-private fun ChannelManager(vm: MainViewModel, bundle: ContentBundle, onClose: () -> Unit) {
-    val hidden by vm.hidden.collectAsState()
-    // Without this, BACK falls through to Home's handlers and starts the
-    // app-exit sequence while the manager is still open — the one place left
-    // in the app where BACK didn't mean "go back".
-    BackHandler(onBack = onClose)
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "Manage channels",
-                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
-                color = NuxColors.OnSurface,
-                modifier = Modifier.weight(1f),
-            )
-            OutlinedButton(onClick = onClose) { Text("Done") }
-        }
-        Text(
-            "Select a channel to hide or unhide it everywhere. Type a channel number to jump.",
-            style = MaterialTheme.typography.labelSmall,
-            color = NuxColors.OnSurfaceDim,
-        )
-        Spacer(Modifier.height(14.dp))
-
-        // This is the screen for finding one unwanted channel among the few
-        // thousand the app is built to handle, and it had neither of the two
-        // things Live TV uses to cross that many rows. It works on
-        // bundle.channels rather than displayChannels on purpose: hidden
-        // channels have to be listed here or there is no way to unhide one.
-        var selectedCategory by rememberSaveable { mutableStateOf(CATEGORY_ALL) }
-        val categories = remember(bundle) {
-            listOf(Category(id = CATEGORY_ALL, name = "All channels")) + bundle.liveCategories
-        }
-        val activeCategory = resolveCategoryId(selectedCategory, categories)
-        var focusedCategory by remember { mutableStateOf<String?>(null) }
-        LaunchedEffect(focusedCategory) {
-            val id = focusedCategory ?: return@LaunchedEffect
-            kotlinx.coroutines.delay(250)
-            selectedCategory = id
-        }
-        val channels = remember(bundle, activeCategory) {
-            if (activeCategory == CATEGORY_ALL) bundle.channels
-            else bundle.channels.filter { it.categoryId == activeCategory }
-        }
-        val jump = rememberChannelJump(channels)
-
-        Box(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.spacedBy(Space.m),
-        ) {
-            LazyColumn(
-                modifier = Modifier
-                    .width(190.dp)
-                    .fillMaxHeight()
-                    .focusRestorer(),
-                verticalArrangement = Arrangement.spacedBy(Space.xs),
-                contentPadding = PaddingValues(bottom = Space.l),
-            ) {
-                items(categories, key = { it.id }) { category ->
-                    CategoryItem(
-                        name = category.name,
-                        selected = category.id == activeCategory,
-                        onClick = { selectedCategory = category.id },
-                        onFocus = { focusedCategory = category.id },
-                    )
-                }
-            }
-            LazyColumn(
-                state = jump.listState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .focusRestorer()
-                    .channelJumpKeys(jump),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-                contentPadding = PaddingValues(bottom = 32.dp),
-            ) {
-                itemsIndexed(channels, key = { _, c -> c.id }) { index, channel ->
-                    val isHidden = channel.url in hidden
-                    WideItem(
-                        title = channel.name,
-                        subtitle = if (isHidden) "Hidden — select to unhide" else "Visible",
-                        badge = channel.quality,
-                        imageUrl = channel.logo,
-                        modifier = if (index == jump.targetIndex) {
-                            Modifier.focusRequester(jump.focusRequester)
-                        } else {
-                            Modifier
-                        },
-                        onClick = { vm.toggleHidden(channel) },
-                    )
-                }
-            }
-        }
-        ChannelJumpBadge(jump.digits, Modifier.align(Alignment.TopEnd))
-        }
     }
 }
