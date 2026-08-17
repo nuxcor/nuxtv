@@ -56,6 +56,34 @@ class PlayerPrefs(private val context: Context) {
     private val subtitleLangKey = stringPreferencesKey("preferred_subtitle_lang")
     private val vodSpeedKey = stringPreferencesKey("vod_speed")
     private val keyHintsVersionKey = stringPreferencesKey("key_hints_version")
+    private val knownQualitiesKey = stringPreferencesKey("known_qualities")
+
+    /**
+     * Real decoded quality per stream URL, learned during playback. Providers
+     * routinely mislabel streams ("4K" names decoding at 720p); once a channel
+     * has actually been played, its true tier replaces the advertised tag in
+     * every list. Newest 500 kept.
+     */
+    val knownQualities: Flow<Map<String, String>> = context.playerDataStore.data.map { prefs ->
+        prefs[knownQualitiesKey]?.let {
+            runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrNull()
+        } ?: emptyMap()
+    }
+
+    suspend fun setKnownQuality(url: String, tier: String) {
+        context.playerDataStore.edit { prefs ->
+            val map = prefs[knownQualitiesKey]?.let {
+                runCatching { json.decodeFromString<LinkedHashMap<String, String>>(it) }.getOrNull()
+            } ?: LinkedHashMap()
+            if (map[url] == tier) return@edit
+            map.remove(url) // re-inserting moves the entry to the newest slot
+            map[url] = tier
+            val trimmed =
+                if (map.size > 500) map.entries.drop(map.size - 500).associate { it.toPair() }
+                else map
+            prefs[knownQualitiesKey] = json.encodeToString(trimmed)
+        }
+    }
 
     val engine: Flow<EngineChoice> = context.playerDataStore.data.map { prefs ->
         runCatching { EngineChoice.valueOf(prefs[engineKey] ?: "EXO") }.getOrDefault(EngineChoice.EXO)

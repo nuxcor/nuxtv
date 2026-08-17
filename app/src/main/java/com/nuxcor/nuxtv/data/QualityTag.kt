@@ -52,6 +52,17 @@ object QualityTag {
         return best.values.toList()
     }
 
+    /** Tier alone for a decoded height — the language the app's badges speak. */
+    fun tierOf(height: Int): String? {
+        if (height <= 0) return null
+        return when {
+            height >= 2000 -> "4K"
+            height >= 1000 -> "FHD"
+            height >= 700 -> "HD"
+            else -> "SD"
+        }
+    }
+
     /** Label for an actual decoded resolution, e.g. 1920x1080 → "1080p FHD". */
     fun ofResolution(width: Int, height: Int): String? {
         if (height <= 0) return null

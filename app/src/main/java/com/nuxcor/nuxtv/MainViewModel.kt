@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -292,25 +293,40 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             },
             playerPrefs.channelOrder,
         ) { c, hiddenSet, merge, effectivePin, order ->
-            val bundle = (c as? ContentState.Ready)?.bundle ?: return@combine emptyList()
+            val bundle = (c as? ContentState.Ready)?.bundle
+                ?: return@combine Triple(emptyList<LiveChannel>(), false, 0)
             val lockedIds = if (effectivePin != null) {
                 bundle.liveCategories.filter { isLockedCategory(it.name) }.map { it.id }.toSet()
             } else emptySet()
             val visible = bundle.channels
                 .filterNot { it.url in hiddenSet }
                 .filterNot { it.categoryId in lockedIds }
-            val merged =
-                if (merge) com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(visible) else visible
-            when (order) {
-                1 -> merged.sortedBy { it.name.lowercase() }
-                2 -> merged.sortedWith(
-                    compareByDescending<LiveChannel> {
-                        com.nuxcor.nuxtv.data.QualityTag.rank(it.quality)
-                    }.thenBy { it.name.lowercase() }
-                )
-                else -> merged
-            }
+            Triple(visible, merge, order)
         }
+            // Separate combine: the typed overloads stop at five flows. The
+            // decoded-quality overlay runs before merge/sort so duplicate
+            // merging and the quality ordering act on the truth, not on
+            // whatever tag the provider typed into the stream name.
+            .combine(playerPrefs.knownQualities) { (visible, merge, order), known ->
+                val corrected =
+                    if (known.isEmpty()) visible
+                    else visible.map { ch ->
+                        val real = known[ch.url]
+                        if (real == null || real == ch.quality) ch else ch.copy(quality = real)
+                    }
+                val merged =
+                    if (merge) com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(corrected)
+                    else corrected
+                when (order) {
+                    1 -> merged.sortedBy { it.name.lowercase() }
+                    2 -> merged.sortedWith(
+                        compareByDescending<LiveChannel> {
+                            com.nuxcor.nuxtv.data.QualityTag.rank(it.quality)
+                        }.thenBy { it.name.lowercase() }
+                    )
+                    else -> merged
+                }
+            }
             .flowOn(kotlinx.coroutines.Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -607,6 +623,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun programsFor(channel: LiveChannel): List<EpgProgram> = repo.programsFor(channel)
 
+    /** Latest learned real tiers, for synchronous consumers (search). */
+    private val knownQualitiesNow: StateFlow<Map<String, String>> =
+        playerPrefs.knownQualities.stateIn(
+            viewModelScope, SharingStarted.Eagerly, emptyMap(),
+        )
+
+    /** Remember what a stream really decodes at, so lists stop repeating the name's lie. */
+    fun recordDecodedQuality(url: String, height: Int) {
+        val tier = com.nuxcor.nuxtv.data.QualityTag.tierOf(height) ?: return
+        viewModelScope.launch { playerPrefs.setKnownQuality(url, tier) }
+    }
+
     fun toggleFavorite(channel: LiveChannel) {
         viewModelScope.launch { playerPrefs.toggleFavorite(channel.url) }
     }
@@ -676,7 +704,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 searchRank(name(item), q, tokens)?.let { rank -> rank to item }
             }.sortedBy { it.first }.map { it.second }.take(30)
 
+        val known = knownQualitiesNow.value
         val channels = rankAndTake(b.channels, { it.name }) { it.categoryId !in lockedLive }
+            .map { ch -> known[ch.url]?.let { real -> ch.copy(quality = real) } ?: ch }
 
         // Programme titles, the guide's other half: what is ON, not just what
         // the channel is called. Current and upcoming only — a finished

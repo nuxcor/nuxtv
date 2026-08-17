@@ -198,6 +198,15 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         }
     }
 
+    // Learn each live stream's REAL tier as it decodes, so the lists can
+    // stop repeating whatever the provider typed into the stream name.
+    LaunchedEffect(session.videoSize, session.currentIndex) {
+        if (!request.isLive) return@LaunchedEffect
+        val (_, h) = session.videoSize ?: return@LaunchedEffect
+        request.items.getOrNull(session.currentIndex)?.url
+            ?.let { vm.recordDecodedQuality(it, h) }
+    }
+
     // Keep the activity's PiP params fresh so API 31+ auto-enters on HOME
     // with the real picture aspect, updated as the decoded size changes.
     LaunchedEffect(session.videoSize, pipSupported) {

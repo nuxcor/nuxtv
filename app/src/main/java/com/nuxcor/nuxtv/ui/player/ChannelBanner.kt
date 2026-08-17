@@ -197,7 +197,9 @@ internal fun ChannelBanner(
                 // advertises — the two disagree more often than not.
                 resolution?.let { (w, h) ->
                     com.nuxcor.nuxtv.ui.components.MetaChip(
-                        com.nuxcor.nuxtv.player.qualityLabel(w, h),
+                        // Tier only — "HD", not "720p HD". The precise numbers
+                        // live in the options sheet for whoever wants them.
+                        com.nuxcor.nuxtv.data.QualityTag.tierOf(h) ?: return@let,
                         accent = true,
                     )
                 }
