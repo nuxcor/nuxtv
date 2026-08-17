@@ -215,7 +215,10 @@ private fun VodBrowser(
         }
         val gridEntrance = rememberListEntrance(activeCategory)
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 150.dp),
+            // Fixed, not Adaptive: 150dp-adaptive landed on 3 columns on
+            // common TV densities, which reads as a phone layout blown up.
+            // Five posters a row is the shelf density every TV catalog uses.
+            columns = GridCells.Fixed(5),
             modifier = Modifier.weight(1f).fillMaxHeight().focusRestorer(),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
