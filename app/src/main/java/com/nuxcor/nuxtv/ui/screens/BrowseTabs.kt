@@ -51,11 +51,22 @@ import com.nuxcor.nuxtv.ui.components.StatusPane
 import com.nuxcor.nuxtv.ui.components.MetaChip
 import com.nuxcor.nuxtv.ui.components.PosterCard
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.itemsIndexed
 import com.nuxcor.nuxtv.ui.components.itemEntrance
 import com.nuxcor.nuxtv.ui.components.rememberListEntrance
 import com.nuxcor.nuxtv.ui.components.SectionTitle
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import com.nuxcor.nuxtv.ui.components.requestFocusRetrying
 import com.nuxcor.nuxtv.ui.theme.NuxColors
 import com.nuxcor.nuxtv.ui.theme.NuxMotion
+import kotlinx.coroutines.launch
 
 /**
  * The category vocabulary of Movies and Series, mirroring [liveCategoryList].
@@ -67,6 +78,9 @@ import com.nuxcor.nuxtv.ui.theme.NuxMotion
  * ids, so the two halves of the app browse the same way.
  */
 internal const val VOD_ALL = "__all__"
+
+/** Posters per grid row — the shelf density every TV catalog uses. */
+private const val GRID_COLUMNS = 5
 internal const val VOD_CONTINUE = "__continue__"
 private const val VOD_MORE = "__more__"
 
@@ -187,6 +201,16 @@ private fun VodBrowser(
         shownHero = hero
     }
 
+    // Browsing posters gets the full width: the category column collapses
+    // while focus lives in the grid (the way every TV catalog browses) and
+    // LEFT from the grid's first column brings it back. Driven by explicit
+    // events, not raw hasFocus — visibility flapping mid-transition steals
+    // the frame the focus move needs.
+    var browsingGrid by remember { mutableStateOf(false) }
+    val categoriesFocus = remember { FocusRequester() }
+    var focusedEntryIndex by remember { mutableStateOf(0) }
+    val scope = rememberCoroutineScope()
+
     Box(modifier = Modifier.fillMaxSize()) {
     // Ambient artwork for the focused entry behind the whole browse pane.
     BackdropLayer(shownHero?.backdrop ?: shownHero?.poster)
@@ -194,6 +218,11 @@ private fun VodBrowser(
         modifier = Modifier.fillMaxSize(),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        androidx.compose.animation.AnimatedVisibility(
+            visible = !browsingGrid,
+            enter = androidx.compose.animation.expandHorizontally(),
+            exit = androidx.compose.animation.shrinkHorizontally(),
+        ) {
         LazyColumn(
             modifier = Modifier
                 .width(190.dp)
@@ -202,14 +231,24 @@ private fun VodBrowser(
             verticalArrangement = Arrangement.spacedBy(4.dp),
             contentPadding = PaddingValues(bottom = 24.dp),
         ) {
-            items(shown, key = { it.id }) { category ->
+            itemsIndexed(shown, key = { _, c -> c.id }) { index, category ->
                 CategoryItem(
                     name = category.name,
                     selected = category.id == activeCategory,
                     onClick = { selectedCategory = category.id },
-                    onFocus = { focusedCategory = category.id },
+                    // The re-entry target must be an ITEM: focusing the
+                    // column landed on the scroll container itself — no
+                    // ring, no dwell, focus stranded.
+                    modifier = if (index == 0) {
+                        Modifier.fillMaxWidth().focusRequester(categoriesFocus)
+                    } else Modifier.fillMaxWidth(),
+                    onFocus = {
+                        browsingGrid = false
+                        focusedCategory = category.id
+                    },
                 )
             }
+        }
         }
         if (entries.isEmpty()) {
             StatusPane(title = "Nothing in this category")
@@ -220,8 +259,25 @@ private fun VodBrowser(
             // Fixed, not Adaptive: 150dp-adaptive landed on 3 columns on
             // common TV densities, which reads as a phone layout blown up.
             // Five posters a row is the shelf density every TV catalog uses.
-            columns = GridCells.Fixed(5),
-            modifier = Modifier.weight(1f).fillMaxHeight().focusRestorer(),
+            columns = GridCells.Fixed(GRID_COLUMNS),
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .focusRestorer()
+                .onPreviewKeyEvent { event ->
+                    // LEFT from the first column re-opens the categories.
+                    // Intercepted here because the collapsed column is not
+                    // composed, so the geometric search would land on the
+                    // rail instead.
+                    if (event.type == KeyEventType.KeyDown &&
+                        event.key == Key.DirectionLeft &&
+                        focusedEntryIndex % GRID_COLUMNS == 0
+                    ) {
+                        browsingGrid = false
+                        scope.launch { categoriesFocus.requestFocusRetrying() }
+                        true
+                    } else false
+                },
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
             contentPadding = PaddingValues(start = 4.dp, end = 8.dp, bottom = 36.dp),
@@ -237,6 +293,8 @@ private fun VodBrowser(
                         progress = entry.progress,
                         onClick = entry.onOpen,
                         onFocus = {
+                            browsingGrid = true
+                            focusedEntryIndex = index
                             hero = entry.hero
                             entry.onFocus()
                         },
