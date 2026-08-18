@@ -141,6 +141,7 @@ class PlayerSession internal constructor(
 
     // --- failure ladder, reset per item ------------------------------------
     private var retriesLeft = RETRIES_PER_ITEM
+    private var liveFormatStage = 0
     private var ladderItemIndex = initialRequest.startIndex
 
     /** When live playback was paused, for the stale-buffer rejoin decision. */
@@ -180,6 +181,11 @@ class PlayerSession internal constructor(
                 }
             }
             when {
+                // Wrong container format fails instantly and identically on
+                // every retry — step through the other Xtream live formats
+                // before spending slow same-URL retries.
+                request.isLive && swapLiveFormat() -> Unit
+
                 // No engine hopping: an error retries on the SAME engine the
                 // viewer chose. The old "try the other player once" ladder
                 // silently landed people on VLC — which has no track
@@ -258,6 +264,36 @@ class PlayerSession internal constructor(
     private fun resetLadder(index: Int) {
         ladderItemIndex = index
         retriesLeft = RETRIES_PER_ITEM
+        liveFormatStage = 0
+    }
+
+    /**
+     * Xtream panels serve live streams in up to three formats, and playlist
+     * middlemen (IPTVEditor's "Change Stream Format") decide which of them
+     * actually answers: `/live/u/p/id.ts`, `/live/u/p/id.m3u8`, or `/u/p/id`
+     * with no extension or `/live/` at all. The app constructs `.ts` first
+     * (the full-quality mux); when a live stream errors, step through the
+     * other two before falling back to slow same-URL retries — a wrong
+     * format fails instantly every time, so retrying it is pure wait.
+     */
+    private val liveUrlForm = Regex("""^(https?://[^/]+)/live/([^/]+)/([^/]+)/(\d+)\.(ts|m3u8)$""")
+
+    private fun swapLiveFormat(): Boolean {
+        val idx = currentIndex
+        val url = request.items.getOrNull(idx)?.url ?: return false
+        val m = liveUrlForm.matchEntire(url) ?: return false
+        val (host, user, pass, id) = m.destructured
+        val next = when (liveFormatStage) {
+            0 -> "$host/live/$user/$pass/$id.m3u8"
+            1 -> "$host/$user/$pass/$id"
+            else -> return false
+        }
+        liveFormatStage++
+        statusMessage = "Trying a different stream format…"
+        val items = request.items.toMutableList()
+        items[idx] = items[idx].copy(url = next)
+        request = request.copy(items = items)
+        return true
     }
 
     fun clearError() {

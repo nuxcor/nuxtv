@@ -273,10 +273,29 @@ internal fun SettingsTab(
             )
         }
 
-        // No "Guide preview" row: the corner preview decides for itself now —
-        // on when the account reports a spare connection, off otherwise. The
-        // toggle's whole description was instructions for making that same
-        // decision by hand.
+        item(key = "guide-preview") {
+            val mode by vm.guidePreviewMode.collectAsState()
+            SettingsChoiceRow(
+                title = "Guide preview",
+                description = "Plays the focused channel muted in the guide's corner. " +
+                    "Auto turns it on when your account has a spare connection.",
+                options = listOf("Auto", "On", "Off"),
+                selectedIndex = when (mode) {
+                    "on" -> 1
+                    "off" -> 2
+                    else -> 0
+                },
+                onSelect = {
+                    vm.setGuidePreviewMode(
+                        when (it) {
+                            1 -> "on"
+                            2 -> "off"
+                            else -> "auto"
+                        }
+                    )
+                },
+            )
+        }
 
         item(key = "order") {
             val order by vm.channelOrder.collectAsState()

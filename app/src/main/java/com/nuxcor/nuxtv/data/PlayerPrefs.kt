@@ -56,6 +56,7 @@ class PlayerPrefs(private val context: Context) {
     private val vodSpeedKey = stringPreferencesKey("vod_speed")
     private val keyHintsVersionKey = stringPreferencesKey("key_hints_version")
     private val knownQualitiesKey = stringPreferencesKey("known_qualities")
+    private val guidePreviewModeKey = stringPreferencesKey("guide_preview_mode")
     private val liveTsMigratedKey = stringPreferencesKey("live_ts_migrated")
 
     /**
@@ -292,6 +293,20 @@ class PlayerPrefs(private val context: Context) {
 
     suspend fun setMergeDuplicates(enabled: Boolean) {
         context.playerDataStore.edit { it[mergeDupesKey] = enabled.toString() }
+    }
+
+    /**
+     * "auto" (default) = preview on when the account reports a spare
+     * connection; "on"/"off" override it — playlist middlemen (IPTVEditor)
+     * report a cosmetic max_connections of 1, which would pin auto off for
+     * accounts that genuinely allow more.
+     */
+    val guidePreviewMode: Flow<String> = context.playerDataStore.data.map { prefs ->
+        prefs[guidePreviewModeKey] ?: "auto"
+    }
+
+    suspend fun setGuidePreviewMode(mode: String) {
+        context.playerDataStore.edit { it[guidePreviewModeKey] = mode }
     }
 
     /** 0 = provider order, 1 = A-Z, 2 = quality first. */

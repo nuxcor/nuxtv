@@ -587,16 +587,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         MutableStateFlow<com.nuxcor.nuxtv.data.XtreamClient.AccountInfo?>(null)
     val accountInfo: StateFlow<com.nuxcor.nuxtv.data.XtreamClient.AccountInfo?> = _accountInfo
 
+    val guidePreviewMode: StateFlow<String> = playerPrefs.guidePreviewMode
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "auto")
+
     /**
-     * Guide preview was a Settings toggle whose description told the viewer
-     * to go look up their connection limit — but the app already knows it.
-     * Now decided automatically: on when the provider allows a second
-     * connection, off on single-connection plans and M3U links (which report
-     * no limit, its own reason for caution).
+     * Auto decides from the account's connection limit: on when the provider
+     * allows a second connection, off on single-connection plans and M3U
+     * links. The manual override exists because playlist middlemen
+     * (IPTVEditor) report a cosmetic max_connections that defaults to 1 —
+     * auto can never turn on for those accounts even when the real plan
+     * allows more.
      */
     val guidePreview: StateFlow<Boolean> =
-        accountInfo.map { (it?.maxConnections ?: 1) >= 2 }
-            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+        combine(playerPrefs.guidePreviewMode, accountInfo) { mode, account ->
+            when (mode) {
+                "on" -> true
+                "off" -> false
+                else -> (account?.maxConnections ?: 1) >= 2
+            }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setGuidePreviewMode(mode: String) {
+        viewModelScope.launch { playerPrefs.setGuidePreviewMode(mode) }
+    }
 
     fun refreshAccountInfo() {
         viewModelScope.launch { _accountInfo.value = repo.accountInfo() }
