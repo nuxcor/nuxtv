@@ -589,7 +589,13 @@ fun PlaylistOptionsDialog(
     val editFocus = remember { FocusRequester() }
     val cancelFocus = remember { FocusRequester() }
     LaunchedEffect(confirmingRemove) {
-        runCatching { (if (confirmingRemove) cancelFocus else editFocus).requestFocus() }
+        // The step swap removes the button that held focus, and Compose's
+        // focus-loss cleanup runs AFTER this effect's immediate request —
+        // a bare requestFocus was won and then stomped, leaving the D-pad
+        // driving the settings page behind the dialog. Yield a beat so the
+        // cleanup goes first, then take focus with the retrying form.
+        kotlinx.coroutines.delay(50)
+        (if (confirmingRemove) cancelFocus else editFocus).requestFocusRetrying()
     }
     DialogScaffold(
         onDismiss = onDismiss,
