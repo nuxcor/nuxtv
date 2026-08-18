@@ -38,7 +38,9 @@ import kotlinx.coroutines.launch
 
 sealed class AddState {
     data object Idle : AddState()
-    data object Loading : AddState()
+
+    /** [step] narrates what setup is downloading right now. */
+    data class Loading(val step: String = "Connecting to your provider…") : AddState()
     data class Error(val message: String) : AddState()
 }
 
@@ -560,12 +562,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         saveSource(source, onSuccess, existing = false)
 
     private fun saveSource(source: PlaylistSource, onSuccess: () -> Unit, existing: Boolean) {
-        addState = AddState.Loading
+        addState = AddState.Loading("Downloading channels, movies and series…")
         viewModelScope.launch {
             val outcome =
                 if (existing) repo.validateAndUpdate(source) else repo.validateAndAdd(source)
             outcome.fold(
                 onSuccess = {
+                    // Setup finishes with everything the first screen needs:
+                    // the guide used to load after onboarding closed, so a
+                    // fresh install opened onto an empty, still-loading Live
+                    // tab. A guide failure doesn't block setup — the app
+                    // retries EPG on its own cycle.
+                    addState = AddState.Loading("Downloading the TV guide…")
+                    runCatching { repo.loadEpg(playerPrefs.epgOverrideUrl.first()) }
                     addState = AddState.Idle
                     onSuccess()
                 },

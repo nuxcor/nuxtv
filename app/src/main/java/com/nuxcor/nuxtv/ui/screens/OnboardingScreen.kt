@@ -327,7 +327,7 @@ private fun ChooseStep(
                 is AddState.Loading -> {
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        text = "Connecting to your provider…",
+                        text = addState.step,
                         style = MaterialTheme.typography.labelLarge,
                         color = NuxColors.Secondary,
                     )
