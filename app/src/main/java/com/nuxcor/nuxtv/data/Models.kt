@@ -45,6 +45,8 @@ data class LiveChannel(
     val categoryId: String?,
     val number: Int? = null,
     val epgId: String? = null,
+    /** M3U tvg-name attribute — very often the guide's exact display name. */
+    val tvgName: String? = null,
     /** Days of catch-up archive the provider keeps for this channel (0 = none). */
     val archiveDays: Int = 0,
     /** Xtream stream id, used for EPG and catch-up lookups. */

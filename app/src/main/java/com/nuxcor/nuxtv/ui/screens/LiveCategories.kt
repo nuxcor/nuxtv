@@ -49,8 +49,22 @@ internal fun channelsInCategory(
     channels: List<LiveChannel>,
     favorites: Set<String>,
     recents: List<String>,
+    /**
+     * Collapse cross-category duplicates in the All view: a channel living
+     * in five categories lists once, keyed globally by its cleaned identity.
+     * Per-category views stay untouched — nothing vanishes from the shelf
+     * being browsed — and Favorites/Recent filter the full list by url, so a
+     * deduped-away variant the viewer starred still appears there.
+     */
+    dedupAll: Boolean = false,
 ): List<LiveChannel> = when (categoryId) {
-    CATEGORY_ALL -> channels
+    CATEGORY_ALL ->
+        if (dedupAll) {
+            com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(
+                channels,
+                keyOf = { com.nuxcor.nuxtv.data.EpgMatcher.normalizeKey(it.name) },
+            )
+        } else channels
     CATEGORY_FAVORITES -> channels.filter { it.url in favorites }
     CATEGORY_RECENT -> {
         // Index the channels once: recents is capped small, but the channel

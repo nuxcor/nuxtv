@@ -79,6 +79,7 @@ object ContentClassifier {
                     categoryId = groupId(liveGroups, entry.group),
                     number = channelNumber++,
                     epgId = entry.tvgId,
+                    tvgName = entry.tvgName,
                     // Raw TS/progressive streams can be recorded by dumping bytes; HLS can't.
                     recordUrl = entry.url.takeUnless {
                         it.lowercase().substringBefore('?').endsWith(".m3u8")
@@ -231,6 +232,19 @@ object ContentClassifier {
     // "(US)", "[UK]" style country tags — noise in a title, and they defeat
     // TMDB matching too.
     private val countryTag = Regex("""[(\[][A-Z]{2,3}[)\]]""")
+
+    /**
+     * Channel-name tag stripping for EPG matching: platform/country prefixes
+     * and bracketed country tags only. Unlike [cleanTitle] it leaves years
+     * and quality tokens alone — those are [QualityTag.baseName]'s job in the
+     * matcher pipeline, and a channel called "Sky Cinema 2024" must survive.
+     */
+    fun stripChannelTags(raw: String): String {
+        var t = raw
+        repeat(2) { t = t.replace(platformPrefix, "") }
+        t = t.replace(countryTag, " ")
+        return t.replace(Regex("""\s{2,}"""), " ").trim()
+    }
 
     /** Strips quality tags, provider prefixes ("EN -", "|NF|") and dangling separators. */
     fun cleanTitle(raw: String): String {

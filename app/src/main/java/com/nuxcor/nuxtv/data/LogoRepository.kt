@@ -33,7 +33,7 @@ class LogoRepository(context: Context, private val http: OkHttpClient) {
         const val RAW_BASE = "https://raw.githubusercontent.com/tv-logo/tv-logos/main/"
         const val CACHE_TTL_MS = 7L * 24 * 3600 * 1000
 
-        val qualitySuffix = Regex("""(?i)\b(4k|uhd|fhd|full\s?hd|hd|sd|1080p?|720p?|hevc|h\.?26[45]|vip|\+?\d)\b""")
+        val qualitySuffix = Regex("""(?i)\b(4k|uhd|fhd|full\s?hd|hd|sd|1080p?|720p?|hevc|h\.?26[45]|vip|\+\d)\b""")
         val nonAlnum = Regex("""[^a-z0-9]+""")
 
         /** "CNN International HD" → "cnn-international" */

@@ -25,6 +25,28 @@ class LiveCategoriesTest {
     private val bundle = ContentBundle(liveCategories = listOf(sport, news), channels = channels)
 
     @Test
+    fun `All dedups cross-category duplicates only when asked`() {
+        val dupes = listOf(
+            LiveChannel(id = "a", name = "US| CNN HD", logo = null, url = "http://x/a", categoryId = "news"),
+            LiveChannel(id = "b", name = "CNN FHD", logo = null, url = "http://x/b", categoryId = "sport",
+                quality = "FHD"),
+            LiveChannel(id = "c", name = "BBC", logo = null, url = "http://x/c", categoryId = "news"),
+        )
+        val all = channelsInCategory(CATEGORY_ALL, dupes, emptySet(), emptyList(), dedupAll = true)
+        // One CNN survives (the FHD variant outranks the HD one) plus BBC.
+        assertEquals(listOf("b", "c"), all.map { it.id })
+        // Off-switch is a no-op.
+        assertEquals(3, channelsInCategory(CATEGORY_ALL, dupes, emptySet(), emptyList()).size)
+        // Per-category views untouched even with dedup on.
+        assertEquals(2, channelsInCategory("news", dupes, emptySet(), emptyList(), dedupAll = true).size)
+        // A favorited deduped-away variant still appears under Favorites.
+        val favs = channelsInCategory(
+            CATEGORY_FAVORITES, dupes, setOf("http://x/a"), emptyList(), dedupAll = true,
+        )
+        assertEquals(listOf("a"), favs.map { it.id })
+    }
+
+    @Test
     fun `shortcuts are hidden until they hold something`() {
         val bare = liveCategoryList(bundle, channels, favorites = emptySet(), recents = emptyList())
         assertEquals(listOf(CATEGORY_ALL, "sport", "news"), bare.map { it.id })

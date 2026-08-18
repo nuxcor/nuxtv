@@ -103,9 +103,10 @@ internal fun ChannelListPanel(
             recents,
         )
     }
-    val categoryChannels = remember(categoryId, allChannels, favorites, recents) {
+    val mergeDupes by vm.mergeDuplicates.collectAsState()
+    val categoryChannels = remember(categoryId, allChannels, favorites, recents, mergeDupes) {
         if (categoryId == null) emptyList()
-        else channelsInCategory(categoryId!!, allChannels, favorites, recents)
+        else channelsInCategory(categoryId!!, allChannels, favorites, recents, dedupAll = mergeDupes)
     }
     val browsingCategory = categoryId != null
 

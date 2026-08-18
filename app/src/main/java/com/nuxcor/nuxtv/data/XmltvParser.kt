@@ -8,12 +8,21 @@ import java.util.Locale
 import java.util.zip.GZIPInputStream
 
 data class XmltvData(
-    /** channel id → display name (both trimmed). */
+    /** channel id → first display name (both trimmed). */
     val channelNames: Map<String, String>,
     /** lowercase channel id → programmes sorted by start. */
     val programmes: Map<String, List<EpgProgram>>,
-    /** lowercase display name → lowercase channel id, for O(1) name matching. */
+    /** lowercase display name (every alternate) → lowercase channel id. */
     val nameToId: Map<String, String>,
+    /**
+     * [EpgMatcher.normalizeKey] of every display-name alternate → lowercase
+     * channel id. Keys claimed by two DIFFERENT channels are removed rather
+     * than arbitrated — the fuzzy stage must never cross-wire "Sky Sports 1"
+     * with "Sky Sports 1 HD" when the guide treats them as distinct.
+     */
+    val normalizedToId: Map<String, String> = emptyMap(),
+    /** lowercase channel id → all display-name alternates. */
+    val altNames: Map<String, List<String>> = emptyMap(),
 )
 
 /**
@@ -48,7 +57,10 @@ object XmltvParser {
         buffered.reset()
         val stream = if (b1 == 0x1f && b2 == 0x8b) GZIPInputStream(buffered) else buffered
 
-        val channelNames = HashMap<String, String>()
+        // Every display-name alternate per channel: feeds routinely carry a
+        // long name, short name, call sign and localized name, and any of
+        // them may be the one a playlist uses.
+        val channelAlts = LinkedHashMap<String, MutableList<String>>()
         val programmes = HashMap<String, MutableList<EpgProgram>>()
 
         val parser = XmlPullParserFactory.newInstance().newPullParser()
@@ -83,7 +95,7 @@ object XmltvParser {
                     val text = parser.text?.trim().orEmpty()
                     if (text.isNotEmpty()) when (textTarget) {
                         TextTarget.CHANNEL_NAME ->
-                            currentChannelId?.let { channelNames.putIfAbsent(it, text) }
+                            currentChannelId?.let { channelAlts.getOrPut(it) { mutableListOf() } += text }
                         TextTarget.TITLE -> programme?.let { it.title = it.title ?: text }
                         TextTarget.DESC -> programme?.let { it.desc = it.desc ?: text }
                         TextTarget.NONE -> Unit
@@ -112,9 +124,31 @@ object XmltvParser {
         }
 
         programmes.values.forEach { it.sortBy { p -> p.startMs } }
-        val nameToId = HashMap<String, String>(channelNames.size)
-        channelNames.forEach { (id, name) -> nameToId.putIfAbsent(name.trim().lowercase(), id.lowercase()) }
-        return XmltvData(channelNames = channelNames, programmes = programmes, nameToId = nameToId)
+
+        val channelNames = HashMap<String, String>(channelAlts.size)
+        val altNames = HashMap<String, List<String>>(channelAlts.size)
+        val nameToId = HashMap<String, String>(channelAlts.size)
+        val normalizedToId = HashMap<String, String>(channelAlts.size)
+        val contested = HashSet<String>()
+        channelAlts.forEach { (id, names) ->
+            val lowerId = id.lowercase()
+            channelNames[id] = names.first()
+            altNames[lowerId] = names
+            names.forEach { name ->
+                nameToId.putIfAbsent(name.trim().lowercase(), lowerId)
+                val key = EpgMatcher.normalizeKey(name)
+                val holder = normalizedToId.putIfAbsent(key, lowerId)
+                if (holder != null && holder != lowerId) contested += key
+            }
+        }
+        contested.forEach { normalizedToId.remove(it) }
+        return XmltvData(
+            channelNames = channelNames,
+            programmes = programmes,
+            nameToId = nameToId,
+            normalizedToId = normalizedToId,
+            altNames = altNames,
+        )
     }
 
     private enum class TextTarget { NONE, CHANNEL_NAME, TITLE, DESC }

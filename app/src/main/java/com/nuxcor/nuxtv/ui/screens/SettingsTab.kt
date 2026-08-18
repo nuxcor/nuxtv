@@ -333,9 +333,17 @@ internal fun SettingsTab(
 
         item(key = "epg") {
             val epgOptions = remember { listOf("Auto") + EPGSHARE_PACKS }
+            // Live coverage readout: the honest number behind "does my guide
+            // work", visible where the guide is chosen.
+            val coverage by vm.guideCoverage.collectAsState()
+            val coverageLine =
+                if (coverage.total > 0 && coverage.lastProgramEndMs != Long.MAX_VALUE) {
+                    " Current guide covers ${coverage.matched} of ${coverage.total} channels."
+                } else ""
             SettingsChoiceRow(
                 title = "EPG source",
-                description = "Auto uses your playlist's guide; pick an epgshare01 pack or paste any XMLTV URL. Guides refresh every 6 hours.",
+                description = "Auto uses your playlist's guide; pick an epgshare01 pack or " +
+                    "paste any XMLTV URL. Guides refresh every 6 hours." + coverageLine,
                 divider = true,
                 options = epgOptions,
                 selectedIndex = when {

@@ -45,13 +45,17 @@ object QualityTag {
     fun mergeBestQuality(
         channels: List<LiveChannel>,
         measured: Set<String> = emptySet(),
+        // Default scope is per-category so regional feeds with the same name
+        // don't merge; the "All channels" view passes a global key so a
+        // channel duplicated across five categories lists once.
+        keyOf: (LiveChannel) -> String = { channel ->
+            val base = baseName(channel.name).ifBlank { channel.name.trim() }.lowercase()
+            "${channel.categoryId}|$base"
+        },
     ): List<LiveChannel> {
         val best = LinkedHashMap<String, LiveChannel>()
         for (channel in channels) {
-            // Scope by category so regional feeds with the same name don't
-            // merge; a blank base ("HD", "4K") falls back to the full name.
-            val base = baseName(channel.name).ifBlank { channel.name.trim() }.lowercase()
-            val key = "${channel.categoryId}|$base"
+            val key = keyOf(channel)
             val current = best[key]
             val challengerRank = rank(channel.quality)
             val holderRank = current?.let { rank(it.quality) } ?: -1

@@ -37,6 +37,30 @@ class XmltvParserTest {
     }
 
     @Test
+    fun `every display-name alternate is indexed`() {
+        val alts = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <tv>
+              <channel id="ESPN.us">
+                <display-name>ESPN</display-name>
+                <display-name>ESPN HD</display-name>
+              </channel>
+              <programme start="20260814100000 +0000" stop="20260814110000 +0000" channel="ESPN.us">
+                <title>Game</title>
+              </programme>
+            </tv>
+        """.trimIndent()
+        val data = XmltvParser.parse(alts.byteInputStream())
+        assertEquals("espn.us", data.nameToId["espn"])
+        assertEquals("espn.us", data.nameToId["espn hd"])
+        assertEquals(listOf("ESPN", "ESPN HD"), data.altNames["espn.us"])
+        // Both alternates normalize onto the same channel, so the key stays.
+        assertEquals("espn.us", data.normalizedToId[com.nuxcor.nuxtv.data.EpgMatcher.normalizeKey("ESPN HD")])
+        // channelNames keeps the first alternate, as before.
+        assertEquals("ESPN", data.channelNames["ESPN.us"])
+    }
+
+    @Test
     fun `window pruning drops out-of-range programmes`() {
         // Window covering only Aug 14 → the Aug 20 programme is dropped.
         val start = 1786492800000L // 2026-08-12 00:00 UTC

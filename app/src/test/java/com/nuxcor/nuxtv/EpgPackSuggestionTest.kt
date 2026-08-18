@@ -35,6 +35,15 @@ class EpgPackSuggestionTest {
     }
 
     @Test
+    fun `channel-name country tags rescue generic category names`() {
+        val suggested = suggestedEpgPacks(
+            categoryNames = listOf("Sports", "Movies", "Kids"),
+            channelNames = listOf("US| CNN", "UK: BBC One", "Discovery"),
+        )
+        assertEquals(listOf("US", "UK"), suggested)
+    }
+
+    @Test
     fun `no country hints yields nothing so the caller can fall back`() {
         assertTrue(suggestedEpgPacks(listOf("Sports", "Movies", "Kids")).isEmpty())
         assertTrue(suggestedEpgPacks(emptyList()).isEmpty())
