@@ -262,7 +262,10 @@ internal fun TuneCard(
                     modifier = Modifier.size(18.dp),
                 )
                 Text(
-                    text = "Tuning…",
+                    // "Tuning" is what you do to a channel. A film opening
+                    // with live-TV vocabulary is the first thing the app says
+                    // on every VOD playback, so it says the right thing.
+                    text = if (channel != null) "Tuning…" else "Starting…",
                     style = MaterialTheme.typography.labelLarge,
                     color = NuxColors.OnSurfaceDim,
                 )

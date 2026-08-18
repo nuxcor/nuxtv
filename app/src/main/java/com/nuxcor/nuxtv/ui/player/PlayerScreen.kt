@@ -52,6 +52,13 @@ import kotlinx.coroutines.launch
 private const val KEY_HINTS_VERSION = 3
 
 /**
+ * How long the tune card may stand before the stream is declared dead. Long
+ * enough to clear the failure ladder's own 3s + 6s backoff on a slow provider,
+ * short enough that a hang never looks like patience rewarded.
+ */
+private const val TUNE_TIMEOUT_MS = 45_000L
+
+/**
  * PiP params from the actual decoded size, not an assumed 16:9. The platform
  * rejects aspect ratios outside [0.418, 2.39]; clamp just inside the limits
  * and fall back to 16:9 for degenerate or unknown sizes.
@@ -406,6 +413,18 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         if (session.statusMessage != null) {
             delay(4_000)
             session.statusMessage = null
+        }
+    }
+
+    // Belt and braces on the tuning card: no engine failure, however exotic,
+    // may leave the viewer on a spinner with no way forward. The failure
+    // ladder is the real recovery path — this only catches a stream that
+    // neither plays nor reports an error, which otherwise reads as a hang.
+    LaunchedEffect(session.tuning, request) {
+        if (!session.tuning) return@LaunchedEffect
+        delay(TUNE_TIMEOUT_MS)
+        if (session.tuning && session.errorMessage == null) {
+            session.failTuning("The stream didn't start.")
         }
     }
 

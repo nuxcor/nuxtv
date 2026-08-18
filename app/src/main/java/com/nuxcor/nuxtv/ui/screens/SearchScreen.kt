@@ -30,8 +30,12 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuxcor.nuxtv.MainViewModel
+import com.nuxcor.nuxtv.data.LiveChannel
 import com.nuxcor.nuxtv.data.Movie
 import com.nuxcor.nuxtv.data.Series
+import com.nuxcor.nuxtv.ui.components.ChannelShelfCard
+import com.nuxcor.nuxtv.ui.components.ContextMenu
+import com.nuxcor.nuxtv.ui.components.MenuAction
 import com.nuxcor.nuxtv.ui.components.NuxFieldDefaults
 import com.nuxcor.nuxtv.ui.components.StatusPane
 import com.nuxcor.nuxtv.ui.components.dpadFieldNavigation
@@ -51,6 +55,9 @@ fun SearchTab(
     var query by rememberSaveable { mutableStateOf("") }
     val contentState by vm.content.collectAsState()
     val visible by vm.displayChannels.collectAsState()
+    val favorites by vm.favorites.collectAsState()
+    val nowNext by vm.nowNext.collectAsState()
+    var menuChannel by remember { mutableStateOf<LiveChannel?>(null) }
     var results by remember { mutableStateOf(MainViewModel.SearchResults()) }
     // Debounced off-main-thread search so typing stays smooth on huge playlists.
     LaunchedEffect(query, contentState, visible) {
@@ -111,7 +118,7 @@ fun SearchTab(
                                 itemsIndexed(results.movies, key = { _, m -> m.id }) { _, movie ->
                                     PosterCard(
                                         title = movie.name,
-                                        imageUrl = movie.poster,
+                                        imageUrl = borrowedArt(vm, movie.artRef(), movie.poster),
                                         onClick = { onOpenMovie(movie) },
                                     )
                                 }
@@ -127,8 +134,9 @@ fun SearchTab(
                                 itemsIndexed(results.series, key = { _, s -> s.id }) { _, series ->
                                     PosterCard(
                                         title = series.name,
-                                        imageUrl = series.poster,
+                                        imageUrl = borrowedArt(vm, series.artRef(), series.poster),
                                         onClick = { onOpenSeries(series) },
+                                        onFocus = { vm.prefetchEpisodes(series) },
                                     )
                                 }
                             }
@@ -136,18 +144,34 @@ fun SearchTab(
                     }
                 }
                 if (results.channels.isNotEmpty()) {
-                    item(key = "channels-title") { SectionTitle("Live channels", results.channels.size) }
-                    itemsIndexed(results.channels, key = { _, c -> c.id }) { index, channel ->
-                        WideItem(
-                            title = channel.displayName,
-                            subtitle = null,
-                            badge = channel.quality,
-                            imageUrl = channel.logo,
-                            onClick = {
-                                vm.playChannels(results.channels, index)
-                                onPlay()
-                            },
-                        )
+                    // A shelf, matching the two above it and Home's rows. As a
+                    // stack of full-width text rows this was the one place a
+                    // channel arrived without its logo at a readable size, and
+                    // without what is on it right now — the two things that
+                    // tell you whether it is the channel you meant.
+                    item(key = "channels") {
+                        Column {
+                            SectionTitle("Live channels", results.channels.size)
+                            LazyRow(
+                                modifier = Modifier.focusRestorer(),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            ) {
+                                itemsIndexed(
+                                    results.channels,
+                                    key = { _, c -> c.id },
+                                ) { index, channel ->
+                                    ChannelShelfCard(
+                                        channel = channel,
+                                        now = nowNext[channel.id]?.now,
+                                        onClick = {
+                                            vm.playChannels(results.channels, index)
+                                            onPlay()
+                                        },
+                                        onLongClick = { menuChannel = channel },
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                 if (results.programs.isNotEmpty()) {
@@ -173,5 +197,23 @@ fun SearchTab(
                 }
             }
         }
+    }
+    menuChannel?.let { channel ->
+        val isFav = channel.url in favorites
+        ContextMenu(
+            title = channel.displayName,
+            actions = listOf(
+                MenuAction("Play") {
+                    val index = results.channels.indexOf(channel).coerceAtLeast(0)
+                    vm.playChannels(results.channels, index)
+                    onPlay()
+                },
+                MenuAction(if (isFav) "Remove from favorites" else "Add to favorites") {
+                    vm.toggleFavorite(channel)
+                },
+                MenuAction("Hide this channel") { vm.toggleHidden(channel) },
+            ),
+            onDismiss = { menuChannel = null },
+        )
     }
 }

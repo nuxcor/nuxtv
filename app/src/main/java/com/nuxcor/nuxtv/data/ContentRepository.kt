@@ -356,7 +356,13 @@ class ContentRepository(context: Context) {
                 runCatching {
                     val request = Request.Builder().url(url).header("User-Agent", "Agoro/2.1").build()
                     http.newCall(request).execute().use { resp ->
-                        if (!resp.isSuccessful) throw IOException("Guide server returned HTTP ${resp.code}")
+                        // Plain language: an HTTP status code on a TV screen
+                        // tells the viewer nothing they can act on. The code
+                        // still reaches logcat via the exception chain.
+                        if (!resp.isSuccessful) throw IOException(
+                            if (resp.code == 404) "Your provider isn't publishing a guide."
+                            else "Your provider's guide server didn't respond."
+                        )
                         val body = resp.body ?: throw IOException("Empty guide response")
                         val now = System.currentTimeMillis()
                         EpgState.Ready(
@@ -480,6 +486,15 @@ class ContentRepository(context: Context) {
             reviews = tmdb.reviews,
         )
     }
+
+    /**
+     * Just the art TMDB has for a title — the cheap half of [movieDetails],
+     * for filling a grid of provider entries that shipped no images. Returns
+     * [ArtEntry.empty] for a title TMDB doesn't know, so the caller can record
+     * the miss and stop asking; null only when the request itself failed.
+     */
+    suspend fun artworkFor(kind: String, title: String, year: Int?, tmdbKey: String): ArtEntry? =
+        runCatching { TmdbClient(http, tmdbKey).art(kind, title, year) }.getOrNull()
 
     /** Episodes for [series]; empty = the provider has none, null = the fetch failed. */
     suspend fun episodesFor(series: Series): List<Episode>? {

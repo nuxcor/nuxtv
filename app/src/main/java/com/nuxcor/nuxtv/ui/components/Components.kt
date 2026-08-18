@@ -45,6 +45,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -153,7 +155,23 @@ fun Artwork(
         // showed BBC's logo on CNN. A fresh node per URL can't inherit pixels.
         androidx.compose.runtime.key(imageUrl) {
             var failed by remember { mutableStateOf(false) }
-            if (imageUrl.isNullOrBlank() || failed) {
+            // Until the bitmap actually paints, the cell is the SurfaceVariant
+            // slab and nothing else — so a catalogue scrolled over a slow
+            // provider is a wall of identical grey rectangles. Show the same
+            // fallback the error path shows, underneath, and let the image
+            // cover it when it arrives.
+            var loaded by remember { mutableStateOf(false) }
+            // Held for the crossfade's duration: Coil reports success as the
+            // fade STARTS, so dropping the fallback there flashes the bare
+            // slab for 220ms — the exact thing this is here to prevent.
+            var covered by remember { mutableStateOf(false) }
+            androidx.compose.runtime.LaunchedEffect(loaded) {
+                if (loaded) {
+                    kotlinx.coroutines.delay(NuxMotion.ImageCrossfadeMs.toLong())
+                    covered = true
+                }
+            }
+            if (imageUrl.isNullOrBlank() || failed || !covered) {
                 if (fallbackFullTitle) {
                     Text(
                         text = title,
@@ -167,7 +185,8 @@ fun Artwork(
                 } else {
                     Text(text = monogram, style = monogramStyle, color = NuxColors.OnSurfaceDim)
                 }
-            } else {
+            }
+            if (!imageUrl.isNullOrBlank() && !failed) {
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
                         .data(imageUrl)
@@ -178,6 +197,7 @@ fun Artwork(
                     // A stale logo is worse than no logo: it mislabels what the
                     // viewer is watching. Fall back to the monogram instead.
                     onError = { failed = true },
+                    onSuccess = { loaded = true },
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(if (contentScale == ContentScale.Fit) 6.dp else 0.dp),
@@ -201,10 +221,13 @@ fun PosterCard(
     width: Dp? = 150.dp,
     progress: Float? = null,
     onClick: () -> Unit,
+    /** Hold OK for the actions OK itself can't offer; null means no menu here. */
+    onLongClick: (() -> Unit)? = null,
     onFocus: () -> Unit = {},
 ) {
     Surface(
         onClick = onClick,
+        onLongClick = onLongClick,
         modifier = Modifier
             .then(if (width != null) Modifier.width(width) else Modifier.fillMaxWidth())
             .onFocusChanged { if (it.isFocused) onFocus() },
@@ -307,6 +330,12 @@ fun Modifier.itemEntrance(index: Int, listStartedAtMs: Long): Modifier {
 fun WideItem(
     title: String,
     subtitle: String? = null,
+    /**
+     * Optional synopsis, on its own dimmer line under the subtitle. Episode
+     * rows are the reason this exists: a title, a runtime and 1,400px of
+     * nothing is a row that looks unfinished next to any streaming app.
+     */
+    body: String? = null,
     imageUrl: String? = null,
     badge: String? = null,
     progress: Float? = null,
@@ -364,9 +393,12 @@ fun WideItem(
                     imageUrl = imageUrl,
                     title = title,
                     modifier = Modifier
-                        .size(width = 64.dp, height = 38.dp)
+                        // 16:9, and large enough to read as a still rather than
+                        // a stamp floating in a mostly empty row.
+                        .size(width = if (body != null) 112.dp else 64.dp,
+                              height = if (body != null) 63.dp else 38.dp)
                         .clip(ChipShape),
-                    contentScale = ContentScale.Fit,
+                    contentScale = if (body != null) ContentScale.Crop else ContentScale.Fit,
                     monogramStyle = MaterialTheme.typography.labelLarge,
                 )
             }
@@ -383,6 +415,15 @@ fun WideItem(
                         style = MaterialTheme.typography.labelMedium,
                         color = NuxColors.OnSurfaceDim,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (body != null) {
+                    Text(
+                        text = body,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = NuxColors.OnSurfaceDim,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
@@ -804,5 +845,50 @@ fun SegmentedControl(
                 )
             }
         }
+    }
+}
+
+/**
+ * Soft fades at the top and bottom of a scrolling pane, shown only on the side
+ * that has content beyond it.
+ *
+ * A TV pane clips hard at its edge, so a long list ends mid-glyph — a half
+ * height row of letters sliced off by the frame, which reads as a screen that
+ * did not finish drawing. A fade says "there is more" in the language every
+ * other TV app uses.
+ *
+ * Place as the last child of the Box holding the list, so it draws over it.
+ */
+@Composable
+fun BoxScope.ScrollEdgeFade(
+    canScrollBackward: Boolean,
+    canScrollForward: Boolean,
+    height: Dp = 28.dp,
+) {
+    if (canScrollBackward) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(height)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(NuxColors.Background, Color.Transparent)
+                    )
+                )
+        )
+    }
+    if (canScrollForward) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(height)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, NuxColors.Background)
+                    )
+                )
+        )
     }
 }

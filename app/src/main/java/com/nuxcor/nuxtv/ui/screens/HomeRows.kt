@@ -54,6 +54,35 @@ internal fun buildContinueWatching(
     }
 }
 
+/** One card in a plain catalogue row — Recently added, and the day-one shelves. */
+internal sealed interface CatalogCard {
+    data class MovieCard(val movie: Movie) : CatalogCard
+    data class SeriesCard(val series: Series) : CatalogCard
+}
+
+/**
+ * Films and box sets the provider most recently put in its library, newest
+ * first. Built from Xtream's `added`/`last_modified`, so an M3U playlist — and
+ * a panel that leaves the field blank — simply has no such row rather than one
+ * ordered by nothing.
+ *
+ * [minimum] guards against the half-populated case: a shelf carrying two cards
+ * next to shelves carrying twenty reads as a bug, and "recently added" drawn
+ * from three timestamps isn't telling the truth about the library anyway.
+ */
+internal fun buildRecentlyAdded(
+    movies: List<Movie>,
+    series: List<Series>,
+    limit: Int = 20,
+    minimum: Int = 4,
+): List<CatalogCard> {
+    val dated = ArrayList<Pair<Long, CatalogCard>>()
+    movies.forEach { m -> m.addedMs?.let { dated += it to CatalogCard.MovieCard(m) } }
+    series.forEach { s -> s.addedMs?.let { dated += it to CatalogCard.SeriesCard(s) } }
+    if (dated.size < minimum) return emptyList()
+    return dated.sortedByDescending { it.first }.take(limit).map { it.second }
+}
+
 /**
  * The hero a focused channel tile projects: the current programme when the
  * guide knows it, just the channel otherwise. Poster and backdrop stay null —

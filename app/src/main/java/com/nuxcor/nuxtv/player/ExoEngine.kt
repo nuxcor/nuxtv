@@ -143,7 +143,7 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                listener?.onError(error.errorCodeName.removePrefix("ERROR_CODE_"))
+                listener?.onError(humanError(error.errorCodeName))
             }
         })
     }
@@ -232,6 +232,13 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
     override fun playAt(index: Int) {
         player.seekToDefaultPosition(index)
         player.playWhenReady = true
+        // prepare() is what makes this a retry. A PlaybackException leaves the
+        // player in STATE_IDLE, where seek and playWhenReady are both inert —
+        // so without this the session's failure ladder fired into a dead
+        // player: no load was reattempted, no second onError ever arrived, the
+        // retry budget never ran out and the error card was unreachable. The
+        // viewer sat on "Tuning…" forever. Harmless when the player is healthy.
+        player.prepare()
     }
 
     override fun setMuted(muted: Boolean) {
@@ -356,4 +363,35 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
             applyOverride(C.TRACK_TYPE_TEXT, id)
         }
     }
+}
+
+/**
+ * ExoPlayer's error constant, said in words a viewer can act on.
+ *
+ * The raw name went straight to the error card, so a dead stream announced
+ * itself as "IO_BAD_HTTP_STATUS" — accurate, and useless to the person holding
+ * the remote. Unmapped codes keep the tidied constant so a bug report still
+ * carries something specific.
+ */
+internal fun humanError(errorCodeName: String): String = when (errorCodeName) {
+    "ERROR_CODE_IO_BAD_HTTP_STATUS",
+    "ERROR_CODE_IO_FILE_NOT_FOUND" -> "your provider didn't return this stream"
+    "ERROR_CODE_IO_NETWORK_CONNECTION_FAILED",
+    "ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT" -> "the connection dropped"
+    "ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE",
+    "ERROR_CODE_PARSING_CONTAINER_MALFORMED",
+    "ERROR_CODE_PARSING_MANIFEST_MALFORMED",
+    "ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED",
+    "ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED" -> "this stream is in a format the player can't read"
+    "ERROR_CODE_DECODING_FAILED",
+    "ERROR_CODE_DECODER_INIT_FAILED",
+    "ERROR_CODE_DECODING_FORMAT_UNSUPPORTED",
+    "ERROR_CODE_DECODER_QUERY_FAILED" -> "this device can't decode this stream"
+    "ERROR_CODE_DRM_UNSPECIFIED",
+    "ERROR_CODE_DRM_SCHEME_UNSUPPORTED",
+    "ERROR_CODE_DRM_PROVISIONING_FAILED",
+    "ERROR_CODE_DRM_CONTENT_ERROR",
+    "ERROR_CODE_DRM_LICENSE_ACQUISITION_FAILED" -> "this stream is copy-protected"
+    "ERROR_CODE_BEHIND_LIVE_WINDOW" -> "the live stream moved on"
+    else -> errorCodeName.removePrefix("ERROR_CODE_").replace('_', ' ').lowercase()
 }

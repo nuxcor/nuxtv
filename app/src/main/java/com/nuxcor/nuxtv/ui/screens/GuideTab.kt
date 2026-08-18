@@ -48,6 +48,10 @@ import com.nuxcor.nuxtv.data.LiveChannel
 import com.nuxcor.nuxtv.ui.components.Artwork
 import com.nuxcor.nuxtv.ui.components.rememberClockFormat
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.tv.material3.Icon
+import com.nuxcor.nuxtv.ui.components.StatusAction
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import com.nuxcor.nuxtv.ui.components.MetaChip
@@ -98,345 +102,340 @@ fun GuideTab(
     leading: @Composable () -> Unit = {},
     /** Long-press on a channel cell — the host hangs its context menu here. */
     onChannelLongPress: (LiveChannel) -> Unit = {},
+    /** Escape hatch offered when the playlist has no live channels at all. */
+    onOpenSettings: () -> Unit = {},
 ) {
     val epgState by vm.epgState.collectAsState()
+    val coverage by vm.guideCoverage.collectAsState()
     val scope = rememberCoroutineScope()
 
-    when (val state = epgState) {
-        // The switch is drawn above these two rather than only inside the ready
-        // grid, where it lives in the control row. Without it here, a guide that
-        // is loading or has failed is a room with no door: the view is empty,
-        // the control row that would switch back does not exist, and the mode
-        // outlives leaving the tab.
+    // Guide trouble never takes the channels with it.
+    //
+    // The grid IS the channel list, so replacing it with an error pane meant a
+    // playlist whose xmltv URL 404s — routine, not exotic — had no way to play
+    // any channel at all: no rows, no number keys, no hold-OK menu. The prompt
+    // rides above a working grid instead, and the lanes simply read "No
+    // information" until a guide arrives.
+    val notice: GuideNotice? = when (val state = epgState) {
         is ContentRepository.EpgState.Idle,
-        is ContentRepository.EpgState.Loading -> Column(modifier = Modifier.fillMaxSize()) {
-            leading()
-            StatusPane(title = "Loading guide…", loading = true)
-        }
+        is ContentRepository.EpgState.Loading -> GuideNotice.Loading
 
-        // A dead end otherwise: the viewer would have to already know epgshare
-        // exists and go looking for it in Settings. Only ever shown when the
-        // playlist's own guide failed — a working guide is never second-guessed.
-        is ContentRepository.EpgState.Error -> Column(modifier = Modifier.fillMaxSize()) {
-            leading()
-            Spacer(Modifier.height(10.dp))
-            NoGuidePane(
-                message = state.message,
-                categoryNames = bundle.liveCategories.map { it.name },
+        is ContentRepository.EpgState.Error ->
+            GuideNotice.Missing(state.message, matchFailure = false)
+
+        is ContentRepository.EpgState.Ready ->
+            // Ready means the XMLTV parsed, not that any of it is this
+            // playlist's. When the ids don't line up every row reads "No
+            // information" over a grid that looks like it is working, so a
+            // coverage miss gets the same prompt a failed download does.
+            if (coverage.matchesPlaylist) null else GuideNotice.Missing(
+                "The guide matched only ${coverage.matched} of " +
+                    "${coverage.total} channels. Providers and guides often " +
+                    "use different channel ids.",
+                matchFailure = true,
+            )
+    }
+
+
+    val allChannels by vm.displayChannels.collectAsState()
+    val favorites by vm.favorites.collectAsState()
+    val recents by vm.recentChannels.collectAsState()
+    // Parental locks, same vocabulary as everywhere else: locked
+    // categories show a lock on their chip and ask for the PIN. Their
+    // channels are already filtered out of displayChannels, so without
+    // this the chip just opened an empty grid with no explanation.
+    val pin by vm.parentalPin.collectAsState()
+    val unlocked by vm.parentalUnlocked.collectAsState()
+    var pinPromptOpen by remember { mutableStateOf(false) }
+    val lockedIds = remember(bundle, pin, unlocked) {
+        bundle.liveCategories.filter { vm.isLockedCategory(it.name) }
+            .map { it.id }.toSet()
+    }
+    // Same list and same filtering as the channel view — see
+    // LiveCategories.kt. The caller owns which one is selected.
+    val categories = remember(bundle, favorites, recents, allChannels) {
+        liveCategoryList(bundle, allChannels, favorites, recents)
+    }
+    val mergeDupes by vm.mergeDuplicates.collectAsState()
+    val channels = remember(allChannels, categoryId, favorites, recents, mergeDupes) {
+        channelsInCategory(categoryId, allChannels, favorites, recents, dedupAll = mergeDupes)
+    }
+    // Same rest-before-select rule as every other category surface
+    // (nav rail, Movies/Series columns): resting on a chip selects it,
+    // debounced so travelling the row doesn't rebuild the grid on
+    // every step. This was lost when the redesign made the guide the
+    // only Live surface — chips highlighted on focus but only OK
+    // filtered, which read as "the category doesn't work".
+    var focusedCategory by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(focusedCategory) {
+        val id = focusedCategory ?: return@LaunchedEffect
+        kotlinx.coroutines.delay(NuxMotion.FocusDwellMs.toLong())
+        onCategoryId(id)
+    }
+    if (allChannels.isEmpty()) {
+        StatusPane(
+            title = "No live channels",
+            message = "This playlist has no live streams, or they are all hidden.",
+            icon = Icons.Default.LiveTv,
+            primaryAction = StatusAction("Open Settings", onOpenSettings),
+        )
+        return
+    }
+
+    var dayOffset by rememberSaveable { mutableStateOf(0) }
+    val baseStart = remember {
+        val now = System.currentTimeMillis()
+        now - now % (30 * 60_000L) - 60 * 60_000L
+    }
+    // How far forward there is anything to page to. XMLTV feeds carry
+    // two to seven days and the parser keeps a 48-hour window, so
+    // without a ceiling `›` walked forever into identical screens of
+    // "No information" with nothing saying you had left the data.
+    val maxDayOffset = remember(coverage.lastProgramEndMs, baseStart) {
+        // The sentinel means "not computed yet", and the ViewModel's
+        // contract for it is optimism: mapping it to 0 disabled `›`
+        // until the background combine finished and clamped a restored
+        // dayOffset back to today. Cap generously instead and let the
+        // real ceiling take over when it lands.
+        if (coverage.lastProgramEndMs == Long.MAX_VALUE) 14
+        else ((coverage.lastProgramEndMs - baseStart) / (24 * 3600_000L))
+            .toInt().coerceIn(0, 14)
+    }
+    // A guide that shrank under us (a refresh with less data) must not
+    // strand the viewer on a day that no longer exists.
+    LaunchedEffect(maxDayOffset) {
+        if (dayOffset > maxDayOffset) dayOffset = maxDayOffset
+    }
+    val windowStart = baseStart + dayOffset * 24 * 3600_000L
+    val windowEnd = windowStart + 30 * 3600_000L
+    // Ticks every 30s so the clock, "Now" highlighting and click
+    // behaviour stay live.
+    var nowTick by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000)
+            nowTick = System.currentTimeMillis()
+        }
+    }
+    val timelineScroll = rememberScrollState()
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    // What the header describes. Focus drives it, so moving across the
+    // grid reads out each programme without having to select it.
+    var focusedProgram by remember { mutableStateOf<EpgProgram?>(null) }
+    var focusedChannel by remember { mutableStateOf<LiveChannel?>(null) }
+
+    // Muted video for whatever channel focus rests on. Off unless the
+    // viewer turned it on: it holds one of the provider's concurrent
+    // connections for as long as it runs. Moving along a row costs
+    // nothing — the channel is unchanged, so nothing re-prepares.
+    val previewEnabled by vm.guidePreview.collectAsState()
+    val engineChoice by vm.engine.collectAsState()
+    val videoQuality by vm.videoQuality.collectAsState()
+    val preview = rememberGuidePreview(engineChoice, highestQuality = videoQuality == 1)
+    GuidePreviewEffect(
+        controller = preview,
+        enabled = previewEnabled,
+        channel = focusedChannel,
+    )
+    // Changing category or day replaces the grid without moving focus
+    // inside it, so nothing would clear these — the header would go on
+    // describing a channel that is no longer listed, above a category
+    // line that now says something else.
+    LaunchedEffect(categoryId, dayOffset) {
+        focusedChannel = null
+        focusedProgram = null
+    }
+
+    LaunchedEffect(statusMessage) {
+        if (statusMessage != null) {
+            delay(4_000)
+            statusMessage = null
+        }
+    }
+
+    // Sized against the screen rather than the width this composable is
+    // handed, deliberately: the rail animates its width on focus, and a
+    // scale read from the live measurement would resize every cell in
+    // the grid on each frame of that animation and leave the scroll
+    // offset pointing at a different time than before.
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val dpPerMinute = remember(screenWidth) { guideDpPerMinute(screenWidth) }
+
+    val density = LocalDensity.current
+    // Where "now minus 15 minutes" sits on the timeline, in scroll px.
+    fun nowScrollPx(): Int {
+        val nowOffsetMin = ((System.currentTimeMillis() - baseStart) / 60_000L - 15)
+            .coerceAtLeast(0)
+        return with(density) { (dpPerMinute * nowOffsetMin.toInt()).roundToPx() }
+    }
+
+    fun jumpToNow() {
+        dayOffset = 0
+        scope.launch { timelineScroll.animateScrollTo(nowScrollPx()) }
+    }
+
+    // Start the timeline near "now".
+    LaunchedEffect(Unit) { timelineScroll.scrollTo(nowScrollPx()) }
+
+    // First BACK returns to now when the viewer has wandered — another
+    // day, or a couple of hours along the timeline. A second BACK then
+    // leaves the tab as usual. Getting home from deep in tomorrow's
+    // schedule was otherwise a long march of ‹ presses.
+    //
+    // derivedStateOf, because reading timelineScroll.value directly in
+    // composition would recompose the whole guide on every scrolled
+    // frame; this only invalidates when the answer flips.
+    val farThresholdPx = with(density) { (dpPerMinute * 120).roundToPx() }
+    val awayFromNow by remember(dayOffset, nowTick, farThresholdPx) {
+        val nowPx = nowScrollPx()
+        derivedStateOf {
+            dayOffset != 0 || abs(timelineScroll.value - nowPx) > farThresholdPx
+        }
+    }
+    BackHandler(enabled = awayFromNow) { jumpToNow() }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        statusMessage?.let {
+            Text(it, style = MaterialTheme.typography.labelLarge, color = NuxColors.Secondary)
+            Spacer(Modifier.height(6.dp))
+        }
+        notice?.let {
+            GuideNoticeBar(
+                notice = it,
+                categoryNames = bundle.liveCategories.map { c -> c.name },
+                channelNames = bundle.channels.map { c -> c.name },
                 onPick = { cc -> vm.setEpgOverrideUrl(epgshareUrl(cc)) },
             )
+            Spacer(Modifier.height(10.dp))
+        }
+        // Category filter + day paging: a guide over hundreds of
+        // channels is unusable without both.
+        val chipsFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+        androidx.compose.foundation.lazy.LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(bottom = 10.dp),
+        ) {
+            item(key = "__leading__") { leading() }
+            item(key = "__prev__") {
+                // Disabled tv-material buttons stay focusable (by
+                // design) but paint no ring — an invisible focus trap
+                // that swallowed the first RIGHT into this tab. When
+                // there is nothing to page to, render a plain icon.
+                DayPagerChevron(
+                    icon = androidx.compose.material.icons.Icons.Default.ChevronLeft,
+                    contentDescription = "Previous day",
+                    enabled = dayOffset > 0,
+                    onClick = { if (dayOffset > 0) dayOffset-- },
+                )
+            }
+            item(key = "__next__") {
+                DayPagerChevron(
+                    icon = androidx.compose.material.icons.Icons.Default.ChevronRight,
+                    contentDescription = "Next day",
+                    enabled = dayOffset < maxDayOffset,
+                    onClick = { if (dayOffset < maxDayOffset) dayOffset++ },
+                )
+            }
+            item(key = "__sep__") { Spacer(Modifier.width(12.dp)) }
+            itemsIndexed(categories, key = { _, c -> c.id }) { index, category ->
+                val locked = category.id in lockedIds
+                CategoryItem(
+                    name = category.name,
+                    selected = category.id == categoryId,
+                    onClick = {
+                        if (locked) pinPromptOpen = true
+                        else onCategoryId(category.id)
+                    },
+                    // Locked categories still need the OK press (and
+                    // its PIN prompt); dwell must not walk past a PIN.
+                    onFocus = { if (!locked) focusedCategory = category.id },
+                    // UP from the grid's top row lands on the first
+                    // chip — always composed at the row's start, so
+                    // the target requester is always attached.
+                    modifier = if (index == 0) {
+                        Modifier.focusRequester(chipsFocus)
+                    } else Modifier,
+                    locked = locked,
+                )
+            }
         }
 
-        is ContentRepository.EpgState.Ready -> {
-            val coverage by vm.guideCoverage.collectAsState()
-            // Ready means the XMLTV parsed, not that any of it is this
-            // playlist's. When the ids don't line up, every row would read "No
-            // information" over a grid that looks like it is working — so this
-            // takes the same exit a failed download does, which is the screen
-            // that offers a guide that will match.
-            if (!coverage.matchesPlaylist) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    leading()
-                    Spacer(Modifier.height(10.dp))
-                    NoGuidePane(
-                        message = "The guide loaded, but it matched only " +
-                            "${coverage.matched} of ${coverage.total} channels. " +
-                            "Providers and guides often use different channel ids.",
-                        categoryNames = bundle.liveCategories.map { it.name },
-                        channelNames = bundle.channels.map { it.name },
-                        onPick = { cc -> vm.setEpgOverrideUrl(epgshareUrl(cc)) },
-                    )
-                }
-                return
-            }
+        GuideHeader(
+            // Lambdas, not values: read in this scope these would
+            // invalidate the whole guide — LazyColumn and every visible
+            // row — on each cell the cursor passes over.
+            channel = { focusedChannel ?: channels.firstOrNull() },
+            program = { focusedProgram },
+            nowMs = nowTick,
+            playlistName = vm.activeSource.collectAsState().value?.name,
+            categoryName = categories.firstOrNull { it.id == categoryId }?.name,
+            preview = {
+                GuidePreviewSurface(preview, modifier = Modifier.fillMaxSize())
+            },
+        )
+        Spacer(Modifier.height(10.dp))
 
-            val allChannels by vm.displayChannels.collectAsState()
-            val favorites by vm.favorites.collectAsState()
-            val recents by vm.recentChannels.collectAsState()
-            // Parental locks, same vocabulary as everywhere else: locked
-            // categories show a lock on their chip and ask for the PIN. Their
-            // channels are already filtered out of displayChannels, so without
-            // this the chip just opened an empty grid with no explanation.
-            val pin by vm.parentalPin.collectAsState()
-            val unlocked by vm.parentalUnlocked.collectAsState()
-            var pinPromptOpen by remember { mutableStateOf(false) }
-            val lockedIds = remember(bundle, pin, unlocked) {
-                bundle.liveCategories.filter { vm.isLockedCategory(it.name) }
-                    .map { it.id }.toSet()
-            }
-            // Same list and same filtering as the channel view — see
-            // LiveCategories.kt. The caller owns which one is selected.
-            val categories = remember(bundle, favorites, recents, allChannels) {
-                liveCategoryList(bundle, allChannels, favorites, recents)
-            }
-            val mergeDupes by vm.mergeDuplicates.collectAsState()
-            val channels = remember(allChannels, categoryId, favorites, recents, mergeDupes) {
-                channelsInCategory(categoryId, allChannels, favorites, recents, dedupAll = mergeDupes)
-            }
-            // Same rest-before-select rule as every other category surface
-            // (nav rail, Movies/Series columns): resting on a chip selects it,
-            // debounced so travelling the row doesn't rebuild the grid on
-            // every step. This was lost when the redesign made the guide the
-            // only Live surface — chips highlighted on focus but only OK
-            // filtered, which read as "the category doesn't work".
-            var focusedCategory by remember { mutableStateOf<String?>(null) }
-            LaunchedEffect(focusedCategory) {
-                val id = focusedCategory ?: return@LaunchedEffect
-                kotlinx.coroutines.delay(NuxMotion.FocusDwellMs.toLong())
-                onCategoryId(id)
-            }
-            if (allChannels.isEmpty()) {
-                StatusPane(title = "No live channels")
-                return
-            }
+        TimeRuler(
+            windowStart, windowEnd, nowTick,
+            nowTick + dayOffset * 24 * 3600_000L, timelineScroll, dpPerMinute,
+        )
 
-            var dayOffset by rememberSaveable { mutableStateOf(0) }
-            val baseStart = remember {
-                val now = System.currentTimeMillis()
-                now - now % (30 * 60_000L) - 60 * 60_000L
-            }
-            // How far forward there is anything to page to. XMLTV feeds carry
-            // two to seven days and the parser keeps a 48-hour window, so
-            // without a ceiling `›` walked forever into identical screens of
-            // "No information" with nothing saying you had left the data.
-            val maxDayOffset = remember(coverage.lastProgramEndMs, baseStart) {
-                // The sentinel means "not computed yet", and the ViewModel's
-                // contract for it is optimism: mapping it to 0 disabled `›`
-                // until the background combine finished and clamped a restored
-                // dayOffset back to today. Cap generously instead and let the
-                // real ceiling take over when it lands.
-                if (coverage.lastProgramEndMs == Long.MAX_VALUE) 14
-                else ((coverage.lastProgramEndMs - baseStart) / (24 * 3600_000L))
-                    .toInt().coerceIn(0, 14)
-            }
-            // A guide that shrank under us (a refresh with less data) must not
-            // strand the viewer on a day that no longer exists.
-            LaunchedEffect(maxDayOffset) {
-                if (dayOffset > maxDayOffset) dayOffset = maxDayOffset
-            }
-            val windowStart = baseStart + dayOffset * 24 * 3600_000L
-            val windowEnd = windowStart + 30 * 3600_000L
-            // Ticks every 30s so the clock, "Now" highlighting and click
-            // behaviour stay live.
-            var nowTick by remember { mutableStateOf(System.currentTimeMillis()) }
-            LaunchedEffect(Unit) {
-                while (true) {
-                    delay(30_000)
-                    nowTick = System.currentTimeMillis()
-                }
-            }
-            val timelineScroll = rememberScrollState()
-            var statusMessage by remember { mutableStateOf<String?>(null) }
-            // What the header describes. Focus drives it, so moving across the
-            // grid reads out each programme without having to select it.
-            var focusedProgram by remember { mutableStateOf<EpgProgram?>(null) }
-            var focusedChannel by remember { mutableStateOf<LiveChannel?>(null) }
-
-            // Muted video for whatever channel focus rests on. Off unless the
-            // viewer turned it on: it holds one of the provider's concurrent
-            // connections for as long as it runs. Moving along a row costs
-            // nothing — the channel is unchanged, so nothing re-prepares.
-            val previewEnabled by vm.guidePreview.collectAsState()
-            val engineChoice by vm.engine.collectAsState()
-            val videoQuality by vm.videoQuality.collectAsState()
-            val preview = rememberGuidePreview(engineChoice, highestQuality = videoQuality == 1)
-            GuidePreviewEffect(
-                controller = preview,
-                enabled = previewEnabled,
-                channel = focusedChannel,
-            )
-            // Changing category or day replaces the grid without moving focus
-            // inside it, so nothing would clear these — the header would go on
-            // describing a channel that is no longer listed, above a category
-            // line that now says something else.
-            LaunchedEffect(categoryId, dayOffset) {
-                focusedChannel = null
-                focusedProgram = null
-            }
-
-            LaunchedEffect(statusMessage) {
-                if (statusMessage != null) {
-                    delay(4_000)
-                    statusMessage = null
-                }
-            }
-
-            // Sized against the screen rather than the width this composable is
-            // handed, deliberately: the rail animates its width on focus, and a
-            // scale read from the live measurement would resize every cell in
-            // the grid on each frame of that animation and leave the scroll
-            // offset pointing at a different time than before.
-            val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-            val dpPerMinute = remember(screenWidth) { guideDpPerMinute(screenWidth) }
-
-            val density = LocalDensity.current
-            // Where "now minus 15 minutes" sits on the timeline, in scroll px.
-            fun nowScrollPx(): Int {
-                val nowOffsetMin = ((System.currentTimeMillis() - baseStart) / 60_000L - 15)
-                    .coerceAtLeast(0)
-                return with(density) { (dpPerMinute * nowOffsetMin.toInt()).roundToPx() }
-            }
-
-            fun jumpToNow() {
-                dayOffset = 0
-                scope.launch { timelineScroll.animateScrollTo(nowScrollPx()) }
-            }
-
-            // Start the timeline near "now".
-            LaunchedEffect(Unit) { timelineScroll.scrollTo(nowScrollPx()) }
-
-            // First BACK returns to now when the viewer has wandered — another
-            // day, or a couple of hours along the timeline. A second BACK then
-            // leaves the tab as usual. Getting home from deep in tomorrow's
-            // schedule was otherwise a long march of ‹ presses.
-            //
-            // derivedStateOf, because reading timelineScroll.value directly in
-            // composition would recompose the whole guide on every scrolled
-            // frame; this only invalidates when the answer flips.
-            val farThresholdPx = with(density) { (dpPerMinute * 120).roundToPx() }
-            val awayFromNow by remember(dayOffset, nowTick, farThresholdPx) {
-                val nowPx = nowScrollPx()
-                derivedStateOf {
-                    dayOffset != 0 || abs(timelineScroll.value - nowPx) > farThresholdPx
-                }
-            }
-            BackHandler(enabled = awayFromNow) { jumpToNow() }
-
-            Column(modifier = Modifier.fillMaxSize()) {
-                statusMessage?.let {
-                    Text(it, style = MaterialTheme.typography.labelLarge, color = NuxColors.Secondary)
-                    Spacer(Modifier.height(6.dp))
-                }
-                // Category filter + day paging: a guide over hundreds of
-                // channels is unusable without both.
-                val chipsFocus = remember { androidx.compose.ui.focus.FocusRequester() }
-                androidx.compose.foundation.lazy.LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(bottom = 10.dp),
-                ) {
-                    item(key = "__leading__") { leading() }
-                    item(key = "__prev__") {
-                        // Disabled tv-material buttons stay focusable (by
-                        // design) but paint no ring — an invisible focus trap
-                        // that swallowed the first RIGHT into this tab. When
-                        // there is nothing to page to, render a plain icon.
-                        DayPagerChevron(
-                            icon = androidx.compose.material.icons.Icons.Default.ChevronLeft,
-                            contentDescription = "Previous day",
-                            enabled = dayOffset > 0,
-                            onClick = { if (dayOffset > 0) dayOffset-- },
-                        )
-                    }
-                    item(key = "__next__") {
-                        DayPagerChevron(
-                            icon = androidx.compose.material.icons.Icons.Default.ChevronRight,
-                            contentDescription = "Next day",
-                            enabled = dayOffset < maxDayOffset,
-                            onClick = { if (dayOffset < maxDayOffset) dayOffset++ },
-                        )
-                    }
-                    item(key = "__sep__") { Spacer(Modifier.width(12.dp)) }
-                    itemsIndexed(categories, key = { _, c -> c.id }) { index, category ->
-                        val locked = category.id in lockedIds
-                        CategoryItem(
-                            name = category.name,
-                            selected = category.id == categoryId,
-                            onClick = {
-                                if (locked) pinPromptOpen = true
-                                else onCategoryId(category.id)
-                            },
-                            // Locked categories still need the OK press (and
-                            // its PIN prompt); dwell must not walk past a PIN.
-                            onFocus = { if (!locked) focusedCategory = category.id },
-                            // UP from the grid's top row lands on the first
-                            // chip — always composed at the row's start, so
-                            // the target requester is always attached.
-                            modifier = if (index == 0) {
-                                Modifier.focusRequester(chipsFocus)
-                            } else Modifier,
-                            locked = locked,
-                        )
-                    }
-                }
-
-                GuideHeader(
-                    // Lambdas, not values: read in this scope these would
-                    // invalidate the whole guide — LazyColumn and every visible
-                    // row — on each cell the cursor passes over.
-                    channel = { focusedChannel ?: channels.firstOrNull() },
-                    program = { focusedProgram },
-                    nowMs = nowTick,
-                    playlistName = vm.activeSource.collectAsState().value?.name,
-                    categoryName = categories.firstOrNull { it.id == categoryId }?.name,
-                    preview = {
-                        GuidePreviewSurface(preview, modifier = Modifier.fillMaxSize())
-                    },
-                )
-                Spacer(Modifier.height(10.dp))
-
-                TimeRuler(
-                    windowStart, windowEnd, nowTick,
-                    nowTick + dayOffset * 24 * 3600_000L, timelineScroll, dpPerMinute,
-                )
-
-                GuideGrid(
-                    entryFocusTick = entryFocusTick,
-                    upFromTopRow = chipsFocus,
-                    channels = channels,
-                    programsFor = { vm.programsFor(it) },
-                    programsKey = state,
-                    onChannelLongPress = onChannelLongPress,
-                    windowStart = windowStart,
-                    windowEnd = windowEnd,
-                    nowMs = nowTick,
-                    timelineScroll = timelineScroll,
-                    dpPerMinute = dpPerMinute,
-                    onFocus = { channel, program ->
-                        focusedChannel = channel
-                        focusedProgram = program
-                    },
-                    onPlayChannel = { channel ->
-                        // Hand the connection back before the player asks for
-                        // one. Two engines briefly alive at once is one too
-                        // many on a line that allows two, and the stream
-                        // refused is the one the viewer just asked for.
+        GuideGrid(
+            entryFocusTick = entryFocusTick,
+            upFromTopRow = chipsFocus,
+            channels = channels,
+            programsFor = { vm.programsFor(it) },
+            programsKey = epgState,
+            onChannelLongPress = onChannelLongPress,
+            windowStart = windowStart,
+            windowEnd = windowEnd,
+            nowMs = nowTick,
+            timelineScroll = timelineScroll,
+            dpPerMinute = dpPerMinute,
+            onFocus = { channel, program ->
+                focusedChannel = channel
+                focusedProgram = program
+            },
+            onPlayChannel = { channel ->
+                // Hand the connection back before the player asks for
+                // one. Two engines briefly alive at once is one too
+                // many on a line that allows two, and the stream
+                // refused is the one the viewer just asked for.
+                preview.release()
+                vm.playChannels(channels, channels.indexOf(channel))
+                onPlay()
+            },
+            onCatchup = { channel, program ->
+                scope.launch {
+                    val url = vm.catchupUrl(channel, program)
+                    if (url != null) {
                         preview.release()
-                        vm.playChannels(channels, channels.indexOf(channel))
+                        vm.playCatchup(channel, program, url)
                         onPlay()
-                    },
-                    onCatchup = { channel, program ->
-                        scope.launch {
-                            val url = vm.catchupUrl(channel, program)
-                            if (url != null) {
-                                preview.release()
-                                vm.playCatchup(channel, program, url)
-                                onPlay()
-                            } else {
-                                statusMessage = "Catch-up isn't available for this programme"
-                            }
-                        }
-                    },
-                    onSchedule = { channel, program ->
-                        statusMessage = if (vm.scheduleRecording(channel, program)) {
-                            "Recording scheduled: ${program.title}"
-                        } else {
-                            vm.scheduleReminder(channel, program)
-                            "Reminder set: ${program.title}"
-                        }
-                    },
-                )
-            }
+                    } else {
+                        statusMessage = "Catch-up isn't available for this programme"
+                    }
+                }
+            },
+            onSchedule = { channel, program ->
+                statusMessage = if (vm.scheduleRecording(channel, program)) {
+                    "Recording scheduled: ${program.title}"
+                } else {
+                    vm.scheduleReminder(channel, program)
+                    "Reminder set: ${program.title}"
+                }
+            },
+        )
+    }
 
-            if (pinPromptOpen) {
-                com.nuxcor.nuxtv.ui.components.PinPrompt(
-                    onSubmit = { entered ->
-                        vm.tryUnlock(entered).also { ok -> if (ok) pinPromptOpen = false }
-                    },
-                    onDismiss = { pinPromptOpen = false },
-                )
-            }
-        }
+    if (pinPromptOpen) {
+        com.nuxcor.nuxtv.ui.components.PinPrompt(
+            onSubmit = { entered ->
+                vm.tryUnlock(entered).also { ok -> if (ok) pinPromptOpen = false }
+            },
+            onDismiss = { pinPromptOpen = false },
+        )
     }
 }
 
@@ -616,46 +615,109 @@ private fun GuideHeader(
     }
 }
 
+/** What, if anything, is wrong with the guide sitting above the grid. */
+internal sealed interface GuideNotice {
+    /** The download is still in flight; the grid shows what the cache has. */
+    data object Loading : GuideNotice
+
+    /**
+     * No usable guide. [matchFailure] separates "the download failed" from
+     * "it downloaded but matched almost nothing" — the suggestions are better
+     * in the second case, where channel names are known to be worth reading.
+     */
+    data class Missing(val message: String, val matchFailure: Boolean) : GuideNotice
+}
+
+/**
+ * A one-line band above the grid explaining why the lanes are empty, with the
+ * free-guide shortcuts inline.
+ *
+ * This used to be a full-screen pane that replaced the grid — which also
+ * removed every channel, since the grid is the channel list. It is a banner
+ * now: it explains, it offers a fix, and it never stands between the viewer
+ * and the thing they came to watch.
+ */
 @Composable
-private fun NoGuidePane(
-    message: String,
+private fun GuideNoticeBar(
+    notice: GuideNotice,
     categoryNames: List<String>,
-    channelNames: List<String> = emptyList(),
+    channelNames: List<String>,
     onPick: (String) -> Unit,
 ) {
-    // Suggestions come from the playlist's own categories and channel-name
-    // country tags; the full list is the fallback when nothing hints at one.
-    val suggested = remember(categoryNames, channelNames) {
-        suggestedEpgPacks(categoryNames, channelNames).ifEmpty { EPGSHARE_PACKS }
-    }
-    val narrowed = suggested.size < EPGSHARE_PACKS.size
-
-    StatusPane(
-        title = "No guide available",
-        message = message,
-        footnote = "You can change this any time in Settings → EPG source.",
-        extras = {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(NuxShape.Row)
+            .background(NuxColors.SurfaceVariant)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        if (notice is GuideNotice.Loading) {
+            androidx.compose.material3.CircularProgressIndicator(
+                color = NuxColors.Primary,
+                strokeWidth = 2.dp,
+                modifier = Modifier.size(16.dp),
+            )
             Text(
-                if (narrowed) "Your playlist looks like it covers these — try a free guide:"
-                else "Try a free guide from epgshare01:",
+                text = "Loading the guide — channels are ready to watch now.",
+                style = MaterialTheme.typography.labelLarge,
+                color = NuxColors.OnSurfaceDim,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            return@Row
+        }
+
+        val missing = notice as GuideNotice.Missing
+        // Suggestions come from the playlist's own categories and channel-name
+        // country tags; the full list is the fallback when nothing hints at one.
+        val suggested = remember(categoryNames, channelNames, missing.matchFailure) {
+            val names = if (missing.matchFailure) channelNames else emptyList()
+            suggestedEpgPacks(categoryNames, names).ifEmpty { EPGSHARE_PACKS }
+        }
+        Icon(
+            Icons.Default.Info,
+            contentDescription = null,
+            tint = NuxColors.Primary,
+            modifier = Modifier.size(18.dp),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "No guide — showing channels only",
+                style = MaterialTheme.typography.labelLarge,
+                color = NuxColors.OnSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = missing.message,
                 style = MaterialTheme.typography.labelMedium,
                 color = NuxColors.OnSurfaceDim,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(10.dp))
-            androidx.compose.foundation.lazy.LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(suggested, key = { it }) { cc ->
-                    CategoryItem(
-                        name = cc,
-                        selected = false,
-                        onClick = { onPick(cc) },
-                        modifier = Modifier,
-                    )
+        }
+        Text(
+            text = "Free guide:",
+            style = MaterialTheme.typography.labelMedium,
+            color = NuxColors.OnSurfaceDim,
+            maxLines = 1,
+        )
+        // Buttons, not CategoryItems. An unselected CategoryItem is transparent
+        // and borderless — correct in a category column, but here it made the
+        // one call to action on the screen read as two words of prose.
+        androidx.compose.foundation.lazy.LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.widthIn(max = 320.dp),
+        ) {
+            items(suggested, key = { it }) { cc ->
+                androidx.tv.material3.OutlinedButton(onClick = { onPick(cc) }) {
+                    Text(cc, style = MaterialTheme.typography.labelMedium)
                 }
             }
-        },
-    )
+        }
+    }
 }
 
 

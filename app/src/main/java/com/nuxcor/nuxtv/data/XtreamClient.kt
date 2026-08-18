@@ -248,6 +248,11 @@ class XtreamClient(
                 rating = obj.dbl("rating_5based")?.times(2) ?: obj.dbl("rating"),
                 xtreamId = id,
                 quality = obj.str("name")?.let { QualityTag.of(it) },
+                // Seconds since the epoch, and panels emit it as a string.
+                // Clamped to sane bounds: a few write 0 or a millisecond value
+                // there, and either would sort the whole library wrong.
+                addedMs = obj.str("added")?.trim()?.toLongOrNull()
+                    ?.takeIf { it in 946_684_800..4_102_444_800 }?.times(1000),
             )
         }
 
@@ -268,6 +273,11 @@ class XtreamClient(
                 plot = obj.str("plot")?.takeIf { it.isNotBlank() },
                 genre = obj.str("genre")?.takeIf { it.isNotBlank() },
                 xtreamId = id,
+                // Series have no `added`; `last_modified` is the panel's
+                // equivalent — it moves when a new episode lands, which is
+                // exactly what "recently added" should surface for a box set.
+                addedMs = obj.str("last_modified")?.trim()?.toLongOrNull()
+                    ?.takeIf { it in 946_684_800..4_102_444_800 }?.times(1000),
             )
         }
 
@@ -310,6 +320,7 @@ class XtreamClient(
                 url = "$baseUrl/series/$userP/$passP/$id.$ext",
                 poster = info?.str("movie_image")?.takeIf { it.isNotBlank() },
                 durationText = info?.str("duration")?.takeIf { it.isNotBlank() },
+                plot = info?.str("plot")?.takeIf { it.isNotBlank() },
             )
         }.sortedWith(compareBy({ it.season }, { it.episodeNum }))
     }

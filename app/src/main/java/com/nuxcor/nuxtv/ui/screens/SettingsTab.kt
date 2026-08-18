@@ -52,6 +52,7 @@ import com.nuxcor.nuxtv.ui.components.SettingsChoiceRow
 import com.nuxcor.nuxtv.ui.components.SettingsGroup
 import com.nuxcor.nuxtv.ui.components.TextInputDialog
 import com.nuxcor.nuxtv.ui.components.WideItem
+import com.nuxcor.nuxtv.ui.components.ScrollEdgeFade
 import com.nuxcor.nuxtv.ui.components.ToastBadge
 import com.nuxcor.nuxtv.ui.theme.NuxColors
 import com.nuxcor.nuxtv.ui.theme.NuxShape
@@ -137,10 +138,14 @@ internal fun SettingsTab(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(Space.m),
-        contentPadding = PaddingValues(bottom = Space.xxl),
+        // Room at both ends so a row can clear the fold instead of being
+        // sliced through the middle of its text by the pane edge.
+        contentPadding = PaddingValues(top = Space.s, bottom = Space.xxl),
     ) {
         item(key = "header") {
             ScreenTitle("Settings")
@@ -154,9 +159,12 @@ internal fun SettingsTab(
                 // Hold OK for options on any playlist; the active one has
                 // nothing to switch to, so a plain OK opens them too.
                 onLongClick = { sourceOptions = source.id },
+                // The host is what identifies a playlist to its owner; the
+                // scheme, port and path are plumbing, and putting plumbing on
+                // screen is what makes an app look like a tool for its author.
                 subtitle = when (source) {
-                    is PlaylistSource.Xtream -> "Xtream • ${source.serverUrl}"
-                    is PlaylistSource.M3u -> "M3U • ${source.url}"
+                    is PlaylistSource.Xtream -> "Xtream • ${displayHost(source.serverUrl)}"
+                    is PlaylistSource.M3u -> "M3U • ${displayHost(source.url)}"
                 },
                 leading = {
                     Icon(
@@ -489,6 +497,10 @@ internal fun SettingsTab(
             }
         }
     }
+    ScrollEdgeFade(
+        canScrollBackward = listState.canScrollBackward,
+        canScrollForward = listState.canScrollForward,
+    )
     // Pinned to the pane, not to a row that scrolls away.
     ToastBadge(
         message = statusMessage,
@@ -579,3 +591,12 @@ private fun SettingsConfirmations(
         )
     }
 }
+
+/**
+ * The human half of a source URL: its host, without scheme, port or path.
+ * Falls back to the raw string if it will not parse — better an odd-looking
+ * playlist than a nameless one.
+ */
+private fun displayHost(url: String): String = runCatching {
+    java.net.URI(url.trim()).host?.removePrefix("www.")
+}.getOrNull()?.takeIf { it.isNotBlank() } ?: url.trim()
