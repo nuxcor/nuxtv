@@ -77,6 +77,15 @@ class ContentClassifierTest {
     fun `title cleaning strips noise`() {
         assertEquals("Inception", ContentClassifier.cleanTitle("EN - Inception (2010) 1080p"))
         assertEquals("Oppenheimer", ContentClassifier.cleanTitle("Oppenheimer [4K] HEVC"))
+        // Streaming-platform tags, stacked tags, and country suffixes.
+        assertEquals("The Boys", ContentClassifier.cleanTitle("AMZ - The Boys"))
+        assertEquals("Severance", ContentClassifier.cleanTitle("A+ - Severance"))
+        assertEquals("Yellowstone", ContentClassifier.cleanTitle("PCOCK - Yellowstone (US)"))
+        assertEquals("Dexter", ContentClassifier.cleanTitle("SHWT - Dexter"))
+        assertEquals("Mating Season", ContentClassifier.cleanTitle("4K-NF - Mating Season (2026) (US)"))
+        assertEquals("Loki", ContentClassifier.cleanTitle("D+ - EN - Loki"))
+        // Real first words must survive: no tag without its separator.
+        assertEquals("Maximum Security", ContentClassifier.cleanTitle("Maximum Security"))
     }
 
     /**

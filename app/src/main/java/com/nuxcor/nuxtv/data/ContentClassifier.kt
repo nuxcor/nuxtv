@@ -218,11 +218,26 @@ object ContentClassifier {
     fun yearOf(title: String): Int? =
         yearPattern.findAll(title).lastOrNull()?.groupValues?.get(1)?.toIntOrNull()
 
-    /** Strips quality tags, provider prefixes ("EN -", "|FR|") and dangling separators. */
+    // Platform/language prefixes ahead of a separator: "EN -", "|FR|",
+    // "NF -", "AMZN:", "SHWT |", "A+ -", "PCOCK -", "4K-NF -". Uppercase
+    // letters, digits and + only, and the separator is REQUIRED — "Maximum
+    // Security" must never lose its first word. Applied twice: providers
+    // stack tags ("NF - EN - Title").
+    // The leading [-|]? absorbs what a stripped quality token leaves behind:
+    // "4K-NF - Title" arrives here as "-NF - Title".
+    private val platformPrefix =
+        Regex("""^\s*[-|]?\s*[|\[(]?[A-Z0-9][A-Z0-9+]{1,7}[|\])]?\s*[-:|•]\s*""")
+
+    // "(US)", "[UK]" style country tags — noise in a title, and they defeat
+    // TMDB matching too.
+    private val countryTag = Regex("""[(\[][A-Z]{2,3}[)\]]""")
+
+    /** Strips quality tags, provider prefixes ("EN -", "|NF|") and dangling separators. */
     fun cleanTitle(raw: String): String {
         var t = raw
         t = t.replace(qualityNoise, " ")
-        t = t.replace(Regex("""^\s*[|\[(]?[A-Z]{2,3}[|\])]?\s*[-:|]\s*"""), "")
+        repeat(2) { t = t.replace(platformPrefix, "") }
+        t = t.replace(countryTag, " ")
         t = t.replace(Regex("""[(\[]\s*(?:19|20)\d{2}\s*[)\]]"""), " ")
         t = t.replace(Regex("""\s{2,}"""), " ")
         t = t.trim().trimEnd('-', ':', '|', '.', ',').trim()
