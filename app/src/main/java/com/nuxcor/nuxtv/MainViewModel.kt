@@ -638,8 +638,48 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun movieDetails(movie: Movie): Movie = repo.movieDetails(movie, tmdbApiKey)
     suspend fun seriesDetails(series: Series): Series = repo.seriesDetails(series, tmdbApiKey)
+    /**
+     * Session cache of fetched episode lists, so a series browsed once opens
+     * instantly ever after. Bounded LRU: 100 series of episodes is a few
+     * hundred KB, not a leak.
+     */
+    private val episodesCache = object : LinkedHashMap<String, List<Episode>>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<Episode>>) =
+            size > 100
+    }
+    private val episodesInFlight = mutableSetOf<String>()
+
+    /**
+     * Focus-time warm-up. On curated proxies (IPTVEditor and kin) the first
+     * get_series_info is what triggers the upstream episode build, so firing
+     * it while the poster is focused means the list is often ready before OK
+     * is pressed. Strictly once per series per session — a full prefetch at
+     * setup (thousands of requests) is the pattern providers rate-limit and
+     * ban, and per-scroll refetches are the pattern that 429s TiviMate.
+     */
+    fun prefetchEpisodes(series: Series) {
+        if (series.episodes != null) return
+        synchronized(episodesCache) {
+            if (episodesCache.containsKey(series.id) || !episodesInFlight.add(series.id)) return
+        }
+        viewModelScope.launch {
+            val result = runCatching { repo.episodesFor(series) }.getOrNull()
+            synchronized(episodesCache) {
+                if (!result.isNullOrEmpty()) episodesCache[series.id] = result
+                episodesInFlight.remove(series.id)
+            }
+        }
+    }
+
     /** Episodes for [series]; empty = the provider has none, null = the fetch failed. */
-    suspend fun episodesFor(series: Series): List<Episode>? = repo.episodesFor(series)
+    suspend fun episodesFor(series: Series): List<Episode>? {
+        synchronized(episodesCache) { episodesCache[series.id] }?.let { return it }
+        val result = repo.episodesFor(series)
+        if (!result.isNullOrEmpty()) {
+            synchronized(episodesCache) { episodesCache[series.id] = result }
+        }
+        return result
+    }
     suspend fun epgFor(channel: LiveChannel): List<EpgProgram> = repo.epgFor(channel)
     suspend fun catchupUrl(channel: LiveChannel, program: EpgProgram): String? =
         repo.catchupUrl(channel, program)

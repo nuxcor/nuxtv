@@ -256,7 +256,12 @@ class XtreamClient(
         parseEpisodes(call("get_series_info", mapOf("series_id" to seriesId.toString())))
 
     internal fun parseEpisodes(rootEl: JsonElement): List<Episode> {
-        val root = rootEl as? JsonObject ?: return emptyList()
+        // A real series answer is an object ({seasons, info, episodes}). Some
+        // portals answer an id they don't serve with 200 and a bare array —
+        // that is a broken portal, not a series with zero episodes, and it
+        // must surface as a retryable failure, not "No episodes found".
+        val root = rootEl as? JsonObject
+            ?: throw IOException("Unexpected series response")
         val episodesEl = root["episodes"] ?: return emptyList()
         return episodeLeaves(episodesEl, seasonKey = null).mapNotNull { (seasonKey, obj) ->
             val id = obj.str("id") ?: obj.str("episode_id") ?: obj.str("stream_id")

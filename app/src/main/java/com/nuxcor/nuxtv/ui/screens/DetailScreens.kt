@@ -233,13 +233,39 @@ fun SeriesDetailScreen(
 
     var episodes by remember(seriesId) { mutableStateOf<List<Episode>?>(base.episodes) }
     var episodesFailed by remember(seriesId) { mutableStateOf(false) }
+    var providerPreparing by remember(seriesId) { mutableStateOf(false) }
     var loadAttempt by remember(seriesId) { mutableStateOf(0) }
     LaunchedEffect(seriesId, loadAttempt) {
-        if (episodes == null) {
-            episodesFailed = false
+        if (episodes != null) return@LaunchedEffect
+        episodesFailed = false
+        // Curated-playlist proxies (IPTVEditor and kin) build a series'
+        // episode list lazily: the FIRST get_series_info triggers the fetch
+        // from the origin provider and answers empty; the real list lands
+        // seconds to minutes later. One request and a shrug showed those
+        // series as permanently empty, so an empty answer is polled a few
+        // times with growing patience before it is believed.
+        val waits = listOf(0L, 8_000L, 20_000L, 40_000L)
+        for (wait in waits) {
+            if (wait > 0) {
+                providerPreparing = true
+                kotlinx.coroutines.delay(wait)
+            }
             val result = vm.episodesFor(base)
-            if (result == null) episodesFailed = true else episodes = result
+            when {
+                result == null -> {
+                    episodesFailed = true
+                    providerPreparing = false
+                    return@LaunchedEffect
+                }
+                result.isNotEmpty() -> {
+                    episodes = result
+                    providerPreparing = false
+                    return@LaunchedEffect
+                }
+            }
         }
+        providerPreparing = false
+        episodes = emptyList()
     }
 
     val resumePositions by vm.resumePositions.collectAsState()
@@ -367,10 +393,17 @@ fun SeriesDetailScreen(
                     loadAttempt++
                 },
             )
+            eps == null && providerPreparing -> StatusPane(
+                title = "Provider is preparing this series…",
+                message = "Curated playlists build the episode list the first " +
+                    "time a series is opened. This can take a minute.",
+                loading = true,
+            )
             eps == null -> StatusPane(title = "Loading episodes…", loading = true)
             eps.isEmpty() -> StatusPane(
                 title = "No episodes found",
-                message = "The provider returned none for this series.",
+                message = "The provider returned none for this series — " +
+                    "on curated playlists, trying again later can help.",
                 primaryAction = com.nuxcor.nuxtv.ui.components.StatusAction("Retry") {
                     episodes = null
                     loadAttempt++
