@@ -26,6 +26,13 @@ object CategoryCleaner {
     // the index is not identity and clutters every label.
     private val indexPrefix = Regex("""^\s*\d{1,4}\s*[-.):|]\s*""")
 
+    // AV decoration beyond what QualityTag covers: "NETFLIX 4K 3840P DOLBY
+    // VISION" and "NETFLIX" are the same catalog at different qualities.
+    private val avNoise = Regex(
+        """(?i)\b(8k|3840p|2160p|1440p|dolby|atmos|vision|audio|bluray|blu|ray|remux|""" +
+            """hevc|h\.?26[45]|x26[45]|hdr10?\+?|10\s?bit|sdr|multi|subs?|multisubs?|vod)\b"""
+    )
+
     // Anything that isn't a word character, space, or the few symbols brand
     // names legitimately carry (+ & ' .) — kills ⭐⚽ and friends.
     private val symbolJunk = Regex("""[^\p{L}\p{N}\s+&'.]""")
@@ -39,9 +46,13 @@ object CategoryCleaner {
      * "4 - Billing - USA ULTIMATE" (dropWord "billing") → "usa ultimate";
      * "US | SPORTS HD" → "us sport"; "UK| SPORTS" → "uk sport" (distinct).
      */
-    fun categoryKey(name: String, dropWord: String? = null): String {
+    fun categoryKey(
+        name: String,
+        dropWord: String? = null,
+        stopWords: Set<String> = emptySet(),
+    ): String {
         val undecorated = name.replace(indexPrefix, "")
-        val folded = EpgMatcher.fold(QualityTag.baseName(undecorated))
+        val folded = EpgMatcher.fold(QualityTag.baseName(undecorated).replace(avNoise, " "))
         val tokens = folded.split(nonAlnumRuns)
             .filter { it.isNotBlank() }
             .map { token ->
@@ -50,6 +61,7 @@ object CategoryCleaner {
                 } else token
             }
             .filterIndexed { index, token -> !(index == 0 && token == dropWord) }
+            .filterNot { it in stopWords }
         return tokens.joinToString(" ").ifBlank { name.trim().lowercase() }
     }
 
@@ -69,19 +81,30 @@ object CategoryCleaner {
         "NHL", "UFC", "WWE", "PPV", "DSTV", "TRT", "RTL",
     )
 
-    fun displayName(name: String, dropWord: String? = null): String {
+    fun displayName(
+        name: String,
+        dropWord: String? = null,
+        stopWords: Set<String> = emptySet(),
+    ): String {
         val undecorated = name
             .replace(indexPrefix, "")
             .replace(symbolJunk, " ")
             .replace(edgeDecoration, "")
 
+        fun folded(word: String): String {
+            val f = EpgMatcher.fold(word)
+            return if (f.length >= 4 && f.endsWith("s") && f !in pluralExceptions) {
+                f.dropLast(1)
+            } else f
+        }
         fun wordsOf(text: String) = text.split(separators)
             .filter { it.isNotBlank() }
             .filterIndexed { index, word ->
                 !(index == 0 && dropWord != null && EpgMatcher.fold(word) == dropWord)
             }
+            .filterNot { folded(it) in stopWords }
         val full = wordsOf(undecorated)
-        val stripped = wordsOf(QualityTag.baseName(undecorated))
+        val stripped = wordsOf(QualityTag.baseName(undecorated).replace(avNoise, " "))
         // Quality tokens drop only when real words remain — a shelf NAMED by
         // its tier ("4K UHD 3840P") keeps its name instead of collapsing to
         // residue. Checked after the namespace word is gone, so "Billing"
@@ -124,9 +147,14 @@ object CategoryCleaner {
     private fun isJunk(name: String): Boolean = name.none { it.isLetterOrDigit() }
 
     fun clean(bundle: ContentBundle): ContentBundle {
+        // The axis word is redundant inside its own axis: every shelf in the
+        // movie list IS movies, so "NETFLIX MOVIES" and "NETFLIX" are one
+        // shelf there (tokens arrive depluralized: movie / serie).
         val (liveCats, liveRemap) = mergeCategories(bundle.liveCategories)
-        val (movieCats, movieRemap) = mergeCategories(bundle.movieCategories)
-        val (seriesCats, seriesRemap) = mergeCategories(bundle.seriesCategories)
+        val (movieCats, movieRemap) =
+            mergeCategories(bundle.movieCategories, setOf("movie", "film"))
+        val (seriesCats, seriesRemap) =
+            mergeCategories(bundle.seriesCategories, setOf("serie", "series", "show"))
 
         val channels = bundle.channels.map { it.copy(categoryId = liveRemap[it.categoryId]) }
         val movies = bundle.movies.map { it.copy(categoryId = movieRemap[it.categoryId]) }
@@ -149,6 +177,7 @@ object CategoryCleaner {
      */
     private fun mergeCategories(
         categories: List<Category>,
+        stopWords: Set<String> = emptySet(),
     ): Pair<List<Category>, Map<String?, String?>> {
         val dropWord = sharedLeadingWord(categories)
         val kept = LinkedHashMap<String, Category>()
@@ -159,9 +188,9 @@ object CategoryCleaner {
                 remap[category.id] = null
                 continue
             }
-            val key = categoryKey(category.name, dropWord)
+            val key = categoryKey(category.name, dropWord, stopWords)
             val holder = kept.getOrPut(key) {
-                Category(id = category.id, name = displayName(category.name, dropWord))
+                Category(id = category.id, name = displayName(category.name, dropWord, stopWords))
             }
             remap[category.id] = holder.id
         }
