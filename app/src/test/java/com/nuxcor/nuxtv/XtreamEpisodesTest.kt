@@ -75,11 +75,23 @@ class XtreamEpisodesTest {
     }
 
     @Test
-    fun `error and empty responses come back empty instead of throwing`() {
-        assertTrue(parse("""[]""").isEmpty())
-        assertTrue(parse(""""error"""").isEmpty())
+    fun `an object without episodes is genuinely empty`() {
         assertTrue(parse("""{"info":{}}""").isEmpty())
         assertTrue(parse("""{"episodes":null}""").isEmpty())
+    }
+
+    @Test
+    fun `a non-object response is a failure, not an empty series`() {
+        // Portals answer unknown ids (and broken proxies answer everything)
+        // with 200 and a bare array — that must reach the retryable error
+        // path, not render as "No episodes found".
+        for (bad in listOf("""[]""", """"error"""")) {
+            try {
+                parse(bad)
+                org.junit.Assert.fail("expected IOException for $bad")
+            } catch (expected: java.io.IOException) {
+            }
+        }
     }
 
     @Test

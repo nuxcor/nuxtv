@@ -89,7 +89,6 @@ internal fun SettingsTab(
     var epgDialogOpen by remember { mutableStateOf(false) }
     var pinDialogOpen by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
-    var confirmRemoveSource by remember { mutableStateOf<String?>(null) }
     var sourceOptions by remember { mutableStateOf<String?>(null) }
     var confirmImport by remember { mutableStateOf(false) }
 
@@ -515,17 +514,18 @@ internal fun SettingsTab(
                 sourceOptions = null
                 onEditPlaylist(source.id)
             },
+            // Confirmation is a step inside the options dialog itself; a
+            // second dialog restarted the scrim and let the page shift
+            // visibly behind the prompt for a frame.
             onRemove = {
                 sourceOptions = null
-                confirmRemoveSource = source.id
+                vm.removeSource(source.id)
             },
             onDismiss = { sourceOptions = null },
         )
     }
     SettingsConfirmations(
         vm = vm,
-        removeSourceId = confirmRemoveSource,
-        onRemoveHandled = { confirmRemoveSource = null },
         importPending = confirmImport,
         onImportHandled = { confirmImport = false },
         onStatus = { statusMessage = it },
@@ -536,21 +536,10 @@ internal fun SettingsTab(
 @Composable
 private fun SettingsConfirmations(
     vm: MainViewModel,
-    removeSourceId: String?,
-    onRemoveHandled: () -> Unit,
     importPending: Boolean,
     onImportHandled: () -> Unit,
     onStatus: (String) -> Unit,
 ) {
-    if (removeSourceId != null) {
-        ConfirmDialog(
-            title = "Remove this playlist?",
-            message = "Its cached channels are deleted. Recordings are kept.",
-            confirmLabel = "Remove",
-            onConfirm = { vm.removeSource(removeSourceId) },
-            onDismiss = onRemoveHandled,
-        )
-    }
     if (importPending) {
         ConfirmDialog(
             title = "Restore from backup?",

@@ -79,6 +79,8 @@ internal data class VodEntry(
     val progress: Float?,
     val hero: HeroInfo,
     val onOpen: () -> Unit,
+    /** Fired once when the tile gains focus — series use it to warm episodes. */
+    val onFocus: () -> Unit = {},
 )
 
 data class HeroInfo(
@@ -234,7 +236,10 @@ private fun VodBrowser(
                         width = null,
                         progress = entry.progress,
                         onClick = entry.onOpen,
-                        onFocus = { hero = entry.hero },
+                        onFocus = {
+                            hero = entry.hero
+                            entry.onFocus()
+                        },
                     )
                 }
             }
@@ -332,6 +337,12 @@ fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -
         progress = episodes?.firstNotNullOfOrNull { resumeProgress[it.url] },
         hero = toHero(),
         onOpen = { onOpenSeries(this) },
+        // Focusing a poster warms its episodes — on curated proxies
+        // (IPTVEditor) the request is what starts the upstream build, so by
+        // the time OK is pressed the list is often already there. Once per
+        // series per session; scrolling never re-sends (the 429 trap
+        // TiviMate's per-focus refetch falls into).
+        onFocus = { vm.prefetchEpisodes(this) },
     )
 
     val continueWatching = remember(seriesList, resumePositions, resumeProgress) {

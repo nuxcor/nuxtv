@@ -571,6 +571,12 @@ fun ContextMenu(
  * What you can do to one playlist. Editing used to be impossible and removing
  * reached only the playlist you were already watching, which left a dead or
  * mistyped source stuck in the list for good.
+ *
+ * The remove confirmation is a second STEP of this dialog, not a second
+ * dialog: closing one scaffold and opening another restarted the scrim and
+ * dropped focus onto the page for a frame, so the settings list visibly
+ * shifted behind the incoming prompt. Swapping content inside one scaffold
+ * keeps the scrim and focus where they are.
  */
 @Composable
 fun PlaylistOptionsDialog(
@@ -579,14 +585,18 @@ fun PlaylistOptionsDialog(
     onRemove: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var confirmingRemove by remember { mutableStateOf(false) }
     val editFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { editFocus.requestFocus() } }
+    val cancelFocus = remember { FocusRequester() }
+    LaunchedEffect(confirmingRemove) {
+        runCatching { (if (confirmingRemove) cancelFocus else editFocus).requestFocus() }
+    }
     DialogScaffold(
         onDismiss = onDismiss,
         width = 460.dp,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        run {
+        if (!confirmingRemove) {
             Text(name, style = MaterialTheme.typography.titleLarge, color = NuxColors.OnSurface)
             Spacer(Modifier.height(Space.s))
             Text(
@@ -600,8 +610,30 @@ fun PlaylistOptionsDialog(
                     onClick = { onEdit() },
                     modifier = Modifier.focusRequester(editFocus),
                 ) { Text("Edit") }
-                androidx.tv.material3.OutlinedButton(onClick = { onRemove() }) { Text("Remove") }
+                androidx.tv.material3.OutlinedButton(
+                    onClick = { confirmingRemove = true },
+                ) { Text("Remove") }
                 androidx.tv.material3.OutlinedButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        } else {
+            Text(
+                "Remove this playlist?",
+                style = MaterialTheme.typography.titleLarge,
+                color = NuxColors.OnSurface,
+            )
+            Spacer(Modifier.height(Space.s))
+            Text(
+                "Its cached channels are deleted. Recordings are kept.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuxColors.OnSurfaceDim,
+            )
+            Spacer(Modifier.height(Space.l))
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
+                androidx.tv.material3.OutlinedButton(
+                    onClick = { confirmingRemove = false },
+                    modifier = Modifier.focusRequester(cancelFocus),
+                ) { Text("Cancel") }
+                androidx.tv.material3.Button(onClick = { onRemove() }) { Text("Remove") }
             }
         }
     }
