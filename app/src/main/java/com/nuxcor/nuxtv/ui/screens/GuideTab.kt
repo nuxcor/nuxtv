@@ -484,7 +484,7 @@ private fun GuideHeader(
         ) {
             Artwork(
                 imageUrl = current?.logo,
-                title = current?.name.orEmpty(),
+                title = current?.displayName.orEmpty(),
                 modifier = Modifier.fillMaxSize().padding(20.dp),
                 contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                 monogramStyle = MaterialTheme.typography.headlineSmall,
@@ -503,7 +503,7 @@ private fun GuideHeader(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Text(
-                            text = currentProgram?.title ?: current?.name ?: "Guide",
+                            text = currentProgram?.title ?: current?.displayName ?: "Guide",
                             style = MaterialTheme.typography.headlineSmall.copy(
                                 fontWeight = FontWeight.SemiBold
                             ),

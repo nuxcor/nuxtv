@@ -465,7 +465,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setParentalPin(pin: String?) = viewModelScope.launch { playerPrefs.setParentalPin(pin) }
 
     fun scheduleReminder(channel: LiveChannel, program: EpgProgram) {
-        RecordingScheduler.scheduleReminder(getApplication(), channel.name, program)
+        RecordingScheduler.scheduleReminder(getApplication(), channel.displayName, program)
     }
 
     fun toggleHidden(channel: LiveChannel) {
@@ -759,7 +759,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             playerPrefs,
             ScheduledRecording(
                 id = "${channel.url}#${program.startMs}",
-                channelName = channel.name,
+                channelName = channel.displayName,
                 recordUrl = recordUrl,
                 title = program.title,
                 startMs = program.startMs,
@@ -943,7 +943,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 PlayableItem(
                     url = url,
                     title = program.title,
-                    subtitle = "Catch-up • ${channel.name}",
+                    subtitle = "Catch-up • ${channel.displayName}",
                     artwork = channel.logo,
                     channelId = channel.id,
                 )

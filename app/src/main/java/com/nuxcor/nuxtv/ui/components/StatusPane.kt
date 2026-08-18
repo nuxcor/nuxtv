@@ -101,10 +101,15 @@ fun StatusPane(
     modifier: Modifier = Modifier.fillMaxSize(),
     extras: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
-    // One-shot entrance so state changes don't pop.
+    // One-shot entrance so state changes don't pop. Snap-on-timeout: a pane
+    // whose visibility waits on a starved frame clock is an invisible screen.
     val progress = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        progress.animateTo(1f, tween(NuxMotion.StandardMs, easing = NuxMotion.StandardEasing))
+        progress.animateToOrSnap(
+            1f,
+            tween(NuxMotion.StandardMs, easing = NuxMotion.StandardEasing),
+            timeoutMs = NuxMotion.StandardMs + 500L,
+        )
     }
     val primaryFocus = if (!loading && primaryAction != null) {
         rememberInitialFocus(title)
