@@ -615,20 +615,27 @@ fun PlaylistOptionsDialog(
             androidx.tv.material3.OutlinedButton(onClick = onDismiss) { Text("Cancel") }
         }
     }
-    // Stacked OVER the options dialog, never instead of it: swapping the
-    // dialog's own content removed the button that held focus and lost the
-    // D-pad to whatever Compose fell back to (timing-dependent — fine on the
-    // emulator, dead on real boxes). A second dialog on top keeps the first
-    // one holding the fort underneath and acquires focus through the same
-    // fresh-composition path every dialog in the app already relies on.
+    // A real platform window, not an in-layout overlay: every in-layout
+    // variant (content swap on 2.17.3, sibling overlay on 2.17.5) verified
+    // fine on the emulator and still lost the D-pad to the dialog underneath
+    // on real boxes — Compose focus requests around a same-frame swap are
+    // timing games. A window takes input focus at the OS level; the remote
+    // physically cannot keep driving what is behind it.
     if (confirmingRemove) {
-        ConfirmDialog(
-            title = "Remove this playlist?",
-            message = "Its cached channels are deleted. Recordings are kept.",
-            confirmLabel = "Remove",
-            onConfirm = { onRemove() },
-            onDismiss = { confirmingRemove = false },
-        )
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { confirmingRemove = false },
+            properties = androidx.compose.ui.window.DialogProperties(
+                usePlatformDefaultWidth = false,
+            ),
+        ) {
+            ConfirmDialog(
+                title = "Remove this playlist?",
+                message = "Its cached channels are deleted. Recordings are kept.",
+                confirmLabel = "Remove",
+                onConfirm = { onRemove() },
+                onDismiss = { confirmingRemove = false },
+            )
+        }
     }
 }
 
