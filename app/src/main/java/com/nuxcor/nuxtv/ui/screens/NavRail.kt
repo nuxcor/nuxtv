@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Search
@@ -73,6 +74,8 @@ internal val RAIL_WIDTH_COLLAPSED = 64.dp
 internal val RAIL_WIDTH_EXPANDED = 190.dp
 
 enum class HomeTab(val label: String, val icon: ImageVector) {
+    // Enum order is rail order; Home leads because it is the landing tab.
+    Home("Home", Icons.Default.Home),
     Search("Search", Icons.Default.Search),
     Live("Live TV", Icons.Default.LiveTv),
     Movies("Movies", Icons.Default.Movie),
@@ -187,7 +190,13 @@ internal fun NavRail(
                 )
             }
         }
-        HomeTab.entries.forEach { item ->
+        // Search is reached from Home's top-right pill, not the rail — a
+        // launcher lists destinations, and search is an action.
+        HomeTab.entries.filterNot { it == HomeTab.Search }.forEach { item ->
+            // railFocus must be attached somewhere even while the Search tab
+            // (railless) is selected, or entering the rail has no target.
+            val holdsFocus = item == selected ||
+                (selected == HomeTab.Search && item == HomeTab.Home)
             RailItem(
                 item = item,
                 selected = item == selected,
@@ -205,7 +214,7 @@ internal fun NavRail(
                         scope.launch { runCatching { railFocus.requestFocus() } }
                     }
                 },
-                modifier = if (item == selected) {
+                modifier = if (holdsFocus) {
                     Modifier.fillMaxWidth().focusRequester(railFocus)
                 } else {
                     Modifier.fillMaxWidth()

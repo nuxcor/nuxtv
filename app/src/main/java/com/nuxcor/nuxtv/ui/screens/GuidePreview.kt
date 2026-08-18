@@ -61,7 +61,7 @@ class GuidePreviewController internal constructor(
         val target = engine ?: newEngine().also { engine = it }
         target.setMuted(true)
         target.prepare(
-            listOf(PlayableItem(url = channel.url, title = channel.name, channelId = channel.id)),
+            listOf(PlayableItem(url = channel.url, title = channel.displayName, channelId = channel.id)),
             startIndex = 0,
         )
         // libVLC ignores volume until media is open, so say it again after.

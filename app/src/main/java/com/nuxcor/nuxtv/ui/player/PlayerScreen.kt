@@ -825,7 +825,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             exit = PlayerMotion.exitToRight(),
         ) {
             ChannelOptionsMenu(
-                channelName = channel?.name ?: item?.title.orEmpty(),
+                channelName = channel?.displayName ?: item?.title.orEmpty(),
                 isFavoritable = request.isLive && channel != null,
                 isFavorite = channel != null && channel.url in favorites,
                 canRecord = request.isLive && item?.recordUrl != null,

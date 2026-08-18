@@ -38,6 +38,7 @@ import com.nuxcor.nuxtv.data.Series
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.graphicsLayer
+import com.nuxcor.nuxtv.ui.components.BackdropLayer
 import com.nuxcor.nuxtv.ui.components.StatusAction
 import com.nuxcor.nuxtv.ui.components.StatusPane
 import com.nuxcor.nuxtv.ui.components.requestFocusRetrying
@@ -56,9 +57,13 @@ fun HomeScreen(
     onAddPlaylist: () -> Unit,
     onEditPlaylist: (String) -> Unit,
 ) {
-    var tab by rememberSaveable { mutableStateOf(HomeTab.Live) }
+    var tab by rememberSaveable { mutableStateOf(HomeTab.Home) }
     // Non-content tabs also work while the playlist is loading or failed.
     val contentState by vm.content.collectAsState()
+    // The Home lounge's focused-card hero, hoisted so its backdrop can draw
+    // full-bleed across the content lane — outside the gutter-padded Box every
+    // tab composes into. Debounced by the lounge before it lands here.
+    var homeHero by remember { mutableStateOf<HeroInfo?>(null) }
     var railFocused by remember { mutableStateOf(false) }
     var railExpanded by remember { mutableStateOf(false) }
     val railFocus = remember { FocusRequester() }
@@ -139,6 +144,9 @@ fun HomeScreen(
             .fillMaxSize()
             .padding(start = railWidth)
     ) {
+        if (tab == HomeTab.Home && contentState is ContentState.Ready) {
+            BackdropLayer(homeHero?.backdrop ?: homeHero?.poster)
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -163,10 +171,20 @@ fun HomeScreen(
             // frame one.
             val tabEntrance = remember(current) { Animatable(0f) }
             LaunchedEffect(current) {
-                tabEntrance.animateTo(
-                    1f,
-                    tween(NuxMotion.StandardMs, easing = NuxMotion.StandardEasing),
-                )
+                try {
+                    tabEntrance.animateTo(
+                        1f,
+                        tween(NuxMotion.StandardMs, easing = NuxMotion.StandardEasing),
+                    )
+                } finally {
+                    // The animation is decoration; the terminal state is not.
+                    // Rapid dwell-driven tab hops can cancel this effect
+                    // mid-flight, which once left a whole tab composed but
+                    // painted at alpha 0. Whatever happens, land on visible.
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                        tabEntrance.snapTo(1f)
+                    }
+                }
             }
             Box(
                 modifier = Modifier.graphicsLayer {
@@ -195,6 +213,15 @@ fun HomeScreen(
                         primaryAction = StatusAction("Add playlist", onAddPlaylist),
                     )
                     is ContentState.Ready -> when (current) {
+                        HomeTab.Home -> HomeLoungeTab(
+                            vm,
+                            state.bundle,
+                            onOpenMovie,
+                            onOpenSeries,
+                            onPlay,
+                            onHeroChange = { homeHero = it },
+                            onBrowse = { tab = it },
+                        )
                         HomeTab.Search -> SearchTab(vm, onOpenMovie, onOpenSeries, onPlay)
                         HomeTab.Live -> LiveTab(vm, state.bundle, onPlay)
                         HomeTab.Movies -> MoviesTab(vm, state.bundle, onOpenMovie)
