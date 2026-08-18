@@ -29,7 +29,7 @@ class CategoryCleanerTest {
             ),
         )
         val cleaned = CategoryCleaner.clean(bundle)
-        assertEquals(listOf("US | SPORTS", "UK| SPORTS"), cleaned.liveCategories.map { it.name })
+        assertEquals(listOf("US Sports", "UK Sports"), cleaned.liveCategories.map { it.name })
         // Both US variants' channels now share the kept category id.
         assertEquals("1", cleaned.channels[0].categoryId)
         assertEquals("1", cleaned.channels[1].categoryId)
@@ -47,7 +47,7 @@ class CategoryCleanerTest {
         )
         val cleaned = CategoryCleaner.clean(bundle)
         assertEquals(1, cleaned.liveCategories.size)
-        assertEquals("SPORTS", cleaned.liveCategories.single().name)
+        assertEquals("Sports", cleaned.liveCategories.single().name)
         assertEquals(setOf("1"), cleaned.channels.map { it.categoryId }.toSet())
     }
 
@@ -80,6 +80,14 @@ class CategoryCleanerTest {
             CategoryCleaner.categoryKey("US NEWS"),
             CategoryCleaner.categoryKey("US NEW"),
         )
+    }
+
+    @Test
+    fun `labels prettify but brand casing survives`() {
+        assertEquals("US Sports", CategoryCleaner.displayName("US | SPORTS HD"))
+        assertEquals("News", CategoryCleaner.displayName("#### NEWS ####"))
+        assertEquals("beIN Sports", CategoryCleaner.displayName("beIN Sports"))
+        assertEquals("Documentaries", CategoryCleaner.displayName("DOCUMENTARIES"))
     }
 
     @Test
