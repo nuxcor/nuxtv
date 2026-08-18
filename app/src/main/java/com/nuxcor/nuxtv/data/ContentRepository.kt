@@ -41,7 +41,9 @@ class ContentRepository(context: Context) {
         cacheFile(sourceId).takeIf { it.exists() }?.inputStream()?.buffered()?.use { stream ->
             bundleJson.decodeFromStream<ContentBundle>(stream)
         }
-    }.getOrNull()
+        // Caches written before the cleaner existed get cleaned on read, so a
+        // warm start doesn't show the raw mess until the next refresh.
+    }.getOrNull()?.let { CategoryCleaner.clean(it) }
 
     /**
      * The #EXTM3U url-tvg header, persisted beside the playlist cache. It only
@@ -278,7 +280,12 @@ class ContentRepository(context: Context) {
             }
     }
 
-    private suspend fun fetch(source: PlaylistSource): ContentBundle = when (source) {
+    // Category cleanup runs at bundle build time — caches, EPG resolution,
+    // duplicate merging and every screen see only the cleaned model.
+    private suspend fun fetch(source: PlaylistSource): ContentBundle =
+        CategoryCleaner.clean(fetchRaw(source))
+
+    private suspend fun fetchRaw(source: PlaylistSource): ContentBundle = when (source) {
         is PlaylistSource.Xtream -> {
             val client = xtreamClient(source)
             client.authenticate()
@@ -374,12 +381,47 @@ class ContentRepository(context: Context) {
         }
     }
 
+    private class ResolvedEpg(
+        val bundle: ContentBundle,
+        val data: XmltvData,
+        val resolution: EpgMatcher.Resolution,
+    )
+
+    @Volatile
+    private var resolvedEpg: ResolvedEpg? = null
+
     /**
-     * Programmes for a channel from the loaded XMLTV data, matched by tvg-id
-     * first and display name second.
+     * The channel→guide resolution for the current (bundle, guide) pair,
+     * computed on first request and cached by reference identity — the same
+     * discipline as the view model's nowNext cache. Call off the main
+     * thread; [programsFor] only ever READS the cache, because it is called
+     * per channel from composition.
+     */
+    fun resolveEpg(): EpgMatcher.Resolution? {
+        val bundle = (_content.value as? ContentState.Ready)?.bundle ?: return null
+        val data = (_epg.value as? EpgState.Ready)?.data ?: return null
+        resolvedEpg?.let { if (it.bundle === bundle && it.data === data) return it.resolution }
+        val resolution = EpgMatcher.resolve(bundle.channels, data)
+        resolvedEpg = ResolvedEpg(bundle, data, resolution)
+        return resolution
+    }
+
+    /**
+     * Programmes for a channel from the loaded XMLTV data. Served from the
+     * fuzzy resolution when it is warm; before that, the original exact
+     * lookups (tvg-id, then display name) keep the guide working — this path
+     * must never compute the resolution itself.
      */
     fun programsFor(channel: LiveChannel): List<EpgProgram> {
         val data = (_epg.value as? EpgState.Ready)?.data ?: return emptyList()
+        val bundle = (_content.value as? ContentState.Ready)?.bundle
+        resolvedEpg?.let { cache ->
+            if (cache.bundle === bundle && cache.data === data) {
+                return cache.resolution.byChannelId[channel.id]
+                    ?.let { data.programmes[it] }
+                    ?: emptyList()
+            }
+        }
         channel.epgId?.lowercase()?.let { id ->
             data.programmes[id]?.let { return it }
         }

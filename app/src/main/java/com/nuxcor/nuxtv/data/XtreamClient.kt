@@ -167,7 +167,9 @@ class XtreamClient(
                 url = "$baseUrl/live/$userP/$passP/$id.ts",
                 categoryId = obj.str("category_id"),
                 number = obj.int("num"),
-                epgId = obj.str("epg_channel_id"),
+                // Blank, not null, was how panels say "no id" — and a stored
+                // "" used to defeat the null-skip in EPG matching.
+                epgId = obj.str("epg_channel_id")?.takeIf { it.isNotBlank() },
                 archiveDays = if (hasArchive) (obj.int("tv_archive_duration") ?: 1) else 0,
                 xtreamId = id,
                 recordUrl = "$baseUrl/live/$userP/$passP/$id.ts",

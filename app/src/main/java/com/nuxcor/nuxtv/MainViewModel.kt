@@ -186,8 +186,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * "No information", with no message and no route to a fix.
      */
     data class GuideCoverage(
-        /** False when the guide parsed but shares no channel with the playlist. */
+        /** False when the guide parsed but barely matches this playlist. */
         val matchesPlaylist: Boolean,
+        /** Channels the guide resolved / total in the playlist. */
+        val matched: Int = 0,
+        val total: Int = 0,
         /** End of the last programme in the guide; the ceiling for day paging. */
         val lastProgramEndMs: Long,
     )
@@ -196,11 +199,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         kotlinx.coroutines.flow.combine(content, epgState) { c, epg ->
             val unknown = GuideCoverage(matchesPlaylist = true, lastProgramEndMs = Long.MAX_VALUE)
             val data = (epg as? ContentRepository.EpgState.Ready)?.data ?: return@combine unknown
-            val bundle = (c as? ContentState.Ready)?.bundle ?: return@combine unknown
+            if (c !is ContentState.Ready) return@combine unknown
+            // This is the warm-up site: Eagerly + Dispatchers.Default, keyed
+            // on exactly (content, epg) — by the time any UI walks the guide,
+            // the fuzzy channel→guide resolution is computed and cached.
+            val resolution = repo.resolveEpg() ?: return@combine unknown
             GuideCoverage(
-                // Short-circuits on the first hit, so a healthy guide costs one
-                // map lookup rather than a walk of the whole channel list.
-                matchesPlaylist = bundle.channels.any { repo.programsFor(it).isNotEmpty() },
+                // A real ratio, not `any {}`: one lucky channel out of 4,000
+                // used to pass, leaving a grid of "No information" rows with
+                // no recovery path.
+                matchesPlaylist = resolution.matched > 0 &&
+                    resolution.matched * 5 >= resolution.total,
+                matched = resolution.matched,
+                total = resolution.total,
                 lastProgramEndMs = data.programmes.values
                     .maxOfOrNull { list -> list.maxOfOrNull { it.endMs } ?: 0L } ?: 0L,
             )
@@ -218,7 +229,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .stateIn(
                 viewModelScope,
                 SharingStarted.Eagerly,
-                GuideCoverage(true, Long.MAX_VALUE),
+                GuideCoverage(matchesPlaylist = true, lastProgramEndMs = Long.MAX_VALUE),
             )
 
     val activeRecording: StateFlow<ActiveRecording?> = RecordingManager.active
@@ -939,11 +950,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 }
 
 
-/** Case- and diacritic-insensitive text for matching ("Télé" matches "tele"). */
-private fun foldForSearch(text: String): String {
-    val normalized = java.text.Normalizer.normalize(text.lowercase(), java.text.Normalizer.Form.NFD)
-    return normalized.filterNot { it.code in 0x300..0x36F }
-}
+/** Case- and diacritic-insensitive text for matching — shared with the EPG matcher. */
+private fun foldForSearch(text: String): String = com.nuxcor.nuxtv.data.EpgMatcher.fold(text)
 
 /**
  * Null when [name] doesn't match; otherwise a rank — 0 name starts with the
