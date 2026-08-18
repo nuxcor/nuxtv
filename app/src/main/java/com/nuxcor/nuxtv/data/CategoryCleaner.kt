@@ -39,9 +39,30 @@ object CategoryCleaner {
         return tokens.joinToString(" ").ifBlank { name.trim().lowercase() }
     }
 
-    /** The kept category's label: edge decoration unwrapped, casing kept. */
-    fun displayName(name: String): String =
-        name.replace(edgeDecoration, "").trim().ifBlank { name.trim() }
+    /**
+     * The kept category's label, prettified: decoration unwrapped, quality
+     * tokens dropped, separators collapsed, SHOUTING title-cased — with
+     * 2-3 letter all-caps region codes kept as codes and mixed-case brand
+     * words left alone. "US | SPORTS HD" → "US Sports";
+     * "#### NEWS ####" → "News"; "beIN Sports" survives as written.
+     */
+    fun displayName(name: String): String {
+        val unwrapped = QualityTag.baseName(name.replace(edgeDecoration, ""))
+        val words = unwrapped.split(Regex("""[|:•/\\_\-\s]+"""))
+            .filter { it.isNotBlank() }
+            .map { word ->
+                when {
+                    // Region/network codes stay codes.
+                    word.length <= 3 && word.all { it.isUpperCase() || it.isDigit() } -> word
+                    // SHOUTING becomes Title case; mixed case is a brand's
+                    // own spelling and is left alone.
+                    word.all { !it.isLetter() || it.isUpperCase() } ->
+                        word.lowercase().replaceFirstChar { it.uppercase() }
+                    else -> word
+                }
+            }
+        return words.joinToString(" ").ifBlank { name.trim() }
+    }
 
     /** True for purely decorative names — no letter or digit anywhere. */
     private fun isJunk(name: String): Boolean = name.none { it.isLetterOrDigit() }
