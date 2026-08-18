@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
@@ -65,12 +66,19 @@ fun SearchTab(
     Column(
         modifier = Modifier.fillMaxSize(),
     ) {
+        // Search is entered deliberately (Home's pill — it left the rail), so
+        // the query field takes focus on arrival instead of stranding it
+        // wherever the pill's departure dropped it.
+        val fieldFocus = com.nuxcor.nuxtv.ui.components.rememberInitialFocus(Unit)
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
             label = { androidx.compose.material3.Text("Search channels, movies and series") },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth().dpadFieldNavigation(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(fieldFocus)
+                .dpadFieldNavigation(),
             colors = NuxFieldDefaults.colors(),
         )
         Spacer(Modifier.height(20.dp))
