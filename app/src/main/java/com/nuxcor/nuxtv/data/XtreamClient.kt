@@ -84,10 +84,22 @@ class XtreamClient(
     @OptIn(ExperimentalSerializationApi::class)
     private suspend fun <T : Any> callList(
         action: String,
+        /**
+         * Optional sections (VOD, series) degrade to an empty list when the
+         * panel answers with something that isn't an array at all — trial and
+         * live-only accounts routinely have those packages disabled, and the
+         * panel replies with an error object or an auth blob instead of [].
+         * Failing the whole playlist over a disabled add-on locked those
+         * accounts out entirely.
+         */
+        required: Boolean = true,
         map: (JsonObject) -> T?,
     ): List<T> = withContext(Dispatchers.IO) {
         http.newCall(buildRequest(action, emptyMap())).execute().use { resp ->
-            if (!resp.isSuccessful) throw IOException("Server returned HTTP ${resp.code}")
+            if (!resp.isSuccessful) {
+                if (!required) return@use emptyList()
+                throw IOException("Server returned HTTP ${resp.code}")
+            }
             val body = resp.body ?: throw IOException("Empty response from server")
             val out = ArrayList<T>()
             try {
@@ -101,9 +113,11 @@ class XtreamClient(
                 // swallow the cancellation the coroutine machinery needs.
                 throw e
             } catch (e: Exception) {
-                // A truncated stream or an error-object response must fail the
-                // whole load — a silently partial catalog would overwrite the
-                // user's cache with a shrunken library.
+                // A response that was never an array (nothing decoded yet) is a
+                // disabled section for optional endpoints. A stream that broke
+                // MID-array still fails even there — a silently partial catalog
+                // would overwrite the user's cache with a shrunken library.
+                if (!required && out.isEmpty()) return@use emptyList()
                 throw IOException("Catalog download failed for $action: ${e.message}")
             }
             out
@@ -130,23 +144,27 @@ class XtreamClient(
 
     /** Validates credentials; throws with a readable message when login fails. */
     suspend fun authenticate() {
-        val root = call(null).jsonObject
-        val userInfo = root["user_info"]?.jsonObject
+        val root = call(null) as? JsonObject
+            ?: throw IOException("Unexpected response — is this an Xtream server?")
+        val userInfo = root["user_info"] as? JsonObject
             ?: throw IOException("Unexpected response — is this an Xtream server?")
         val auth = userInfo.str("auth") ?: "0"
         if (auth != "1" && auth != "true") throw IOException("Login failed — check username and password")
-        val status = userInfo.str("status")
-        if (status != null && !status.equals("Active", ignoreCase = true)) {
-            throw IOException("Account status: $status")
+        // Blocklist, not an Active allowlist: panels label working test lines
+        // "Trial" (and paid lines all sorts of things). auth=1 is the gate;
+        // only statuses that mean the line is dead get to refuse it.
+        val status = userInfo.str("status")?.lowercase()
+        if (status in setOf("banned", "disabled", "expired")) {
+            throw IOException("Account status: ${userInfo.str("status")}")
         }
     }
 
-    suspend fun liveCategories(): List<Category> = categories("get_live_categories")
-    suspend fun vodCategories(): List<Category> = categories("get_vod_categories")
-    suspend fun seriesCategories(): List<Category> = categories("get_series_categories")
+    suspend fun liveCategories(): List<Category> = categories("get_live_categories", required = false)
+    suspend fun vodCategories(): List<Category> = categories("get_vod_categories", required = false)
+    suspend fun seriesCategories(): List<Category> = categories("get_series_categories", required = false)
 
-    private suspend fun categories(action: String): List<Category> =
-        callList(action) { obj ->
+    private suspend fun categories(action: String, required: Boolean = true): List<Category> =
+        callList(action, required = required) { obj ->
             obj.str("category_id")?.let { id ->
                 Category(id = id, name = obj.str("category_name") ?: "Unnamed")
             }
@@ -211,7 +229,7 @@ class XtreamClient(
     }
 
     suspend fun vodStreams(): List<Movie> =
-        callList("get_vod_streams") { obj ->
+        callList("get_vod_streams", required = false) { obj ->
             val id = obj.int("stream_id") ?: return@callList null
             val ext = obj.str("container_extension")?.takeIf { it.isNotBlank() } ?: "mp4"
             Movie(
@@ -234,7 +252,7 @@ class XtreamClient(
         }
 
     suspend fun series(): List<Series> =
-        callList("get_series") { obj ->
+        callList("get_series", required = false) { obj ->
             val id = obj.int("series_id") ?: return@callList null
             Series(
                 id = "series:$id",

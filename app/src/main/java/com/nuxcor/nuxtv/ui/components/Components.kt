@@ -255,6 +255,24 @@ fun rememberListEntrance(key: Any?): Long =
     remember(key) { android.os.SystemClock.uptimeMillis() }
 
 /**
+ * Runs an entrance animation whose TERMINAL state must never depend on the
+ * animation actually playing. Frame-clock animations suspend on the next
+ * vsync, and an idle window (nothing invalidating, no input) can starve that
+ * clock — an alpha-gated surface then sits fully composed but painted
+ * invisible until the first key press. The timeout runs on the wall clock,
+ * not the frame clock, so it always fires; snapTo changes the value without
+ * needing a frame first, which is itself what restarts drawing.
+ */
+suspend fun androidx.compose.animation.core.Animatable<Float, *>.animateToOrSnap(
+    target: Float,
+    spec: androidx.compose.animation.core.AnimationSpec<Float>,
+    timeoutMs: Long,
+) {
+    val done = kotlinx.coroutines.withTimeoutOrNull(timeoutMs) { animateTo(target, spec) }
+    if (done == null) snapTo(target)
+}
+
+/**
  * Fade + rise used to stagger a list into view.
  *
  * Only items composed in the first moments of the list's life animate. A lazy
@@ -270,12 +288,12 @@ fun Modifier.itemEntrance(index: Int, listStartedAtMs: Long): Modifier {
     val progress = remember { androidx.compose.animation.core.Animatable(if (animate) 0f else 1f) }
     LaunchedEffect(Unit) {
         if (!animate) return@LaunchedEffect
-        kotlinx.coroutines.delay(
-            (index.coerceAtMost(NuxMotion.StaggerCap) * NuxMotion.StaggerStepMs).toLong()
-        )
-        progress.animateTo(
+        val stagger = (index.coerceAtMost(NuxMotion.StaggerCap) * NuxMotion.StaggerStepMs).toLong()
+        kotlinx.coroutines.delay(stagger)
+        progress.animateToOrSnap(
             1f,
             androidx.compose.animation.core.tween(NuxMotion.StandardMs, easing = NuxMotion.StandardEasing),
+            timeoutMs = NuxMotion.StandardMs + 500L,
         )
     }
     return this.graphicsLayer {

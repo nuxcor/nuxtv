@@ -39,6 +39,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.graphicsLayer
 import com.nuxcor.nuxtv.ui.components.BackdropLayer
+import com.nuxcor.nuxtv.ui.components.animateToOrSnap
 import com.nuxcor.nuxtv.ui.components.StatusAction
 import com.nuxcor.nuxtv.ui.components.StatusPane
 import com.nuxcor.nuxtv.ui.components.requestFocusRetrying
@@ -172,15 +173,19 @@ fun HomeScreen(
             val tabEntrance = remember(current) { Animatable(0f) }
             LaunchedEffect(current) {
                 try {
-                    tabEntrance.animateTo(
+                    // Snap-on-timeout: an idle window can starve the frame
+                    // clock, leaving animateTo suspended and the whole tab
+                    // composed but painted at alpha 0 until the first key
+                    // press. The wall-clock timeout doesn't need frames, and
+                    // snapTo's value change is what restarts drawing.
+                    tabEntrance.animateToOrSnap(
                         1f,
                         tween(NuxMotion.StandardMs, easing = NuxMotion.StandardEasing),
+                        timeoutMs = NuxMotion.StandardMs + 500L,
                     )
                 } finally {
-                    // The animation is decoration; the terminal state is not.
-                    // Rapid dwell-driven tab hops can cancel this effect
-                    // mid-flight, which once left a whole tab composed but
-                    // painted at alpha 0. Whatever happens, land on visible.
+                    // And whatever cancels this effect mid-flight (rapid
+                    // dwell-driven tab hops), still land on visible.
                     kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                         tabEntrance.snapTo(1f)
                     }
