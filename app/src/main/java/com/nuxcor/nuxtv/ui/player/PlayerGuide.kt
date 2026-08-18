@@ -108,8 +108,9 @@ internal fun PlayerGuideOverlay(
     // single category, and the guide is where you look beyond it. Focus still
     // lands on what is playing, so the wider list costs no orientation.
     var categoryId by remember { mutableStateOf(CATEGORY_ALL) }
-    val channels = remember(allChannels, categoryId, favorites, recents) {
-        channelsInCategory(categoryId, allChannels, favorites, recents)
+    val mergeDupes by vm.mergeDuplicates.collectAsState()
+    val channels = remember(allChannels, categoryId, favorites, recents, mergeDupes) {
+        channelsInCategory(categoryId, allChannels, favorites, recents, dedupAll = mergeDupes)
     }
 
     var nowTick by remember { mutableStateOf(System.currentTimeMillis()) }
