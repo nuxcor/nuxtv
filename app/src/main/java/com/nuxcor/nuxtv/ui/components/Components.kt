@@ -587,61 +587,48 @@ fun PlaylistOptionsDialog(
 ) {
     var confirmingRemove by remember { mutableStateOf(false) }
     val editFocus = remember { FocusRequester() }
-    val cancelFocus = remember { FocusRequester() }
     LaunchedEffect(confirmingRemove) {
-        // The step swap removes the button that held focus, and Compose's
-        // focus-loss cleanup runs AFTER this effect's immediate request —
-        // a bare requestFocus was won and then stomped, leaving the D-pad
-        // driving the settings page behind the dialog. Yield a beat so the
-        // cleanup goes first, then take focus with the retrying form.
-        kotlinx.coroutines.delay(50)
-        (if (confirmingRemove) cancelFocus else editFocus).requestFocusRetrying()
+        // Also re-takes focus when the stacked confirmation closes.
+        if (!confirmingRemove) editFocus.requestFocusRetrying()
     }
     DialogScaffold(
         onDismiss = onDismiss,
         width = 460.dp,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        if (!confirmingRemove) {
-            Text(name, style = MaterialTheme.typography.titleLarge, color = NuxColors.OnSurface)
-            Spacer(Modifier.height(Space.s))
-            Text(
-                "Change this playlist's details, or remove it.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = NuxColors.OnSurfaceDim,
-            )
-            Spacer(Modifier.height(Space.l))
-            Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
-                androidx.tv.material3.Button(
-                    onClick = { onEdit() },
-                    modifier = Modifier.focusRequester(editFocus),
-                ) { Text("Edit") }
-                androidx.tv.material3.OutlinedButton(
-                    onClick = { confirmingRemove = true },
-                ) { Text("Remove") }
-                androidx.tv.material3.OutlinedButton(onClick = onDismiss) { Text("Cancel") }
-            }
-        } else {
-            Text(
-                "Remove this playlist?",
-                style = MaterialTheme.typography.titleLarge,
-                color = NuxColors.OnSurface,
-            )
-            Spacer(Modifier.height(Space.s))
-            Text(
-                "Its cached channels are deleted. Recordings are kept.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = NuxColors.OnSurfaceDim,
-            )
-            Spacer(Modifier.height(Space.l))
-            Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
-                androidx.tv.material3.OutlinedButton(
-                    onClick = { confirmingRemove = false },
-                    modifier = Modifier.focusRequester(cancelFocus),
-                ) { Text("Cancel") }
-                androidx.tv.material3.Button(onClick = { onRemove() }) { Text("Remove") }
-            }
+        Text(name, style = MaterialTheme.typography.titleLarge, color = NuxColors.OnSurface)
+        Spacer(Modifier.height(Space.s))
+        Text(
+            "Change this playlist's details, or remove it.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = NuxColors.OnSurfaceDim,
+        )
+        Spacer(Modifier.height(Space.l))
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
+            androidx.tv.material3.Button(
+                onClick = { onEdit() },
+                modifier = Modifier.focusRequester(editFocus),
+            ) { Text("Edit") }
+            androidx.tv.material3.OutlinedButton(
+                onClick = { confirmingRemove = true },
+            ) { Text("Remove") }
+            androidx.tv.material3.OutlinedButton(onClick = onDismiss) { Text("Cancel") }
         }
+    }
+    // Stacked OVER the options dialog, never instead of it: swapping the
+    // dialog's own content removed the button that held focus and lost the
+    // D-pad to whatever Compose fell back to (timing-dependent — fine on the
+    // emulator, dead on real boxes). A second dialog on top keeps the first
+    // one holding the fort underneath and acquires focus through the same
+    // fresh-composition path every dialog in the app already relies on.
+    if (confirmingRemove) {
+        ConfirmDialog(
+            title = "Remove this playlist?",
+            message = "Its cached channels are deleted. Recordings are kept.",
+            confirmLabel = "Remove",
+            onConfirm = { onRemove() },
+            onDismiss = { confirmingRemove = false },
+        )
     }
 }
 
