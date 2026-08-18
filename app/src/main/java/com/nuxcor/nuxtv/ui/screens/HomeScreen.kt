@@ -146,7 +146,14 @@ fun HomeScreen(
             .padding(start = railWidth)
     ) {
         if (tab == HomeTab.Home && contentState is ContentState.Ready) {
-            BackdropLayer(homeHero?.backdrop ?: homeHero?.poster)
+            // Already outside the gutter padding here, and stopping at the
+            // rail is deliberate — so no bleed.
+            BackdropLayer(
+                borrowedArt(vm, homeHero?.art, homeHero?.backdrop, wide = true)
+                    ?: homeHero?.poster,
+                bleedX = 0.dp,
+                bleedY = 0.dp,
+            )
         }
         Box(
             modifier = Modifier
@@ -197,6 +204,13 @@ fun HomeScreen(
                     translationY = (1f - tabEntrance.value) * (NuxMotion.EntranceRise.toPx() * 0.66f)
                 }
             ) {
+            // While the rail holds focus, the tab underneath must not grab it.
+            // Tabs switch on dwell as focus travels the rail, so a pane that
+            // focuses itself on arrival strands the viewer in the content with
+            // UP/DOWN dead. Re-armed the instant focus enters the content.
+            androidx.compose.runtime.CompositionLocalProvider(
+                com.nuxcor.nuxtv.ui.components.LocalArrivalFocusAllowed provides !railFocused
+            ) {
             tabStateHolder.SaveableStateProvider(current.name) {
                 if (current == HomeTab.Settings) {
                     SettingsTab(
@@ -228,9 +242,9 @@ fun HomeScreen(
                             onBrowse = { tab = it },
                         )
                         HomeTab.Search -> SearchTab(vm, onOpenMovie, onOpenSeries, onPlay)
-                        HomeTab.Live -> LiveTab(vm, state.bundle, onPlay)
-                        HomeTab.Movies -> MoviesTab(vm, state.bundle, onOpenMovie)
-                        HomeTab.Series -> SeriesTab(vm, state.bundle, onOpenSeries)
+                        HomeTab.Live -> LiveTab(vm, state.bundle, onPlay, onOpenSettings = { tab = HomeTab.Settings })
+                        HomeTab.Movies -> MoviesTab(vm, state.bundle, onOpenMovie, onOpenSettings = { tab = HomeTab.Settings })
+                        HomeTab.Series -> SeriesTab(vm, state.bundle, onOpenSeries, onOpenSettings = { tab = HomeTab.Settings })
                         HomeTab.Recordings -> RecordingsTab(
                             vm,
                             onPlay,
@@ -239,6 +253,7 @@ fun HomeScreen(
                         HomeTab.Settings -> Unit // composed above, state-independent
                     }
                 }
+            }
             }
             }
         }

@@ -30,6 +30,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -544,24 +547,52 @@ internal fun TimeRuler(
                 // labelled with a time you'd have to compare against a clock.
                 val isNow = nowMs >= t && nowMs < t + 30 * 60_000L
                 val slotStart = t
+                // Measured, not guessed. The pin limit used to reserve a fixed
+                // 72dp for the label, which is both too little for "ON NOW"
+                // and — at MIN_DP_PER_MINUTE, where a half-hour slot is 78dp —
+                // only 6dp of travel. Past the limit the label slid under the
+                // lane's clip edge and rendered as a fragment: the guide's most
+                // important marker read "N NOW" for most of every hour.
+                var labelWidthPx by remember { mutableIntStateOf(0) }
+                fun pinLimit(density: Density): Float = with(density) {
+                    // Minus a gap, so a pinned label never butts against the
+                    // next slot's.
+                    (30f * dpPerMinute.toPx() - labelWidthPx - 12.dp.toPx())
+                        .coerceAtLeast(0f)
+                }
+                fun scrolledPast(density: Density): Float = with(density) {
+                    val perMinPx = dpPerMinute.toPx()
+                    timelineScroll.value - ((slotStart - windowStart) / 60_000f) * perMinPx
+                }
                 Text(
                     text = if (isNow) "ON NOW" else fmt.format(Date(t)),
                     style = MaterialTheme.typography.labelMedium,
                     color = if (isNow) NuxColors.Error else NuxColors.OnSurfaceDim,
-                    // Pinned within its slot while partially scrolled off, so
-                    // the label never clips to a fragment at the pane edge.
+                    // getLineWidth, not size.width: the Text is stretched to
+                    // the full slot, so its layout size is the slot — which
+                    // made the pin limit zero and hid every label the moment
+                    // its slot began to scroll.
+                    onTextLayout = { result ->
+                        labelWidthPx = if (result.lineCount > 0) {
+                            kotlin.math.ceil(result.getLineRight(0) - result.getLineLeft(0)).toInt()
+                        } else 0
+                    },
                     modifier = Modifier
                         .width(dpPerMinute * 30)
                         .offset {
-                            val perMinPx = dpPerMinute.toPx()
-                            val startPx =
-                                ((slotStart - windowStart) / 60_000f) * perMinPx
-                            val maxPin = (30f * perMinPx - 72.dp.toPx()).coerceAtLeast(0f)
                             IntOffset(
-                                (timelineScroll.value - startPx)
-                                    .coerceIn(0f, maxPin).toInt(),
+                                scrolledPast(this).coerceIn(0f, pinLimit(this)).toInt(),
                                 0,
                             )
+                        }
+                        .graphicsLayer {
+                            // Once the whole label no longer fits inside its own
+                            // slot, the NEXT slot's label has already reached the
+                            // lane edge and takes over. Drop this one rather than
+                            // let it clip mid-glyph.
+                            alpha = if (labelWidthPx > 0 &&
+                                scrolledPast(this) > pinLimit(this)
+                            ) 0f else 1f
                         },
                 )
                 t += 30 * 60_000L

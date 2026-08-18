@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -53,6 +54,7 @@ import com.nuxcor.nuxtv.data.LiveChannel
 import com.nuxcor.nuxtv.ui.components.ContextMenu
 import com.nuxcor.nuxtv.ui.components.MenuAction
 import com.nuxcor.nuxtv.ui.components.requestFocusRetrying
+import com.nuxcor.nuxtv.ui.components.StatusAction
 import com.nuxcor.nuxtv.ui.components.StatusPane
 import com.nuxcor.nuxtv.ui.theme.NuxColors
 import com.nuxcor.nuxtv.ui.theme.NuxFocus
@@ -154,9 +156,19 @@ internal fun ChannelJumpBadge(digits: String, modifier: Modifier = Modifier) {
 // --- Live TV -----------------------------------------------------------------
 
 @Composable
-internal fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
+internal fun LiveTab(
+    vm: MainViewModel,
+    bundle: ContentBundle,
+    onPlay: () -> Unit,
+    onOpenSettings: () -> Unit = {},
+) {
     if (bundle.channels.isEmpty()) {
-        StatusPane(title = "No live channels", message = "This playlist has no live streams")
+        StatusPane(
+            title = "No live channels",
+            message = "This playlist doesn't carry live TV.",
+            icon = Icons.Default.LiveTv,
+            primaryAction = StatusAction("Switch playlist", onOpenSettings),
+        )
         return
     }
     val favorites by vm.favorites.collectAsState()
@@ -237,6 +249,7 @@ internal fun LiveTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Uni
         categoryId = activeCategory,
         onCategoryId = { selectedCategory = it },
         onChannelLongPress = { menuChannel = it },
+        onOpenSettings = onOpenSettings,
     )
     scheduleChannel?.let { channel ->
         val programs = remember(channel.id, epgState) { vm.programsFor(channel) }

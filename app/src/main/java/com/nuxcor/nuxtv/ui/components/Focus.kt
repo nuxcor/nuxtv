@@ -28,12 +28,31 @@ suspend fun FocusRequester.requestFocusRetrying(
 }
 
 /**
+ * False while the viewer's focus is somewhere the shell owns — the nav rail —
+ * and a pane must not pull it away.
+ *
+ * Tabs switch as focus travels the rail, so a tab whose content grabs focus on
+ * arrival yanks the cursor out of the rail mid-journey: UP and DOWN then do
+ * nothing and the only way back is LEFT, which nothing on screen says. Empty
+ * tabs were the worst of it (their status pane focuses its action), but Search
+ * focusing its field has the same shape. Panes still claim focus normally when
+ * the viewer arrives any other way.
+ */
+val LocalArrivalFocusAllowed = androidx.compose.runtime.compositionLocalOf { true }
+
+/**
  * The common "focus this on arrival" case: a requester whose target is focused
  * once per [keys] change, with the standard retry loop.
+ *
+ * Honours [LocalArrivalFocusAllowed]: while the shell holds focus the request
+ * is skipped, and re-armed the moment the viewer moves into the content.
  */
 @Composable
 fun rememberInitialFocus(vararg keys: Any?): FocusRequester {
     val requester = remember { FocusRequester() }
-    LaunchedEffect(*keys) { requester.requestFocusRetrying() }
+    val allowed = LocalArrivalFocusAllowed.current
+    LaunchedEffect(allowed, *keys) {
+        if (allowed) requester.requestFocusRetrying()
+    }
     return requester
 }

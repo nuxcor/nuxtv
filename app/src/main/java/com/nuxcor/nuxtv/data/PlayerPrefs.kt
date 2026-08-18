@@ -23,6 +23,22 @@ data class ScheduledRecording(
     val endMs: Long,
 )
 
+/**
+ * Artwork borrowed from TMDB for a catalogue entry the provider shipped bare.
+ * Both fields null is a recorded miss, not an unknown — see [PlayerPrefs.artwork].
+ */
+@kotlinx.serialization.Serializable
+data class ArtEntry(
+    val poster: String? = null,
+    val backdrop: String? = null,
+) {
+    val isEmpty: Boolean get() = poster == null && backdrop == null
+
+    companion object {
+        val empty = ArtEntry()
+    }
+}
+
 private val Context.playerDataStore: DataStore<Preferences> by preferencesDataStore(name = "nuxtv_player")
 
 /**
@@ -59,6 +75,7 @@ class PlayerPrefs(private val context: Context) {
     private val guidePreviewModeKey = stringPreferencesKey("guide_preview_mode")
     private val liveTsMigratedKey = stringPreferencesKey("live_ts_migrated")
     private val episodeOriginsKey = stringPreferencesKey("episode_origins")
+    private val artworkKey = stringPreferencesKey("tmdb_artwork")
 
     /**
      * Live playback URLs changed from the panel's .m3u8 endpoint to the raw
@@ -146,6 +163,35 @@ class PlayerPrefs(private val context: Context) {
         }
     }
 
+    // --- borrowed artwork -----------------------------------------------------
+
+    /**
+     * Catalogue id → the art TMDB had for it, for the many providers that ship
+     * a library with no images at all. Persisted because the alternative is
+     * re-running the same few hundred lookups on every cold start, and a miss
+     * is stored too ([ArtEntry.empty]) so a title TMDB doesn't know is asked
+     * about once, not forever. Newest 800 kept.
+     */
+    val artwork: Flow<Map<String, ArtEntry>> = context.playerDataStore.data.map { prefs ->
+        prefs[artworkKey]?.let {
+            runCatching { json.decodeFromString<Map<String, ArtEntry>>(it) }.getOrNull()
+        } ?: emptyMap()
+    }
+
+    suspend fun putArtwork(id: String, entry: ArtEntry) {
+        context.playerDataStore.edit { prefs ->
+            val map = prefs[artworkKey]?.let {
+                runCatching { json.decodeFromString<LinkedHashMap<String, ArtEntry>>(it) }.getOrNull()
+            } ?: LinkedHashMap()
+            map.remove(id) // re-inserting moves the entry to the newest slot
+            map[id] = entry
+            val trimmed =
+                if (map.size > 800) map.entries.drop(map.size - 800).associate { it.toPair() }
+                else map
+            prefs[artworkKey] = json.encodeToString(trimmed)
+        }
+    }
+
     val engine: Flow<EngineChoice> = context.playerDataStore.data.map { prefs ->
         runCatching { EngineChoice.valueOf(prefs[engineKey] ?: "EXO") }.getOrDefault(EngineChoice.EXO)
     }
@@ -202,6 +248,29 @@ class PlayerPrefs(private val context: Context) {
             if (durationMs > 0 && trimmed.containsKey(url)) durations[url] = durationMs
             durations.keys.retainAll(trimmed.keys)
             prefs[durationsKey] = json.encodeToString(durations)
+        }
+    }
+
+    /**
+     * Forgets one title's place, so "Remove from Continue watching" actually
+     * removes it. Durations follow the positions they belong to; leaving an
+     * orphan behind would resurrect a progress bar if the same URL came back.
+     */
+    suspend fun clearResume(urls: Collection<String>) {
+        if (urls.isEmpty()) return
+        context.playerDataStore.edit { prefs ->
+            val map = prefs[positionsKey]?.let {
+                runCatching { json.decodeFromString<LinkedHashMap<String, Long>>(it) }.getOrNull()
+            } ?: return@edit
+            if (!map.keys.removeAll(urls.toSet())) return@edit
+            prefs[positionsKey] = json.encodeToString(map)
+            prefs[durationsKey]?.let { raw ->
+                runCatching { json.decodeFromString<MutableMap<String, Long>>(raw) }.getOrNull()
+                    ?.let { durations ->
+                        durations.keys.retainAll(map.keys)
+                        prefs[durationsKey] = json.encodeToString(durations)
+                    }
+            }
         }
     }
 

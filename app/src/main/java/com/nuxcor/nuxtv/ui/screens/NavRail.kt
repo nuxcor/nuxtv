@@ -191,7 +191,10 @@ internal fun NavRail(
             }
         }
         // Search is reached from Home's top-right pill, not the rail — a
-        // launcher lists destinations, and search is an action.
+        // launcher lists destinations, and search is an action. It is offered
+        // in Home's empty state too, so the one control that makes a
+        // 20,000-item playlist usable is never out of reach on a fresh
+        // install, which is what put it here in the first place.
         HomeTab.entries.filterNot { it == HomeTab.Search }.forEach { item ->
             // railFocus must be attached somewhere even while the Search tab
             // (railless) is selected, or entering the rail has no target.

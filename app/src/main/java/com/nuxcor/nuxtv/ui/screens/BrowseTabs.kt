@@ -36,6 +36,8 @@ import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
@@ -47,6 +49,10 @@ import com.nuxcor.nuxtv.data.Movie
 import com.nuxcor.nuxtv.data.Series
 import com.nuxcor.nuxtv.ui.components.Artwork
 import com.nuxcor.nuxtv.ui.components.BackdropLayer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.VideoLibrary
+import com.nuxcor.nuxtv.ui.components.StatusAction
 import com.nuxcor.nuxtv.ui.components.StatusPane
 import com.nuxcor.nuxtv.ui.components.MetaChip
 import com.nuxcor.nuxtv.ui.components.PosterCard
@@ -79,10 +85,31 @@ import kotlinx.coroutines.launch
  */
 internal const val VOD_ALL = "__all__"
 
-/** Posters per grid row — the shelf density every TV catalog uses. */
-private const val GRID_COLUMNS = 5
+/**
+ * Target poster width. The grid derives its column count from this instead of
+ * fixing the columns, so a poster is always the same size.
+ *
+ * Five fixed columns divided whatever width was left after two collapsible
+ * panels — the rail (64↔190dp) and the 190dp category column — so walking
+ * rail → categories → grid re-laid the pane out twice and took cells from
+ * ~76dp to ~145dp. The posters visibly inflated as you moved toward them.
+ */
+private val POSTER_TARGET_WIDTH = 168.dp
+private val GRID_GAP = 16.dp
+
+/** Columns that fit [width] at [POSTER_TARGET_WIDTH], clamped to a TV-shaped range. */
+private fun gridColumnsFor(width: Dp): Int =
+    ((width + GRID_GAP) / (POSTER_TARGET_WIDTH + GRID_GAP)).toInt().coerceIn(3, 7)
 internal const val VOD_CONTINUE = "__continue__"
 private const val VOD_MORE = "__more__"
+
+/**
+ * Newest-first by the provider's own `added`/`last_modified`. Home carries a
+ * twenty-card shelf of the same thing; this is where the rest of it lives,
+ * because "what's new" is the one question a catalogue of 20,000 films cannot
+ * answer from an alphabetical grid.
+ */
+private const val VOD_NEW = "__new__"
 
 /** One poster, flattened out of Movie or Series so the browser can be shared. */
 internal data class VodEntry(
@@ -90,6 +117,8 @@ internal data class VodEntry(
     val title: String,
     val subtitle: String?,
     val poster: String?,
+    /** Looked up when [poster] is null — see [borrowedArt]. */
+    val art: ArtRef?,
     val progress: Float?,
     val hero: HeroInfo,
     val onOpen: () -> Unit,
@@ -103,6 +132,12 @@ data class HeroInfo(
     val backdrop: String?,
     val chips: List<String>,
     val plot: String?,
+    /**
+     * What to ask TMDB for when [backdrop] is null, which it is for every
+     * catalogue entry until its detail screen has been opened. Null for
+     * channels — a live channel has no backdrop to borrow.
+     */
+    val art: ArtRef? = null,
 )
 
 @Composable
@@ -155,6 +190,7 @@ fun HeroHeader(hero: HeroInfo?) {
  */
 @Composable
 private fun VodBrowser(
+    vm: MainViewModel,
     categories: List<Category>,
     continueWatching: List<VodEntry>,
     entriesFor: (String) -> List<VodEntry>,
@@ -212,8 +248,14 @@ private fun VodBrowser(
     val scope = rememberCoroutineScope()
 
     Box(modifier = Modifier.fillMaxSize()) {
-    // Ambient artwork for the focused entry behind the whole browse pane.
-    BackdropLayer(shownHero?.backdrop ?: shownHero?.poster)
+    // Ambient artwork for the focused entry behind the whole browse pane. The
+    // poster is the stand-in, not the request: asking for the 16:9 art even
+    // when a poster exists is what turns a wall of stretched portrait crops
+    // into something that looks composed.
+    BackdropLayer(
+        borrowedArt(vm, shownHero?.art, shownHero?.backdrop, wide = true)
+            ?: shownHero?.poster
+    )
     Row(
         modifier = Modifier.fillMaxSize(),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -251,29 +293,34 @@ private fun VodBrowser(
         }
         }
         if (entries.isEmpty()) {
-            StatusPane(title = "Nothing in this category")
+            StatusPane(
+                title = "Nothing in this category",
+                message = "Pick another from the list on the left.",
+                icon = Icons.Default.Movie,
+            )
             return@Row
         }
         val gridEntrance = rememberListEntrance(activeCategory)
         val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+        BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxHeight()) {
+        val gridColumns = gridColumnsFor(maxWidth)
         // Row snapping: the focused row aligns to the top of the pane, so the
         // rows above scroll fully away instead of leaving an orphaned caption
         // sliver ("2014" floating under nothing) clipped at the top edge.
         LaunchedEffect(focusedEntryIndex, browsingGrid) {
             if (!browsingGrid) return@LaunchedEffect
-            val row = focusedEntryIndex / GRID_COLUMNS
+            val row = focusedEntryIndex / gridColumns
             // +1 skips the full-span hero header item.
-            gridState.animateScrollToItem(1 + row * GRID_COLUMNS)
+            gridState.animateScrollToItem(1 + row * gridColumns)
         }
         LazyVerticalGrid(
             state = gridState,
-            // Fixed, not Adaptive: 150dp-adaptive landed on 3 columns on
-            // common TV densities, which reads as a phone layout blown up.
-            // Five posters a row is the shelf density every TV catalog uses.
-            columns = GridCells.Fixed(GRID_COLUMNS),
+            // Fixed with a COMPUTED count, not Adaptive: Adaptive keeps
+            // cells at least minSize but shares the remainder out, so the
+            // poster still changes size with the pane. See POSTER_TARGET_WIDTH.
+            columns = GridCells.Fixed(gridColumns),
             modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
+                .fillMaxSize()
                 .focusRestorer()
                 .onPreviewKeyEvent { event ->
                     // LEFT from the first column re-opens the categories.
@@ -282,14 +329,14 @@ private fun VodBrowser(
                     // rail instead.
                     if (event.type == KeyEventType.KeyDown &&
                         event.key == Key.DirectionLeft &&
-                        focusedEntryIndex % GRID_COLUMNS == 0
+                        focusedEntryIndex % gridColumns == 0
                     ) {
                         browsingGrid = false
                         scope.launch { categoriesFocus.requestFocusRetrying() }
                         true
                     } else false
                 },
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
             verticalArrangement = Arrangement.spacedBy(20.dp),
             contentPadding = PaddingValues(start = 4.dp, end = 8.dp, bottom = 36.dp),
         ) {
@@ -298,7 +345,7 @@ private fun VodBrowser(
                 Box(modifier = Modifier.itemEntrance(index, gridEntrance)) {
                     PosterCard(
                         title = entry.title,
-                        imageUrl = entry.poster,
+                        imageUrl = borrowedArt(vm, entry.art, entry.poster),
                         width = null,
                         progress = entry.progress,
                         onClick = entry.onOpen,
@@ -312,14 +359,29 @@ private fun VodBrowser(
                 }
             }
         }
+        }
     }
     }
 }
 
 @Composable
-fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> Unit) {
+fun MoviesTab(
+    vm: MainViewModel,
+    bundle: ContentBundle,
+    onOpenMovie: (Movie) -> Unit,
+    onOpenSettings: () -> Unit = {},
+) {
     if (bundle.movies.isEmpty()) {
-        StatusPane(title = "No movies", message = "This playlist has no movie content")
+        // Every empty state carries the same three things: a mark, one line
+        // that says something the title didn't, and a way forward. The bare
+        // title-plus-restatement these used to show was a dead end with no
+        // exit — and read as a screen someone hadn't finished.
+        StatusPane(
+            title = "No movies",
+            message = "This playlist doesn't carry a film library.",
+            icon = Icons.Default.Movie,
+            primaryAction = StatusAction("Switch playlist", onOpenSettings),
+        )
         return
     }
     val resumePositions by vm.resumePositions.collectAsState()
@@ -338,9 +400,17 @@ fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> 
     // be reachable, so it gets a category of its own rather than disappearing.
     val shownCategories = remember(categories, movies) {
         val known = categories.mapTo(HashSet()) { it.id }
-        if (movies.any { it.categoryId == null || it.categoryId !in known }) {
-            categories + Category(id = VOD_MORE, name = "More")
-        } else categories
+        buildList {
+            // Ahead of the provider's own categories: it is the shortcut, and
+            // a shortcut buried under three hundred genre names is not one.
+            if (movies.any { it.addedMs != null }) {
+                add(Category(id = VOD_NEW, name = "Recently added"))
+            }
+            addAll(categories)
+            if (movies.any { it.categoryId == null || it.categoryId !in known }) {
+                add(Category(id = VOD_MORE, name = "More"))
+            }
+        }
     }
 
     fun Movie.entry() = VodEntry(
@@ -348,6 +418,7 @@ fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> 
         title = name,
         subtitle = year?.toString(),
         poster = poster,
+        art = artRef(),
         progress = resumeProgress[url],
         hero = toHero(),
         onOpen = { onOpenMovie(this) },
@@ -357,12 +428,14 @@ fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> 
         movies.filter { it.url in resumePositions }.map { it.entry() }
     }
     VodBrowser(
+        vm = vm,
         categories = shownCategories,
         continueWatching = continueWatching,
         entriesFor = { categoryId ->
             val known = categories.mapTo(HashSet()) { it.id }
             when (categoryId) {
                 VOD_ALL -> movies
+                VOD_NEW -> movies.filter { it.addedMs != null }.sortedByDescending { it.addedMs }
                 VOD_MORE -> movies.filter { it.categoryId == null || it.categoryId !in known }
                 else -> movies.filter { it.categoryId == categoryId }
             }.map { it.entry() }
@@ -372,9 +445,19 @@ fun MoviesTab(vm: MainViewModel, bundle: ContentBundle, onOpenMovie: (Movie) -> 
 }
 
 @Composable
-fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -> Unit) {
+fun SeriesTab(
+    vm: MainViewModel,
+    bundle: ContentBundle,
+    onOpenSeries: (Series) -> Unit,
+    onOpenSettings: () -> Unit = {},
+) {
     if (bundle.series.isEmpty()) {
-        StatusPane(title = "No series", message = "This playlist has no series content")
+        StatusPane(
+            title = "No series",
+            message = "This playlist doesn't carry a box-set library.",
+            icon = Icons.Default.VideoLibrary,
+            primaryAction = StatusAction("Switch playlist", onOpenSettings),
+        )
         return
     }
     val resumePositions by vm.resumePositions.collectAsState()
@@ -391,9 +474,15 @@ fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -
     val (categories, seriesList) = visible
     val shownCategories = remember(categories, seriesList) {
         val known = categories.mapTo(HashSet()) { it.id }
-        if (seriesList.any { it.categoryId == null || it.categoryId !in known }) {
-            categories + Category(id = VOD_MORE, name = "More")
-        } else categories
+        buildList {
+            if (seriesList.any { it.addedMs != null }) {
+                add(Category(id = VOD_NEW, name = "Recently added"))
+            }
+            addAll(categories)
+            if (seriesList.any { it.categoryId == null || it.categoryId !in known }) {
+                add(Category(id = VOD_MORE, name = "More"))
+            }
+        }
     }
 
     fun Series.entry() = VodEntry(
@@ -401,6 +490,7 @@ fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -
         title = name,
         subtitle = episodes?.let { "${it.size} episodes" } ?: year?.toString(),
         poster = poster,
+        art = artRef(),
         // The episode the viewer is actually part-way through.
         progress = episodes?.firstNotNullOfOrNull { resumeProgress[it.url] },
         hero = toHero(),
@@ -419,12 +509,15 @@ fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -
             .map { it.entry() }
     }
     VodBrowser(
+        vm = vm,
         categories = shownCategories,
         continueWatching = continueWatching,
         entriesFor = { categoryId ->
             val known = categories.mapTo(HashSet()) { it.id }
             when (categoryId) {
                 VOD_ALL -> seriesList
+                VOD_NEW ->
+                    seriesList.filter { it.addedMs != null }.sortedByDescending { it.addedMs }
                 VOD_MORE -> seriesList.filter { it.categoryId == null || it.categoryId !in known }
                 else -> seriesList.filter { it.categoryId == categoryId }
             }.map { it.entry() }
@@ -437,6 +530,7 @@ internal fun Movie.toHero() = HeroInfo(
     title = name,
     poster = poster,
     backdrop = backdrop,
+    art = artRef(),
     chips = listOfNotNull(
         "Movie",
         year?.toString(),
@@ -450,6 +544,7 @@ internal fun Series.toHero() = HeroInfo(
     title = name,
     poster = poster,
     backdrop = backdrop,
+    art = artRef(),
     chips = listOfNotNull(
         "Series",
         year?.toString(),

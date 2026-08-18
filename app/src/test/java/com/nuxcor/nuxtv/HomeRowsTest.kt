@@ -5,11 +5,14 @@ import com.nuxcor.nuxtv.data.LiveChannel
 import com.nuxcor.nuxtv.data.Movie
 import com.nuxcor.nuxtv.data.Series
 import com.nuxcor.nuxtv.data.mergeEpisodeOrigins
+import com.nuxcor.nuxtv.ui.screens.CatalogCard
 import com.nuxcor.nuxtv.ui.screens.ContinueCard
 import com.nuxcor.nuxtv.ui.screens.buildContinueWatching
+import com.nuxcor.nuxtv.ui.screens.buildRecentlyAdded
 import com.nuxcor.nuxtv.ui.screens.channelHero
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HomeRowsTest {
@@ -145,5 +148,56 @@ class HomeRowsTest {
         val hero = channelHero(channel, MainViewModel.NowNext(now = now, next = null))
         assertEquals(listOf("Live", "FHD", "Match of the Day"), hero.chips)
         assertEquals("Highlights", hero.plot)
+    }
+
+    // --- Recently added --------------------------------------------------------
+
+    private fun dated(id: String, addedMs: Long) = movie(id).copy(addedMs = addedMs)
+
+    private fun datedSeries(id: String, addedMs: Long) = series(id).copy(addedMs = addedMs)
+
+    @Test
+    fun `recently added is newest first across movies and series`() {
+        val row = buildRecentlyAdded(
+            movies = listOf(dated("old", 1_000), dated("new", 4_000)),
+            series = listOf(datedSeries("mid", 3_000), datedSeries("older", 2_000)),
+        )
+        val ids = row.map {
+            when (it) {
+                is CatalogCard.MovieCard -> it.movie.id
+                is CatalogCard.SeriesCard -> it.series.id
+            }
+        }
+        assertEquals(listOf("new", "mid", "older", "old"), ids)
+    }
+
+    @Test
+    fun `entries the provider never dated are left out`() {
+        val row = buildRecentlyAdded(
+            movies = listOf(dated("a", 4), dated("b", 3), dated("c", 2), dated("d", 1), movie("undated")),
+            series = emptyList(),
+        )
+        assertEquals(4, row.size)
+        assertTrue(row.none { (it as CatalogCard.MovieCard).movie.id == "undated" })
+    }
+
+    @Test
+    fun `a row too thin to mean anything is no row at all`() {
+        val row = buildRecentlyAdded(
+            movies = listOf(dated("a", 2), dated("b", 1)),
+            series = emptyList(),
+        )
+        assertEquals(emptyList<CatalogCard>(), row)
+    }
+
+    @Test
+    fun `the row is capped`() {
+        val row = buildRecentlyAdded(
+            movies = (1..40).map { dated("m$it", it.toLong()) },
+            series = emptyList(),
+            limit = 20,
+        )
+        assertEquals(20, row.size)
+        assertEquals("m40", (row.first() as CatalogCard.MovieCard).movie.id)
     }
 }

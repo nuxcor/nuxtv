@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.nuxcor.nuxtv.data.ArtEntry
+import com.nuxcor.nuxtv.data.Category
 import com.nuxcor.nuxtv.data.ContentBundle
 import com.nuxcor.nuxtv.data.ContentRepository
 import com.nuxcor.nuxtv.data.ContentState
@@ -25,6 +27,7 @@ import com.nuxcor.nuxtv.recording.Recording
 import com.nuxcor.nuxtv.recording.RecordingManager
 import com.nuxcor.nuxtv.recording.RecordingScheduler
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.flowOn
@@ -675,6 +678,50 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun movieDetails(movie: Movie): Movie = repo.movieDetails(movie, tmdbApiKey)
     suspend fun seriesDetails(series: Series): Series = repo.seriesDetails(series, tmdbApiKey)
+
+    // --- borrowed artwork ------------------------------------------------------
+
+    /**
+     * Catalogue id → art borrowed from TMDB, for the entries a provider ships
+     * with no images. Persisted, so the lookups happen once per title and not
+     * once per app start.
+     */
+    val artwork: StateFlow<Map<String, ArtEntry>> = playerPrefs.artwork
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    private val artInFlight = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    /**
+     * At most this many lookups running or queued. A catalogue scrolled fast
+     * would otherwise queue a request per card it flew past, and TMDB answers
+     * a burst like that with 429s. Anything refused here simply asks again the
+     * next time its card is on screen, which is the moment it matters.
+     */
+    private val artConcurrency = kotlinx.coroutines.sync.Semaphore(3)
+    private val artQueueLimit = 24
+
+    /**
+     * Fills in one catalogue entry's artwork if TMDB has any. No-op when the
+     * build carries no key, when the answer is already known (including a
+     * known "TMDB has nothing"), or when the queue is full.
+     */
+    fun requestArtwork(id: String, kind: String, title: String, year: Int?) {
+        val key = tmdbApiKey ?: return
+        if (id in artwork.value) return
+        if (artInFlight.size >= artQueueLimit || !artInFlight.add(id)) return
+        viewModelScope.launch {
+            val entry = artConcurrency.withPermit { repo.artworkFor(kind, title, year, key) }
+            if (entry != null) {
+                playerPrefs.putArtwork(id, entry)
+            } else {
+                // Unreachable, not "no such title" — hold the id back briefly
+                // so a dead network can't turn one visible row into a retry
+                // storm while the viewer sits on it.
+                delay(10_000)
+            }
+            artInFlight.remove(id)
+        }
+    }
     /**
      * Session cache of fetched episode lists, so a series browsed once opens
      * instantly ever after. Bounded LRU: 100 series of episodes is a few
@@ -792,17 +839,50 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val lockedMovie = b.movieCategories.filter { isLockedCategory(it.name) }.map { it.id }.toSet()
         val lockedSeries = b.seriesCategories.filter { isLockedCategory(it.name) }.map { it.id }.toSet()
 
+        /**
+         * The categories whose own name matches, which their contents inherit.
+         *
+         * A channel's shelf is part of how a viewer names it. Panels file
+         * pay-per-view under "PPV EVENTS" and then name the channels after the
+         * fight, so searching "ppv" — the only word the viewer has — matched
+         * nothing at all. The same holds for a "Documentaries" shelf whose
+         * films are all named something else.
+         */
+        fun matchingCategories(categories: List<Category>, locked: Set<String>): Set<String> =
+            categories.mapNotNullTo(HashSet()) { category ->
+                category.id.takeIf {
+                    it !in locked && searchRank(category.name, q, tokens) != null
+                }
+            }
+
+        val liveCatHits = matchingCategories(b.liveCategories, lockedLive)
+        val movieCatHits = matchingCategories(b.movieCategories, lockedMovie)
+        val seriesCatHits = matchingCategories(b.seriesCategories, lockedSeries)
+
         // Rank, then stable-sort: prefix beats word-start beats substring, and
-        // within a rank the playlist's own order survives.
-        fun <T> rankAndTake(items: List<T>, name: (T) -> String, allowed: (T) -> Boolean): List<T> =
+        // within a rank the playlist's own order survives. A category hit
+        // ranks below every name hit, so inheriting a shelf's name can never
+        // push a directly-named result out of the results.
+        fun <T> rankAndTake(
+            items: List<T>,
+            name: (T) -> String,
+            categoryId: (T) -> String?,
+            categoryHits: Set<String>,
+            locked: Set<String>,
+        ): List<T> =
             items.mapNotNull { item ->
-                if (!allowed(item)) return@mapNotNull null
-                searchRank(name(item), q, tokens)?.let { rank -> rank to item }
+                val category = categoryId(item)
+                if (category in locked) return@mapNotNull null
+                val rank = searchRank(name(item), q, tokens)
+                    ?: CATEGORY_MATCH_RANK.takeIf { category in categoryHits }
+                    ?: return@mapNotNull null
+                rank to item
             }.sortedBy { it.first }.map { it.second }.take(30)
 
         val known = knownQualitiesNow.value
-        val channels = rankAndTake(b.channels, { it.name }) { it.categoryId !in lockedLive }
-            .map { ch -> known[ch.url]?.let { real -> ch.copy(quality = real) } ?: ch }
+        val channels =
+            rankAndTake(b.channels, { it.name }, { it.categoryId }, liveCatHits, lockedLive)
+                .map { ch -> known[ch.url]?.let { real -> ch.copy(quality = real) } ?: ch }
 
         // Programme titles, the guide's other half: what is ON, not just what
         // the channel is called. Current and upcoming only — a finished
@@ -823,8 +903,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
         return SearchResults(
             channels = channels,
-            movies = rankAndTake(b.movies, { it.name }) { it.categoryId !in lockedMovie },
-            series = rankAndTake(b.series, { it.name }) { it.categoryId !in lockedSeries },
+            movies = rankAndTake(
+                b.movies, { it.name }, { it.categoryId }, movieCatHits, lockedMovie,
+            ),
+            series = rankAndTake(
+                b.series, { it.name }, { it.categoryId }, seriesCatHits, lockedSeries,
+            ),
             programs = programs,
         )
     }
@@ -835,6 +919,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun saveResumePosition(url: String, positionMs: Long, durationMs: Long) {
         viewModelScope.launch { playerPrefs.saveResumePosition(url, positionMs, durationMs) }
+    }
+
+    /** Drops a movie from Continue watching. */
+    fun forgetResume(url: String) {
+        viewModelScope.launch { playerPrefs.clearResume(listOf(url)) }
+    }
+
+    /**
+     * Drops a whole series from Continue watching. A series card stands for
+     * whichever episode was last watched, so forgetting it has to forget every
+     * episode of it — otherwise the card returns, pointing at an older one.
+     */
+    fun forgetSeriesResume(series: Series) {
+        val urls = episodeOrigins.value.filterValues { it == series.id }.keys
+        viewModelScope.launch { playerPrefs.clearResume(urls) }
     }
 
     // --- recordings -----------------------------------------------------------
@@ -959,6 +1058,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 }
 
+
+/**
+ * The rank a result gets for matching its category's name rather than its own.
+ * Below every [searchRank] a name can earn, so it only ever adds to the tail.
+ */
+private const val CATEGORY_MATCH_RANK = 3
 
 /** Case- and diacritic-insensitive text for matching — shared with the EPG matcher. */
 private fun foldForSearch(text: String): String = com.nuxcor.nuxtv.data.EpgMatcher.fold(text)

@@ -153,7 +153,9 @@ fun MovieDetailScreen(
                         onPlay()
                     }) { Text("Start over") }
                 }
-                OutlinedButton(onClick = onBack) { Text("Back") }
+                // No on-screen Back: every remote has the key, BACK already
+                // pops this screen, and a button for it sat between Play and
+                // everything else as a focus stop that does nothing new.
             }
 
             if (!movie.plot.isNullOrBlank()) {
@@ -381,7 +383,7 @@ fun SeriesDetailScreen(
                                 onPlay()
                             }) { Text("Start over") }
                         }
-                        OutlinedButton(onClick = onBack) { Text("Back") }
+                        // See the movie screen: BACK is a hardware key.
                     }
                 }
             }
@@ -457,7 +459,8 @@ fun SeriesDetailScreen(
                             } else {
                                 episode.durationText ?: "Season ${episode.season}"
                             },
-                            imageUrl = episode.poster ?: series.poster,
+                            body = episode.plot ?: series.plot,
+                            imageUrl = episode.poster ?: series.backdrop ?: series.poster,
                             progress = resumeProgress[episode.url],
                             onClick = {
                                 vm.playEpisodes(series, seasonEpisodes, index)

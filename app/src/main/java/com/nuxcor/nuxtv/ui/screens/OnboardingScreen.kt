@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -61,6 +62,7 @@ import com.nuxcor.nuxtv.ui.components.NuxFieldDefaults
 import com.nuxcor.nuxtv.ui.theme.NuxColors
 import com.nuxcor.nuxtv.ui.theme.NuxMotion
 import com.nuxcor.nuxtv.ui.theme.NuxShape
+import com.nuxcor.nuxtv.ui.theme.Space
 import com.nuxcor.nuxtv.ui.theme.NuxFocus
 
 private enum class Step { Choose, Xtream, M3u }
@@ -352,7 +354,11 @@ private fun ChooseStep(
                     OutlinedButton(onClick = onCancel) { Text("Cancel") }
                 }
                 // Updates don't need a playlist or an account — reachable here
-                // so a first-run user never has to sideload again.
+                // so a first-run user never has to sideload again. Set apart
+                // from the two sign-in actions, and kept to one line: wrapped
+                // to two it was the tallest thing in the row and pulled the
+                // baseline of a screen whose whole job is "scan this code".
+                Spacer(Modifier.width(Space.m))
                 val update by vm.updateState.collectAsState()
                 OutlinedButton(onClick = {
                     when (update) {
@@ -365,14 +371,15 @@ private fun ChooseStep(
                     }
                 }) {
                     Text(
-                        when (val u = update) {
+                        text = when (val u = update) {
                             is com.nuxcor.nuxtv.data.UpdateManager.State.Available -> "Update to ${u.version}"
                             is com.nuxcor.nuxtv.data.UpdateManager.State.Ready -> "Install update"
                             is com.nuxcor.nuxtv.data.UpdateManager.State.Downloading -> "Downloading… ${u.progressPercent}%"
                             is com.nuxcor.nuxtv.data.UpdateManager.State.Checking -> "Checking…"
                             is com.nuxcor.nuxtv.data.UpdateManager.State.UpToDate -> "Up to date"
-                            else -> "Check for updates"
-                        }
+                            else -> "Updates"
+                        },
+                        maxLines = 1,
                     )
                 }
             }

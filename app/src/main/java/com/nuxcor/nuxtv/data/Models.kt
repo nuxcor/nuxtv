@@ -99,6 +99,12 @@ data class Movie(
     val voteCount: Int? = null,
     /** 16:9 art for hero and detail backdrops. */
     val backdrop: String? = null,
+    /**
+     * When the provider added this to its library (Xtream `added`), not when
+     * the film was released — so anything built on it says "recently added",
+     * never "new". Null for M3U, which carries no such field.
+     */
+    val addedMs: Long? = null,
 )
 
 @Serializable
@@ -110,6 +116,8 @@ data class Episode(
     val url: String,
     val poster: String? = null,
     val durationText: String? = null,
+    /** Synopsis, when the provider ships one. Defaulted, so old caches load. */
+    val plot: String? = null,
 )
 
 @Serializable
@@ -130,6 +138,8 @@ data class Series(
     val voteCount: Int? = null,
     /** 16:9 art for hero and detail backdrops. */
     val backdrop: String? = null,
+    /** When the provider last touched this series (Xtream `last_modified`). */
+    val addedMs: Long? = null,
 )
 
 @Serializable

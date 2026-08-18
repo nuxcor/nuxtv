@@ -208,7 +208,7 @@ class PlayerSession internal constructor(
                 }
 
                 else -> {
-                    errorMessage = "Playback failed — $message"
+                    errorMessage = "Couldn't play this — $message."
                     layer = PlayerLayer.Error
                 }
             }
@@ -299,6 +299,17 @@ class PlayerSession internal constructor(
     fun clearError() {
         errorMessage = null
         if (layer == PlayerLayer.Error) layer = PlayerLayer.None
+    }
+
+    /**
+     * A tune that never resolved either way. The engine reported no error, so
+     * the ladder above never ran; this hands the viewer the same error card
+     * (Retry / Swap engine) rather than leaving the tune spinner up.
+     */
+    fun failTuning(reason: String) {
+        tuning = false
+        errorMessage = reason
+        layer = PlayerLayer.Error
     }
 
     /**

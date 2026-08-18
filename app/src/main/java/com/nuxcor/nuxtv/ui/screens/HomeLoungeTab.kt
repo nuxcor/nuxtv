@@ -58,7 +58,9 @@ import com.nuxcor.nuxtv.data.EpgProgram
 import com.nuxcor.nuxtv.data.LiveChannel
 import com.nuxcor.nuxtv.data.Movie
 import com.nuxcor.nuxtv.data.Series
-import com.nuxcor.nuxtv.ui.components.Artwork
+import com.nuxcor.nuxtv.ui.components.ChannelShelfCard
+import com.nuxcor.nuxtv.ui.components.ContextMenu
+import com.nuxcor.nuxtv.ui.components.MenuAction
 import com.nuxcor.nuxtv.ui.components.PosterCard
 import com.nuxcor.nuxtv.ui.components.SectionTitle
 import com.nuxcor.nuxtv.ui.components.StatusAction
@@ -77,6 +79,30 @@ import kotlinx.coroutines.launch
  * pinned to the top-right the way every TV launcher offers it. Pure assembly;
  * the joins live in [buildContinueWatching] and [channelsInCategory].
  */
+/**
+ * How many items a day-one catalogue row carries. Long enough to browse, short
+ * enough that Home never becomes a second, worse Movies tab.
+ */
+private const val STARTER_ROW_LENGTH = 20
+
+/**
+ * What long-pressing a Home card opens. Only the cards with actions OK cannot
+ * reach get a menu — a channel (favorite, hide) and a Continue watching card
+ * (start over, forget). A catalogue poster's every action is one OK press away
+ * on its detail screen, and a menu offering only what OK already does is a
+ * second way to do nothing new.
+ */
+private sealed interface HomeMenu {
+    data class Channel(
+        val channel: LiveChannel,
+        val row: List<LiveChannel>,
+        val index: Int,
+    ) : HomeMenu
+
+    data class ResumedMovie(val movie: Movie, val progress: Float?) : HomeMenu
+    data class ResumedSeries(val series: Series) : HomeMenu
+}
+
 @Composable
 fun HomeLoungeTab(
     vm: MainViewModel,
@@ -109,13 +135,56 @@ fun HomeLoungeTab(
         channelsInCategory(CATEGORY_RECENT, displayChannels, favorites, recents)
     }
 
+    // The catalogue rows below draw straight from the bundle, which the browse
+    // tabs never do — they filter the parental lock first. Home is the screen
+    // that greets whoever switches the TV on, so it is the last place that may
+    // put a locked category's artwork on screen.
+    val pin by vm.parentalPin.collectAsState()
+    val unlocked by vm.parentalUnlocked.collectAsState()
+    val openCatalog = remember(bundle, pin, unlocked) {
+        val lockedMovieIds = bundle.movieCategories
+            .filter { vm.isLockedCategory(it.name) }.mapTo(HashSet()) { it.id }
+        val lockedSeriesIds = bundle.seriesCategories
+            .filter { vm.isLockedCategory(it.name) }.mapTo(HashSet()) { it.id }
+        bundle.movies.filterNot { it.categoryId in lockedMovieIds } to
+            bundle.series.filterNot { it.categoryId in lockedSeriesIds }
+    }
+    val (openMovies, openSeries) = openCatalog
+
+    // Not a day-one row: what a provider just added is the reason to open the
+    // app on any day, so this one stays whatever else Home is showing.
+    val recentlyAdded = remember(openCatalog) { buildRecentlyAdded(openMovies, openSeries) }
+
+    // Day one has no history, and a launcher that greets a 20,000-item
+    // playlist with an empty screen is the app's worst first impression. When
+    // nothing personal exists yet, Home opens on the catalogue instead — the
+    // rows retire the moment the viewer has watched or starred anything.
+    val personal = continueRow.isNotEmpty() || favoritesRow.isNotEmpty() ||
+        recentsRow.isNotEmpty()
+    val starterMovies = remember(openCatalog, personal) {
+        if (personal) emptyList() else openMovies.take(STARTER_ROW_LENGTH)
+    }
+    val starterSeries = remember(openCatalog, personal) {
+        if (personal) emptyList() else openSeries.take(STARTER_ROW_LENGTH)
+    }
+    val starterChannels = remember(displayChannels, personal) {
+        if (personal) emptyList() else displayChannels.take(STARTER_ROW_LENGTH)
+    }
+
     // Only rows with something in them compose — an empty shelf is a dead
     // D-pad press (same rule as the browse tabs' Continue watching shortcut).
-    val rowKeys = remember(continueRow, favoritesRow, recentsRow) {
+    val rowKeys = remember(
+        continueRow, favoritesRow, recentsRow, recentlyAdded,
+        starterChannels, starterMovies, starterSeries,
+    ) {
         buildList {
             if (continueRow.isNotEmpty()) add("continue")
             if (favoritesRow.isNotEmpty()) add("favorites")
+            if (recentlyAdded.isNotEmpty()) add("new")
             if (recentsRow.isNotEmpty()) add("recents")
+            if (starterChannels.isNotEmpty()) add("starterChannels")
+            if (starterMovies.isNotEmpty()) add("starterMovies")
+            if (starterSeries.isNotEmpty()) add("starterSeries")
         }
     }
 
@@ -130,12 +199,17 @@ fun HomeLoungeTab(
         }
         // StatusPane focuses its primary action on arrival, which is what the
         // shell's boot-focus retry lands on.
+        //
+        // Search is one of the two offers here because the pill that normally
+        // carries it lives in the hero, and the hero is not composed on this
+        // path — leaving the only way to search a playlist of thousands
+        // unreachable exactly when the viewer has nothing else to go on.
         StatusPane(
             title = "Welcome to Agoro",
             message = "Things you watch and star will gather here.",
             icon = Icons.Default.Home,
             primaryAction = StatusAction("Browse Live TV") { onBrowse(HomeTab.Live) },
-            secondaryAction = StatusAction("Browse Movies") { onBrowse(HomeTab.Movies) },
+            secondaryAction = StatusAction("Search") { onBrowse(HomeTab.Search) },
         )
         return
     }
@@ -144,14 +218,25 @@ fun HomeLoungeTab(
     // screen never opens on an empty header. Derived, not set-once: the first
     // card's programme line refreshes with the guide's minute tick.
     var hero by remember { mutableStateOf<HeroInfo?>(null) }
-    val restingHero = remember(rowKeys, continueRow, favoritesRow, recentsRow, nowNext) {
+    val restingHero = remember(
+        rowKeys, continueRow, favoritesRow, recentsRow, recentlyAdded,
+        starterChannels, starterMovies, starterSeries, nowNext,
+    ) {
         when (rowKeys.first()) {
             "continue" -> when (val first = continueRow.first()) {
                 is ContinueCard.MovieCard -> first.movie.toHero()
                 is ContinueCard.SeriesCard -> first.series.toHero()
             }
+            "new" -> when (val first = recentlyAdded.first()) {
+                is CatalogCard.MovieCard -> first.movie.toHero()
+                is CatalogCard.SeriesCard -> first.series.toHero()
+            }
             "favorites" -> channelHero(favoritesRow.first(), nowNext[favoritesRow.first().id])
-            else -> channelHero(recentsRow.first(), nowNext[recentsRow.first().id])
+            "recents" -> channelHero(recentsRow.first(), nowNext[recentsRow.first().id])
+            "starterChannels" ->
+                channelHero(starterChannels.first(), nowNext[starterChannels.first().id])
+            "starterMovies" -> starterMovies.first().toHero()
+            else -> starterSeries.first().toHero()
         }
     }
     val activeHero = hero ?: restingHero
@@ -181,21 +266,76 @@ fun HomeLoungeTab(
     val searchFocus = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
 
+    var menu by remember { mutableStateOf<HomeMenu?>(null) }
+
     @Composable
     fun ChannelTile(row: List<LiveChannel>, rowIndex: Int, index: Int, channel: LiveChannel) {
         val nn = nowNext[channel.id]
         Box(modifier = Modifier.itemEntrance(index, entrance)) {
-            ChannelCard(
+            ChannelShelfCard(
                 channel = channel,
                 now = nn?.now,
                 onClick = {
                     vm.playChannels(row, index)
                     onPlay()
                 },
+                onLongClick = { menu = HomeMenu.Channel(channel, row, index) },
                 onFocus = {
                     focusedRow = rowIndex
                     focusSignal++
                     hero = channelHero(channel, nn)
+                },
+            )
+        }
+    }
+
+    /** A catalogue poster, with TMDB's art when the provider shipped none. */
+    @Composable
+    fun MoviePoster(
+        movie: Movie,
+        rowIndex: Int,
+        index: Int,
+        progress: Float? = null,
+        onLongClick: (() -> Unit)? = null,
+    ) {
+        Box(modifier = Modifier.itemEntrance(index, entrance)) {
+            PosterCard(
+                title = movie.name,
+                imageUrl = borrowedArt(vm, movie.artRef(), movie.poster),
+                progress = progress,
+                onClick = { onOpenMovie(movie) },
+                onLongClick = onLongClick,
+                onFocus = {
+                    focusedRow = rowIndex
+                    focusSignal++
+                    hero = movie.toHero()
+                },
+            )
+        }
+    }
+
+    @Composable
+    fun SeriesPoster(
+        series: Series,
+        rowIndex: Int,
+        index: Int,
+        progress: Float? = null,
+        onLongClick: (() -> Unit)? = null,
+    ) {
+        Box(modifier = Modifier.itemEntrance(index, entrance)) {
+            PosterCard(
+                title = series.name,
+                imageUrl = borrowedArt(vm, series.artRef(), series.poster),
+                progress = progress,
+                // The detail screen lands on the part-watched episode's
+                // resume action.
+                onClick = { onOpenSeries(series) },
+                onLongClick = onLongClick,
+                onFocus = {
+                    focusedRow = rowIndex
+                    focusSignal++
+                    hero = series.toHero()
+                    vm.prefetchEpisodes(series)
                 },
             )
         }
@@ -263,34 +403,17 @@ fun HomeLoungeTab(
                                 }
                             },
                         ) { index, card ->
-                            Box(modifier = Modifier.itemEntrance(index, entrance)) {
-                                when (card) {
-                                    is ContinueCard.MovieCard -> PosterCard(
-                                        title = card.movie.name,
-                                        imageUrl = card.movie.poster,
-                                        progress = card.progress,
-                                        onClick = { onOpenMovie(card.movie) },
-                                        onFocus = {
-                                            focusedRow = rowIndex
-                                            focusSignal++
-                                            hero = card.movie.toHero()
-                                        },
-                                    )
-                                    is ContinueCard.SeriesCard -> PosterCard(
-                                        title = card.series.name,
-                                        imageUrl = card.series.poster,
-                                        progress = card.progress,
-                                        // The detail screen lands on the
-                                        // part-watched episode's resume action.
-                                        onClick = { onOpenSeries(card.series) },
-                                        onFocus = {
-                                            focusedRow = rowIndex
-                                            focusSignal++
-                                            hero = card.series.toHero()
-                                            vm.prefetchEpisodes(card.series)
-                                        },
-                                    )
-                                }
+                            when (card) {
+                                is ContinueCard.MovieCard -> MoviePoster(
+                                    card.movie, rowIndex, index, card.progress,
+                                    onLongClick = {
+                                        menu = HomeMenu.ResumedMovie(card.movie, card.progress)
+                                    },
+                                )
+                                is ContinueCard.SeriesCard -> SeriesPoster(
+                                    card.series, rowIndex, index, card.progress,
+                                    onLongClick = { menu = HomeMenu.ResumedSeries(card.series) },
+                                )
                             }
                         }
                     }
@@ -313,6 +436,87 @@ fun HomeLoungeTab(
                 }
             }
         }
+        if (recentlyAdded.isNotEmpty()) {
+            item(key = "new") {
+                val rowIndex = rowKeys.indexOf("new")
+                Column {
+                    // What the provider added, not what the world released —
+                    // `added` is an import date, and a shelf headed "New
+                    // releases" over a 2011 film is the kind of small lie that
+                    // costs an app its credibility.
+                    SectionTitle("Recently added")
+                    LazyRow(
+                        modifier = Modifier.focusRestorer(),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        itemsIndexed(
+                            recentlyAdded,
+                            key = { _, card ->
+                                when (card) {
+                                    is CatalogCard.MovieCard -> "m:${card.movie.id}"
+                                    is CatalogCard.SeriesCard -> "s:${card.series.id}"
+                                }
+                            },
+                        ) { index, card ->
+                            when (card) {
+                                is CatalogCard.MovieCard ->
+                                    MoviePoster(card.movie, rowIndex, index)
+                                is CatalogCard.SeriesCard ->
+                                    SeriesPoster(card.series, rowIndex, index)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (starterChannels.isNotEmpty()) {
+            item(key = "starterChannels") {
+                val rowIndex = rowKeys.indexOf("starterChannels")
+                Column {
+                    SectionTitle("Live channels")
+                    LazyRow(
+                        modifier = Modifier.focusRestorer(),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        itemsIndexed(starterChannels, key = { _, c -> c.id }) { index, channel ->
+                            ChannelTile(starterChannels, rowIndex, index, channel)
+                        }
+                    }
+                }
+            }
+        }
+        if (starterMovies.isNotEmpty()) {
+            item(key = "starterMovies") {
+                val rowIndex = rowKeys.indexOf("starterMovies")
+                Column {
+                    SectionTitle("Movies")
+                    LazyRow(
+                        modifier = Modifier.focusRestorer(),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        itemsIndexed(starterMovies, key = { _, m -> m.id }) { index, movie ->
+                            MoviePoster(movie, rowIndex, index)
+                        }
+                    }
+                }
+            }
+        }
+        if (starterSeries.isNotEmpty()) {
+            item(key = "starterSeries") {
+                val rowIndex = rowKeys.indexOf("starterSeries")
+                Column {
+                    SectionTitle("Series")
+                    LazyRow(
+                        modifier = Modifier.focusRestorer(),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        itemsIndexed(starterSeries, key = { _, x -> x.id }) { index, series ->
+                            SeriesPoster(series, rowIndex, index)
+                        }
+                    }
+                }
+            }
+        }
         if (recentsRow.isNotEmpty()) {
             item(key = "recents") {
                 val rowIndex = rowKeys.indexOf("recents")
@@ -330,6 +534,79 @@ fun HomeLoungeTab(
             }
         }
         }
+    }
+    menu?.let { open ->
+        HomeContextMenu(
+            vm = vm,
+            menu = open,
+            favorites = favorites,
+            onPlay = onPlay,
+            onOpenSeries = onOpenSeries,
+            onDismiss = { menu = null },
+        )
+    }
+}
+
+/**
+ * The actions a Home card carries beyond OK. Channels borrow Live TV's
+ * vocabulary word for word — the same channel must not offer "Add to
+ * favorites" on one screen and "Star" on another.
+ */
+@Composable
+private fun HomeContextMenu(
+    vm: MainViewModel,
+    menu: HomeMenu,
+    favorites: Set<String>,
+    onPlay: () -> Unit,
+    onOpenSeries: (Series) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    when (menu) {
+        is HomeMenu.Channel -> {
+            val isFav = menu.channel.url in favorites
+            ContextMenu(
+                title = menu.channel.displayName,
+                actions = listOf(
+                    MenuAction("Play") {
+                        vm.playChannels(menu.row, menu.index)
+                        onPlay()
+                    },
+                    MenuAction(if (isFav) "Remove from favorites" else "Add to favorites") {
+                        vm.toggleFavorite(menu.channel)
+                    },
+                    MenuAction("Hide this channel") { vm.toggleHidden(menu.channel) },
+                ),
+                onDismiss = onDismiss,
+            )
+        }
+
+        is HomeMenu.ResumedMovie -> ContextMenu(
+            title = menu.movie.name,
+            actions = listOf(
+                MenuAction("Resume") { vm.playMovie(menu.movie); onPlay() },
+                MenuAction("Start over") { vm.playMovie(menu.movie, startOver = true); onPlay() },
+                // Destructive only in the sense that it cannot be undone from
+                // here; nothing is deleted but the bookmark.
+                MenuAction("Remove from Continue watching", destructive = true) {
+                    vm.forgetResume(menu.movie.url)
+                },
+            ),
+            onDismiss = onDismiss,
+        )
+
+        is HomeMenu.ResumedSeries -> ContextMenu(
+            title = menu.series.name,
+            actions = listOf(
+                // No "Resume" here: which episode that means lives on the
+                // series screen, which is also where "Start over" would have
+                // to ask. Sending the viewer there is the honest answer.
+                MenuAction("Open series") { onOpenSeries(menu.series) },
+                MenuAction("Remove from Continue watching", destructive = true) {
+                    vm.forgetSeriesResume(menu.series)
+                },
+            ),
+            onDismiss = onDismiss,
+        )
     }
 }
 
@@ -361,100 +638,5 @@ private fun SearchPill(modifier: Modifier = Modifier, onClick: () -> Unit) {
             )
             Text(text = "Search", style = MaterialTheme.typography.labelLarge)
         }
-    }
-}
-
-/**
- * A live channel as a 16:9 shelf card: logo on its neutral chip, the current
- * programme underneath with how far through it is. Degrades to logo + name
- * when no guide covers the channel.
- */
-@Composable
-private fun ChannelCard(
-    channel: LiveChannel,
-    now: EpgProgram?,
-    onClick: () -> Unit,
-    onFocus: () -> Unit,
-) {
-    val progress = now?.let {
-        val span = it.endMs - it.startMs
-        if (span <= 0) null
-        else ((System.currentTimeMillis() - it.startMs).toFloat() / span).coerceIn(0f, 1f)
-    }
-    // Caption lives OUTSIDE the clickable surface: inside it, the focus glow
-    // pools behind the text rows and reads as a stain instead of a halo.
-    Column(modifier = Modifier.width(240.dp)) {
-        Surface(
-            onClick = onClick,
-            modifier = Modifier.onFocusChanged { if (it.isFocused) onFocus() },
-            shape = ClickableSurfaceDefaults.shape(NuxShape.Card),
-            colors = ClickableSurfaceDefaults.colors(
-                containerColor = Color.Transparent,
-                focusedContainerColor = Color.Transparent,
-                contentColor = NuxColors.OnSurface,
-                focusedContentColor = NuxColors.OnSurface,
-            ),
-            scale = ClickableSurfaceDefaults.scale(focusedScale = NuxFocus.CardScale),
-            border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring16),
-            glow = ClickableSurfaceDefaults.glow(focusedGlow = NuxFocus.cardGlow),
-        ) {
-            Box {
-                Artwork(
-                    imageUrl = channel.logo,
-                    title = channel.displayName,
-                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(16f / 9f)
-                        .clip(NuxShape.Card),
-                    monogramStyle = MaterialTheme.typography.headlineSmall,
-                )
-                channel.quality?.let { tier ->
-                    Text(
-                        text = tier,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = NuxColors.OnSurfaceDim,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(6.dp)
-                            .clip(NuxShape.Chip)
-                            .background(NuxColors.Scrim)
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
-                    )
-                }
-                if (progress != null && progress > 0f) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .background(Color.White.copy(alpha = 0.25f)),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(progress)
-                                .background(NuxColors.Primary),
-                        )
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = channel.displayName,
-            style = MaterialTheme.typography.titleSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 2.dp),
-        )
-        Text(
-            text = now?.title ?: "Live",
-            style = MaterialTheme.typography.labelMedium,
-            color = NuxColors.OnSurfaceDim,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 2.dp),
-        )
     }
 }
