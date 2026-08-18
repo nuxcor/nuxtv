@@ -262,8 +262,22 @@ class XtreamClient(
         // must surface as a retryable failure, not "No episodes found".
         val root = rootEl as? JsonObject
             ?: throw IOException("Unexpected series response")
-        val episodesEl = root["episodes"] ?: return emptyList()
-        return episodeLeaves(episodesEl, seasonKey = null).mapNotNull { (seasonKey, obj) ->
+        var leaves = root["episodes"]?.let { episodeLeaves(it, seasonKey = null) }.orEmpty()
+        if (leaves.isEmpty()) {
+            // Stalker-derived backends (IPTVEditor and kin) put the episode
+            // arrays INSIDE each season object instead of the top-level
+            // container — `{"seasons":[{...,"episodes":[…]}]}` with `episodes`
+            // absent or empty. Read as "a valid series with none", those
+            // playlists showed every series as empty while other players
+            // handled the variant.
+            leaves = (root["seasons"] as? JsonArray).orEmpty()
+                .filterIsInstance<JsonObject>()
+                .flatMap { season ->
+                    val number = season.int("season_number") ?: season.int("season")
+                    season["episodes"]?.let { episodeLeaves(it, number) }.orEmpty()
+                }
+        }
+        return leaves.mapNotNull { (seasonKey, obj) ->
             val id = obj.str("id") ?: obj.str("episode_id") ?: obj.str("stream_id")
                 ?: return@mapNotNull null
             val ext = obj.str("container_extension")?.takeIf { it.isNotBlank() } ?: "mp4"

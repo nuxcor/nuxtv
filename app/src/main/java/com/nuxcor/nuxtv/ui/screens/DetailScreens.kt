@@ -393,17 +393,21 @@ fun SeriesDetailScreen(
                     loadAttempt++
                 },
             )
-            eps == null && providerPreparing -> StatusPane(
-                title = "Provider is preparing this series…",
-                message = "Curated playlists build the episode list the first " +
-                    "time a series is opened. This can take a minute.",
+            // One calm loading state. The lazy-provider wait is still
+            // happening underneath, but "the provider is preparing" read as
+            // an error to viewers — the only honest extra information is
+            // that a first open can take longer, said quietly.
+            eps == null -> StatusPane(
+                title = "Loading episodes…",
+                message = if (providerPreparing) {
+                    "The first open of a series can take a minute."
+                } else null,
                 loading = true,
             )
-            eps == null -> StatusPane(title = "Loading episodes…", loading = true)
             eps.isEmpty() -> StatusPane(
                 title = "No episodes found",
                 message = "The provider returned none for this series — " +
-                    "on curated playlists, trying again later can help.",
+                    "trying again later can help.",
                 primaryAction = com.nuxcor.nuxtv.ui.components.StatusAction("Retry") {
                     episodes = null
                     loadAttempt++
