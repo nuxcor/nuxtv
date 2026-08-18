@@ -91,6 +91,44 @@ class CategoryCleanerTest {
     }
 
     @Test
+    fun `real provider shelf names clean up`() {
+        // Names straight off a real panel: ordering index, "Billing"/"VOD"
+        // namespace on every row, emoji stars, pseudo-quality words.
+        val bundle = ContentBundle(
+            liveCategories = listOf(
+                Category("1", "1 - Billing - 4K UHD 3840P\u2b50"),
+                Category("2", "4 - Billing - USA ULTIMATE"),
+                Category("3", "6 - Billing - UK ULTIMATE"),
+                Category("4", "10 - Billing - BEIN SPORT FULL\u26bd"),
+                Category("5", "13 - Billing - UEFA CHAMPIONS LEAGUE \u26bd"),
+            ),
+            channels = listOf("1", "2", "3", "4", "5").map {
+                LiveChannel(id = it, name = "C$it", logo = null, url = "http://x/$it", categoryId = it)
+            },
+        )
+        val cleaned = CategoryCleaner.clean(bundle)
+        assertEquals(
+            listOf("4K UHD 3840p", "USA Ultimate", "UK Ultimate", "BEIN Sport Full",
+                "UEFA Champions League"),
+            cleaned.liveCategories.map { it.name },
+        )
+    }
+
+    @Test
+    fun `index prefixes are ordering, not identity`() {
+        // Same shelf numbered differently after a provider reorder must merge.
+        assertEquals(
+            CategoryCleaner.categoryKey("3 - SPORTS"),
+            CategoryCleaner.categoryKey("7 - SPORTS"),
+        )
+    }
+
+    @Test
+    fun `a quality-tier shelf keeps its name instead of collapsing to residue`() {
+        assertEquals("4K UHD 3840p", CategoryCleaner.displayName("1 - 4K UHD 3840P\u2b50"))
+    }
+
+    @Test
     fun `plural and singular shelves merge`() {
         assertEquals(
             CategoryCleaner.categoryKey("US | SPORTS HD"),
