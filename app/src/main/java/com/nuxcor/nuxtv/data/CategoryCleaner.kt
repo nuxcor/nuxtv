@@ -22,13 +22,26 @@ object CategoryCleaner {
     // ("#### SPORTS ####", "== KIDS ==", "•• MOVIES ••").
     private val edgeDecoration = Regex("""^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$""")
 
+    // "1 - ", "10.", "3) " — providers number their shelves for ordering;
+    // the index is not identity and clutters every label.
+    private val indexPrefix = Regex("""^\s*\d{1,4}\s*[-.):|]\s*""")
+
+    // Anything that isn't a word character, space, or the few symbols brand
+    // names legitimately carry (+ & ' .) — kills ⭐⚽ and friends.
+    private val symbolJunk = Regex("""[^\p{L}\p{N}\s+&'.]""")
+
+    private val separators = Regex("""[|:•/\\_\-\s]+""")
+
     /**
-     * Region-preserving identity key: case/diacritics folded, quality tokens
+     * Region-preserving identity key: index prefix and an optional shared
+     * namespace word dropped, case/diacritics folded, quality tokens
      * stripped, punctuation collapsed, plurals folded.
+     * "4 - Billing - USA ULTIMATE" (dropWord "billing") → "usa ultimate";
      * "US | SPORTS HD" → "us sport"; "UK| SPORTS" → "uk sport" (distinct).
      */
-    fun categoryKey(name: String): String {
-        val folded = EpgMatcher.fold(QualityTag.baseName(name))
+    fun categoryKey(name: String, dropWord: String? = null): String {
+        val undecorated = name.replace(indexPrefix, "")
+        val folded = EpgMatcher.fold(QualityTag.baseName(undecorated))
         val tokens = folded.split(nonAlnumRuns)
             .filter { it.isNotBlank() }
             .map { token ->
@@ -36,32 +49,75 @@ object CategoryCleaner {
                     token.dropLast(1)
                 } else token
             }
+            .filterIndexed { index, token -> !(index == 0 && token == dropWord) }
         return tokens.joinToString(" ").ifBlank { name.trim().lowercase() }
     }
 
     /**
-     * The kept category's label, prettified: decoration unwrapped, quality
-     * tokens dropped, separators collapsed, SHOUTING title-cased — with
-     * 2-3 letter all-caps region codes kept as codes and mixed-case brand
-     * words left alone. "US | SPORTS HD" → "US Sports";
-     * "#### NEWS ####" → "News"; "beIN Sports" survives as written.
+     * The kept category's label, prettified: index prefix, shared namespace
+     * word, decoration, emoji and separators out; SHOUTING title-cased with
+     * short all-caps codes kept and mixed-case brand spellings left alone.
+     * Quality tokens drop only when real words remain — "US | SPORTS HD" →
+     * "US Sports", but a shelf NAMED by its tier ("4K UHD 3840P") keeps
+     * its name rather than collapsing to residue.
      */
-    fun displayName(name: String): String {
-        val unwrapped = QualityTag.baseName(name.replace(edgeDecoration, ""))
-        val words = unwrapped.split(Regex("""[|:•/\\_\-\s]+"""))
+    // Four-letter all-caps that are brands/acronyms, not shouting. Words
+    // like NEWS and FULL title-case; these keep their caps.
+    private val capsBrands = setOf(
+        "UEFA", "FIFA", "BEIN", "ESPN", "TNT", "CNN", "BBC", "ITV", "HBO",
+        "AMC", "MTV", "TSN", "RAI", "ZDF", "ARD", "NBA", "NFL", "MLB",
+        "NHL", "UFC", "WWE", "PPV", "DSTV", "TRT", "RTL",
+    )
+
+    fun displayName(name: String, dropWord: String? = null): String {
+        val undecorated = name
+            .replace(indexPrefix, "")
+            .replace(symbolJunk, " ")
+            .replace(edgeDecoration, "")
+
+        fun wordsOf(text: String) = text.split(separators)
             .filter { it.isNotBlank() }
-            .map { word ->
-                when {
-                    // Region/network codes stay codes.
-                    word.length <= 3 && word.all { it.isUpperCase() || it.isDigit() } -> word
-                    // SHOUTING becomes Title case; mixed case is a brand's
-                    // own spelling and is left alone.
-                    word.all { !it.isLetter() || it.isUpperCase() } ->
-                        word.lowercase().replaceFirstChar { it.uppercase() }
-                    else -> word
-                }
+            .filterIndexed { index, word ->
+                !(index == 0 && dropWord != null && EpgMatcher.fold(word) == dropWord)
             }
-        return words.joinToString(" ").ifBlank { name.trim() }
+        val full = wordsOf(undecorated)
+        val stripped = wordsOf(QualityTag.baseName(undecorated))
+        // Quality tokens drop only when real words remain — a shelf NAMED by
+        // its tier ("4K UHD 3840P") keeps its name instead of collapsing to
+        // residue. Checked after the namespace word is gone, so "Billing"
+        // can't stand in for actual content.
+        val words = if (stripped.any { w -> w.count { it.isLetter() } >= 2 }) stripped else full
+
+        return words.map { word ->
+            when {
+                // Region/network codes and digit-bearing tokens stay as-is.
+                word.length <= 3 && word.all { it.isUpperCase() || it.isDigit() } -> word
+                word.uppercase() in capsBrands && word.all { it.isUpperCase() } -> word
+                // SHOUTING becomes Title case; mixed case is a brand's own
+                // spelling and is left alone.
+                word.all { !it.isLetter() || it.isUpperCase() } ->
+                    word.lowercase().replaceFirstChar { it.uppercase() }
+                else -> word
+            }
+        }.joinToString(" ").ifBlank { name.trim() }
+    }
+
+    /**
+     * The provider's own namespace word, when there is one: the leading word
+     * (after the index prefix) that at least 80% of four-plus categories
+     * share — "Billing" on every live shelf, "VOD" on every movie shelf.
+     * Repetition on every row carries no information.
+     */
+    private fun sharedLeadingWord(categories: List<Category>): String? {
+        if (categories.size < 4) return null
+        val firsts = categories.mapNotNull { category ->
+            EpgMatcher.fold(category.name.replace(indexPrefix, ""))
+                .split(nonAlnumRuns)
+                .firstOrNull { it.isNotBlank() }
+        }
+        val (word, count) = firsts.groupingBy { it }.eachCount()
+            .maxByOrNull { it.value } ?: return null
+        return word.takeIf { count * 5 >= categories.size * 4 }
     }
 
     /** True for purely decorative names — no letter or digit anywhere. */
@@ -94,6 +150,7 @@ object CategoryCleaner {
     private fun mergeCategories(
         categories: List<Category>,
     ): Pair<List<Category>, Map<String?, String?>> {
+        val dropWord = sharedLeadingWord(categories)
         val kept = LinkedHashMap<String, Category>()
         val remap = HashMap<String?, String?>()
         remap[null] = null
@@ -102,9 +159,9 @@ object CategoryCleaner {
                 remap[category.id] = null
                 continue
             }
-            val key = categoryKey(category.name)
+            val key = categoryKey(category.name, dropWord)
             val holder = kept.getOrPut(key) {
-                Category(id = category.id, name = displayName(category.name))
+                Category(id = category.id, name = displayName(category.name, dropWord))
             }
             remap[category.id] = holder.id
         }
