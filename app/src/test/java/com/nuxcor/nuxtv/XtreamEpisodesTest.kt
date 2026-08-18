@@ -75,6 +75,21 @@ class XtreamEpisodesTest {
     }
 
     @Test
+    fun `episodes nested inside season objects are found`() {
+        // Stalker-derived backends (IPTVEditor) leave the top-level container
+        // empty and carry the arrays inside each season object.
+        val eps = parse(
+            """{"episodes":{},"seasons":[
+                {"season_number":1,"name":"S1","episodes":[
+                    {"id":"11","episode_num":"1"},{"id":"12","episode_num":"2"}]},
+                {"season_number":2,"episodes":[{"id":"21","episode_num":"1"}]}
+            ]}"""
+        )
+        assertEquals(3, eps.size)
+        assertEquals(listOf(1, 1, 2), eps.map { it.season })
+    }
+
+    @Test
     fun `an object without episodes is genuinely empty`() {
         assertTrue(parse("""{"info":{}}""").isEmpty())
         assertTrue(parse("""{"episodes":null}""").isEmpty())
