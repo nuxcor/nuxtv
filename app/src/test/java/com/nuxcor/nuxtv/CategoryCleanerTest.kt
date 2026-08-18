@@ -4,6 +4,7 @@ import com.nuxcor.nuxtv.data.Category
 import com.nuxcor.nuxtv.data.CategoryCleaner
 import com.nuxcor.nuxtv.data.ContentBundle
 import com.nuxcor.nuxtv.data.LiveChannel
+import com.nuxcor.nuxtv.data.Series
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -111,6 +112,30 @@ class CategoryCleanerTest {
             listOf("4K UHD 3840p", "USA Ultimate", "UK Ultimate", "BEIN Sport Full",
                 "UEFA Champions League"),
             cleaned.liveCategories.map { it.name },
+        )
+    }
+
+    @Test
+    fun `VOD quality variants of one brand merge to the brand`() {
+        // Straight from a real panel's series list: three Netflix shelves
+        // that are the same catalog at different qualities.
+        val bundle = ContentBundle(
+            seriesCategories = listOf(
+                Category("1", "3 - VOD - NETFLIX SERIES 4K 3840P Dolby Vision\u2b50"),
+                Category("2", "4 - VOD - NETFLIX DOLBY AUDIO \u2b50"),
+                Category("3", "5 - VOD - NETFLIX\u2b50"),
+                Category("4", "8 - VOD - DISNEY+ SERIES 4K 3840P Dolby Vision\u2b50"),
+                Category("5", "10 - VOD - DISNEY+ SERIES\u2b50"),
+            ),
+            series = listOf("1", "2", "3", "4", "5").map {
+                Series(id = "s$it", name = "S$it", poster = null, categoryId = it)
+            },
+        )
+        val cleaned = CategoryCleaner.clean(bundle)
+        assertEquals(listOf("Netflix", "Disney+"), cleaned.seriesCategories.map { it.name })
+        assertEquals(
+            setOf("1", "4"),
+            cleaned.series.map { it.categoryId }.toSet(),
         )
     }
 
