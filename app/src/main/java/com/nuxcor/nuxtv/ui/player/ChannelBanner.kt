@@ -75,14 +75,8 @@ internal fun ChannelBanner(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        // --- left: number + logo card ------------------------------------
-        channel?.number?.let { number ->
-            Text(
-                text = number.toString(),
-                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                color = NuxColors.Primary,
-            )
-        }
+        // --- left: logo card (no channel number — dead weight on screen;
+        // digits still tune) -----------------------------------------------
         if (isLive && channel != null) {
             Box(
                 modifier = Modifier
@@ -249,13 +243,6 @@ internal fun TuneCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                channel?.number?.let { number ->
-                    Text(
-                        text = number.toString(),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = NuxColors.Primary,
-                    )
-                }
                 Text(
                     text = channel?.displayName ?: item?.title.orEmpty(),
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),

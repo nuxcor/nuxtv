@@ -281,6 +281,21 @@ class PlayerKeyHandlerTest {
     }
 
     @Test
+    fun `PLAY_PAUSE is swallowed on live playback`() {
+        // Remotes alias the centre button to PLAY_PAUSE when a media session
+        // is active; pausing a broadcast is pointless and made OK look
+        // like it had two behaviours.
+        val bare = press(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+        assertTrue(bare.consumed)
+        assertEquals(null, bare.action)
+        // VOD keeps its pause.
+        assertEquals(
+            PlayerKeyAction.PlayPause,
+            press(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, isLive = false).action,
+        )
+    }
+
+    @Test
     fun `INFO and PLAY_PAUSE still work on the error card`() {
         // Typing a number, checking the banner, or pressing play are all ways
         // out of a dead stream — the old player allowed them and so do we.

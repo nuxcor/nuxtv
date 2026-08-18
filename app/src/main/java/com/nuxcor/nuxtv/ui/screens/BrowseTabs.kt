@@ -255,7 +255,18 @@ private fun VodBrowser(
             return@Row
         }
         val gridEntrance = rememberListEntrance(activeCategory)
+        val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+        // Row snapping: the focused row aligns to the top of the pane, so the
+        // rows above scroll fully away instead of leaving an orphaned caption
+        // sliver ("2014" floating under nothing) clipped at the top edge.
+        LaunchedEffect(focusedEntryIndex, browsingGrid) {
+            if (!browsingGrid) return@LaunchedEffect
+            val row = focusedEntryIndex / GRID_COLUMNS
+            // +1 skips the full-span hero header item.
+            gridState.animateScrollToItem(1 + row * GRID_COLUMNS)
+        }
         LazyVerticalGrid(
+            state = gridState,
             // Fixed, not Adaptive: 150dp-adaptive landed on 3 columns on
             // common TV densities, which reads as a phone layout blown up.
             // Five posters a row is the shelf density every TV catalog uses.

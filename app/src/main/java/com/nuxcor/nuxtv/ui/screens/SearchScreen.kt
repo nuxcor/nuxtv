@@ -134,7 +134,7 @@ fun SearchTab(
                     itemsIndexed(results.channels, key = { _, c -> c.id }) { index, channel ->
                         WideItem(
                             title = channel.displayName,
-                            subtitle = channel.number?.let { "Channel $it" },
+                            subtitle = null,
                             badge = channel.quality,
                             imageUrl = channel.logo,
                             onClick = {

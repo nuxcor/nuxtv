@@ -152,9 +152,18 @@ internal fun playerKeyAction(
             } else PlayerKeyResult.Ignored
 
         AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ->
-            if (noOverlay || layer == PlayerLayer.Error) {
-                PlayerKeyResult(true, PlayerKeyAction.PlayPause)
-            } else PlayerKeyResult.Ignored
+            when {
+                // Swallowed on live: pausing a broadcast only resumes at the
+                // live edge, and remotes that alias the centre button to
+                // PLAY_PAUSE when a media session is active made OK look
+                // like it had two random behaviours. Still allowed from the
+                // error card, where "press play" is a natural retry.
+                isLive && layer != PlayerLayer.Error ->
+                    if (noOverlay) PlayerKeyResult(consumed = true) else PlayerKeyResult.Ignored
+                noOverlay || layer == PlayerLayer.Error ->
+                    PlayerKeyResult(true, PlayerKeyAction.PlayPause)
+                else -> PlayerKeyResult.Ignored
+            }
 
         AndroidKeyEvent.KEYCODE_DPAD_UP ->
             when {

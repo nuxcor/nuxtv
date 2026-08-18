@@ -134,26 +134,26 @@ internal fun PlayerControls(
             // at 10 feet tell you nothing. VOD keeps icons so the transport
             // stays the focus.
             val labelled = isLive
-            if (isLive) {
-                ControlButton(
-                    icon = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    label = if (playing) "Pause" else "Play",
-                    onClick = onPlayPause,
-                    modifier = Modifier.focusRequester(playFocus),
-                    prominent = true,
-                    showLabel = true,
-                )
-            }
+            // No pause on live: pausing a broadcast only ever resumed at the
+            // live edge anyway, and remotes that alias the centre button to
+            // PLAY_PAUSE made OK's behaviour look random.
             if (hasPlaylist) {
                 ControlButton(
                     Icons.AutoMirrored.Filled.List,
                     "Channels",
                     onChannels,
+                    modifier = if (isLive) Modifier.focusRequester(playFocus) else Modifier,
                     showLabel = labelled,
                 )
             }
             if (isLive) {
-                ControlButton(Icons.Default.GridView, "Guide", onGuide, showLabel = labelled)
+                ControlButton(
+                    Icons.Default.GridView,
+                    "Guide",
+                    onGuide,
+                    modifier = if (hasPlaylist) Modifier else Modifier.focusRequester(playFocus),
+                    showLabel = labelled,
+                )
             }
             ControlButton(Icons.Default.Tune, "Options", onOptions, showLabel = true)
             // Only on devices whose system actually offers PiP — the button

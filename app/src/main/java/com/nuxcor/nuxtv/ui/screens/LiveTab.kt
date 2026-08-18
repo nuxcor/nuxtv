@@ -351,7 +351,9 @@ fun CategoryItem(
             Text(
                 text = name,
                 style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
+                // Two lines: provider category names ("DREAMWORKS ANIMATION",
+                // "PARAMOUNT PICTURES") truncated to gibberish on one.
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 // No weight: in the guide's horizontal chip row the incoming
                 // width is unbounded, and a weighted child in an unbounded Row
