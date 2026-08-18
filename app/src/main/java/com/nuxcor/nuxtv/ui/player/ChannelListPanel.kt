@@ -362,13 +362,6 @@ internal fun ChannelListPanel(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     ) {
                                         Text(
-                                            // Same number the keypad matches on,
-                                            // so typing what you see lands here.
-                                            text = "${channel?.number ?: (index + 1)}",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = NuxColors.Primary,
-                                        )
-                                        Text(
                                             text = title,
                                             style = MaterialTheme.typography.titleSmall,
                                             maxLines = 1,

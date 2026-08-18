@@ -141,7 +141,6 @@ fun ChannelSchedule(
                         overflow = TextOverflow.Ellipsis,
                     )
                     val meta = listOfNotNull(
-                        channel.number?.let { "Channel $it" },
                         channel.quality,
                         channel.archiveDays.takeIf { it > 0 }?.let { "$it-day catch-up" },
                     )
