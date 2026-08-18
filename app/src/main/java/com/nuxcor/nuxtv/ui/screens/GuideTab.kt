@@ -139,9 +139,11 @@ fun GuideTab(
                     leading()
                     Spacer(Modifier.height(10.dp))
                     NoGuidePane(
-                        message = "The guide loaded, but none of its channels match this " +
-                            "playlist. Providers and guides often use different channel ids.",
+                        message = "The guide loaded, but it matched only " +
+                            "${coverage.matched} of ${coverage.total} channels. " +
+                            "Providers and guides often use different channel ids.",
                         categoryNames = bundle.liveCategories.map { it.name },
+                        channelNames = bundle.channels.map { it.name },
                         onPick = { cc -> vm.setEpgOverrideUrl(epgshareUrl(cc)) },
                     )
                 }
@@ -167,8 +169,9 @@ fun GuideTab(
             val categories = remember(bundle, favorites, recents, allChannels) {
                 liveCategoryList(bundle, allChannels, favorites, recents)
             }
-            val channels = remember(allChannels, categoryId, favorites, recents) {
-                channelsInCategory(categoryId, allChannels, favorites, recents)
+            val mergeDupes by vm.mergeDuplicates.collectAsState()
+            val channels = remember(allChannels, categoryId, favorites, recents, mergeDupes) {
+                channelsInCategory(categoryId, allChannels, favorites, recents, dedupAll = mergeDupes)
             }
             // Same rest-before-select rule as every other category surface
             // (nav rail, Movies/Series columns): resting on a chip selects it,
@@ -617,12 +620,13 @@ private fun GuideHeader(
 private fun NoGuidePane(
     message: String,
     categoryNames: List<String>,
+    channelNames: List<String> = emptyList(),
     onPick: (String) -> Unit,
 ) {
-    // Suggestions come from the playlist's own categories; the full list is the
-    // fallback when nothing in the names hints at a country.
-    val suggested = remember(categoryNames) {
-        suggestedEpgPacks(categoryNames).ifEmpty { EPGSHARE_PACKS }
+    // Suggestions come from the playlist's own categories and channel-name
+    // country tags; the full list is the fallback when nothing hints at one.
+    val suggested = remember(categoryNames, channelNames) {
+        suggestedEpgPacks(categoryNames, channelNames).ifEmpty { EPGSHARE_PACKS }
     }
     val narrowed = suggested.size < EPGSHARE_PACKS.size
 
