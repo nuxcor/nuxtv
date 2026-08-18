@@ -100,7 +100,10 @@ private const val TARGET_COLUMNS = 5
 private val MIN_DP_PER_MINUTE = 2.6.dp
 private val MAX_DP_PER_MINUTE = 6.dp
 
-internal val CHANNEL_COLUMN_WIDTH = 230.dp
+// 280, not 230: after the logo, quality chip and number, a 230dp row left
+// the NAME about 90dp — "Sports Chann…" everywhere. The timeline loses
+// 50dp it never missed.
+internal val CHANNEL_COLUMN_WIDTH = 280.dp
 internal val CHANNEL_COLUMN_GAP = 8.dp
 private val ROW_HEIGHT = 62.dp
 
@@ -687,25 +690,28 @@ private fun GuideRow(
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                     monogramStyle = MaterialTheme.typography.labelMedium,
                 )
-                Text(
-                    text = channel.displayName,
-                    style = MaterialTheme.typography.titleSmall,
-                    // One line: two lines of 24sp need 48dp and the row's
-                    // content box is 46dp, so the second was always clipped.
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                Column(
                     modifier = Modifier.weight(1f),
-                )
-                // The tier the name used to carry — corrected by measured
-                // playback where the app has seen the stream decode.
-                channel.quality?.let { com.nuxcor.nuxtv.ui.components.MetaChip(it) }
-                channel.number?.let { number ->
+                    verticalArrangement = Arrangement.Center,
+                ) {
                     Text(
-                        text = number.toString(),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = NuxColors.OnSurfaceDim,
+                        text = channel.displayName,
+                        style = MaterialTheme.typography.titleSmall,
+                        // One line: two lines of 24sp need 48dp and the row's
+                        // content box is 46dp, so the second was always clipped.
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
+                    // Second deck, not inline: sharing the name's line cost
+                    // ~50dp and truncated every name the chip appeared on.
+                    // The tier is corrected by measured playback where the
+                    // app has seen the stream decode.
+                    channel.quality?.let {
+                        com.nuxcor.nuxtv.ui.components.MetaChip(it)
+                    }
                 }
+                // No channel-number text: digits still tune, but the ordinal
+                // was dead weight in a row this narrow.
             }
         }
         Spacer(Modifier.width(CHANNEL_COLUMN_GAP))
