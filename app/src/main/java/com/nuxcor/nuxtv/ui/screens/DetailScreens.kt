@@ -212,7 +212,12 @@ private fun formatOffset(ms: Long): String {
     val totalMinutes = (ms / 60_000).coerceAtLeast(0)
     val hours = totalMinutes / 60
     val minutes = totalMinutes % 60
-    return if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
+    return when {
+        hours > 0 -> "${hours}h ${minutes}m"
+        // Under a minute rounded down to "0m", which read as a bug.
+        minutes == 0L -> "${(ms / 1_000).coerceAtLeast(1)}s"
+        else -> "${minutes}m"
+    }
 }
 
 @Composable
