@@ -298,7 +298,6 @@ private fun VodBrowser(
                 Box(modifier = Modifier.itemEntrance(index, gridEntrance)) {
                     PosterCard(
                         title = entry.title,
-                        subtitle = entry.subtitle,
                         imageUrl = entry.poster,
                         width = null,
                         progress = entry.progress,
@@ -434,7 +433,7 @@ fun SeriesTab(vm: MainViewModel, bundle: ContentBundle, onOpenSeries: (Series) -
     )
 }
 
-private fun Movie.toHero() = HeroInfo(
+internal fun Movie.toHero() = HeroInfo(
     title = name,
     poster = poster,
     backdrop = backdrop,
@@ -447,7 +446,7 @@ private fun Movie.toHero() = HeroInfo(
     plot = plot,
 )
 
-private fun Series.toHero() = HeroInfo(
+internal fun Series.toHero() = HeroInfo(
     title = name,
     poster = poster,
     backdrop = backdrop,

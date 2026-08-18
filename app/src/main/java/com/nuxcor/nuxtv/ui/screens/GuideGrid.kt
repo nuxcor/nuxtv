@@ -759,7 +759,7 @@ private fun GuideRow(
                         contentAlignment = Alignment.CenterStart,
                     ) {
                         Text(
-                            "No information — ${channel.name}",
+                            "No information — ${channel.displayName}",
                             style = MaterialTheme.typography.labelMedium,
                             maxLines = 1,
                             modifier = Modifier.padding(start = 16.dp),

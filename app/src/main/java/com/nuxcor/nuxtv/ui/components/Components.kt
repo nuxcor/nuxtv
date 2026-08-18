@@ -132,6 +132,12 @@ fun Artwork(
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
     monogramStyle: TextStyle = MaterialTheme.typography.titleMedium,
+    /**
+     * Show the full [title] instead of a monogram when there is no artwork.
+     * For captionless cards (posters), where the artwork IS the label and a
+     * monogram would leave the item nameless.
+     */
+    fallbackFullTitle: Boolean = false,
 ) {
     val monogram = remember(title) {
         title.split(" ").take(2).mapNotNull { it.firstOrNull()?.uppercase() }.joinToString("")
@@ -148,7 +154,19 @@ fun Artwork(
         androidx.compose.runtime.key(imageUrl) {
             var failed by remember { mutableStateOf(false) }
             if (imageUrl.isNullOrBlank() || failed) {
-                Text(text = monogram, style = monogramStyle, color = NuxColors.OnSurfaceDim)
+                if (fallbackFullTitle) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = NuxColors.OnSurfaceDim,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 10.dp),
+                    )
+                } else {
+                    Text(text = monogram, style = monogramStyle, color = NuxColors.OnSurfaceDim)
+                }
             } else {
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
@@ -169,12 +187,16 @@ fun Artwork(
     }
 }
 
-/** Poster card for movie and series rows. */
+/**
+ * Poster card for movie and series rows. Captionless: the artwork carries the
+ * title (and the hero/detail views spell it out), so a text row under every
+ * poster was saying it twice. When there is no artwork the full title renders
+ * inside the card instead — never an anonymous grey box.
+ */
 @Composable
 fun PosterCard(
     title: String,
     imageUrl: String?,
-    subtitle: String? = null,
     /** Fixed width in a row; null fills the cell it is given, as in a grid. */
     width: Dp? = 150.dp,
     progress: Float? = null,
@@ -197,48 +219,31 @@ fun PosterCard(
         border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = NuxFocus.cardGlow),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 2.dp)) {
-            Box {
-                Artwork(
-                    imageUrl = imageUrl,
-                    title = title,
+        Box {
+            Artwork(
+                imageUrl = imageUrl,
+                title = title,
+                fallbackFullTitle = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(2f / 3f)
+                    .clip(CardShape),
+            )
+            if (progress != null && progress > 0f) {
+                Box(
                     modifier = Modifier
+                        .align(Alignment.BottomStart)
                         .fillMaxWidth()
-                        .aspectRatio(2f / 3f)
-                        .clip(CardShape),
-                    monogramStyle = MaterialTheme.typography.headlineSmall,
-                )
-                if (progress != null && progress > 0f) {
+                        .height(4.dp)
+                        .background(Color.White.copy(alpha = 0.25f))
+                ) {
                     Box(
                         modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .background(Color.White.copy(alpha = 0.25f))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(progress.coerceIn(0f, 1f))
-                                .background(NuxColors.Primary)
-                        )
-                    }
+                            .fillMaxHeight()
+                            .fillMaxWidth(progress.coerceIn(0f, 1f))
+                            .background(NuxColors.Primary)
+                    )
                 }
-            }
-            Spacer(Modifier.height(Space.s))
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (subtitle != null) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = NuxColors.OnSurfaceDim,
-                    maxLines = 1,
-                )
             }
         }
     }

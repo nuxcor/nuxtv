@@ -57,12 +57,15 @@ data class LiveChannel(
     val quality: String? = null,
 ) {
     /**
-     * Name with quality tokens stripped, for every place a viewer reads it —
-     * the [quality] badge carries the tier, so "beIN Sports FHD" as text is
-     * saying it twice. Country/region prefixes stay: they distinguish feeds.
-     * The raw [name] remains the identity for grouping and EPG matching.
+     * Name with quality tokens and provider tags ("US|", "UK|", "(TR)")
+     * stripped, for every place a viewer reads it — the [quality] badge
+     * carries the tier, and the region prefix is provider bookkeeping, not
+     * the channel's name. The raw [name] remains the identity for grouping
+     * and EPG matching, so regional feeds stay distinct entries even when
+     * their display names now read the same.
      */
-    val displayName: String get() = QualityTag.baseName(name).ifBlank { name }
+    val displayName: String get() =
+        ContentClassifier.stripChannelTags(QualityTag.baseName(name)).ifBlank { name }
 }
 
 /** One EPG programme, used for the catch-up picker. */

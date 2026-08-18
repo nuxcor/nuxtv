@@ -108,6 +108,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }.toMap()
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
+    /** Episode stream URL → series id, Continue Watching's climb back to the series. */
+    val episodeOrigins: StateFlow<Map<String, String>> = playerPrefs.episodeOrigins
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
     val parentalPin: StateFlow<String?> = playerPrefs.parentalPin
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
@@ -912,6 +916,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         startIndex: Int,
         startOver: Boolean = false,
     ) {
+        // Episode URLs don't encode their series; remember the link now — the
+        // only moment both sides are known — so a resume position saved later
+        // can climb back to its Series card.
+        viewModelScope.launch {
+            playerPrefs.recordEpisodeOrigins(series.id, episodes.map { it.url })
+        }
         playback = PlaybackRequest(
             items = episodes.map {
                 PlayableItem(

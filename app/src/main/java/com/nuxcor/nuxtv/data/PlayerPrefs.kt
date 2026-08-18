@@ -58,6 +58,7 @@ class PlayerPrefs(private val context: Context) {
     private val knownQualitiesKey = stringPreferencesKey("known_qualities")
     private val guidePreviewModeKey = stringPreferencesKey("guide_preview_mode")
     private val liveTsMigratedKey = stringPreferencesKey("live_ts_migrated")
+    private val episodeOriginsKey = stringPreferencesKey("episode_origins")
 
     /**
      * Live playback URLs changed from the panel's .m3u8 endpoint to the raw
@@ -120,6 +121,28 @@ class PlayerPrefs(private val context: Context) {
                 if (map.size > 500) map.entries.drop(map.size - 500).associate { it.toPair() }
                 else map
             prefs[knownQualitiesKey] = json.encodeToString(trimmed)
+        }
+    }
+
+    /**
+     * Episode stream URL → series id. Xtream episode URLs don't encode their
+     * series, so Continue Watching couldn't climb from a resume position back
+     * to a Series card without this. Written whenever episodes are handed to
+     * the player; newest 500 kept.
+     */
+    val episodeOrigins: Flow<Map<String, String>> = context.playerDataStore.data.map { prefs ->
+        prefs[episodeOriginsKey]?.let {
+            runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrNull()
+        } ?: emptyMap()
+    }
+
+    suspend fun recordEpisodeOrigins(seriesId: String, episodeUrls: List<String>) {
+        context.playerDataStore.edit { prefs ->
+            val existing = prefs[episodeOriginsKey]?.let {
+                runCatching { json.decodeFromString<LinkedHashMap<String, String>>(it) }.getOrNull()
+            } ?: LinkedHashMap()
+            prefs[episodeOriginsKey] =
+                json.encodeToString(mergeEpisodeOrigins(existing, seriesId, episodeUrls))
         }
     }
 
@@ -501,4 +524,23 @@ class PlayerPrefs(private val context: Context) {
         }
         return backup.sources
     }
+}
+
+/**
+ * Re-inserts every episode url pointing at [seriesId]; insertion order is
+ * recency (the resume-positions trick), newest [cap] kept.
+ */
+internal fun mergeEpisodeOrigins(
+    existing: Map<String, String>,
+    seriesId: String,
+    episodeUrls: List<String>,
+    cap: Int = 500,
+): Map<String, String> {
+    val map = LinkedHashMap(existing)
+    for (url in episodeUrls) {
+        map.remove(url) // re-inserting moves the entry to the newest slot
+        map[url] = seriesId
+    }
+    return if (map.size > cap) map.entries.drop(map.size - cap).associate { it.toPair() }
+    else map
 }

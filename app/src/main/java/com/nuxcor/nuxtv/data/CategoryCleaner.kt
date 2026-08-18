@@ -157,8 +157,21 @@ object CategoryCleaner {
             mergeCategories(bundle.seriesCategories, setOf("serie", "series", "show"))
 
         val channels = bundle.channels.map { it.copy(categoryId = liveRemap[it.categoryId]) }
-        val movies = bundle.movies.map { it.copy(categoryId = movieRemap[it.categoryId]) }
-        val series = bundle.series.map { it.copy(categoryId = seriesRemap[it.categoryId]) }
+        // Titles re-clean here — not only at parse — so bundles cached by
+        // versions that predate a cleanup rule heal on the next read instead
+        // of waiting out the refresh cycle. cleanTitle is idempotent.
+        val movies = bundle.movies.map {
+            it.copy(
+                categoryId = movieRemap[it.categoryId],
+                name = ContentClassifier.cleanTitle(it.name).ifBlank { it.name },
+            )
+        }
+        val series = bundle.series.map {
+            it.copy(
+                categoryId = seriesRemap[it.categoryId],
+                name = ContentClassifier.cleanTitle(it.name).ifBlank { it.name },
+            )
+        }
 
         return bundle.copy(
             liveCategories = liveCats.filter { cat -> channels.any { it.categoryId == cat.id } },

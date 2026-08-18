@@ -97,7 +97,7 @@ internal fun CatchupOverlay(
     ) {
         Column {
             Text(
-                text = "Catch-up — ${channel.name}",
+                text = "Catch-up — ${channel.displayName}",
                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
                 color = NuxColors.OnSurface,
             )

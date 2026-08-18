@@ -103,7 +103,6 @@ fun SearchTab(
                                 itemsIndexed(results.movies, key = { _, m -> m.id }) { _, movie ->
                                     PosterCard(
                                         title = movie.name,
-                                        subtitle = movie.year?.toString(),
                                         imageUrl = movie.poster,
                                         onClick = { onOpenMovie(movie) },
                                     )
@@ -120,7 +119,6 @@ fun SearchTab(
                                 itemsIndexed(results.series, key = { _, s -> s.id }) { _, series ->
                                     PosterCard(
                                         title = series.name,
-                                        subtitle = series.episodes?.let { "${it.size} episodes" },
                                         imageUrl = series.poster,
                                         onClick = { onOpenSeries(series) },
                                     )
