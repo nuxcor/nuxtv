@@ -237,7 +237,16 @@ object ContentClassifier {
     // "▎ Eurosport 1 ▎". CategoryCleaner has stripped this from shelf labels
     // for a while; channel names carry exactly the same decoration and were
     // showing it raw.
-    private val edgeDecoration = Regex("""^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$""")
+    //
+    // + & ' are spared, and that exemption is the whole point of the class
+    // rather than a nicety: "everything Unicode doesn't call a letter or
+    // number" also describes the + in Disney+, ESPN+, Apple TV+, Paramount+
+    // and Canal+, which are among the most common names in any IPTV
+    // playlist. Stripping it renamed every one of them everywhere they are
+    // shown — and inconsistently, since "Canal+ Sport" keeps its + for the
+    // only reason that it isn't at the edge. Same exemption list as
+    // CategoryCleaner.symbolJunk, for the same reason.
+    private val edgeDecoration = Regex("""^[^\p{L}\p{N}+&']+|[^\p{L}\p{N}+&']+$""")
 
     // Hoisted out of the two cleanup functions: both run per item over
     // playlists in the thousands, and recompiling a Regex per call was pure

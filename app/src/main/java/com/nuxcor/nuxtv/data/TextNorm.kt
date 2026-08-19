@@ -21,12 +21,14 @@ object TextNorm {
     /**
      * The decoration blocks, deliberately narrow rather than all of Lm/No:
      * ²³¹, modifier small letters, the phonetic-extension capitals, and the
-     * superscript/subscript block. Japanese prolonged-sound ー (U+30FC) and
+     * superscript block. Japanese prolonged-sound ー (U+30FC) and
      * the modifier apostrophe ʼ (U+02BC, "Hawaiʻi") are Lm too and belong to
      * real names, so a blanket `\p{Lm}` would quietly mangle them — hence
      * the two split ranges through the modifier block rather than one.
      */
-    private const val DECOR = "²³¹ʰ-ʸˠ-ˤᴬ-ᶿ⁰-₟"
+    // Ends at U+207F, not U+209F: the block continues into SUBSCRIPTS, which
+    // are not provider decoration. "H₂O TV" came out as "H O TV".
+    private const val DECOR = "²³¹ʰ-ʸˠ-ˤᴬ-ᶿ\u2070-\u207F"
 
     /** A run of decoration, plus the spaces between adjacent runs. */
     private val decorRun = Regex("""[$DECOR]+(?:\s+[$DECOR]+)*""")

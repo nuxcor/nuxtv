@@ -726,14 +726,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val artQueueLimit = 24
 
     /**
-     * Fills in one catalogue entry's artwork if TMDB has any. No-op when the
-     * build carries no key, when the answer is already known (including a
-     * known "TMDB has nothing"), or when the queue is full.
+     * Fills in one catalogue entry's artwork if TMDB has any.
+     *
+     * Returns false ONLY when the queue was full, meaning "ask me again" —
+     * every other outcome (no key, answer already known including a known
+     * "TMDB has nothing", request already in flight) returns true because
+     * there is nothing further to do. The distinction matters because the
+     * caller fires once per card: a wide grid can expire ~28 dwell timers
+     * together, and silently dropping the overflow left those cells as
+     * monograms until the viewer scrolled them off screen and back.
      */
-    fun requestArtwork(id: String, kind: String, title: String, year: Int?) {
-        val key = tmdbApiKey ?: return
-        if (id in artwork.value) return
-        if (artInFlight.size >= artQueueLimit || !artInFlight.add(id)) return
+    fun requestArtwork(id: String, kind: String, title: String, year: Int?): Boolean {
+        val key = tmdbApiKey ?: return true
+        if (id in artwork.value) return true
+        if (artInFlight.size >= artQueueLimit) return false
+        if (!artInFlight.add(id)) return true
         viewModelScope.launch {
             val entry = artConcurrency.withPermit { repo.artworkFor(kind, title, year, key) }
             if (entry != null) {
@@ -746,6 +753,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             artInFlight.remove(id)
         }
+        return true
     }
     /**
      * Session cache of fetched episode lists, so a series browsed once opens

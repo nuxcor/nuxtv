@@ -65,7 +65,14 @@ internal fun channelsInCategory(
      */
     allChannels: List<LiveChannel> = channels,
 ): List<LiveChannel> = when (categoryId) {
-    CATEGORY_ALL -> allChannels
+    // ifEmpty, and not as a formality: allChannelsView is a flowOn hop
+    // DOWNSTREAM of displayChannels, so on a cold start there is a window
+    // where the catalogue has arrived but its merge has not. All is the
+    // default selection on all four screens, and the "No live channels" pane
+    // can't cover the gap because it tests displayChannels — which is full.
+    // The unmerged list for one frame beats an empty grid that the entry
+    // focus tick then fires against.
+    CATEGORY_ALL -> allChannels.ifEmpty { channels }
     CATEGORY_FAVORITES -> channels.filter { it.url in favorites }
     CATEGORY_RECENT -> {
         // Index the channels once: recents is capped small, but the channel

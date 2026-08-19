@@ -6,8 +6,10 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 
@@ -124,7 +126,7 @@ class PlayerPrefs(private val context: Context) {
         prefs[knownQualitiesKey]?.let {
             runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrNull()
         } ?: emptyMap()
-    }
+    }.flowOn(Dispatchers.Default)
 
     suspend fun setKnownQuality(url: String, tier: String) {
         context.playerDataStore.edit { prefs ->
@@ -151,7 +153,7 @@ class PlayerPrefs(private val context: Context) {
         prefs[episodeOriginsKey]?.let {
             runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrNull()
         } ?: emptyMap()
-    }
+    }.flowOn(Dispatchers.Default)
 
     suspend fun recordEpisodeOrigins(seriesId: String, episodeUrls: List<String>) {
         context.playerDataStore.edit { prefs ->
@@ -172,11 +174,18 @@ class PlayerPrefs(private val context: Context) {
      * is stored too ([ArtEntry.empty]) so a title TMDB doesn't know is asked
      * about once, not forever. Newest 800 kept.
      */
+    // flowOn, here and on every other JSON-backed flow below: DataStore
+    // re-emits the WHOLE Preferences object to every collector on any write,
+    // and MainViewModel collects these with stateIn(viewModelScope, ...) —
+    // Dispatchers.Main.immediate. Without the hop, one artwork lookup landing
+    // mid-scroll made artwork, resume positions, favorites, hidden, episode
+    // origins, schedules and sources all re-parse their JSON on the main
+    // thread, during exactly the scroll borrowed art exists to decorate.
     val artwork: Flow<Map<String, ArtEntry>> = context.playerDataStore.data.map { prefs ->
         prefs[artworkKey]?.let {
             runCatching { json.decodeFromString<Map<String, ArtEntry>>(it) }.getOrNull()
         } ?: emptyMap()
-    }
+    }.flowOn(Dispatchers.Default)
 
     suspend fun putArtwork(id: String, entry: ArtEntry) {
         context.playerDataStore.edit { prefs ->
@@ -212,7 +221,7 @@ class PlayerPrefs(private val context: Context) {
         prefs[positionsKey]?.let {
             runCatching { json.decodeFromString<Map<String, Long>>(it) }.getOrNull()
         } ?: emptyMap()
-    }
+    }.flowOn(Dispatchers.Default)
 
     /**
      * url → total duration, written alongside the position. Kept in its own
@@ -224,7 +233,7 @@ class PlayerPrefs(private val context: Context) {
         prefs[durationsKey]?.let {
             runCatching { json.decodeFromString<Map<String, Long>>(it) }.getOrNull()
         } ?: emptyMap()
-    }
+    }.flowOn(Dispatchers.Default)
 
     /** Saves (or clears, when near the end) a VOD resume position. Keeps the newest 200. */
     suspend fun saveResumePosition(url: String, positionMs: Long, durationMs: Long) {
@@ -280,7 +289,7 @@ class PlayerPrefs(private val context: Context) {
         prefs[favoritesKey]?.let {
             runCatching { json.decodeFromString<Set<String>>(it) }.getOrNull()
         } ?: emptySet()
-    }
+    }.flowOn(Dispatchers.Default)
 
     suspend fun toggleFavorite(channelUrl: String) {
         context.playerDataStore.edit { prefs ->
@@ -300,7 +309,7 @@ class PlayerPrefs(private val context: Context) {
         prefs[recentChannelsKey]?.let {
             runCatching { json.decodeFromString<List<String>>(it) }.getOrNull()
         } ?: emptyList()
-    }
+    }.flowOn(Dispatchers.Default)
 
     /**
      * Records a channel as watched, moving it to the front if it was already
@@ -328,7 +337,7 @@ class PlayerPrefs(private val context: Context) {
         prefs[schedulesKey]?.let {
             runCatching { json.decodeFromString<List<ScheduledRecording>>(it) }.getOrNull()
         } ?: emptyList()
-    }
+    }.flowOn(Dispatchers.Default)
 
     suspend fun addSchedule(item: ScheduledRecording) {
         context.playerDataStore.edit { prefs ->
@@ -354,7 +363,7 @@ class PlayerPrefs(private val context: Context) {
         prefs[hiddenKey]?.let {
             runCatching { json.decodeFromString<Set<String>>(it) }.getOrNull()
         } ?: emptySet()
-    }
+    }.flowOn(Dispatchers.Default)
 
     suspend fun toggleHidden(channelUrl: String) {
         context.playerDataStore.edit { prefs ->

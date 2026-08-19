@@ -76,11 +76,38 @@ internal fun buildRecentlyAdded(
     limit: Int = 20,
     minimum: Int = 4,
 ): List<CatalogCard> {
-    val dated = ArrayList<Pair<Long, CatalogCard>>()
-    movies.forEach { m -> m.addedMs?.let { dated += it to CatalogCard.MovieCard(m) } }
-    series.forEach { s -> s.addedMs?.let { dated += it to CatalogCard.SeriesCard(s) } }
-    if (dated.size < minimum) return emptyList()
-    return dated.sortedByDescending { it.first }.take(limit).map { it.second }
+    // Bounded insertion rather than sorting the catalogue. This walks every
+    // title the playlist has — 20,000 is an ordinary size — to keep twenty of
+    // them, and it runs during Home's first composition after each bundle
+    // load, so the old "pair up all of them, sort all of them, take 20" cost
+    // both a full n log n and an allocation per dated title on the critical
+    // path of the app's first frame.
+    //
+    // Ties keep insertion order (the scan stops at the first entry that is
+    // not strictly older), so movies still precede series at an identical
+    // timestamp exactly as the stable sort left them.
+    val topAdded = ArrayList<Long>(limit)
+    val topCards = ArrayList<CatalogCard>(limit)
+    var dated = 0
+
+    fun offer(added: Long, card: CatalogCard) {
+        dated++
+        if (topCards.size == limit && added <= topAdded[limit - 1]) return
+        var at = topCards.size
+        while (at > 0 && topAdded[at - 1] < added) at--
+        if (at >= limit) return
+        topAdded.add(at, added)
+        topCards.add(at, card)
+        if (topCards.size > limit) {
+            topAdded.removeAt(limit)
+            topCards.removeAt(limit)
+        }
+    }
+
+    movies.forEach { m -> m.addedMs?.let { offer(it, CatalogCard.MovieCard(m)) } }
+    series.forEach { s -> s.addedMs?.let { offer(it, CatalogCard.SeriesCard(s)) } }
+    if (dated < minimum) return emptyList()
+    return topCards
 }
 
 /**

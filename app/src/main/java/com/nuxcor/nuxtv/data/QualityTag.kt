@@ -4,6 +4,12 @@ package com.nuxcor.nuxtv.data
 object QualityTag {
 
     private val fourK = Regex("""(?i)\b(4k|uhd|2160p?|3840p)\b""")
+
+    // rank() and tierOf() both know 2K, so of() has to as well. Without it a
+    // channel NAMED "Sky Sports 2K" or "ESPN 1440p" scored rank(null) == 0 —
+    // below SD — which is the exact failure the 2K tier was added to fix,
+    // just reached from the name instead of from a measurement.
+    private val twoK = Regex("""(?i)\b(2k|1440p?)\b""")
     private val fhd = Regex("""(?i)\b(fhd|full\s?hd|1080p?)\b""")
     private val hd = Regex("""(?i)\b(hd|720p?)\b""")
     private val sd = Regex("""(?i)\b(sd|480p?|576p?)\b""")
@@ -15,6 +21,7 @@ object QualityTag {
         val name = TextNorm.compat(rawName)
         return when {
             fourK.containsMatchIn(name) -> "4K"
+            twoK.containsMatchIn(name) -> "2K"
             fhd.containsMatchIn(name) -> "FHD"
             hd.containsMatchIn(name) -> "HD"
             sd.containsMatchIn(name) -> "SD"
@@ -38,7 +45,7 @@ object QualityTag {
     // Bare numbers ("Sky 1080") stay part of the identity; only explicit
     // quality tokens are stripped for duplicate grouping.
     private val allTags =
-        Regex("""(?i)\b(4k|uhd|fhd|full\s?hd|hd|sd|1080p|720p|2160p|3840p|480p|576p)\b""")
+        Regex("""(?i)\b(4k|uhd|2k|fhd|full\s?hd|hd|sd|1080p|720p|1440p|2160p|3840p|480p|576p)\b""")
 
     // Hoisted: baseName runs per channel per merge, and a Regex compiled
     // inside the call was the only allocation on that path.
