@@ -316,6 +316,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             session.durationMs = engine.durationMs
             session.videoSize = engine.videoResolution
             session.videoFrameRate = engine.videoFrameRate
+            session.hdrFormat = engine.hdrFormat
+            session.audioFormatLabel = engine.audioFormatLabel
             val chromeUp = session.layer == PlayerLayer.Controls ||
                 session.layer == PlayerLayer.ChannelList ||
                 session.layer == PlayerLayer.Tracks ||
@@ -654,7 +656,13 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             exit = PlayerMotion.exitToTop(),
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
-            VodTitleHeader(title = item?.title.orEmpty(), subtitle = item?.subtitle)
+            VodTitleHeader(
+                title = item?.title.orEmpty(),
+                subtitle = item?.subtitle,
+                resolution = session.videoSize,
+                hdrFormat = session.hdrFormat,
+                audioFormatLabel = session.audioFormatLabel,
+            )
         }
 
         // Banner + transport in one bottom column over one gradient: their
@@ -684,6 +692,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     channel = channel,
                     isLive = request.isLive,
                     resolution = session.videoSize,
+                    hdrFormat = session.hdrFormat,
+                    audioFormatLabel = session.audioFormatLabel,
                     isRecording = activeRecording != null,
                     // Only while the controls are down: with them open the
                     // viewer has already found the thing the hint points at.

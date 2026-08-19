@@ -104,6 +104,20 @@ interface PlayerEngine {
      */
     val videoFrameRate: Float?
 
+    /**
+     * "Dolby Vision", "HDR10" or "HLG" when the decoded video carries one, null
+     * for ordinary SDR. Read from the decoded format, never from the stream
+     * name — providers write "HDR" into titles that carry nothing of the kind.
+     */
+    val hdrFormat: String?
+
+    /**
+     * The decoded audio said the way a TV viewer recognises it: "Dolby Atmos",
+     * "Dolby Digital+", "DTS-HD", "5.1". Null when it is ordinary stereo or the
+     * engine can't tell.
+     */
+    val audioFormatLabel: String?
+
     fun audioTracks(): List<Track>
     fun textTracks(): List<Track>
 

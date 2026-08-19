@@ -271,6 +271,13 @@ class VlcEngine(
             mediaPlayer.currentVideoTrack?.let { t -> (t.width to t.height).takeIf { t.height > 0 } }
         }.getOrNull()
 
+    // libVLC's bindings expose audio tracks as bare descriptions and video
+    // tracks without colour transfer, so neither HDR nor a channel layout can
+    // be read back honestly. Badges stay off on the VLC engine rather than
+    // guessing from a codec name — ExoPlayer, the default, reports both.
+    override val hdrFormat: String? get() = null
+    override val audioFormatLabel: String? get() = null
+
     // VLC reports the rate as a rational, and leaves the denominator at 0 on
     // streams that never declared one.
     override val videoFrameRate: Float?

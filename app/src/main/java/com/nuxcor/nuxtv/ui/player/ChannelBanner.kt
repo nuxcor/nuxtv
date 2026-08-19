@@ -53,6 +53,8 @@ internal fun ChannelBanner(
     channel: LiveChannel?,
     isLive: Boolean,
     resolution: Pair<Int, Int>?,
+    hdrFormat: String?,
+    audioFormatLabel: String?,
     isRecording: Boolean,
     showKeyHints: Boolean = false,
 ) {
@@ -188,14 +190,10 @@ internal fun ChannelBanner(
             ) {
                 // What is actually being decoded, not what the stream name
                 // advertises — the two disagree more often than not.
-                resolution?.let { (w, h) ->
-                    com.nuxcor.nuxtv.ui.components.MetaChip(
-                        // Tier only — "HD", not "720p HD". The precise numbers
-                        // live in the options sheet for whoever wants them.
-                        com.nuxcor.nuxtv.data.QualityTag.tierOf(h) ?: return@let,
-                        accent = true,
-                    )
-                }
+                // Tier only — "HD", not "720p HD". The precise numbers live in
+                // the options sheet for whoever wants them. HDR and the audio
+                // format join it when the stream actually carries them.
+                StreamBadges(resolution, hdrFormat, audioFormatLabel)
                 if (isRecording) {
                     PlayerBadge(text = "REC", color = NuxColors.Error)
                 }

@@ -24,7 +24,11 @@ object QualityTag {
 
     /** Higher = better; unknown quality ranks below SD. */
     fun rank(quality: String?): Int = when (quality) {
-        "4K" -> 4
+        "4K" -> 5
+        // Must stay above FHD. Omitting it left rank("2K") at 0 — below SD —
+        // so a channel measured at 1440p lost the duplicate merge to its own
+        // SD variant and sorted last under "Best quality first".
+        "2K" -> 4
         "FHD" -> 3
         "HD" -> 2
         "SD" -> 1
@@ -92,6 +96,9 @@ object QualityTag {
         if (height <= 0) return null
         return when {
             height >= 2000 -> "4K"
+            // 1440p is its own tier. Calling it FHD was the reason a channel
+            // that decodes at 2560x1440 announced itself as 1080p.
+            height >= 1400 -> "2K"
             height >= 1000 -> "FHD"
             height >= 700 -> "HD"
             else -> "SD"
@@ -100,13 +107,10 @@ object QualityTag {
 
     /** Label for an actual decoded resolution, e.g. 1920x1080 → "1080p FHD". */
     fun ofResolution(width: Int, height: Int): String? {
-        if (height <= 0) return null
-        val tier = when {
-            height >= 2000 -> "4K"
-            height >= 1000 -> "FHD"
-            height >= 700 -> "HD"
-            else -> "SD"
-        }
+        // Derived from tierOf rather than repeating its thresholds: the two
+        // had already drifted once, and a 1440p stream then called itself
+        // "1440p FHD" here while tierOf called it 2K.
+        val tier = tierOf(height) ?: return null
         return "${height}p $tier"
     }
 }

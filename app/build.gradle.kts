@@ -137,6 +137,13 @@ dependencies {
     implementation(libs.media3.exoplayer.rtsp)
     implementation(libs.media3.datasource.rtmp)
     implementation(libs.media3.ui)
+    // FFmpeg audio decoder, built from the androidx/media 1.8.0 source tree —
+    // Google does not publish it to Maven. It is what gives AC-3, E-AC-3, DTS
+    // and TrueHD audio on devices whose hardware decoders don't cover them,
+    // which on IPTV is the difference between a channel with sound and one
+    // without. DefaultRenderersFactory finds it reflectively, so nothing has
+    // to reference it in code. See docs/ffmpeg-decoder.md to rebuild.
+    implementation(files("libs/media3-decoder-ffmpeg-1.8.0.aar"))
     implementation(libs.media3.session)
     // MediaSessionCompat for the VLC engine's minimal session.
     implementation(libs.androidx.media)
