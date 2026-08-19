@@ -32,8 +32,15 @@ object ManifestCuration {
             // the one it was built against, those channels simply vanished.
             // Now they keep the provider's own category: no curated shelf, but
             // present in "All channels", in search, and in the guide.
-            val section = manifest.sectionFor(id, channel.categoryId)
-            val region = section?.let { manifest.regionFor(id, channel.categoryId) }
+            // A tile that resolved its own shelf outranks the channel's
+            // provider category — see [CatalogueManifest.tileShelf]. Without
+            // it, a channel whose 4K variant was folded in natively came back
+            // filed under region "4K", matched no kept territory, and was
+            // deleted for owning the very source the fold added.
+            val tile = manifest.tileShelf[id]
+            val section = tile?.section ?: manifest.sectionFor(id, channel.categoryId)
+            val region = tile?.region
+                ?: section?.let { manifest.regionFor(id, channel.categoryId) }
             if (section != null) {
                 if (section in manifest.hiddenSections) continue
                 if (manifest.keptRegionSet.isNotEmpty() &&
@@ -123,10 +130,18 @@ object ManifestCuration {
             )
         }
 
-        // Sections render in the manifest's order, not discovery order.
+        // Sections render in the manifest's order, not discovery order. A
+        // region-less shelf sorts by its section like any other rather than
+        // being flung to the end: "SPORTS" has no '|', so asking for the
+        // region ahead of it returned the whole key, matched no territory,
+        // and scored 99.
         val ordered = liveCats.values.sortedWith(
             compareBy(
-                { manifest.keptRegions.indexOf(it.id.substringBefore('|')).takeIf { i -> i >= 0 } ?: 99 },
+                { cat ->
+                    val region = cat.id.substringBefore('|').takeIf { cat.id.contains('|') }
+                    if (region == null) 0 else manifest.keptRegions.indexOf(region)
+                        .takeIf { i -> i >= 0 } ?: 99
+                },
                 { manifest.sectionOrder.indexOf(it.id.substringAfter('|')).takeIf { i -> i >= 0 } ?: 99 },
             )
         )

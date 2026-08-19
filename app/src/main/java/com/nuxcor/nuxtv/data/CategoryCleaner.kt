@@ -184,6 +184,9 @@ object CategoryCleaner {
             channels = channels,
             movies = movies,
             series = series,
+            // Marked so a cache read does not run this pass again over its own
+            // output — or, worse, over curation's. See [ContentBundle.cleaned].
+            cleaned = true,
         )
     }
 

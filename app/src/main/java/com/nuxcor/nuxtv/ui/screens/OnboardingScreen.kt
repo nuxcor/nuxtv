@@ -117,15 +117,13 @@ fun OnboardingScreen(
         androidx.activity.compose.BackHandler(enabled = step == Step.Choose) { onCancel() }
     }
 
+    // No background here: the glow is [NuxTheme.HeroGlow], handed to TvSafe so
+    // it paints full-bleed. Painting it on this Box put it inside the overscan
+    // inset, leaving the theme's page gradient visible in the margin as a
+    // lighter frame around all four edges.
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.radialGradient(
-                    colors = listOf(NuxColors.AccentGlow, NuxColors.Background),
-                    radius = 1600f,
-                )
-            )
             .padding(horizontal = 64.dp, vertical = 40.dp)
     ) {
         // The lockup sits outside the scrolling part, which is the whole point

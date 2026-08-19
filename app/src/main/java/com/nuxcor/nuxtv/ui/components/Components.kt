@@ -30,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
@@ -69,6 +70,7 @@ private val CardShape = NuxShape.Card
 
 /** How much of a logo chip the logo itself occupies; see [Artwork]. */
 private const val LogoFitFraction = 0.72f
+
 private val ChipShape = NuxShape.Chip
 private val RestingBorder = NuxBorders.restingCard
 
@@ -302,9 +304,15 @@ fun PosterCard(
                     }
                 }
             }
-            // Only alongside artwork: the no-art card renders the full title as
-            // text, and provider names usually carry the year inside them already.
-            if (year != null && year > 1800 && imageUrl != null) {
+            // The ROW is unconditional once there is a year; only the digits
+            // wait for artwork. [imageUrl] arrives asynchronously — borrowed
+            // TMDB art resolves after first composition — so deciding the
+            // card's height on it made cards grow ~20dp at different moments,
+            // reflowing a row the viewer was already travelling. Reserving the
+            // line keeps every card in a row the same height from frame one,
+            // while still not printing a year over a card whose own fallback
+            // text is the title (which usually carries the year already).
+            if (year != null && year > 1800) {
                 Text(
                     text = year.toString(),
                     style = MaterialTheme.typography.labelSmall,
@@ -318,7 +326,13 @@ fun PosterCard(
                     // padding — 3dp from the edge sits outside the arc for the
                     // text's whole height. Stepping in as well puts the line
                     // inside both the clip and the ring with room to spare.
-                    modifier = Modifier.padding(start = 10.dp, top = 6.dp, bottom = 8.dp),
+                    // Hidden rather than omitted when there is no artwork:
+                    // same composable, same text, same measurement, just not
+                    // painted — so the reserved height tracks the font scale
+                    // instead of a constant that only holds at 1.0.
+                    modifier = Modifier
+                        .alpha(if (imageUrl != null) 1f else 0f)
+                        .padding(start = 10.dp, top = 6.dp, bottom = 8.dp),
                 )
             }
         }

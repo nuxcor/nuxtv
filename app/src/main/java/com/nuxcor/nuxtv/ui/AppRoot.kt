@@ -25,6 +25,7 @@ import com.nuxcor.nuxtv.ui.screens.OnboardingScreen
 import com.nuxcor.nuxtv.ui.player.PlayerScreen
 import com.nuxcor.nuxtv.ui.screens.SeriesDetailScreen
 import com.nuxcor.nuxtv.ui.theme.NuxColors
+import com.nuxcor.nuxtv.ui.theme.HeroGlow
 import com.nuxcor.nuxtv.ui.theme.Space
 
 private enum class RootScreen { Boot, Onboarding, Main }
@@ -35,10 +36,20 @@ private enum class RootScreen { Boot, Onboarding, Main }
  * content doesn't shift when you open a detail page.
  */
 @Composable
-private fun TvSafe(content: @Composable () -> Unit) {
+private fun TvSafe(
+    /**
+     * Painted full-bleed, behind the overscan inset. A screen that wants its
+     * own background has to hand it over rather than paint it itself: painted
+     * inside the padding it leaves the theme's page gradient showing in the
+     * margin, which reads as a lighter frame around the whole screen.
+     */
+    background: androidx.compose.ui.graphics.Brush? = null,
+    content: @Composable () -> Unit,
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .then(if (background != null) Modifier.background(background) else Modifier)
             .padding(horizontal = Space.gutter, vertical = Space.gutterVertical)
     ) { content() }
 }
@@ -75,7 +86,7 @@ fun AppRoot(vm: MainViewModel = viewModel()) {
             RootScreen.Boot -> Box(
                 modifier = Modifier.fillMaxSize().background(NuxColors.Background)
             )
-            RootScreen.Onboarding -> TvSafe {
+            RootScreen.Onboarding -> TvSafe(background = HeroGlow) {
                 OnboardingScreen(vm = vm, cancellable = false, onDone = {}, onCancel = {})
             }
             RootScreen.Main -> NuxNavHost(vm)
@@ -109,7 +120,7 @@ private fun NuxNavHost(vm: MainViewModel) {
                 }
             ),
         ) { entry ->
-            TvSafe {
+            TvSafe(background = HeroGlow) {
             OnboardingScreen(
                 vm = vm,
                 cancellable = true,

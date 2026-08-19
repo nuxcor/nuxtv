@@ -141,4 +141,91 @@ class ManifestCurationTest {
         // catalogue, so "News · United States" would distinguish nothing.
         assertEquals("News", out.liveCategories[0].name)
     }
+
+    @Test
+    fun `a tile's own shelf beats the provider category its primary sits in`() {
+        // Finding 5, the real shape. The build pass already resolves a 4K/8K
+        // tier to the channel's true territory and folds the tier in as a
+        // SOURCE — every shipped tile carries US/UK/CA/AFR, never a tier. The
+        // app was ignoring that and re-reading the primary's provider
+        // category, which still says "4K", so the whole channel was deleted
+        // for owning the very source the fold had just added.
+        val m = manifest(
+            categories = mapOf("662" to CatalogueManifest.CategoryRule("SPORTS", "4K")),
+            collapse = mapOf(
+                "espn|US" to CatalogueManifest.CollapseTile(
+                    section = "NEWS", region = "US", primary = 1, sources = listOf(1, 2),
+                ),
+            ),
+            keptRegions = listOf("US", "UK"),
+        )
+        val out = ManifestCuration.apply(ContentBundle(channels = listOf(channel(1, "662"))), m)
+        assertEquals(1, out.channels.size)
+        // The tile's US/NEWS, not the category's 4K/SPORTS.
+        assertEquals("US|NEWS", out.channels[0].categoryId)
+    }
+
+    @Test
+    fun `a tier region on a channel with no tile is no region, not a territory`() {
+        // The residual case: a tier-filed stream that never collapsed. A tier
+        // is not a place, so it shelves under the plain section rather than
+        // being tested against kept_regions and deleted.
+        val m = manifest(
+            categories = mapOf("662" to CatalogueManifest.CategoryRule("NEWS", "4K")),
+            keptRegions = listOf("US", "UK"),
+        )
+        val out = ManifestCuration.apply(ContentBundle(channels = listOf(channel(1, "662"))), m)
+        assertEquals(1, out.channels.size)
+        // Plain section — never a "4K" shelf of its own.
+        assertEquals("NEWS", out.channels[0].categoryId)
+        assertEquals(listOf("News"), out.liveCategories.map { it.name })
+    }
+
+    @Test
+    fun `a real territory outside kept_regions is still filtered out`() {
+        val m = manifest(
+            categories = mapOf("9" to CatalogueManifest.CategoryRule("NEWS", "IE")),
+            keptRegions = listOf("US", "UK"),
+        )
+        val out = ManifestCuration.apply(ContentBundle(channels = listOf(channel(1, "9"))), m)
+        assertTrue(out.channels.isEmpty())
+    }
+
+    @Test
+    fun `a blank region is no region, not an empty one`() {
+        // Finding 13: CategoryRule.region defaults to "", which produced the
+        // category id "|NEWS" and the label "News · ".
+        val m = manifest(categories = mapOf("42" to CatalogueManifest.CategoryRule("NEWS")))
+        val out = ManifestCuration.apply(ContentBundle(channels = listOf(channel(1, "42"))), m)
+        assertEquals("NEWS", out.channels[0].categoryId)
+        assertEquals("News", out.liveCategories[0].name)
+    }
+
+    @Test
+    fun `a reassigned channel inherits the territory its table implies`() {
+        // Finding 13: a channel moved by uk_reassign whose provider category
+        // carries no rule came out region-less and opened a second, unlabelled
+        // "News" shelf beside "News · United Kingdom".
+        val m = manifest(
+            categories = mapOf("42" to CatalogueManifest.CategoryRule("NEWS", "UK")),
+            keptRegions = listOf("UK", "US"),
+        ).copy(
+            regionLabels = mapOf("UK" to "United Kingdom", "US" to "United States"),
+            ukReassign = mapOf("7" to "NEWS"),
+        )
+        val bundle = ContentBundle(channels = listOf(channel(1, "42"), channel(7, "no-rule")))
+        val out = ManifestCuration.apply(bundle, m)
+        // Both land on the same UK shelf rather than one opening a twin.
+        assertEquals(listOf("UK|NEWS", "UK|NEWS"), out.channels.map { it.categoryId })
+        assertEquals(1, out.liveCategories.size)
+    }
+
+    @Test
+    fun `cleaning marks the bundle so a cache read does not repeat it`() {
+        // Finding 3: re-cleaning a curated bundle rewrote its shelf labels, so
+        // a warm start disagreed with the network load that wrote the cache.
+        val cleaned = com.nuxcor.nuxtv.data.CategoryCleaner.clean(ContentBundle())
+        assertTrue(cleaned.cleaned)
+        assertTrue(!ContentBundle().cleaned)
+    }
 }

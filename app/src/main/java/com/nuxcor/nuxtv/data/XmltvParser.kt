@@ -7,17 +7,76 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.zip.GZIPInputStream
 
-/** Union of two guides: the first source wins any id both carry. */
-fun XmltvData.plus(other: XmltvData): XmltvData = XmltvData(
-    channelNames = other.channelNames + channelNames,
-    programmes = buildMap {
-        putAll(other.programmes)
-        putAll(programmes)
-    },
-    nameToId = other.nameToId + nameToId,
-    normalizedToId = other.normalizedToId + normalizedToId,
-    altNames = other.altNames + altNames,
-)
+/**
+ * Folds several guides into one, highest-ranked source first.
+ *
+ * This replaces a pairwise `plus` applied in a loop, which was wrong three
+ * ways at once. It rebuilt every accumulated map on each step — O(N²) copying
+ * over a dozen packs, one of them 55 MB, on a TV box. It let a pack that
+ * merely *declares* a channel shadow a fuller schedule from a lower-ranked
+ * pack, so a row showed a few hours of listings with the rest already
+ * downloaded and discarded. And it resolved a normalized key that two packs
+ * disagreed on by first-wins, which is precisely the cross-wiring
+ * [XmltvData.normalizedToId] documents itself as preventing — an invariant
+ * that held inside one parse and was then dropped on the merge, where a dozen
+ * packs is exactly where "Sky Sports 1" meets "Sky Sports 1 HD".
+ *
+ * One accumulator, fed a pack at a time so no pack is held after it is
+ * folded in, and the contested set survives the whole fold rather than being
+ * reinstated by the next pack along.
+ */
+class XmltvMerger {
+    private val channelNames = HashMap<String, String>()
+    private val nameToId = HashMap<String, String>()
+    private val altNames = HashMap<String, List<String>>()
+    private val normalizedToId = HashMap<String, String>()
+    private val contested = HashSet<String>()
+    private val programmes = HashMap<String, MutableList<EpgProgram>>()
+    private var count = 0
+
+    val isEmpty: Boolean get() = count == 0
+
+    fun add(data: XmltvData) {
+        count++
+        // First source wins: these identify a channel, and the pack order is
+        // the ranking.
+        data.channelNames.forEach { (k, v) -> channelNames.putIfAbsent(k, v) }
+        data.nameToId.forEach { (k, v) -> nameToId.putIfAbsent(k, v) }
+        data.altNames.forEach { (k, v) -> altNames.putIfAbsent(k, v) }
+        data.normalizedToId.forEach { (k, v) ->
+            val held = normalizedToId.putIfAbsent(k, v)
+            if (held != null && held != v) contested += k
+        }
+        // Schedules accumulate instead: two packs covering one channel are
+        // two parts of its day, not a winner and a loser.
+        data.programmes.forEach { (k, v) ->
+            programmes.getOrPut(k) { ArrayList(v.size) }.addAll(v)
+        }
+    }
+
+    fun build(): XmltvData? {
+        if (count == 0) return null
+        contested.forEach { normalizedToId.remove(it) }
+        val merged = HashMap<String, List<EpgProgram>>(programmes.size)
+        programmes.forEach { (id, list) ->
+            merged[id] = if (list.size <= 1) list else list
+                // One programme per start time, the higher-ranked pack's —
+                // distinctBy keeps the first seen, and packs were added in
+                // rank order. This is also what bounds the concatenation:
+                // packs overlap heavily, so the union stays close to the
+                // largest single schedule rather than their sum.
+                .distinctBy { it.startMs }
+                .sortedBy { it.startMs }
+        }
+        return XmltvData(
+            channelNames = channelNames,
+            programmes = merged,
+            nameToId = nameToId,
+            normalizedToId = normalizedToId,
+            altNames = altNames,
+        )
+    }
+}
 
 data class XmltvData(
     /** channel id → first display name (both trimmed). */

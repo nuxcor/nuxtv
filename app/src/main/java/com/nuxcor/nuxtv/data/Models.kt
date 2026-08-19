@@ -162,6 +162,20 @@ data class ContentBundle(
     val movies: List<Movie> = emptyList(),
     val seriesCategories: List<Category> = emptyList(),
     val series: List<Series> = emptyList(),
+    /**
+     * Set once [CategoryCleaner] (and any manifest curation) has run, so a
+     * cache read does not run them a second time.
+     *
+     * Cleaning is idempotent over its own output but NOT over curation's: the
+     * display-name pass strips a curated "Sports · United States" back to
+     * "Sports United States" because `·` is not a character a brand name
+     * carries, and the movie/series stop-words take the axis word off "All
+     * Movies". A warm start therefore labelled shelves differently from the
+     * network load that had just written them. Defaults false so caches
+     * written before this field still get cleaned on read, which is what it
+     * was doing there for.
+     */
+    val cleaned: Boolean = false,
 ) {
     val isEmpty: Boolean
         get() = channels.isEmpty() && movies.isEmpty() && series.isEmpty()

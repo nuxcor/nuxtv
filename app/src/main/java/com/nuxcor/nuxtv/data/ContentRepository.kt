@@ -43,8 +43,11 @@ class ContentRepository(context: Context) {
             bundleJson.decodeFromStream<ContentBundle>(stream)
         }
         // Caches written before the cleaner existed get cleaned on read, so a
-        // warm start doesn't show the raw mess until the next refresh.
-    }.getOrNull()?.let { CategoryCleaner.clean(it) }
+        // warm start doesn't show the raw mess until the next refresh. Ones
+        // written since say so and are left alone — re-cleaning a curated
+        // bundle rewrites its shelf labels, so cache and network disagreed
+        // about what the same catalogue is called. See [ContentBundle.cleaned].
+    }.getOrNull()?.let { if (it.cleaned) it else CategoryCleaner.clean(it) }
 
     /**
      * The #EXTM3U url-tvg header, persisted beside the playlist cache. It only
@@ -377,22 +380,30 @@ class ContentRepository(context: Context) {
     /**
      * Downloads several XMLTV packs and folds them into one guide. A pack that
      * fails is skipped rather than failing the load — a partial guide beats an
-     * empty one. Handles the .gz the packs ship as: OkHttp only inflates what
-     * it asked for with Accept-Encoding, not a body that is literally a gzip file.
+     * empty one.
+     *
+     * Each pack is parsed, merged, and dropped before the next is requested.
+     * The old shape accumulated with a pairwise merge that rebuilt every map
+     * per pack, so the cost grew with the square of the pack count over a
+     * dozen packs — one of which is 55 MB — on a device with a TV box's heap.
+     * [XmltvMerger] holds one set of maps for the whole fold.
      */
     private fun fetchAndMerge(urls: List<String>): XmltvData {
         val now = System.currentTimeMillis()
-        var merged: XmltvData? = null
+        val merger = XmltvMerger()
         for (u in urls) {
             val one = runCatching {
                 val request = Request.Builder().url(u).header("User-Agent", "Agoro/2.1").build()
                 http.newCall(request).execute().use { resp ->
                     if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
                     val body = resp.body ?: throw IOException("empty")
-                    val stream = if (u.endsWith(".gz", ignoreCase = true)) {
-                        java.util.zip.GZIPInputStream(body.byteStream().buffered())
-                    } else body.byteStream()
-                    stream.use {
+                    // Straight through: the parser sniffs the gzip magic bytes
+                    // itself, so gating on a ".gz" suffix added nothing and
+                    // could take it away — OkHttp transparently inflates a body
+                    // whenever it set Accept-Encoding itself, and wrapping an
+                    // already-inflated stream in GZIPInputStream throws, losing
+                    // a pack that was downloaded intact.
+                    body.byteStream().use {
                         XmltvParser.parse(
                             it,
                             windowStartMs = now - 30L * 3600 * 1000,
@@ -404,9 +415,9 @@ class ContentRepository(context: Context) {
                 android.util.Log.w("Agoro", "EPG pack failed ($u): ${e.message}")
                 null
             }
-            if (one != null) merged = merged?.plus(one) ?: one
+            if (one != null) merger.add(one)
         }
-        return merged ?: throw IOException("No guide pack could be loaded")
+        return merger.build() ?: throw IOException("No guide pack could be loaded")
     }
 
 

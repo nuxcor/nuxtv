@@ -174,6 +174,40 @@ data class CatalogueManifest(
         tiles.mapNotNull { (primary, sources) -> effectivePrimary(primary, sources) }.toSet()
     }
 
+    /** Where a tile belongs, as its own record rather than its category's. */
+    data class Shelf(val section: String, val region: String?)
+
+    /**
+     * The shelf a tile resolved for itself, keyed by the stream that renders it.
+     *
+     * This is authoritative and beats anything [categories] says, because the
+     * build pass had information the app does not. A quality tier is filed in
+     * the provider's region field — "4K", "8K" — and the pass resolves it to
+     * the channel's real territory from its name prefix and from where the
+     * rest of that channel's sources live, then votes on a section across all
+     * of them. Reading the category instead meant a US tile whose primary
+     * happened to sit in a 4K category came back as region "4K", matched no
+     * kept territory, and took the whole channel off the shelf — the tier
+     * already folded in natively as a source, and the channel deleted for it.
+     *
+     * Metro locals carry no section of their own: they are US local
+     * affiliates by construction, whatever prefix the provider gave them.
+     */
+    val tileShelf: Map<Int, Shelf> by lazy {
+        buildMap {
+            collapse.live.values.forEach { t ->
+                val primary = effectivePrimary(t.primary, t.sources) ?: return@forEach
+                if (t.section.isNotBlank()) {
+                    put(primary, Shelf(t.section, t.region.takeIf { it.isNotBlank() }))
+                }
+            }
+            metroLocals.values.forEach { t ->
+                val primary = effectivePrimary(t.primary, t.sources) ?: return@forEach
+                put(primary, Shelf(METRO_SECTION, METRO_REGION))
+            }
+        }
+    }
+
     /**
      * Every stream folded into a tile, so only the primary renders.
      *
@@ -218,8 +252,35 @@ data class CatalogueManifest(
     private fun applyMerge(streamId: Int, section: String) =
         mergedSection[streamId.toString()] ?: section
 
-    fun regionFor(streamId: Int, categoryId: String?): String? =
-        regionFix[streamId.toString()] ?: categories.live[categoryId]?.region
+    /**
+     * The territory a channel belongs to, or null when it has none.
+     *
+     * Blank counts as none: [CategoryRule.region] defaults to `""`, and a rule
+     * that omits it produced the category id "|SPORTS" and the shelf label
+     * "Sports · ". A quality tier counts as none too — the manifest files a
+     * few categories as "4K"/"8K" where a territory belongs, and testing
+     * those against [keptRegions] deleted the provider's whole 4K and 8K
+     * lineup as if it were a country we do not serve. A tier is not a place,
+     * so those channels shelve under the plain section instead. Territories
+     * genuinely outside [keptRegions] — IE, AR — are still excluded, which is
+     * what that list is for.
+     *
+     * The two per-channel reassignment tables name their own territory: a
+     * channel moved by [afrAssign] is African and one moved by [ukReassign] is
+     * British, whatever their provider category says. Without that, any such
+     * channel whose category had no rule came out region-less and opened a
+     * second, unlabelled "Sports" shelf beside "Sports · United Kingdom".
+     */
+    fun regionFor(streamId: Int, categoryId: String?): String? {
+        val key = streamId.toString()
+        val raw = regionFix[key]
+            ?: when {
+                afrAssign.containsKey(key) -> "AFR"
+                ukReassign.containsKey(key) -> "UK"
+                else -> categories.live[categoryId]?.region
+            }
+        return raw?.takeIf { it.isNotBlank() && it.uppercase() !in QUALITY_TIERS }
+    }
 
     fun label(sectionKey: String): String =
         sections.live.firstOrNull { it.key == sectionKey }?.label
@@ -229,6 +290,18 @@ data class CatalogueManifest(
     companion object {
         /** Bundled copy, so a first run with no network still gets a clean catalogue. */
         const val ASSET = "catalogue-manifest.json"
+
+        /**
+         * Values found in the region field that name a picture quality rather
+         * than a place. Kept explicit rather than inferred from
+         * [regionLabels]: that map names only the territories we serve, so
+         * inferring would have quietly re-admitted the ones we don't.
+         */
+        private val QUALITY_TIERS = setOf("4K", "8K", "2K", "UHD", "FHD", "HD", "SD")
+
+        /** Metro locals are US affiliates by construction; see [tileShelf]. */
+        private const val METRO_SECTION = "LOCALS"
+        private const val METRO_REGION = "US"
     }
 }
 

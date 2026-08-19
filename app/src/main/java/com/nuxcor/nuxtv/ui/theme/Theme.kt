@@ -216,6 +216,17 @@ private val PageGradient = Brush.verticalGradient(
     listOf(NuxColors.BackgroundRaised, NuxColors.Background)
 )
 
+/**
+ * Radial warmth behind a full-screen hero pane. Must be painted FULL-BLEED,
+ * outside the overscan inset: drawn inside it, the page gradient underneath
+ * stays visible in the margin and the screen grows a lighter frame around a
+ * darker middle — two backgrounds where the design has one.
+ */
+val HeroGlow: Brush = Brush.radialGradient(
+    colors = listOf(NuxColors.AccentGlow, NuxColors.Background),
+    radius = 1600f,
+)
+
 @Composable
 fun NuxTvTheme(content: @Composable () -> Unit) {
     MaterialTheme(
