@@ -271,6 +271,17 @@ class VlcEngine(
             mediaPlayer.currentVideoTrack?.let { t -> (t.width to t.height).takeIf { t.height > 0 } }
         }.getOrNull()
 
+    // VLC reports the rate as a rational, and leaves the denominator at 0 on
+    // streams that never declared one.
+    override val videoFrameRate: Float?
+        get() = if (released) null else runCatching {
+            mediaPlayer.currentVideoTrack?.let { t ->
+                (t.frameRateNum.toFloat() / t.frameRateDen).takeIf {
+                    t.frameRateDen > 0 && t.frameRateNum > 0
+                }
+            }
+        }.getOrNull()
+
     // --- track selection ------------------------------------------------------
 
     override fun audioTracks(): List<Track> =

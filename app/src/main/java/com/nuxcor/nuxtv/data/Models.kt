@@ -64,8 +64,14 @@ data class LiveChannel(
      * and EPG matching, so regional feeds stay distinct entries even when
      * their display names now read the same.
      */
-    val displayName: String get() =
+    // Computed once per channel rather than per read: this is touched from
+    // ~25 call sites, most of them inside list-item composables that rerun on
+    // every scroll frame, and each read was six regex passes. Delegated
+    // properties are skipped by kotlinx.serialization, so the cached bundle
+    // is unaffected.
+    val displayName: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
         ContentClassifier.stripChannelTags(QualityTag.baseName(name)).ifBlank { name }
+    }
 }
 
 /** One EPG programme, used for the catch-up picker. */

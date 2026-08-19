@@ -3,17 +3,23 @@ package com.nuxcor.nuxtv.data
 /** Extracts an advertised video quality tag from a raw stream name. */
 object QualityTag {
 
-    private val fourK = Regex("""(?i)\b(4k|uhd|2160p?)\b""")
+    private val fourK = Regex("""(?i)\b(4k|uhd|2160p?|3840p)\b""")
     private val fhd = Regex("""(?i)\b(fhd|full\s?hd|1080p?)\b""")
     private val hd = Regex("""(?i)\b(hd|720p?)\b""")
     private val sd = Regex("""(?i)\b(sd|480p?|576p?)\b""")
 
-    fun of(rawName: String): String? = when {
-        fourK.containsMatchIn(rawName) -> "4K"
-        fhd.containsMatchIn(rawName) -> "FHD"
-        hd.containsMatchIn(rawName) -> "HD"
-        sd.containsMatchIn(rawName) -> "SD"
-        else -> null
+    // Read through the compatibility form: "ESPN ᵁᴴᴰ ³⁸⁴⁰ᴾ" advertises 4K in
+    // superscript, and the tier is worth recovering even though the name
+    // itself drops the run entirely.
+    fun of(rawName: String): String? {
+        val name = TextNorm.compat(rawName)
+        return when {
+            fourK.containsMatchIn(name) -> "4K"
+            fhd.containsMatchIn(name) -> "FHD"
+            hd.containsMatchIn(name) -> "HD"
+            sd.containsMatchIn(name) -> "SD"
+            else -> null
+        }
     }
 
     /** Higher = better; unknown quality ranks below SD. */
@@ -27,11 +33,20 @@ object QualityTag {
 
     // Bare numbers ("Sky 1080") stay part of the identity; only explicit
     // quality tokens are stripped for duplicate grouping.
-    private val allTags = Regex("""(?i)\b(4k|uhd|fhd|full\s?hd|hd|sd|1080p|720p|2160p|480p|576p)\b""")
+    private val allTags =
+        Regex("""(?i)\b(4k|uhd|fhd|full\s?hd|hd|sd|1080p|720p|2160p|3840p|480p|576p)\b""")
 
-    /** Channel name with quality tokens removed, for duplicate grouping. */
+    // Hoisted: baseName runs per channel per merge, and a Regex compiled
+    // inside the call was the only allocation on that path.
+    private val multiSpace = Regex("""\s{2,}""")
+
+    /**
+     * Channel name with quality tokens removed, for duplicate grouping.
+     * Superscript decoration goes first — "ESPN ᵁᴴᴰ ³⁸⁴⁰ᴾ" and "ESPN HD" have to
+     * reduce to the same "ESPN" or they group as two channels.
+     */
     fun baseName(name: String): String =
-        name.replace(allTags, " ").replace(Regex("""\s{2,}"""), " ").trim()
+        TextNorm.stripDecoration(name).replace(allTags, " ").replace(multiSpace, " ").trim()
 
     /**
      * Collapses duplicate channels (same base name) down to the best-quality
@@ -48,9 +63,12 @@ object QualityTag {
         // Default scope is per-category so regional feeds with the same name
         // don't merge; the "All channels" view passes a global key so a
         // channel duplicated across five categories lists once.
+        // Keyed on the full identity pipeline, not baseName alone: baseName
+        // only removes quality tokens, so "US| ESPN", "USA: ESPN" and
+        // "ESPN ᵁᴴᴰ" stayed three entries on the same shelf. The region tag
+        // that normalizeKey drops is already implied by the category scope.
         keyOf: (LiveChannel) -> String = { channel ->
-            val base = baseName(channel.name).ifBlank { channel.name.trim() }.lowercase()
-            "${channel.categoryId}|$base"
+            "${channel.categoryId}|${EpgMatcher.normalizeKey(channel.name)}"
         },
     ): List<LiveChannel> {
         val best = LinkedHashMap<String, LiveChannel>()

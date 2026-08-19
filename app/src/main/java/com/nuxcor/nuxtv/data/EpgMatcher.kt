@@ -15,10 +15,21 @@ package com.nuxcor.nuxtv.data
  */
 object EpgMatcher {
 
-    /** Case- and diacritic-insensitive text ("Télé" == "tele"). */
+    /**
+     * Case- and diacritic-insensitive text ("Télé" == "tele").
+     *
+     * NFKD rather than NFD: the compatibility form is what collapses the
+     * superscript decoration providers bolt onto names ("ᵁᴴᴰ" → "UHD") and
+     * full-width forms, all of which NFD leaves standing as letters. See
+     * [TextNorm]. Normalization runs before lowercasing because the
+     * superscript capitals have no lowercase mapping of their own — folding
+     * first is what lets "ᴴᴰ" and "hd" meet.
+     */
     fun fold(text: String): String {
-        val normalized =
-            java.text.Normalizer.normalize(text.lowercase(), java.text.Normalizer.Form.NFD)
+        val normalized = TextNorm.compat(text).lowercase()
+        // Scanning before filtering: fold runs per channel per guide match,
+        // and filterNot builds a fresh string even when nothing is dropped.
+        if (normalized.none { it.code in 0x300..0x36F }) return normalized
         return normalized.filterNot { it.code in 0x300..0x36F }
     }
 

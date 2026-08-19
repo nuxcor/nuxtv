@@ -205,6 +205,8 @@ internal fun TracksOverlay(
     onSleep: (Int) -> Unit,
     onAudioSelected: (Track) -> Unit,
     onSubtitleSelected: (Track?) -> Unit,
+    /** 0 adapt to bandwidth, 1 pin the top rung — remembered across channels. */
+    onVideoQuality: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var audio by remember { mutableStateOf(engine.audioTracks()) }
@@ -277,6 +279,7 @@ internal fun TracksOverlay(
                             )
                         ) {
                             engine.selectVideoTrack(com.nuxcor.nuxtv.player.HIGHEST_QUALITY)
+                            onVideoQuality(1)
                             refresh()
                         }
                     }
@@ -289,6 +292,7 @@ internal fun TracksOverlay(
                             )
                         ) {
                             engine.selectVideoTrack(null)
+                            onVideoQuality(0)
                             refresh()
                         }
                     }

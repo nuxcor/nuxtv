@@ -50,21 +50,22 @@ internal fun channelsInCategory(
     favorites: Set<String>,
     recents: List<String>,
     /**
-     * Collapse cross-category duplicates in the All view: a channel living
-     * in five categories lists once, keyed globally by its cleaned identity.
-     * Per-category views stay untouched — nothing vanishes from the shelf
-     * being browsed — and Favorites/Recent filter the full list by url, so a
-     * deduped-away variant the viewer starred still appears there.
+     * The All view's list: cross-category duplicates already collapsed, so a
+     * channel living in five categories lists once. Per-category views stay
+     * untouched — nothing vanishes from the shelf being browsed — and
+     * Favorites/Recent filter the full list by url, so a deduped-away variant
+     * the viewer starred still appears there.
+     *
+     * Passed in rather than computed here, and this is the whole point of the
+     * parameter: collapsing it is a global regex pass over every channel, and
+     * all four screens that call this ran it inside composition on the main
+     * thread. It re-ran on every emission of displayChannels — including the
+     * one that lands mid-playback each time a stream's real quality is
+     * learned. [MainViewModel.allChannelsView] computes it once, off-thread.
      */
-    dedupAll: Boolean = false,
+    allChannels: List<LiveChannel> = channels,
 ): List<LiveChannel> = when (categoryId) {
-    CATEGORY_ALL ->
-        if (dedupAll) {
-            com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(
-                channels,
-                keyOf = { com.nuxcor.nuxtv.data.EpgMatcher.normalizeKey(it.name) },
-            )
-        } else channels
+    CATEGORY_ALL -> allChannels
     CATEGORY_FAVORITES -> channels.filter { it.url in favorites }
     CATEGORY_RECENT -> {
         // Index the channels once: recents is capped small, but the channel

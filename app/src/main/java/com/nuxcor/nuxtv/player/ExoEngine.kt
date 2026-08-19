@@ -61,9 +61,12 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
             // HLS ladder to a low rung. On a TV we always want the top rung.
             .clearViewportSizeConstraints()
             .clearVideoSizeConstraints()
-            // Overridden from the Settings preference once playback starts;
-            // this is only the value in force before that is applied.
-            .setForceHighestSupportedBitrate(true)
+            // Adaptive. Pinning the top rung regardless of what the line can
+            // carry doesn't look sharper, it macroblocks and rebuffers; the
+            // selector climbs to the top rung on its own when the bandwidth is
+            // there. Only a viewer pinning "Highest available" in the quality
+            // sheet turns this on.
+            .setForceHighestSupportedBitrate(false)
             .build()
     }
 
@@ -259,6 +262,9 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
 
     override val videoResolution: Pair<Int, Int>?
         get() = player.videoFormat?.let { f -> (f.width to f.height).takeIf { f.height > 0 } }
+
+    override val videoFrameRate: Float?
+        get() = player.videoFormat?.frameRate?.takeIf { it > 0f }
 
     // --- track selection ------------------------------------------------------
 

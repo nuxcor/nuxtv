@@ -131,9 +131,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setChannelOrder(mode: Int) = viewModelScope.launch { playerPrefs.setChannelOrder(mode) }
 
     val videoQuality: StateFlow<Int> = playerPrefs.videoQuality
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 1)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
     fun setVideoQuality(mode: Int) = viewModelScope.launch { playerPrefs.setVideoQuality(mode) }
+
 
     /**
      * Locked categories stay hidden until the PIN is entered this session.
@@ -349,6 +350,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     else -> merged
                 }
             }
+            .flowOn(kotlinx.coroutines.Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * What the "All channels" shelf shows: [displayChannels] with duplicates
+     * collapsed ACROSS categories, so a channel filed under five shelves lists
+     * once. [displayChannels] can only merge within a category — that is the
+     * right scope for a shelf, and the wrong one for All.
+     *
+     * It lives here rather than in the four screens that show it because the
+     * merge is a regex pass over every channel — 12ms on a desktop JVM at 6k
+     * channels, several times that on TV hardware. Each screen was running it
+     * inside composition, on the main thread, and re-running it on every
+     * emission of [displayChannels]: playing a channel learns its real
+     * quality, which re-emits, which re-merged the entire catalogue mid-zap.
+     */
+    val allChannelsView: StateFlow<List<LiveChannel>> =
+        displayChannels.combine(playerPrefs.mergeDuplicates) { channels, merge ->
+            if (!merge) channels
+            else com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(
+                channels,
+                keyOf = { com.nuxcor.nuxtv.data.EpgMatcher.normalizeKey(it.name) },
+            )
+        }
             .flowOn(kotlinx.coroutines.Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

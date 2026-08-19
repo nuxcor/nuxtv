@@ -43,6 +43,8 @@ import androidx.tv.material3.Icon
 import com.nuxcor.nuxtv.MainViewModel
 import com.nuxcor.nuxtv.data.LiveChannel
 import com.nuxcor.nuxtv.data.PlayerPrefs
+import com.nuxcor.nuxtv.player.DisplayModeSwitcher
+import com.nuxcor.nuxtv.player.findActivity
 import com.nuxcor.nuxtv.ui.theme.NuxColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -195,8 +197,9 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         // A recreated engine starts at defaults; re-apply the user's choices.
         if (session.speed != 1f) engine.setSpeed(session.speed)
         if (session.scaleMode != 0) engine.setScaleMode(session.scaleMode)
-        // Settings decides whether we pin the top rung or let it adapt. Doing
-        // this per-stream also resets any rung pinned on the previous channel.
+        // Adaptive unless the viewer pinned the top rung in the quality sheet.
+        // Doing this per-stream also drops any single rung pinned on the
+        // previous channel, which meant nothing on this one.
         engine.selectVideoTrack(
             if (qualityPref == 1) com.nuxcor.nuxtv.player.HIGHEST_QUALITY else null
         )
@@ -212,6 +215,27 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         val (_, h) = session.videoSize ?: return@LaunchedEffect
         request.items.getOrNull(session.currentIndex)?.url
             ?.let { vm.recordDecodedQuality(it, h) }
+    }
+
+    // Ask the TV for a mode that suits the stream — the panel's own refresh
+    // and, where the output is smaller than the picture, its resolution.
+    // Skipped in PiP: the window is a thumbnail there, and a mode change to
+    // suit it would blank the app the viewer is actually looking at.
+    val displayModes = remember(context) {
+        context.findActivity()?.let { DisplayModeSwitcher(it) }
+    }
+    LaunchedEffect(displayModes, session.videoSize, session.videoFrameRate, inPip) {
+        val switcher = displayModes ?: return@LaunchedEffect
+        if (inPip) return@LaunchedEffect
+        val height = session.videoSize?.second ?: 0
+        // Nothing has decoded yet: switching on a guess would blank the screen
+        // over the tune, and be wrong as often as not.
+        if (height <= 0 && session.videoFrameRate == null) return@LaunchedEffect
+        runCatching { switcher.apply(height, session.videoFrameRate) }
+    }
+    // The rest of the app has no business running at 24Hz.
+    DisposableEffect(displayModes) {
+        onDispose { runCatching { displayModes?.reset() } }
     }
 
     // Keep the activity's PiP params fresh so API 31+ auto-enters on HOME
@@ -291,6 +315,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             session.positionMs = engine.positionMs
             session.durationMs = engine.durationMs
             session.videoSize = engine.videoResolution
+            session.videoFrameRate = engine.videoFrameRate
             val chromeUp = session.layer == PlayerLayer.Controls ||
                 session.layer == PlayerLayer.ChannelList ||
                 session.layer == PlayerLayer.Tracks ||
@@ -815,6 +840,9 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 onSubtitleSelected = { track ->
                     scope.launch { prefs.setPreferredSubtitleLanguage(track?.language) }
                 },
+                // Auto vs. the top rung is the one video choice worth carrying
+                // to the next channel; a specific rung belongs to this stream.
+                onVideoQuality = { mode -> scope.launch { prefs.setVideoQuality(mode) } },
                 onDismiss = { session.closePanel() },
             )
         }

@@ -97,6 +97,13 @@ interface PlayerEngine {
     /** Decoded video size, or null before the first frame. */
     val videoResolution: Pair<Int, Int>?
 
+    /**
+     * Decoded frame rate in fps, or null when the stream doesn't declare one.
+     * Drives display refresh matching: 25fps shown on a 60Hz output judders,
+     * and there is no way to know that without this.
+     */
+    val videoFrameRate: Float?
+
     fun audioTracks(): List<Track>
     fun textTracks(): List<Track>
 

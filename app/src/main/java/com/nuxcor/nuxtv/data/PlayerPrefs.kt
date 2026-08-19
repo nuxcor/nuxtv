@@ -378,9 +378,15 @@ class PlayerPrefs(private val context: Context) {
         }
     }
 
-    /** When on, SD/HD/FHD variants of the same channel collapse to the best one. */
+    /**
+     * When on, SD/HD/FHD variants of the same channel collapse to the best
+     * one. Defaults ON: raw provider playlists ship the same channel three
+     * and four times over, and a first run that lists them all reads as a
+     * broken app rather than as a setting waiting to be found. Anyone who
+     * wants every variant can still say so, and that choice persists.
+     */
     val mergeDuplicates: Flow<Boolean> = context.playerDataStore.data.map { prefs ->
-        prefs[mergeDupesKey] == "true"
+        prefs[mergeDupesKey] != "false"
     }
 
     suspend fun setMergeDuplicates(enabled: Boolean) {
@@ -411,13 +417,15 @@ class PlayerPrefs(private val context: Context) {
     }
 
     /**
-     * 0 = adapt to bandwidth, 1 = always the top rung. Highest looks sharper
-     * immediately but never drops when the connection sags, so it turns a soft
-     * picture into rebuffering — which of those is the lesser evil depends on
-     * the line, not on us.
+     * 0 = adapt to bandwidth, 1 = always the top rung. Adapting is the default
+     * and is not a Settings choice: pinning the top rung on a line that can't
+     * carry it doesn't look sharper, it breaks up, and no viewer can be
+     * expected to know which of those their connection is. The player's own
+     * quality sheet still offers the pin for anyone who wants it, and this
+     * remembers that pick — it lives next to the picture it changes.
      */
     val videoQuality: Flow<Int> = context.playerDataStore.data.map { prefs ->
-        prefs[videoQualityKey]?.toIntOrNull() ?: 1
+        prefs[videoQualityKey]?.toIntOrNull() ?: 0
     }
 
     suspend fun setVideoQuality(mode: Int) {
@@ -530,7 +538,9 @@ class PlayerPrefs(private val context: Context) {
         // Retained so backups written before the key was bundled still restore.
         // Nothing reads the restored value — the key comes from BuildConfig now.
         val tmdbKey: String? = null,
-        val mergeDuplicates: Boolean = false,
+        // Matches the live default, so a backup that predates the key
+        // restores to merging rather than silently turning it off.
+        val mergeDuplicates: Boolean = true,
         val channelOrder: Int = 0,
         val schedules: List<ScheduledRecording> = emptyList(),
         val sources: List<PlaylistSource> = emptyList(),
@@ -554,7 +564,7 @@ class PlayerPrefs(private val context: Context) {
             engine = prefs[engineKey] ?: "EXO",
             epgOverrideUrl = prefs[epgOverrideKey],
             tmdbKey = prefs[tmdbKeyKey],
-            mergeDuplicates = prefs[mergeDupesKey] == "true",
+            mergeDuplicates = prefs[mergeDupesKey] != "false",
             channelOrder = prefs[channelOrderKey]?.toIntOrNull() ?: 0,
             schedules = prefs[schedulesKey]?.let {
                 runCatching { json.decodeFromString<List<ScheduledRecording>>(it) }.getOrNull()
