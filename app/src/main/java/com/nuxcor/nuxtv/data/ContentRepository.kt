@@ -31,6 +31,7 @@ class ContentRepository(context: Context) {
         .build()
 
     private val logos by lazy { LogoRepository(appContext, http) }
+    private val manifests by lazy { ManifestRepository(appContext, http) }
     private val bundleJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
     private fun cacheFile(sourceId: String) =
@@ -280,10 +281,27 @@ class ContentRepository(context: Context) {
             }
     }
 
-    // Category cleanup runs at bundle build time — caches, EPG resolution,
-    // duplicate merging and every screen see only the cleaned model.
-    private suspend fun fetch(source: PlaylistSource): ContentBundle =
-        CategoryCleaner.clean(fetchRaw(source))
+    // Category cleanup then manifest curation, both at bundle build time —
+    // caches, EPG resolution, duplicate merging and every screen see only the
+    // finished model. The manifest is provider-specific judgement (what to
+    // drop, which section a channel really belongs to) and is absent for
+    // sources it wasn't written for, in which case the bundle passes through.
+    private suspend fun fetch(source: PlaylistSource): ContentBundle {
+        val cleaned = CategoryCleaner.clean(fetchRaw(source))
+        val manifest = manifests.load() ?: return cleaned
+        if (!manifestApplies(source, manifest)) return cleaned
+        return withContext(Dispatchers.Default) { ManifestCuration.apply(cleaned, manifest) }
+    }
+
+    /** A manifest describes one provider; applying it to another would gut the library. */
+    private fun manifestApplies(source: PlaylistSource, manifest: CatalogueManifest): Boolean {
+        val host = manifest.provider.host.takeIf { it.isNotBlank() } ?: return false
+        val sourceHost = when (source) {
+            is PlaylistSource.Xtream -> source.serverUrl
+            is PlaylistSource.M3u -> source.url
+        }
+        return sourceHost.contains(host, ignoreCase = true)
+    }
 
     private suspend fun fetchRaw(source: PlaylistSource): ContentBundle = when (source) {
         is PlaylistSource.Xtream -> {
@@ -329,17 +347,93 @@ class ContentRepository(context: Context) {
     // --- EPG ------------------------------------------------------------------
 
     /**
+     * The guide feeds the manifest's channel ids belong to, most-used first.
+     *
+     * The ids come from a curated pack split across ~21 files; two of them
+     * carry 70% of our bindings, so we fetch the few that matter rather than
+     * the whole set. Empty when no manifest applies to this source.
+     */
+    private suspend fun manifestGuideUrls(source: PlaylistSource, limit: Int = 4): List<String> {
+        val manifest = manifests.load() ?: return emptyList()
+        if (!manifestApplies(source, manifest)) return emptyList()
+        val base = manifest.epg.sources.firstOrNull { it.key == "repo" }?.base ?: return emptyList()
+        // Rank the pack files by how many of our channels they actually answer.
+        val weight = manifest.epg.channelMap.values
+            .filter { it.src == "repo" && it.feed.isNotBlank() }
+            .groupingBy { it.feed }.eachCount()
+        val packs = weight.entries.sortedByDescending { it.value }.take(limit)
+            .map { "$base${it.key}.xml.gz" }
+        // Then the region-targeted epgshare01 feeds. The curated packs are
+        // split arbitrarily and leave gaps exactly where this catalogue is
+        // weakest — US local affiliates, US sport, UK — and epgshare01
+        // publishes a feed per region that covers precisely those.
+        val regional = manifest.keptRegions.flatMap { EPGSHARE_BY_REGION[it].orEmpty() }
+            .distinct().map { "$EPGSHARE_BASE$it.xml.gz" }
+        return packs + regional
+    }
+
+
+
+    /**
+     * Downloads several XMLTV packs and folds them into one guide. A pack that
+     * fails is skipped rather than failing the load — a partial guide beats an
+     * empty one. Handles the .gz the packs ship as: OkHttp only inflates what
+     * it asked for with Accept-Encoding, not a body that is literally a gzip file.
+     */
+    private fun fetchAndMerge(urls: List<String>): XmltvData {
+        val now = System.currentTimeMillis()
+        var merged: XmltvData? = null
+        for (u in urls) {
+            val one = runCatching {
+                val request = Request.Builder().url(u).header("User-Agent", "Agoro/2.1").build()
+                http.newCall(request).execute().use { resp ->
+                    if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
+                    val body = resp.body ?: throw IOException("empty")
+                    val stream = if (u.endsWith(".gz", ignoreCase = true)) {
+                        java.util.zip.GZIPInputStream(body.byteStream().buffered())
+                    } else body.byteStream()
+                    stream.use {
+                        XmltvParser.parse(
+                            it,
+                            windowStartMs = now - 30L * 3600 * 1000,
+                            windowEndMs = now + 48L * 3600 * 1000,
+                        )
+                    }
+                }
+            }.getOrElse { e ->
+                android.util.Log.w("Agoro", "EPG pack failed ($u): ${e.message}")
+                null
+            }
+            if (one != null) merged = merged?.plus(one) ?: one
+        }
+        return merged ?: throw IOException("No guide pack could be loaded")
+    }
+
+
+    /**
      * Loads the XMLTV guide. A user-set override URL (e.g. an epgshare01
      * pack) wins; otherwise Xtream's xmltv.php or the M3U url-tvg/epgUrl.
      */
     suspend fun loadEpg(overrideUrl: String? = null) {
         lastEpgOverride = overrideUrl
         val source = activeSource.first() ?: return
-        val url = overrideUrl?.takeIf { it.isNotBlank() } ?: when (source) {
-            is PlaylistSource.Xtream -> xtreamClient(source).xmltvUrl
-            is PlaylistSource.M3u ->
-                source.epgUrl?.takeIf { it.isNotBlank() } ?: lastM3uTvgUrl
+        // A manifest names the guide feeds its channel ids came from. Without
+        // them the ids resolve to nothing and every row reads "No information",
+        // so they take precedence over the provider's own guide — which is
+        // where they'd otherwise land, and which this provider fills sparsely.
+        val manifestFeeds = if (overrideUrl.isNullOrBlank()) manifestGuideUrls(source) else emptyList()
+        val urls = when {
+            !overrideUrl.isNullOrBlank() -> listOf(overrideUrl)
+            manifestFeeds.isNotEmpty() -> manifestFeeds
+            else -> listOfNotNull(
+                when (source) {
+                    is PlaylistSource.Xtream -> xtreamClient(source).xmltvUrl
+                    is PlaylistSource.M3u ->
+                        source.epgUrl?.takeIf { it.isNotBlank() } ?: lastM3uTvgUrl
+                }
+            )
         }
+        val url = urls.firstOrNull()
         if (url == null) {
             _epg.value = EpgState.Error("No EPG source configured for this playlist")
             return
@@ -354,6 +448,10 @@ class ContentRepository(context: Context) {
             if (_epg.value !is EpgState.Ready) _epg.value = EpgState.Loading
             val result = withContext(Dispatchers.IO) {
                 runCatching {
+                    // Several feeds merge into one guide: the manifest's ids are
+                    // spread across a handful of packs, and a viewer wants one
+                    // grid, not a source picker.
+                    if (urls.size > 1) return@runCatching EpgState.Ready(fetchAndMerge(urls))
                     val request = Request.Builder().url(url).header("User-Agent", "Agoro/2.1").build()
                     http.newCall(request).execute().use { resp ->
                         // Plain language for the viewer, the status for the
@@ -439,7 +537,12 @@ class ContentRepository(context: Context) {
         return byNameId?.let { data.programmes[it] } ?: emptyList()
     }
 
-    /** Fills missing channel logos from the tv-logos repo; no-op on failure. */
+    /**
+     * Fills channel logos the manifest didn't supply, matching names against
+     * the tv-logos repo. Runs after manifest curation and only touches
+     * channels still without art, so the build-time matches win — the live
+     * name matcher resolves ~1% of this provider's names, the manifest ~55%.
+     */
     suspend fun enrichLogos() {
         val ready = _content.value as? ContentState.Ready ?: return
         val enriched = runCatching { logos.enrich(ready.bundle) }.getOrNull() ?: return
@@ -549,5 +652,18 @@ class ContentRepository(context: Context) {
 
     companion object {
         fun newSourceId(): String = UUID.randomUUID().toString()
-    }
+
+        const val EPGSHARE_BASE = "https://epgshare01.online/epgshare01/epg_ripper_"
+        /**
+         * Region -> the feeds worth fetching for it, smallest useful first.
+         * US_LOCALS1 is 55 MB and is listed last so a slow line still gets the
+         * general feeds; it is the only source for affiliate schedules.
+         */
+        val EPGSHARE_BY_REGION = mapOf(
+            "US" to listOf("US2", "US_SPORTS1", "US_LOCALS1"),
+            "UK" to listOf("UK1", "IE1"),
+            "CA" to listOf("CA2"),
+            "AFR" to listOf("ZA1", "NG1", "KE1"),
+        )
+        }
 }

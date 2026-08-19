@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -491,6 +492,10 @@ private fun GuideHeader(
                 modifier = Modifier.fillMaxSize().padding(20.dp),
                 contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                 monogramStyle = MaterialTheme.typography.headlineSmall,
+                // The panel around this already IS the container. Artwork's
+                // own slab drew a second, square-cornered box inside the
+                // rounded one, framing the logo twice.
+                background = androidx.compose.ui.graphics.Color.Transparent,
             )
             // Drawn over the logo rather than instead of it: the stream takes a
             // moment to give a first frame, and swapping to an empty black box
@@ -749,7 +754,23 @@ private fun DayPagerChevron(
             )
         }
     } else {
-        Box(modifier = Modifier.padding(horizontal = 10.dp)) {
+        // Same silhouette as the enabled button, just dimmed — a bare icon
+        // beside a pill read as two unrelated controls rather than one pager
+        // with a spent end. Still a Box, not a disabled Button: those stay
+        // focusable by design and paint no ring, an invisible focus trap.
+        Box(
+            modifier = Modifier
+                // tv-material3 BaseButtonDefaults: MinWidth 58, MinHeight 40,
+                // ContainerShape CircleShape. Matched so the spent end of the
+                // pager is the same silhouette as the live one.
+                .size(width = 58.dp, height = 40.dp)
+                .border(
+                    width = 1.dp,
+                    color = NuxColors.OnSurfaceDim.copy(alpha = 0.25f),
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
             androidx.tv.material3.Icon(
                 icon,
                 contentDescription = null,

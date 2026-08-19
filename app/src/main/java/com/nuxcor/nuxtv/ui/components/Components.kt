@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -65,6 +66,9 @@ import com.nuxcor.nuxtv.ui.theme.NuxFocus
 import com.nuxcor.nuxtv.ui.theme.Space
 
 private val CardShape = NuxShape.Card
+
+/** How much of a logo chip the logo itself occupies; see [Artwork]. */
+private const val LogoFitFraction = 0.72f
 private val ChipShape = NuxShape.Chip
 private val RestingBorder = NuxBorders.restingCard
 
@@ -140,12 +144,19 @@ fun Artwork(
      * monogram would leave the item nameless.
      */
     fallbackFullTitle: Boolean = false,
+    /**
+     * The slab painted behind the image. Pass [Color.Transparent] when the
+     * caller already supplies the container — nesting this default inside
+     * another panel draws a second, square-cornered box inside the first,
+     * which is exactly what it looks like.
+     */
+    background: Color = NuxColors.SurfaceVariant,
 ) {
     val monogram = remember(title) {
         title.split(" ").take(2).mapNotNull { it.firstOrNull()?.uppercase() }.joinToString("")
     }
     Box(
-        modifier = modifier.background(NuxColors.SurfaceVariant),
+        modifier = modifier.background(background),
         contentAlignment = Alignment.Center,
     ) {
         // key(): reusing one AsyncImage node across URL changes lets Coil keep
@@ -198,9 +209,20 @@ fun Artwork(
                     // viewer is watching. Fall back to the monogram instead.
                     onError = { failed = true },
                     onSuccess = { loaded = true },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(if (contentScale == ContentScale.Fit) 6.dp else 0.dp),
+                    // Logos are inset by a FRACTION of the chip, never a
+                    // fixed dp. The 6dp that breathed on a 52dp guide chip is
+                    // a 2.5% hairline on the 240dp channel shelf card, where
+                    // it left the logo running to all four edges looking blown
+                    // up. A fraction is the same inset at every call site: it
+                    // reproduces the small chips almost exactly (0.72 of a
+                    // 40dp-tall chip is the 28dp that 6dp of padding gave)
+                    // while pulling the big card's logo back off its edges.
+                    // Crop is unaffected — posters are meant to be full-bleed.
+                    modifier = if (contentScale == ContentScale.Fit) {
+                        Modifier.fillMaxSize(LogoFitFraction)
+                    } else {
+                        Modifier.fillMaxSize()
+                    },
                 )
             }
         }
@@ -212,6 +234,14 @@ fun Artwork(
  * title (and the hero/detail views spell it out), so a text row under every
  * poster was saying it twice. When there is no artwork the full title renders
  * inside the card instead — never an anonymous grey box.
+ *
+ * [year] is the exception to captionless — key art almost never carries it,
+ * and it is what separates a remake from the original and tells a browsing
+ * viewer whether a shelf is current. It sits in a line under the poster, not
+ * over it: this provider stamps a "4K ULTRA HD" ribbon along the top edge of
+ * most of its art and runs wordmarks full-bleed along the bottom, so every
+ * overlay position collided with something on some poster. The line lives
+ * inside the Surface so it scales and focuses with the card as one piece.
  */
 @Composable
 fun PosterCard(
@@ -219,6 +249,7 @@ fun PosterCard(
     imageUrl: String?,
     /** Fixed width in a row; null fills the cell it is given, as in a grid. */
     width: Dp? = 150.dp,
+    year: Int? = null,
     progress: Float? = null,
     onClick: () -> Unit,
     /** Hold OK for the actions OK itself can't offer; null means no menu here. */
@@ -242,31 +273,53 @@ fun PosterCard(
         border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = NuxFocus.cardGlow),
     ) {
-        Box {
-            Artwork(
-                imageUrl = imageUrl,
-                title = title,
-                fallbackFullTitle = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(2f / 3f)
-                    .clip(CardShape),
-            )
-            if (progress != null && progress > 0f) {
-                Box(
+        Column {
+            // Clipped as a stack so the progress bar follows the card's rounded
+            // corners instead of squaring off its bottom edge.
+            Box(modifier = Modifier.clip(CardShape)) {
+                Artwork(
+                    imageUrl = imageUrl,
+                    title = title,
+                    fallbackFullTitle = true,
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
                         .fillMaxWidth()
-                        .height(4.dp)
-                        .background(Color.White.copy(alpha = 0.25f))
-                ) {
+                        .aspectRatio(2f / 3f),
+                )
+                if (progress != null && progress > 0f) {
                     Box(
                         modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(progress.coerceIn(0f, 1f))
-                            .background(NuxColors.Primary)
-                    )
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .background(Color.White.copy(alpha = 0.25f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(progress.coerceIn(0f, 1f))
+                                .background(NuxColors.Primary)
+                        )
+                    }
                 }
+            }
+            // Only alongside artwork: the no-art card renders the full title as
+            // text, and provider names usually carry the year inside them already.
+            if (year != null && year > 1800 && imageUrl != null) {
+                Text(
+                    text = year.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = NuxColors.OnSurface.copy(alpha = 0.55f),
+                    // Both insets clear the card's bottom-left corner, which
+                    // is an arc and not a right angle: the Surface clips to
+                    // CardShape's 16dp radius and the focus ring strokes that
+                    // same arc, so digits parked near the corner get sliced
+                    // through. Flush-left is not available here at any bottom
+                    // padding — 3dp from the edge sits outside the arc for the
+                    // text's whole height. Stepping in as well puts the line
+                    // inside both the clip and the ring with room to spare.
+                    modifier = Modifier.padding(start = 10.dp, top = 6.dp, bottom = 8.dp),
+                )
             }
         }
     }

@@ -302,6 +302,7 @@ fun HomeLoungeTab(
             PosterCard(
                 title = movie.name,
                 imageUrl = borrowedArt(vm, movie.artRef(), movie.poster),
+                year = movie.year,
                 progress = progress,
                 onClick = { onOpenMovie(movie) },
                 onLongClick = onLongClick,
@@ -326,6 +327,7 @@ fun HomeLoungeTab(
             PosterCard(
                 title = series.name,
                 imageUrl = borrowedArt(vm, series.artRef(), series.poster),
+                year = series.year,
                 progress = progress,
                 // The detail screen lands on the part-watched episode's
                 // resume action.

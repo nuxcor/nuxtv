@@ -1019,6 +1019,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     artwork = it.logo,
                     channelId = it.id,
                     recordUrl = it.recordUrl,
+                    fallbackUrls = it.fallbackUrls,
                 )
             },
             startIndex = startIndex.coerceIn(0, (channels.size - 1).coerceAtLeast(0)),

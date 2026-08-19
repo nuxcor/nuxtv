@@ -7,6 +7,18 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.zip.GZIPInputStream
 
+/** Union of two guides: the first source wins any id both carry. */
+fun XmltvData.plus(other: XmltvData): XmltvData = XmltvData(
+    channelNames = other.channelNames + channelNames,
+    programmes = buildMap {
+        putAll(other.programmes)
+        putAll(programmes)
+    },
+    nameToId = other.nameToId + nameToId,
+    normalizedToId = other.normalizedToId + normalizedToId,
+    altNames = other.altNames + altNames,
+)
+
 data class XmltvData(
     /** channel id → first display name (both trimmed). */
     val channelNames: Map<String, String>,

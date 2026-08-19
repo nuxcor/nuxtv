@@ -149,6 +149,7 @@ class PlayerSession internal constructor(
     // --- failure ladder, reset per item ------------------------------------
     private var retriesLeft = RETRIES_PER_ITEM
     private var liveFormatStage = 0
+    private var sourceStage = 0
     private var ladderItemIndex = initialRequest.startIndex
 
     /** When live playback was paused, for the stale-buffer rejoin decision. */
@@ -192,6 +193,12 @@ class PlayerSession internal constructor(
                 // every retry — step through the other Xtream live formats
                 // before spending slow same-URL retries.
                 request.isLive && swapLiveFormat() -> Unit
+
+                // Formats exhausted: this source is dead, not mis-addressed.
+                // The catalogue folded several streams of this channel into
+                // one tile, so try the next one before spending slow retries
+                // on a stream that is not coming back.
+                request.isLive && swapSource() -> Unit
 
                 // No engine hopping: an error retries on the SAME engine the
                 // viewer chose. The old "try the other player once" ladder
@@ -272,6 +279,7 @@ class PlayerSession internal constructor(
         ladderItemIndex = index
         retriesLeft = RETRIES_PER_ITEM
         liveFormatStage = 0
+        sourceStage = 0
     }
 
     /**
@@ -297,6 +305,28 @@ class PlayerSession internal constructor(
         }
         liveFormatStage++
         statusMessage = "Trying a different stream format…"
+        val items = request.items.toMutableList()
+        items[idx] = items[idx].copy(url = next)
+        request = request.copy(items = items)
+        return true
+    }
+
+    /**
+     * Steps to the next alternate source for the current channel.
+     *
+     * The manifest collapses a channel's several streams into one tile and
+     * keeps the rest as [PlayableItem.fallbackUrls], best quality first. Each
+     * new source starts the format ladder over, because which of `.ts`,
+     * `.m3u8` or the bare path a panel answers is a property of the stream,
+     * not of the channel.
+     */
+    private fun swapSource(): Boolean {
+        val idx = currentIndex
+        val item = request.items.getOrNull(idx) ?: return false
+        val next = item.fallbackUrls.getOrNull(sourceStage) ?: return false
+        sourceStage++
+        liveFormatStage = 0
+        statusMessage = "Trying another source…"
         val items = request.items.toMutableList()
         items[idx] = items[idx].copy(url = next)
         request = request.copy(items = items)

@@ -135,6 +135,8 @@ internal data class VodEntry(
     val poster: String?,
     /** Looked up when [poster] is null — see [borrowedArt]. */
     val art: ArtRef?,
+    /** Shown on the poster: key art carries the title but never the year. */
+    val year: Int?,
     val progress: Float?,
     val hero: HeroInfo,
     val onOpen: () -> Unit,
@@ -376,6 +378,7 @@ private fun VodBrowser(
                         title = entry.title,
                         imageUrl = borrowedArt(vm, entry.art, entry.poster),
                         width = null,
+                        year = entry.year,
                         progress = entry.progress,
                         onClick = entry.onOpen,
                         onFocus = {
@@ -448,6 +451,7 @@ fun MoviesTab(
         subtitle = year?.toString(),
         poster = poster,
         art = artRef(),
+        year = year,
         progress = resumeProgress[url],
         hero = toHero(),
         onOpen = { onOpenMovie(this) },
@@ -520,6 +524,7 @@ fun SeriesTab(
         subtitle = episodes?.let { "${it.size} episodes" } ?: year?.toString(),
         poster = poster,
         art = artRef(),
+        year = year,
         // The episode the viewer is actually part-way through.
         progress = episodes?.firstNotNullOfOrNull { resumeProgress[it.url] },
         hero = toHero(),

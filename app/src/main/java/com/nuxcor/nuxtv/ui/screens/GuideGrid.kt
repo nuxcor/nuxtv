@@ -789,8 +789,13 @@ private fun GuideRow(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.CenterStart,
                     ) {
+                        // Name-free: the row label naming this channel sits
+                        // a few pixels to the left, and the grid scrolls
+                        // horizontally — so the repeat was both redundant and
+                        // the half that survived, "No information — " being
+                        // the part scrolled off screen.
                         Text(
-                            "No information — ${channel.displayName}",
+                            "No information",
                             style = MaterialTheme.typography.labelMedium,
                             maxLines = 1,
                             modifier = Modifier.padding(start = 16.dp),

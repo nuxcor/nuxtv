@@ -515,7 +515,8 @@ private fun XtreamForm(
     var revealPassword by rememberSaveable { mutableStateOf(false) }
     FormContainer(addState = addState, onBack = onBack, submitEnabled = server.isNotBlank() && user.isNotBlank(),
         onSubmit = onSubmit, submitLabel = submitLabel, connectFocus = connectFocus) {
-        // Credentials first; the optional name last.
+        // Credentials only. The playlist name was an optional field nobody
+        // filled in on a remote, and it sat between the password and Connect.
         NuxTextField(value = server, onValueChange = onServer, label = "Server URL  •  http://host:port")
         NuxTextField(value = user, onValueChange = onUser, label = "Username")
         NuxTextField(
@@ -523,6 +524,7 @@ private fun XtreamForm(
             onValueChange = onPass,
             label = "Password",
             password = !revealPassword,
+            isLast = true,
             onAdvance = { runCatching { connectFocus.requestFocus() } },
         )
         Row(
@@ -538,13 +540,6 @@ private fun XtreamForm(
                 color = NuxColors.OnSurfaceDim,
             )
         }
-        NuxTextField(
-            value = name,
-            onValueChange = onName,
-            label = "Playlist name (optional)",
-            isLast = true,
-            onAdvance = { runCatching { connectFocus.requestFocus() } },
-        )
     }
 }
 
@@ -562,7 +557,6 @@ private fun M3uForm(
     FormContainer(addState = addState, onBack = onBack, submitEnabled = url.isNotBlank(),
         onSubmit = onSubmit, submitLabel = submitLabel, connectFocus = connectFocus) {
         NuxTextField(value = url, onValueChange = onUrl, label = "M3U URL  •  http://…/playlist.m3u")
-        NuxTextField(value = name, onValueChange = onName, label = "Playlist name (optional)")
         NuxTextField(
             value = epgUrl,
             onValueChange = onEpgUrl,

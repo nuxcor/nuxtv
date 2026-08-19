@@ -119,6 +119,7 @@ fun SearchTab(
                                     PosterCard(
                                         title = movie.name,
                                         imageUrl = borrowedArt(vm, movie.artRef(), movie.poster),
+                                        year = movie.year,
                                         onClick = { onOpenMovie(movie) },
                                     )
                                 }
@@ -135,6 +136,7 @@ fun SearchTab(
                                     PosterCard(
                                         title = series.name,
                                         imageUrl = borrowedArt(vm, series.artRef(), series.poster),
+                                        year = series.year,
                                         onClick = { onOpenSeries(series) },
                                         onFocus = { vm.prefetchEpisodes(series) },
                                     )

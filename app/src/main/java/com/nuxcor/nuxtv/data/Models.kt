@@ -55,6 +55,12 @@ data class LiveChannel(
     val recordUrl: String? = null,
     /** Advertised quality parsed from the raw name (4K/FHD/HD/SD). */
     val quality: String? = null,
+    /**
+     * Other streams carrying this same channel, best quality first, for when
+     * the primary is dead. Populated by [ManifestCuration] from the collapse
+     * tiles it folded away; empty for sources with no manifest.
+     */
+    val fallbackUrls: List<String> = emptyList(),
 ) {
     /**
      * Name with quality tokens and provider tags ("US|", "UK|", "(TR)")
@@ -178,6 +184,8 @@ data class PlayableItem(
     val channelId: String? = null,
     /** Raw TS URL suitable for recording (null when the stream can't be recorded). */
     val recordUrl: String? = null,
+    /** Alternate sources for this same channel, best first; see [LiveChannel.fallbackUrls]. */
+    val fallbackUrls: List<String> = emptyList(),
 )
 
 data class PlaybackRequest(
