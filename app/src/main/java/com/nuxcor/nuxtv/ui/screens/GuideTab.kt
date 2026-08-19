@@ -693,8 +693,13 @@ private fun GuideNoticeBar(
         // problem from no guide at all, and the viewer can tell them apart
         // without being handed the HTTP reason.
         Text(
+            // Both fit one line at the width the bar actually gets; the
+            // match-failure sentence carried "— showing channels only" too and
+            // ellipsised on a 4K panel, which is the width there is most of.
+            // The grid underneath is visibly full of channels, so that clause
+            // was spending the only line on something already on screen.
             text = if (missing.matchFailure) {
-                "This guide doesn't match your channels — showing channels only"
+                "This guide doesn't match your channels"
             } else {
                 "No guide — showing channels only"
             },

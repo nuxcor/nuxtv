@@ -44,6 +44,48 @@ class BaselineProfileGenerator {
         awaitContent()
     }
 
+    /**
+     * The fullscreen player: playback, zapping, and the three overlays.
+     *
+     * Collected separately from [journeys] on purpose. Reaching the player
+     * depends on a stream actually starting, which is the one step here that
+     * can fail for reasons outside the app; keeping it apart means a bad
+     * stream costs this profile and not the browse one.
+     */
+    @Test
+    fun player() = rule.collect(
+        packageName = PACKAGE,
+        // Capped hard. The default fifteen iterations kept a fullscreen video
+        // decoding into a 3840x2160 surface for the better part of an hour and
+        // wedged the emulator outright — adb reported the device present while
+        // its shell no longer answered. Three passes is ample for CLASS
+        // coverage, which is all a profile needs; stability matters for the
+        // startup profile, not for enumerating the player's code paths.
+        maxIterations = 3,
+        stableIterations = 2,
+    ) {
+        pressHome()
+        startActivityAndWait()
+        awaitContent()
+
+        openTab(LIVE)
+        // openTab already left focus in the content lane, on the channel
+        // column. A further RIGHT walked past it into the programme lane,
+        // where CENTER opens a programme instead of starting playback.
+        device.pressDPadCenter()
+        // Streams open over the network; this is the wait that decides whether
+        // anything below profiles the player at all.
+        settle(6_000)
+
+        zap()
+        openPlayerOverlays()
+
+        // Out of the player the way a viewer leaves it. Guarded like the rest:
+        // the benchmark kills the process itself between iterations, so this
+        // exists to profile the teardown, not to tidy up.
+        backInApp()
+    }
+
     /** Everything after the first frame: shelves, channel lists, guide, search. */
     @Test
     fun journeys() = rule.collect(packageName = PACKAGE) {
@@ -117,28 +159,81 @@ class BaselineProfileGenerator {
         settle()
     }
 
+    /**
+     * Channel changing — the path reported slowest on real hardware.
+     *
+     * UP and DOWN are Zap only from bare playback with no overlay showing
+     * (PlayerKeyHandler's zapFromBare), so this runs before any overlay is
+     * opened. Each change tears down and rebuilds the whole media pipeline,
+     * so the settles are generous rather than polite.
+     */
+    private fun MacrobenchmarkScope.zap() {
+        repeat(2) {
+            device.pressDPadUp()
+            settle(3_500)
+        }
+        device.pressDPadDown()
+        settle(3_500)
+    }
+
+    /** The three overlays that live over playback, each opened and dismissed. */
+    private fun MacrobenchmarkScope.openPlayerOverlays() {
+        // Channel list (LEFT from bare playback).
+        device.pressDPadLeft()
+        settle(2_000)
+        repeat(6) { device.pressDPadDown() }
+        settle(1_500)
+        backInApp()
+
+        // Mini guide — a dedicated key, so it opens from anywhere in the player.
+        device.pressKeyCode(KeyEvent.KEYCODE_GUIDE)
+        settle(2_500)
+        repeat(4) { device.pressDPadDown() }
+        repeat(3) { device.pressDPadRight() }
+        settle(1_500)
+        backInApp()
+
+        // Transport controls and the info banner.
+        device.pressDPadCenter()
+        settle(1_500)
+        device.pressKeyCode(KeyEvent.KEYCODE_INFO)
+        settle(1_500)
+        backInApp()
+
+        // Options menu (MENU is the no-key-repeat fallback into it).
+        device.pressKeyCode(KeyEvent.KEYCODE_MENU)
+        settle(2_000)
+        repeat(3) { device.pressDPadDown() }
+        settle(1_000)
+        backInApp()
+    }
+
     // --- navigation -----------------------------------------------------------
 
     /**
-     * The rail selects by FOCUS, not by click: landing on an item and waiting
-     * out the dwell switches the tab. Entering it always lands on whichever
-     * tab is currently selected, so the only reliable address is an index —
-     * walk to the top, then count down. Reading the labels does not work, and
-     * failed silently: the rail renders icons until it has focus, so a text
-     * lookup found nothing and the blind fallback walked the whole rail down
-     * to Settings, profiling the one screen nobody complained about.
+     * Opens a nav-rail destination by its position in the rail.
      *
-     * Search is absent from the rail by design, so the indices below are the
-     * rail's own order, not HomeTab's.
+     * Two things here were each learned the hard way, so neither is arbitrary.
+     *
+     * The LEFT count is 12, not 4. Four is enough only from a row that has not
+     * scrolled — and browseShelves scrolls every row six cards deep on purpose.
+     * The extra presses were then spent walking back along the row instead of
+     * reaching the rail, so the journey wandered Home, collected a respectable
+     * pile of ui/screens rules, and never opened the screen it was aiming at.
+     * Overshooting is free: the rail absorbs LEFT at its own edge.
+     *
+     * Position, not label. The rail collapses to icons until focused and its
+     * labels are not reliably findable through UiAutomator even once expanded;
+     * a text-driven version navigated nowhere at all and produced a profile
+     * barely half the size. Entering the rail always lands on the SELECTED
+     * item, so the only stable address is: walk to the top, then count down.
      */
     private fun MacrobenchmarkScope.openTab(index: Int) {
-        // Into the rail, wherever focus currently is.
-        repeat(4) {
+        repeat(RAIL_ENTRY_STEPS) {
             device.pressDPadLeft()
             device.waitForIdle()
         }
-        // Up to Home, then down to the target. Overshooting up is safe: the
-        // first item absorbs it.
+        settle(1_000)
         repeat(RAIL_SIZE) {
             device.pressDPadUp()
             device.waitForIdle()
@@ -151,9 +246,8 @@ class BaselineProfileGenerator {
             Thread.sleep(FOCUS_DWELL_MS)
         }
         settle(1_500)
-        // Back out of the rail into the content lane it just opened.
         device.pressDPadRight()
-        settle(1_500)
+        settle(2_000)
     }
 
     private fun MacrobenchmarkScope.awaitContent() {
@@ -164,6 +258,22 @@ class BaselineProfileGenerator {
         settle(3_000)
     }
 
+    /**
+     * BACK, but only while the app still owns the screen.
+     *
+     * An unguarded pressBack is how a journey destroys its own profile: if an
+     * earlier step didn't land where it thought (a slow launch, a missed
+     * focus), the backs walk out of the app instead of closing overlays, the
+     * process ends, and the run dies with "never flushed profiles in any
+     * process" — pointing at the collection rather than at the navigation that
+     * actually went wrong.
+     */
+    private fun MacrobenchmarkScope.backInApp() {
+        if (device.currentPackageName != PACKAGE) return
+        device.pressBack()
+        settle(1_500)
+    }
+
     private fun MacrobenchmarkScope.settle(ms: Long = 1_000) {
         device.waitForIdle()
         Thread.sleep(ms)
@@ -172,11 +282,19 @@ class BaselineProfileGenerator {
     private companion object {
         const val PACKAGE = "com.nuxcor.nuxtv"
 
+        /**
+         * Enough LEFT presses to cross the widest content row this app builds
+         * and still reach the rail. It is an upper bound, not a count — the
+         * loop stops the moment the rail names itself.
+         */
         // Rail order, Search excluded (it lives on Home's pill).
         const val HOME = 0
         const val LIVE = 1
         const val MOVIES = 2
         const val RAIL_SIZE = 6
+
+        /** Enough LEFT presses to cross the widest scrolled row and still arrive. */
+        const val RAIL_ENTRY_STEPS = 12
 
         /** NuxMotion.FocusDwellMs, plus room for the emulator to keep up. */
         const val FOCUS_DWELL_MS = 500L
