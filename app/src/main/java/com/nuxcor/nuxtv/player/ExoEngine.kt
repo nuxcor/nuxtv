@@ -61,9 +61,22 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
             // HLS ladder to a low rung. On a TV we always want the top rung.
             .clearViewportSizeConstraints()
             .clearVideoSizeConstraints()
-            // Overridden from the Settings preference once playback starts;
-            // this is only the value in force before that is applied.
-            .setForceHighestSupportedBitrate(true)
+            // Adaptive. Pinning the top rung regardless of what the line can
+            // carry doesn't look sharper, it macroblocks and rebuffers; the
+            // selector climbs to the top rung on its own when the bandwidth is
+            // there. Only a viewer pinning "Highest available" in the quality
+            // sheet turns this on.
+            .setForceHighestSupportedBitrate(false)
+            // Tunneled playback: video frames go straight from the decoder to
+            // the display pipeline, which is how TV silicon keeps 4K and HDR in
+            // sync with its audio instead of drifting. The selector only takes
+            // this path when the decoders advertise the feature for the actual
+            // format, so it costs nothing on hardware that can't do it.
+            //
+            // Off for the muted guide preview: tunneled decoder instances are a
+            // scarce resource on TV chipsets, and a preview competing for one
+            // with the stream the viewer is watching is a bad trade.
+            .setTunnelingEnabled(requestAudioFocus)
             .build()
     }
 
@@ -259,6 +272,45 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
 
     override val videoResolution: Pair<Int, Int>?
         get() = player.videoFormat?.let { f -> (f.width to f.height).takeIf { f.height > 0 } }
+
+    override val videoFrameRate: Float?
+        get() = player.videoFormat?.frameRate?.takeIf { it > 0f }
+
+    override val hdrFormat: String?
+        get() {
+            val format = player.videoFormat ?: return null
+            if (format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION) return "Dolby Vision"
+            return when (format.colorInfo?.colorTransfer) {
+                C.COLOR_TRANSFER_ST2084 -> "HDR10"
+                C.COLOR_TRANSFER_HLG -> "HLG"
+                else -> null
+            }
+        }
+
+    override val audioFormatLabel: String?
+        get() {
+            val format = player.audioFormat ?: return null
+            // Codec first where it means something to a viewer: "Dolby Atmos"
+            // is the badge people look for, and it outranks a channel count.
+            val codec = when (format.sampleMimeType) {
+                MimeTypes.AUDIO_E_AC3_JOC -> "Dolby Atmos"
+                MimeTypes.AUDIO_AC4 -> "Dolby AC-4"
+                MimeTypes.AUDIO_TRUEHD -> "Dolby TrueHD"
+                MimeTypes.AUDIO_E_AC3 -> "Dolby Digital+"
+                MimeTypes.AUDIO_AC3 -> "Dolby Digital"
+                MimeTypes.AUDIO_DTS_X -> "DTS:X"
+                MimeTypes.AUDIO_DTS_HD -> "DTS-HD"
+                MimeTypes.AUDIO_DTS -> "DTS"
+                else -> null
+            }
+            if (codec != null) return codec
+            // Otherwise only say something when it beats plain stereo.
+            return when (format.channelCount) {
+                6 -> "5.1"
+                8 -> "7.1"
+                else -> null
+            }
+        }
 
     // --- track selection ------------------------------------------------------
 

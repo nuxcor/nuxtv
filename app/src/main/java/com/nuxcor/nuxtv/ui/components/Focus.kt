@@ -45,14 +45,27 @@ val LocalArrivalFocusAllowed = androidx.compose.runtime.compositionLocalOf { tru
  * once per [keys] change, with the standard retry loop.
  *
  * Honours [LocalArrivalFocusAllowed]: while the shell holds focus the request
- * is skipped, and re-armed the moment the viewer moves into the content.
+ * is skipped, and armed for the moment the viewer moves into the content.
+ *
+ * ARRIVAL, not "whenever the shell lets go". The allowed flag is driven off
+ * the rail holding focus, so it flips false→true every time the viewer comes
+ * back from the rail — and firing on that edge dragged focus off wherever
+ * they had been: on Search, going LEFT into the rail and RIGHT back landed
+ * on the query field instead of the result they left. The request is spent
+ * once per [keys] change and stays spent until the keys actually change.
  */
 @Composable
 fun rememberInitialFocus(vararg keys: Any?): FocusRequester {
     val requester = remember { FocusRequester() }
     val allowed = LocalArrivalFocusAllowed.current
+    // A plain holder rather than mutableStateOf: spending the request must
+    // not itself invalidate composition, and nothing reads this during it.
+    val pending = remember(*keys) { booleanArrayOf(true) }
     LaunchedEffect(allowed, *keys) {
-        if (allowed) requester.requestFocusRetrying()
+        if (allowed && pending[0]) {
+            pending[0] = false
+            requester.requestFocusRetrying()
+        }
     }
     return requester
 }

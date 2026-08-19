@@ -316,19 +316,6 @@ internal fun SettingsTab(
             )
         }
 
-        item(key = "quality") {
-            val quality by vm.videoQuality.collectAsState()
-            SettingsChoiceRow(
-                title = "Picture quality",
-                description = "Highest is sharpest but can buffer on a weak line; " +
-                    "Auto starts lower and climbs. Only affects streams that offer " +
-                    "more than one quality.",
-                options = listOf("Auto", "Highest"),
-                selectedIndex = quality,
-                onSelect = { vm.setVideoQuality(it) },
-            )
-        }
-
         item(key = "engine") {
             val engines = remember { EngineChoice.entries.toList() }
             SettingsChoiceRow(

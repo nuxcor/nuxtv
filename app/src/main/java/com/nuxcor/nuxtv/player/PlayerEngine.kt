@@ -97,6 +97,27 @@ interface PlayerEngine {
     /** Decoded video size, or null before the first frame. */
     val videoResolution: Pair<Int, Int>?
 
+    /**
+     * Decoded frame rate in fps, or null when the stream doesn't declare one.
+     * Drives display refresh matching: 25fps shown on a 60Hz output judders,
+     * and there is no way to know that without this.
+     */
+    val videoFrameRate: Float?
+
+    /**
+     * "Dolby Vision", "HDR10" or "HLG" when the decoded video carries one, null
+     * for ordinary SDR. Read from the decoded format, never from the stream
+     * name — providers write "HDR" into titles that carry nothing of the kind.
+     */
+    val hdrFormat: String?
+
+    /**
+     * The decoded audio said the way a TV viewer recognises it: "Dolby Atmos",
+     * "Dolby Digital+", "DTS-HD", "5.1". Null when it is ordinary stereo or the
+     * engine can't tell.
+     */
+    val audioFormatLabel: String?
+
     fun audioTracks(): List<Track>
     fun textTracks(): List<Track>
 

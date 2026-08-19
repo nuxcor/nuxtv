@@ -43,6 +43,13 @@ internal fun Series.artRef() = ArtRef(id, "tv", name, year)
 private const val ART_DWELL_MS = 400L
 
 /**
+ * How long a card waits before asking again after the request queue turned it
+ * away. Only the overflow of a screenful retries, so this stays short enough
+ * that a poster fills in while the viewer is still looking at it.
+ */
+private const val ART_RETRY_MS = 400L
+
+/**
  * [provided] when the provider shipped art, TMDB's when it didn't, null while
  * the answer isn't known yet — [com.nuxcor.nuxtv.ui.components.Artwork] draws
  * its own fallback in the meantime, so there is nothing to show for a miss.
@@ -65,7 +72,14 @@ internal fun borrowedArt(
     }.collectAsState(initial = vm.artwork.value[ref.id])
     LaunchedEffect(ref.id) {
         kotlinx.coroutines.delay(ART_DWELL_MS)
-        vm.requestArtwork(ref.id, ref.kind, ref.title, ref.year)
+        // Keyed on the id, so this fires exactly once per card while it stays
+        // composed — which is why a refusal has to be retried here rather than
+        // dropped. A seven-column grid expires ~28 dwell timers at once against
+        // a queue of 24, and the losers used to stay monograms until the
+        // viewer scrolled them away and back. Cancelled with the card.
+        while (!vm.requestArtwork(ref.id, ref.kind, ref.title, ref.year)) {
+            kotlinx.coroutines.delay(ART_RETRY_MS)
+        }
     }
     val art = entry ?: return null
     // A poster standing in for a missing backdrop is better than no ambient

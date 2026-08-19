@@ -131,9 +131,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setChannelOrder(mode: Int) = viewModelScope.launch { playerPrefs.setChannelOrder(mode) }
 
     val videoQuality: StateFlow<Int> = playerPrefs.videoQuality
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 1)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
     fun setVideoQuality(mode: Int) = viewModelScope.launch { playerPrefs.setVideoQuality(mode) }
+
 
     /**
      * Locked categories stay hidden until the PIN is entered this session.
@@ -349,6 +350,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     else -> merged
                 }
             }
+            .flowOn(kotlinx.coroutines.Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * What the "All channels" shelf shows: [displayChannels] with duplicates
+     * collapsed ACROSS categories, so a channel filed under five shelves lists
+     * once. [displayChannels] can only merge within a category — that is the
+     * right scope for a shelf, and the wrong one for All.
+     *
+     * It lives here rather than in the four screens that show it because the
+     * merge is a regex pass over every channel — 12ms on a desktop JVM at 6k
+     * channels, several times that on TV hardware. Each screen was running it
+     * inside composition, on the main thread, and re-running it on every
+     * emission of [displayChannels]: playing a channel learns its real
+     * quality, which re-emits, which re-merged the entire catalogue mid-zap.
+     */
+    val allChannelsView: StateFlow<List<LiveChannel>> =
+        displayChannels.combine(playerPrefs.mergeDuplicates) { channels, merge ->
+            if (!merge) channels
+            else com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(
+                channels,
+                keyOf = { com.nuxcor.nuxtv.data.EpgMatcher.normalizeKey(it.name) },
+            )
+        }
             .flowOn(kotlinx.coroutines.Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -701,14 +726,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val artQueueLimit = 24
 
     /**
-     * Fills in one catalogue entry's artwork if TMDB has any. No-op when the
-     * build carries no key, when the answer is already known (including a
-     * known "TMDB has nothing"), or when the queue is full.
+     * Fills in one catalogue entry's artwork if TMDB has any.
+     *
+     * Returns false ONLY when the queue was full, meaning "ask me again" —
+     * every other outcome (no key, answer already known including a known
+     * "TMDB has nothing", request already in flight) returns true because
+     * there is nothing further to do. The distinction matters because the
+     * caller fires once per card: a wide grid can expire ~28 dwell timers
+     * together, and silently dropping the overflow left those cells as
+     * monograms until the viewer scrolled them off screen and back.
      */
-    fun requestArtwork(id: String, kind: String, title: String, year: Int?) {
-        val key = tmdbApiKey ?: return
-        if (id in artwork.value) return
-        if (artInFlight.size >= artQueueLimit || !artInFlight.add(id)) return
+    fun requestArtwork(id: String, kind: String, title: String, year: Int?): Boolean {
+        val key = tmdbApiKey ?: return true
+        if (id in artwork.value) return true
+        if (artInFlight.size >= artQueueLimit) return false
+        if (!artInFlight.add(id)) return true
         viewModelScope.launch {
             val entry = artConcurrency.withPermit { repo.artworkFor(kind, title, year, key) }
             if (entry != null) {
@@ -721,6 +753,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             artInFlight.remove(id)
         }
+        return true
     }
     /**
      * Session cache of fetched episode lists, so a series browsed once opens

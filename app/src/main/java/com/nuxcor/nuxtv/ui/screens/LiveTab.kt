@@ -187,9 +187,9 @@ internal fun LiveTab(
     // Ordering is applied in the ViewModel from the Settings preference.
     // Needed here (not just inside the guide) because the schedule sheet and
     // the context menu play from this list.
-    val mergeDupes by vm.mergeDuplicates.collectAsState()
-    val channels = remember(allVisible, activeCategory, favorites, recents, mergeDupes) {
-        channelsInCategory(activeCategory, allVisible, favorites, recents, dedupAll = mergeDupes)
+    val allView by vm.allChannelsView.collectAsState()
+    val channels = remember(allVisible, activeCategory, favorites, recents, allView) {
+        channelsInCategory(activeCategory, allVisible, favorites, recents, allChannels = allView)
     }
     val epgState by vm.epgState.collectAsState()
 

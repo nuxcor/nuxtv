@@ -165,30 +165,70 @@ internal fun PlayerControls(
     }
 }
 
+/**
+ * What the stream actually turned out to be: picture tier, HDR flavour, audio
+ * format. Read from the decoder, never from the title — a provider writing "4K
+ * HDR" into a filename is not evidence of either.
+ *
+ * Everything here is absent until it is known, and ordinary SDR stereo says
+ * nothing at all. A row of badges that appears on every stream stops carrying
+ * information.
+ */
+@Composable
+internal fun StreamBadges(
+    resolution: Pair<Int, Int>?,
+    hdrFormat: String?,
+    audioFormatLabel: String?,
+) {
+    val tier = resolution?.let { (_, h) -> com.nuxcor.nuxtv.data.QualityTag.tierOf(h) }
+    if (tier == null && hdrFormat == null && audioFormatLabel == null) return
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        tier?.let { com.nuxcor.nuxtv.ui.components.MetaChip(it, accent = true) }
+        hdrFormat?.let { com.nuxcor.nuxtv.ui.components.MetaChip(it, accent = true) }
+        audioFormatLabel?.let { com.nuxcor.nuxtv.ui.components.MetaChip(it) }
+    }
+}
+
 /** The VOD title header — live playback names itself through the banner. */
 @Composable
-internal fun VodTitleHeader(title: String, subtitle: String?) {
+internal fun VodTitleHeader(
+    title: String,
+    subtitle: String?,
+    resolution: Pair<Int, Int>? = null,
+    hdrFormat: String? = null,
+    audioFormatLabel: String? = null,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(PlayerTheme.TopGradient)
             .padding(horizontal = 32.dp, vertical = 22.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-            color = NuxColors.OnSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (!subtitle.isNullOrBlank()) {
+        Column {
             Text(
-                text = subtitle,
-                style = MaterialTheme.typography.labelLarge,
-                color = NuxColors.OnSurfaceDim,
+                text = title,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                color = NuxColors.OnSurface,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = NuxColors.OnSurfaceDim,
+                    maxLines = 1,
+                )
+            }
         }
+        // Movies and series had no quality readout anywhere on screen — the
+        // live banner's chip has no VOD counterpart — so a 4K film announced
+        // itself only in the options sheet, two presses away.
+        StreamBadges(resolution, hdrFormat, audioFormatLabel)
     }
 }
 

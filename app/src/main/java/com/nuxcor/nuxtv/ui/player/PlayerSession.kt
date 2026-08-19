@@ -109,6 +109,13 @@ class PlayerSession internal constructor(
     var durationMs: Long by mutableLongStateOf(0L)
     var videoSize: Pair<Int, Int>? by mutableStateOf(null)
 
+    /** Decoded frame rate, polled alongside [videoSize] for display matching. */
+    var videoFrameRate: Float? by mutableStateOf(null)
+
+    /** Decoded HDR flavour and audio format, for the stream's badges. */
+    var hdrFormat: String? by mutableStateOf(null)
+    var audioFormatLabel: String? by mutableStateOf(null)
+
     var bannerTick: Int by mutableIntStateOf(0)
     var bannerVisible: Boolean by mutableStateOf(false)
     var bannerShows: Int by mutableIntStateOf(0)
@@ -356,6 +363,9 @@ class PlayerSession internal constructor(
         pendingTuneIndex = target // the scaffold commits it after ZAP_DWELL_MS
         tuning = true
         videoSize = null // the old stream's resolution isn't this channel's
+        videoFrameRate = null
+        hdrFormat = null
+        audioFormatLabel = null
         bannerTick++
     }
 
@@ -376,6 +386,9 @@ class PlayerSession internal constructor(
         tuning = true
         engine.playAt(index)
         videoSize = null
+        videoFrameRate = null
+        hdrFormat = null
+        audioFormatLabel = null
         bannerTick++
     }
 

@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -120,20 +119,14 @@ fun GuideTab(
         is ContentRepository.EpgState.Idle,
         is ContentRepository.EpgState.Loading -> GuideNotice.Loading
 
-        is ContentRepository.EpgState.Error ->
-            GuideNotice.Missing(state.message, matchFailure = false)
+        is ContentRepository.EpgState.Error -> GuideNotice.Missing(matchFailure = false)
 
         is ContentRepository.EpgState.Ready ->
             // Ready means the XMLTV parsed, not that any of it is this
             // playlist's. When the ids don't line up every row reads "No
             // information" over a grid that looks like it is working, so a
             // coverage miss gets the same prompt a failed download does.
-            if (coverage.matchesPlaylist) null else GuideNotice.Missing(
-                "The guide matched only ${coverage.matched} of " +
-                    "${coverage.total} channels. Providers and guides often " +
-                    "use different channel ids.",
-                matchFailure = true,
-            )
+            if (coverage.matchesPlaylist) null else GuideNotice.Missing(matchFailure = true)
     }
 
 
@@ -156,9 +149,9 @@ fun GuideTab(
     val categories = remember(bundle, favorites, recents, allChannels) {
         liveCategoryList(bundle, allChannels, favorites, recents)
     }
-    val mergeDupes by vm.mergeDuplicates.collectAsState()
-    val channels = remember(allChannels, categoryId, favorites, recents, mergeDupes) {
-        channelsInCategory(categoryId, allChannels, favorites, recents, dedupAll = mergeDupes)
+    val allView by vm.allChannelsView.collectAsState()
+    val channels = remember(allChannels, categoryId, favorites, recents, allView) {
+        channelsInCategory(categoryId, allChannels, favorites, recents, allChannels = allView)
     }
     // Same rest-before-select rule as every other category surface
     // (nav rail, Movies/Series columns): resting on a chip selects it,
@@ -300,11 +293,22 @@ fun GuideTab(
             Spacer(Modifier.height(6.dp))
         }
         notice?.let {
+            // Resolved here, and remembered: the suggestion reads every
+            // channel name in the playlist, and this used to rebuild that
+            // whole list on every recomposition of the guide.
+            val matchFailure = (it as? GuideNotice.Missing)?.matchFailure == true
+            val pack = remember(bundle, matchFailure) {
+                suggestedEpgPacks(
+                    categoryNames = bundle.liveCategories.map { c -> c.name },
+                    channelNames = if (matchFailure) bundle.channels.map { c -> c.name }
+                    else emptyList(),
+                ).firstOrNull()
+            }
             GuideNoticeBar(
                 notice = it,
-                categoryNames = bundle.liveCategories.map { c -> c.name },
-                channelNames = bundle.channels.map { c -> c.name },
+                pack = pack,
                 onPick = { cc -> vm.setEpgOverrideUrl(epgshareUrl(cc)) },
+                onOpenSettings = onOpenSettings,
             )
             Spacer(Modifier.height(10.dp))
         }
@@ -622,10 +626,17 @@ internal sealed interface GuideNotice {
 
     /**
      * No usable guide. [matchFailure] separates "the download failed" from
-     * "it downloaded but matched almost nothing" — the suggestions are better
-     * in the second case, where channel names are known to be worth reading.
+     * "it downloaded but matched almost nothing" — two different sentences to
+     * the viewer, and better suggestions in the second case, where channel
+     * names are known to be worth reading.
+     *
+     * The provider's own wording ("isn't publishing a guide", "server didn't
+     * respond") is deliberately NOT carried here. All of it meant the same
+     * thing on screen — no guide, pick another — and spending a second line of
+     * a TV banner on which flavour of nothing arrived is a diagnostic, not
+     * copy. It still reaches logcat from ContentRepository.
      */
-    data class Missing(val message: String, val matchFailure: Boolean) : GuideNotice
+    data class Missing(val matchFailure: Boolean) : GuideNotice
 }
 
 /**
@@ -640,9 +651,10 @@ internal sealed interface GuideNotice {
 @Composable
 private fun GuideNoticeBar(
     notice: GuideNotice,
-    categoryNames: List<String>,
-    channelNames: List<String>,
+    /** Best-guess country pack for this playlist, or null when nothing hints at one. */
+    pack: String?,
     onPick: (String) -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -670,51 +682,45 @@ private fun GuideNoticeBar(
         }
 
         val missing = notice as GuideNotice.Missing
-        // Suggestions come from the playlist's own categories and channel-name
-        // country tags; the full list is the fallback when nothing hints at one.
-        val suggested = remember(categoryNames, channelNames, missing.matchFailure) {
-            val names = if (missing.matchFailure) channelNames else emptyList()
-            suggestedEpgPacks(categoryNames, names).ifEmpty { EPGSHARE_PACKS }
-        }
         Icon(
             Icons.Default.Info,
             contentDescription = null,
             tint = NuxColors.Primary,
             modifier = Modifier.size(18.dp),
         )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "No guide — showing channels only",
-                style = MaterialTheme.typography.labelLarge,
-                color = NuxColors.OnSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = missing.message,
-                style = MaterialTheme.typography.labelMedium,
-                color = NuxColors.OnSurfaceDim,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        // One sentence, and it names which of the two failures happened — a
+        // guide that downloaded but doesn't fit this playlist is a different
+        // problem from no guide at all, and the viewer can tell them apart
+        // without being handed the HTTP reason.
         Text(
-            text = "Free guide:",
-            style = MaterialTheme.typography.labelMedium,
-            color = NuxColors.OnSurfaceDim,
+            // Both fit one line at the width the bar actually gets; the
+            // match-failure sentence carried "— showing channels only" too and
+            // ellipsised on a 4K panel, which is the width there is most of.
+            // The grid underneath is visibly full of channels, so that clause
+            // was spending the only line on something already on screen.
+            text = if (missing.matchFailure) {
+                "This guide doesn't match your channels"
+            } else {
+                "No guide — showing channels only"
+            },
+            style = MaterialTheme.typography.labelLarge,
+            color = NuxColors.OnSurface,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
         )
-        // Buttons, not CategoryItems. An unselected CategoryItem is transparent
-        // and borderless — correct in a category column, but here it made the
-        // one call to action on the screen read as two words of prose.
-        androidx.compose.foundation.lazy.LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.widthIn(max = 320.dp),
-        ) {
-            items(suggested, key = { it }) { cc ->
-                androidx.tv.material3.OutlinedButton(onClick = { onPick(cc) }) {
-                    Text(cc, style = MaterialTheme.typography.labelMedium)
-                }
+        // One button, not a rank of seven country codes. The app already knows
+        // which pack fits — suggestedEpgPacks reads it off the playlist's own
+        // categories and channel-name tags — so asking the viewer to choose
+        // was the app declining to decide. When nothing hints at a country
+        // there is no honest guess to offer, and Settings owns the full list.
+        if (pack != null) {
+            androidx.tv.material3.OutlinedButton(onClick = { onPick(pack) }) {
+                Text("Use free $pack guide", style = MaterialTheme.typography.labelMedium)
+            }
+        } else {
+            androidx.tv.material3.OutlinedButton(onClick = onOpenSettings) {
+                Text("Choose a guide", style = MaterialTheme.typography.labelMedium)
             }
         }
     }

@@ -50,21 +50,29 @@ internal fun channelsInCategory(
     favorites: Set<String>,
     recents: List<String>,
     /**
-     * Collapse cross-category duplicates in the All view: a channel living
-     * in five categories lists once, keyed globally by its cleaned identity.
-     * Per-category views stay untouched — nothing vanishes from the shelf
-     * being browsed — and Favorites/Recent filter the full list by url, so a
-     * deduped-away variant the viewer starred still appears there.
+     * The All view's list: cross-category duplicates already collapsed, so a
+     * channel living in five categories lists once. Per-category views stay
+     * untouched — nothing vanishes from the shelf being browsed — and
+     * Favorites/Recent filter the full list by url, so a deduped-away variant
+     * the viewer starred still appears there.
+     *
+     * Passed in rather than computed here, and this is the whole point of the
+     * parameter: collapsing it is a global regex pass over every channel, and
+     * all four screens that call this ran it inside composition on the main
+     * thread. It re-ran on every emission of displayChannels — including the
+     * one that lands mid-playback each time a stream's real quality is
+     * learned. [MainViewModel.allChannelsView] computes it once, off-thread.
      */
-    dedupAll: Boolean = false,
+    allChannels: List<LiveChannel> = channels,
 ): List<LiveChannel> = when (categoryId) {
-    CATEGORY_ALL ->
-        if (dedupAll) {
-            com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(
-                channels,
-                keyOf = { com.nuxcor.nuxtv.data.EpgMatcher.normalizeKey(it.name) },
-            )
-        } else channels
+    // ifEmpty, and not as a formality: allChannelsView is a flowOn hop
+    // DOWNSTREAM of displayChannels, so on a cold start there is a window
+    // where the catalogue has arrived but its merge has not. All is the
+    // default selection on all four screens, and the "No live channels" pane
+    // can't cover the gap because it tests displayChannels — which is full.
+    // The unmerged list for one frame beats an empty grid that the entry
+    // focus tick then fires against.
+    CATEGORY_ALL -> allChannels.ifEmpty { channels }
     CATEGORY_FAVORITES -> channels.filter { it.url in favorites }
     CATEGORY_RECENT -> {
         // Index the channels once: recents is capped small, but the channel

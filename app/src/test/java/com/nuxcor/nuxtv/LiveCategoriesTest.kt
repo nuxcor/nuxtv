@@ -32,16 +32,25 @@ class LiveCategoriesTest {
                 quality = "FHD"),
             LiveChannel(id = "c", name = "BBC", logo = null, url = "http://x/c", categoryId = "news"),
         )
-        val all = channelsInCategory(CATEGORY_ALL, dupes, emptySet(), emptyList(), dedupAll = true)
+        // The merge itself now runs off the main thread in the view model;
+        // what this asserts is the contract between the two — All shows the
+        // list it is handed, and nothing else is affected by it.
+        val deduped = com.nuxcor.nuxtv.data.QualityTag.mergeBestQuality(
+            dupes,
+            keyOf = { com.nuxcor.nuxtv.data.EpgMatcher.normalizeKey(it.name) },
+        )
         // One CNN survives (the FHD variant outranks the HD one) plus BBC.
+        assertEquals(listOf("b", "c"), deduped.map { it.id })
+
+        val all = channelsInCategory(CATEGORY_ALL, dupes, emptySet(), emptyList(), allChannels = deduped)
         assertEquals(listOf("b", "c"), all.map { it.id })
-        // Off-switch is a no-op.
+        // Merging off: All is the full list, which is also the default.
         assertEquals(3, channelsInCategory(CATEGORY_ALL, dupes, emptySet(), emptyList()).size)
         // Per-category views untouched even with dedup on.
-        assertEquals(2, channelsInCategory("news", dupes, emptySet(), emptyList(), dedupAll = true).size)
+        assertEquals(2, channelsInCategory("news", dupes, emptySet(), emptyList(), allChannels = deduped).size)
         // A favorited deduped-away variant still appears under Favorites.
         val favs = channelsInCategory(
-            CATEGORY_FAVORITES, dupes, setOf("http://x/a"), emptyList(), dedupAll = true,
+            CATEGORY_FAVORITES, dupes, setOf("http://x/a"), emptyList(), allChannels = deduped,
         )
         assertEquals(listOf("a"), favs.map { it.id })
     }

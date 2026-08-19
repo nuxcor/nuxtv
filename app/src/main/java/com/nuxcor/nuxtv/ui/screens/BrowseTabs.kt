@@ -37,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
@@ -96,6 +97,21 @@ internal const val VOD_ALL = "__all__"
  */
 private val POSTER_TARGET_WIDTH = 168.dp
 private val GRID_GAP = 16.dp
+
+/**
+ * Room above the first grid row for a focused card to grow into.
+ *
+ * [NuxFocus.CardScale] scales a focused poster about its CENTRE, so half the
+ * growth goes upward — and the grid clips to its own bounds. With the focused
+ * row snapped flush to the top of the pane (see the snap below) that upward
+ * half had nowhere to go, and the top of the poster you were actually looking
+ * at was sliced off against the top edge.
+ *
+ * Half the growth of the tallest cell this grid produces: a 3-column pane
+ * gives roughly a 250dp-wide poster, 375dp tall at 2:3, and 375 × 0.06 / 2 ≈
+ * 11dp. Rounded up so the widest layouts keep a hairline of clearance.
+ */
+private val FOCUS_OVERHANG = 12.dp
 
 /** Columns that fit [width] at [POSTER_TARGET_WIDTH], clamped to a TV-shaped range. */
 private fun gridColumnsFor(width: Dp): Int =
@@ -307,11 +323,18 @@ private fun VodBrowser(
         // Row snapping: the focused row aligns to the top of the pane, so the
         // rows above scroll fully away instead of leaving an orphaned caption
         // sliver ("2014" floating under nothing) clipped at the top edge.
-        LaunchedEffect(focusedEntryIndex, browsingGrid) {
+        //
+        // The snap stops FOCUS_OVERHANG short of the edge. Landing the row
+        // flush against it is what cost the focused poster its top: the card
+        // scales about its centre and the grid clips, so the row that snapping
+        // exists to show you was the one row guaranteed to be cut.
+        val overhangPx = with(LocalDensity.current) { FOCUS_OVERHANG.roundToPx() }
+        LaunchedEffect(focusedEntryIndex, browsingGrid, overhangPx) {
             if (!browsingGrid) return@LaunchedEffect
             val row = focusedEntryIndex / gridColumns
-            // +1 skips the full-span hero header item.
-            gridState.animateScrollToItem(1 + row * gridColumns)
+            // +1 skips the full-span hero header item. A negative offset seats
+            // the row below the viewport start rather than on it.
+            gridState.animateScrollToItem(1 + row * gridColumns, scrollOffset = -overhangPx)
         }
         LazyVerticalGrid(
             state = gridState,
@@ -338,7 +361,13 @@ private fun VodBrowser(
                 },
             horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
             verticalArrangement = Arrangement.spacedBy(20.dp),
-            contentPadding = PaddingValues(start = 4.dp, end = 8.dp, bottom = 36.dp),
+            contentPadding = PaddingValues(
+                start = 4.dp,
+                end = 8.dp,
+                // Covers the unscrolled case the snap never runs for.
+                top = FOCUS_OVERHANG,
+                bottom = 36.dp,
+            ),
         ) {
             item(key = "hero", span = { GridItemSpan(maxLineSpan) }) { HeroHeader(shownHero) }
             itemsIndexed(entries, key = { _, e -> e.id }) { index, entry ->

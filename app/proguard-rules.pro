@@ -28,3 +28,11 @@
 
 # --- libVLC uses JNI callbacks into these classes ---
 -keep class org.videolan.libvlc.** { *; }
+
+# --- Media3 FFmpeg audio decoder ---
+# DefaultRenderersFactory finds this by name at runtime, so nothing in the app
+# references it and R8 would otherwise drop the class. media3-exoplayer ships a
+# -keepclassmembers rule for the constructor, which only holds if the class
+# itself survives; these keep it.
+-keep class androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer { *; }
+-keep class androidx.media3.decoder.ffmpeg.FfmpegLibrary { *; }

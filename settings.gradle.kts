@@ -21,3 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "NuxTV"
 include(":app")
+include(":baselineprofile")

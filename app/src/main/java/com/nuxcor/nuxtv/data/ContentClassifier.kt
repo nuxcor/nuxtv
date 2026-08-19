@@ -233,6 +233,28 @@ object ContentClassifier {
     // TMDB matching too.
     private val countryTag = Regex("""[(\[][A-Z]{2,3}[)\]]""")
 
+    // Symmetrical wrapping with no content identity: "### PEACOCK ###",
+    // "▎ Eurosport 1 ▎". CategoryCleaner has stripped this from shelf labels
+    // for a while; channel names carry exactly the same decoration and were
+    // showing it raw.
+    //
+    // + & ' are spared, and that exemption is the whole point of the class
+    // rather than a nicety: "everything Unicode doesn't call a letter or
+    // number" also describes the + in Disney+, ESPN+, Apple TV+, Paramount+
+    // and Canal+, which are among the most common names in any IPTV
+    // playlist. Stripping it renamed every one of them everywhere they are
+    // shown — and inconsistently, since "Canal+ Sport" keeps its + for the
+    // only reason that it isn't at the edge. Same exemption list as
+    // CategoryCleaner.symbolJunk, for the same reason.
+    private val edgeDecoration = Regex("""^[^\p{L}\p{N}+&']+|[^\p{L}\p{N}+&']+$""")
+
+    // Hoisted out of the two cleanup functions: both run per item over
+    // playlists in the thousands, and recompiling a Regex per call was pure
+    // allocation on the parse path.
+    private val multiSpace = Regex("""\s{2,}""")
+
+    private val bracketedYear = Regex("""[(\[]\s*(?:19|20)\d{2}\s*[)\]]""")
+
     /**
      * Channel-name tag stripping for EPG matching: platform/country prefixes
      * and bracketed country tags only. Unlike [cleanTitle] it leaves years
@@ -243,17 +265,21 @@ object ContentClassifier {
         var t = raw
         repeat(2) { t = t.replace(platformPrefix, "") }
         t = t.replace(countryTag, " ")
-        return t.replace(Regex("""\s{2,}"""), " ").trim()
+        t = t.replace(edgeDecoration, "")
+        return t.replace(multiSpace, " ").trim()
     }
 
     /** Strips quality tags, provider prefixes ("EN -", "|NF|") and dangling separators. */
     fun cleanTitle(raw: String): String {
-        var t = raw
+        // VOD shelves carry the same superscript decoration as live names —
+        // "PEACOCK SERIE ORIGINAL ᴿᴬᵂ ⁶⁰ᶠᵖˢ" — and it survived every rule
+        // below, all of which are anchored to ASCII word boundaries.
+        var t = TextNorm.stripDecoration(raw)
         t = t.replace(qualityNoise, " ")
         repeat(2) { t = t.replace(platformPrefix, "") }
         t = t.replace(countryTag, " ")
-        t = t.replace(Regex("""[(\[]\s*(?:19|20)\d{2}\s*[)\]]"""), " ")
-        t = t.replace(Regex("""\s{2,}"""), " ")
+        t = t.replace(bracketedYear, " ")
+        t = t.replace(multiSpace, " ")
         t = t.trim().trimEnd('-', ':', '|', '.', ',').trim()
         return t
     }

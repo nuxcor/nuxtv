@@ -86,7 +86,11 @@ object CategoryCleaner {
         dropWord: String? = null,
         stopWords: Set<String> = emptySet(),
     ): String {
-        val undecorated = name
+        // Decoration first: symbolJunk spares anything Unicode calls a letter
+        // or number, which is exactly what ᴿᴬᵂ and ⁶⁰ᶠᵖˢ are. Shelves merged
+        // on a clean key already — only the label they merged UNDER still
+        // showed the junk.
+        val undecorated = TextNorm.stripDecoration(name)
             .replace(indexPrefix, "")
             .replace(symbolJunk, " ")
             .replace(edgeDecoration, "")

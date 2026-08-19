@@ -356,12 +356,16 @@ class ContentRepository(context: Context) {
                 runCatching {
                     val request = Request.Builder().url(url).header("User-Agent", "Agoro/2.1").build()
                     http.newCall(request).execute().use { resp ->
-                        // Plain language: an HTTP status code on a TV screen
-                        // tells the viewer nothing they can act on. The code
-                        // still reaches logcat via the exception chain.
+                        // Plain language for the viewer, the status for the
+                        // bug report. The banner shows neither of these now
+                        // (GuideNoticeBar writes its own single line), so the
+                        // code is carried purely so logcat can tell 403
+                        // "account expired" from 502 "guide server down" —
+                        // which the prose alone cannot, and the comment here
+                        // used to claim it did.
                         if (!resp.isSuccessful) throw IOException(
-                            if (resp.code == 404) "Your provider isn't publishing a guide."
-                            else "Your provider's guide server didn't respond."
+                            if (resp.code == 404) "Your provider isn't publishing a guide. (HTTP 404)"
+                            else "Your provider's guide server didn't respond. (HTTP ${resp.code})"
                         )
                         val body = resp.body ?: throw IOException("Empty guide response")
                         val now = System.currentTimeMillis()
