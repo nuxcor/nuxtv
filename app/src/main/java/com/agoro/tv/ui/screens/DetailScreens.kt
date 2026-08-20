@@ -123,7 +123,7 @@ fun MovieDetailScreen(
                 listOfNotNull(
                     movie.year?.toString(),
                     movie.quality,
-                    movie.durationText,
+                    movie.durationText?.let(::prettyDuration),
                     movie.genre,
                 ).forEachIndexed { i, chip -> MetaChip(chip, accent = i == 0) }
             }
@@ -194,6 +194,29 @@ fun MovieDetailScreen(
             Spacer(Modifier.height(28.dp))
         }
     }
+    }
+}
+
+/**
+ * Provider runtimes arrive as "02:01:00" or bare minutes; a chip should read
+ * "2h 1m", the way every streaming service says it. Anything unparseable
+ * passes through untouched.
+ */
+private fun prettyDuration(raw: String): String {
+    val parts = raw.trim().split(':').map { it.toIntOrNull() ?: return raw }
+    val minutes = when (parts.size) {
+        3 -> parts[0] * 60 + parts[1] + if (parts[2] >= 30) 1 else 0
+        2 -> parts[0] + if (parts[1] >= 30) 1 else 0
+        1 -> parts[0]
+        else -> return raw
+    }
+    if (minutes <= 0) return raw
+    val h = minutes / 60
+    val m = minutes % 60
+    return when {
+        h > 0 && m > 0 -> "${h}h ${m}m"
+        h > 0 -> "${h}h"
+        else -> "${m}m"
     }
 }
 
@@ -487,7 +510,8 @@ fun SeriesDetailScreen(
                             subtitle = if (watchedTo > 0) {
                                 "Resume from ${formatOffset(watchedTo)}"
                             } else {
-                                episode.durationText ?: "Season ${episode.season}"
+                                episode.durationText?.let(::prettyDuration)
+                                    ?: "Season ${episode.season}"
                             },
                             body = episode.plot ?: series.plot,
                             imageUrl = episode.poster ?: series.backdrop ?: series.poster,
