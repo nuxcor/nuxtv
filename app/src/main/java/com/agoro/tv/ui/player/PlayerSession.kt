@@ -83,6 +83,9 @@ class PlayerSession internal constructor(
          */
         private const val STALL_WINDOW_MS = 60_000L
         private const val STALLS_BEFORE_HOP = 3
+
+        /** Settling time after a tune, during which buffering is expected. */
+        private const val STALL_GRACE_MS = 12_000L
     }
 
     var request: PlaybackRequest by mutableStateOf(initialRequest)
@@ -109,8 +112,28 @@ class PlayerSession internal constructor(
      * True from "a tune was requested" until the new stream actually plays —
      * the window the TuneCard covers. Distinct from [buffering], which also
      * fires for mid-stream stalls that only deserve a corner chip.
+     *
+     * Setting it resets the stall accounting, because a tune is a new stream
+     * and the last one's hiccups say nothing about it. zap() and jumpTo()
+     * set this without going through resetLadder, so the counter used to
+     * carry across channel changes: three ordinary channel-change buffers in
+     * a minute tripped the "can't keep up" hop on a perfectly healthy feed,
+     * which is what a viewer saw as the app announcing a broken stream every
+     * few zaps.
      */
-    var tuning: Boolean by mutableStateOf(true)
+    private var tuningState: Boolean by mutableStateOf(true)
+    var tuning: Boolean
+        get() = tuningState
+        set(value) {
+            if (value) {
+                stallClock.clear()
+                lastTuneMs = System.currentTimeMillis()
+            }
+            tuningState = value
+        }
+
+    /** When the current stream was asked for; see [STALL_GRACE_MS]. */
+    private var lastTuneMs = System.currentTimeMillis()
 
     var errorMessage: String? by mutableStateOf(null)
     var statusMessage: String? by mutableStateOf(null)
@@ -187,8 +210,13 @@ class PlayerSession internal constructor(
                 pauseStartedMs = System.currentTimeMillis()
             }
             // A live feed that stalls three times in a minute is starving,
-            // not hiccuping. Catch-up is exempt: seeking buffers legitimately.
-            if (b && playing && !tuning && request.isLive && !request.isCatchup) {
+            // not hiccuping. Catch-up is exempt: seeking buffers legitimately,
+            // and so does a stream that has only just started — the first
+            // seconds after a tune are the buffer filling, not the feed
+            // failing, and counting them made every zap look like a fault.
+            if (b && playing && !tuning && request.isLive && !request.isCatchup &&
+                System.currentTimeMillis() - lastTuneMs > STALL_GRACE_MS
+            ) {
                 val now = System.currentTimeMillis()
                 stallClock += now
                 while (stallClock.isNotEmpty() && now - stallClock.first() > STALL_WINDOW_MS) {
@@ -196,20 +224,19 @@ class PlayerSession internal constructor(
                 }
                 if (stallClock.size >= STALLS_BEFORE_HOP) {
                     stallClock.clear()
-                    // HLS FIRST, a different source second. The raw .ts mux is
-                    // one long-lived HTTP body: a blip in it is a broken
-                    // stream and costs a full reconnect, which is what a
-                    // viewer sees as the picture stopping for seconds. The
-                    // .m3u8 form of the SAME stream is segments, and a player
-                    // re-requests a lost segment without the viewer knowing —
-                    // which is how apps that never chose .ts ride out the
-                    // same line. Quality is why .ts leads; when a feed has
-                    // proven it can't sustain it, resilience wins.
+                    // ANOTHER SOURCE FIRST, the HLS re-wrap only as a last
+                    // resort. Both recover, but they cost different things:
+                    // another source is the same channel at another measured
+                    // tier, while .m3u8 is this provider re-muxing — which is
+                    // exactly what capped picture quality and is why live URLs
+                    // were moved to raw .ts in the first place. Reaching for
+                    // it first traded a stutter for a permanently softer
+                    // picture, and did it silently.
                     when {
-                        swapLiveFormat() ->
-                            statusMessage = "Stream keeps breaking — switching to a steadier feed…"
                         swapSource() ->
                             statusMessage = "Stream can't keep up — trying another source…"
+                        swapLiveFormat() ->
+                            statusMessage = "Stream keeps breaking — trying a steadier feed…"
                     }
                 }
             }
