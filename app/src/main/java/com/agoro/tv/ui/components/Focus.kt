@@ -12,16 +12,23 @@ import kotlinx.coroutines.delay
  * The target of an arrival focus request routinely composes a frame or two
  * after the effect that wants to focus it (lazy lists, saveable-state
  * restoration, dialogs). A single `requestFocus()` throws or lands nowhere;
- * a short retry loop absorbs the gap. Returns true once focus was requested
- * without throwing.
+ * a short retry loop absorbs the gap. Returns true once focus actually
+ * LANDED.
+ *
+ * requestFocus() returns a Boolean, and it matters: it returns normally with
+ * `false` when the focus system declines the request (mid-transaction, node
+ * not yet focusable). The old `runCatching { .. }.isSuccess` read that refusal
+ * as success and stopped retrying — which is how dialogs opened deaf to the
+ * remote and the guide's entry redirect stranded focus on a category chip,
+ * both only sometimes, with nothing to log.
  */
 suspend fun FocusRequester.requestFocusRetrying(
-    retries: Int = 5,
+    retries: Int = 8,
     intervalMs: Long = 60,
 ): Boolean {
     repeat(retries) { attempt ->
-        val ok = runCatching { requestFocus() }.isSuccess
-        if (ok) return true
+        val landed = runCatching { requestFocus() }.getOrDefault(false)
+        if (landed) return true
         if (attempt < retries - 1) delay(intervalMs)
     }
     return false

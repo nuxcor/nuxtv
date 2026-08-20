@@ -258,12 +258,18 @@ fun HomeScreen(
             }
         }
     }
+    // Available or Ready — the two states with something for the viewer to
+    // act on. Checking and Downloading are already in motion, and a dot for
+    // them would nag about work the app is doing by itself.
+    val updateState by vm.updateState.collectAsState()
     NavRail(
         selected = tab,
         onSelect = { tab = it },
         railFocus = railFocus,
         onRailFocusChanged = { railFocused = it; railExpanded = it },
         lastUserKeyMs = { lastKeyDownMs },
+        settingsBadge = updateState is com.agoro.tv.data.UpdateManager.State.Available ||
+            updateState is com.agoro.tv.data.UpdateManager.State.Ready,
     )
     androidx.compose.animation.AnimatedVisibility(
         visible = exitArmed,

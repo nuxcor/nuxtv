@@ -32,6 +32,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -236,6 +238,12 @@ internal class GuideGridFocus(anchorMs: Long) {
     val rows = mutableMapOf<Int, List<GuideCellFocus>>()
     var focusedRow = -1
 
+    /** Bumped on every focus arrival. requestFocus() returning without
+     *  throwing is NOT proof focus moved — the entry redirect was observed
+     *  "succeeding" on device while focus stayed on a category chip. Callers
+     *  that must know compare this before and after. */
+    var arrivals = 0
+
     /** False while focus is in the channel column, where default (index-wise)
      *  vertical movement is already the right thing. */
     var focusedIsCell = false
@@ -252,6 +260,7 @@ internal class GuideGridFocus(anchorMs: Long) {
      *  a cell to the right drags the anchor along, but crossing a long
      *  programme vertically doesn't reset it to the programme's start. */
     fun noteCellFocus(rowIndex: Int, startMs: Long, endMs: Long, nowMs: Long) {
+        arrivals++
         focusedRow = rowIndex
         focusedIsCell = true
         val fromFallback = verticalFallback
@@ -262,10 +271,29 @@ internal class GuideGridFocus(anchorMs: Long) {
     }
 
     fun noteChannelFocus(rowIndex: Int) {
+        arrivals++
         focusedRow = rowIndex
         focusedIsCell = false
         verticalFallback = false
     }
+}
+
+/**
+ * The host's way to put focus INTO the grid. Compose's geometric search cannot
+ * be trusted to find it: on device, DOWN from the day chip or a category chip
+ * often finds no candidate at all, and the unconsumed event falls back to the
+ * platform default — the first chip in composition order — so focus ping-pongs
+ * above a grid it can never enter. Hosts intercept DOWN and call [focusAnchor]
+ * instead, the exact pattern the grid itself already uses for UP.
+ */
+@Stable
+class GuideGridHandle {
+    internal var focusAnchorImpl: (suspend () -> Boolean)? = null
+
+    /** Land focus on the anchored cell of the last-focused row (else the first
+     *  row), verified — not merely requested. False when the grid is empty or
+     *  never composed. */
+    suspend fun focusAnchor(): Boolean = focusAnchorImpl?.invoke() ?: false
 }
 
 /** The cell covering [anchorMs], else the nearest one — a row whose data stops
@@ -329,6 +357,15 @@ internal fun GuideGrid(
     upFromTopRow: FocusRequester? = null,
     onChannelLongPress: (LiveChannel) -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
+    /** Host-facing focus entry — see [GuideGridHandle]. */
+    handle: GuideGridHandle? = null,
+    /**
+     * Digit buffer owned by the host, when the host collects number keys for
+     * the whole tab (so typing a channel number works from the category strip
+     * too, not only with focus inside the grid). Left null, the grid owns its
+     * own — the player overlay's arrangement.
+     */
+    digitState: MutableState<String>? = null,
 ) {
     val gridFocus = remember { GuideGridFocus(anchorMs = nowMs) }
     val scope = rememberCoroutineScope()
@@ -337,7 +374,8 @@ internal fun GuideGrid(
     // jump lives here. Digits collect briefly, then the grid scrolls to the
     // match and focus follows — scrolling alone leaves focus behind and the
     // next D-pad press snaps straight back.
-    var digitBuffer by remember { mutableStateOf("") }
+    val digitBufferState: MutableState<String> = digitState ?: remember { mutableStateOf("") }
+    var digitBuffer by digitBufferState
 
     // Day paging replaces the window; an anchor from yesterday would send every
     // vertical move to the nearest-edge fallback.
@@ -349,7 +387,35 @@ internal fun GuideGrid(
         val cells = gridFocus.rows[rowIndex] ?: return false
         if (cells.isEmpty()) return false
         val cell = cells[cellIndexFor(cells, gridFocus.anchorMs)]
-        return runCatching { cell.requester.requestFocus() }.isSuccess
+        // The Boolean is the truth — a clean return with `false` means the
+        // focus system declined, and treating that as success is what made
+        // entry work only sometimes. See requestFocusRetrying.
+        return runCatching { cell.requester.requestFocus() }.getOrDefault(false)
+    }
+
+    /**
+     * Scroll to [rowIndex] and put focus on its anchored cell, retrying until
+     * the arrival is CONFIRMED by the cell's own focus callback. requestFocus()
+     * returning cleanly is not enough: on device it was observed reporting
+     * success while focus stayed where it was, which left the whole grid
+     * unreachable and nothing in a log to say why.
+     */
+    suspend fun landOnRow(rowIndex: Int): Boolean {
+        if (rowIndex !in channels.indices) return false
+        runCatching { listState.scrollToItem(rowIndex) }
+        repeat(8) {
+            val before = gridFocus.arrivals
+            if (focusRow(rowIndex)) {
+                // The focus event lands within a frame; give it two.
+                delay(32)
+                if (gridFocus.arrivals > before) return true
+            } else {
+                // Row not composed yet — the scroll's composition runs a frame
+                // behind the call.
+                delay(60)
+            }
+        }
+        return false
     }
 
     fun moveFocusVertically(delta: Int): Boolean {
@@ -415,12 +481,17 @@ internal fun GuideGrid(
         if (entryFocusTick == 0) return@LaunchedEffect
         val index = channels.indexOfFirst { it.id == playingChannelId }
             .takeIf { it >= 0 } ?: 0
-        if (index !in channels.indices) return@LaunchedEffect
-        listState.scrollToItem(index)
-        repeat(5) {
-            if (focusRow(index)) return@LaunchedEffect
-            delay(60)
-        }
+        landOnRow(index)
+    }
+
+    // The host's DOWN route in. Reassigned every composition so the lambda
+    // never captures a stale channel list; cleared on dispose so a dead grid
+    // can't be asked to take focus.
+    DisposableEffect(handle) {
+        onDispose { handle?.focusAnchorImpl = null }
+    }
+    handle?.focusAnchorImpl = {
+        landOnRow(gridFocus.focusedRow.takeIf { it in channels.indices } ?: 0)
     }
 
     // Land on the playing channel's current programme when the overlay opens.
@@ -540,6 +611,10 @@ internal fun TimeRuler(
     onDayClick: (() -> Unit)? = null,
     dayFocus: FocusRequester? = null,
     dayUp: FocusRequester? = null,
+    /** DOWN from the day chip. Intercepted rather than left to the geometric
+     *  search, which finds no candidate below and lets the unconsumed event
+     *  fall back to the first category chip — see [GuideGridHandle]. */
+    onDayDown: (() -> Unit)? = null,
 ) {
     val fmt = rememberClockFormat()
     val dayFmt = remember { SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault()) }
@@ -556,7 +631,16 @@ internal fun TimeRuler(
                     onClick = onDayClick,
                     modifier = Modifier
                         .then(dayFocus?.let { Modifier.focusRequester(it) } ?: Modifier)
-                        .focusProperties { dayUp?.let { up = it } },
+                        .focusProperties { dayUp?.let { up = it } }
+                        .onPreviewKeyEvent { event ->
+                            if (onDayDown != null &&
+                                event.type == KeyEventType.KeyDown &&
+                                event.key.nativeKeyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN
+                            ) {
+                                onDayDown()
+                                true
+                            } else false
+                        },
                     shape = ClickableSurfaceDefaults.shape(NuxShape.Chip),
                     // Quiet at rest like an unselected chip: this names where
                     // the grid is, it is not a thing that is switched on.
@@ -981,6 +1065,17 @@ private fun ProgramCell(
                             (timelineScroll.value - startPx).coerceIn(0f, maxPin).toInt(),
                             0,
                         )
+                    }
+                    .graphicsLayer {
+                        // Once the pin is exhausted the text slides under the
+                        // lane's clip edge and renders as a mid-glyph fragment
+                        // ("oom" out of "News Room"). Drop it whole instead —
+                        // the same rule the ruler labels follow.
+                        val perMinPx = dpPerMinute.toPx()
+                        val startPx = startMinutesFromWindow * perMinPx
+                        val maxPin =
+                            (widthMinutes * perMinPx - 120.dp.toPx()).coerceAtLeast(0f)
+                        alpha = if (timelineScroll.value - startPx > maxPin) 0f else 1f
                     }
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             ) {

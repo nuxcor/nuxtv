@@ -35,6 +35,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.nativeKeyCode
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -58,6 +63,7 @@ import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import com.agoro.tv.ui.components.MetaChip
 import com.agoro.tv.ui.components.StatusPane
+import com.agoro.tv.ui.components.requestFocusRetrying
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.focus.focusRequester
 import com.agoro.tv.ui.theme.NuxColors
@@ -71,12 +77,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Budget on a 960x540dp TV canvas: 540 − 64 (screen gutters) − 50 (category
- * and day row) − 30 (ruler) leaves ~396dp, so a 120dp header keeps four
- * channel rows on screen. A guide showing fewer channels than that stops being
- * a guide, which is why this is a minimum height and not a target.
+ * Budget on a 960x540dp TV canvas, measured on device rather than estimated:
+ * 540 − 64 (vertical gutters) − 56 (category strip with its padding) − 36
+ * (ruler + spacer) − 10 (header spacer) leaves 374dp, and four channel rows
+ * need 266 (4×62 + 3×6) — so the header gets at most 108dp. At the previous
+ * 120dp the fourth row was clipped mid-row at the pane's bottom edge on every
+ * screen. A guide showing fewer than four channels stops being a guide, which
+ * is why the rows win this trade.
  */
-private val HEADER_HEIGHT = 120.dp
+private val HEADER_HEIGHT = 104.dp
 
 /**
  * The grid view of Live TV. Not a destination of its own: it is one of two ways
@@ -290,7 +299,38 @@ fun GuideTab(
     }
     BackHandler(enabled = awayFromNow) { jumpToNow() }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    // The grid's focus entry — see GuideGridHandle. Every downward route into
+    // the grid goes through it: geometric search from the strip or the day
+    // chip finds no candidate on device and the unconsumed DOWN falls back to
+    // the first chip, ping-ponging focus above a grid it can never enter.
+    val gridHandle = remember { GuideGridHandle() }
+    fun Modifier.downIntoGrid(): Modifier = onPreviewKeyEvent { event ->
+        if (event.type == KeyEventType.KeyDown &&
+            event.key.nativeKeyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
+        ) {
+            scope.launch { gridHandle.focusAnchor() }
+            true
+        } else false
+    }
+
+    // Digits tune from anywhere in the tab — the strip and the day chip
+    // included. Collected here (preview phase runs ancestors first, so this
+    // is THE collector while the grid is hosted here); the grid executes the
+    // jump and draws the badge.
+    val digitState = remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val code = event.key.nativeKeyCode
+                if (code in android.view.KeyEvent.KEYCODE_0..android.view.KeyEvent.KEYCODE_9) {
+                    digitState.value += (code - android.view.KeyEvent.KEYCODE_0).toString()
+                    true
+                } else false
+            },
+    ) {
         statusMessage?.let {
             Text(it, style = MaterialTheme.typography.labelLarge, color = NuxColors.Secondary)
             Spacer(Modifier.height(6.dp))
@@ -334,7 +374,24 @@ fun GuideTab(
         androidx.compose.foundation.lazy.LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(bottom = 10.dp),
+            // DOWN mirrors UP's route: strip → day chip when one is showing,
+            // else straight into the grid. Intercepted, not left to geometry —
+            // only the leftmost chips even have the day chip below them, and
+            // from the rest DOWN found nothing and bounced back to chip one.
+            modifier = Modifier
+                .padding(bottom = 10.dp)
+                .then(
+                    if (maxDayOffset > 0) {
+                        Modifier.onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown &&
+                                event.key.nativeKeyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
+                            ) {
+                                scope.launch { dayFocus.requestFocusRetrying() }
+                                true
+                            } else false
+                        }
+                    } else Modifier.downIntoGrid()
+                ),
         ) {
             item(key = "__leading__") { leading() }
             itemsIndexed(strip, key = { _, e -> e.key }) { index, entry ->
@@ -368,12 +425,21 @@ fun GuideTab(
             }
         }
 
+        // What the header describes before anything in the grid has focus: the
+        // first channel's on-now programme, not a channel name over a void.
+        // Only for the true resting state — a focused channel whose lane reads
+        // "No information" must not borrow another channel's programme.
+        val restingProgram = remember(channels.firstOrNull()?.id, epgState, nowTick) {
+            channels.firstOrNull()?.let { first ->
+                vm.programsFor(first).firstOrNull { nowTick in it.startMs until it.endMs }
+            }
+        }
         GuideHeader(
             // Lambdas, not values: read in this scope these would
             // invalidate the whole guide — LazyColumn and every visible
             // row — on each cell the cursor passes over.
             channel = { focusedChannel ?: channels.firstOrNull() },
-            program = { focusedProgram },
+            program = { focusedProgram ?: restingProgram.takeIf { focusedChannel == null } },
             nowMs = nowTick,
             categoryName = categories.firstOrNull { it.id == categoryId }?.name,
             preview = {
@@ -394,10 +460,13 @@ fun GuideTab(
             } else null,
             dayFocus = dayFocus,
             dayUp = chipsFocus,
+            onDayDown = { scope.launch { gridHandle.focusAnchor() } },
         )
 
         GuideGrid(
             entryFocusTick = entryFocusTick,
+            handle = gridHandle,
+            digitState = digitState,
             // UP from the grid meets the day control first — it sits directly
             // above — and UP again reaches the category strip.
             upFromTopRow = if (maxDayOffset > 0) dayFocus else chipsFocus,

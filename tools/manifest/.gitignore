@@ -3,3 +3,4 @@
 *.json
 *.m3u
 dup_ids.txt
+__pycache__/
