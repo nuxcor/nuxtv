@@ -57,6 +57,7 @@ import com.agoro.tv.data.PairingServer
 import com.agoro.tv.data.PlaylistSource
 import com.agoro.tv.ui.components.QrCode
 import com.agoro.tv.ui.components.dpadFieldNavigation
+import com.agoro.tv.ui.components.requestFocusRetrying
 import androidx.compose.animation.togetherWith
 import com.agoro.tv.ui.components.NuxFieldDefaults
 import com.agoro.tv.ui.theme.NuxColors
@@ -272,12 +273,18 @@ private fun ChooseStep(
     // but the chooser never did, so the first press of the D-pad went wherever
     // Compose decided and until then the screen looked inert.
     val firstFocus = remember { androidx.compose.ui.focus.FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
+    // Retried on the Boolean — a declined request must not strand the screen
+    // with nothing focused; see requestFocusRetrying.
+    LaunchedEffect(Unit) { firstFocus.requestFocusRetrying() }
 
     // Phone-assisted sign-in: the server lives exactly as long as this step —
     // its DisposableEffect stops it when a form opens or the screen leaves.
     val pairing = remember {
-        PairingServer { name, server, user, pass ->
+        PairingServer(
+            // Same rule as the TV's own form: a build made for one provider
+            // carries its address, so the phone page asks only who you are.
+            defaultServer = com.agoro.tv.BuildConfig.PROVIDER_HOST.takeIf { it.isNotBlank() },
+        ) { name, server, user, pass ->
             vm.addXtream(name, server, user, pass, onSuccess = onDone)
         }
     }
@@ -363,35 +370,6 @@ private fun ChooseStep(
                 ) { Text("Enter on TV instead") }
                 if (cancellable) {
                     OutlinedButton(onClick = onCancel) { Text("Cancel") }
-                }
-                // Updates don't need a playlist or an account — reachable here
-                // so a first-run user never has to sideload again. Set apart
-                // from the two sign-in actions, and kept to one line: wrapped
-                // to two it was the tallest thing in the row and pulled the
-                // baseline of a screen whose whole job is "scan this code".
-                Spacer(Modifier.width(Space.m))
-                val update by vm.updateState.collectAsState()
-                OutlinedButton(onClick = {
-                    when (update) {
-                        is com.agoro.tv.data.UpdateManager.State.Available,
-                        is com.agoro.tv.data.UpdateManager.State.Ready ->
-                            vm.downloadAndInstallUpdate()
-                        is com.agoro.tv.data.UpdateManager.State.Downloading,
-                        is com.agoro.tv.data.UpdateManager.State.Checking -> Unit
-                        else -> vm.checkForUpdates()
-                    }
-                }) {
-                    Text(
-                        text = when (val u = update) {
-                            is com.agoro.tv.data.UpdateManager.State.Available -> "Update to ${u.version}"
-                            is com.agoro.tv.data.UpdateManager.State.Ready -> "Install update"
-                            is com.agoro.tv.data.UpdateManager.State.Downloading -> "Downloading… ${u.progressPercent}%"
-                            is com.agoro.tv.data.UpdateManager.State.Checking -> "Checking…"
-                            is com.agoro.tv.data.UpdateManager.State.UpToDate -> "Up to date"
-                            else -> "Updates"
-                        },
-                        maxLines = 1,
-                    )
                 }
             }
         }

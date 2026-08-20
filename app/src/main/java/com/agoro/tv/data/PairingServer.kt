@@ -26,6 +26,13 @@ import kotlin.concurrent.thread
  *   same trade every TV "activate on your phone" flow makes.
  */
 class PairingServer(
+    /**
+     * The server a provider-branded build already knows (PROVIDER_HOST), or
+     * null. Non-null drops the URL field from the phone form the same way the
+     * TV's own form drops it: the viewer signs in with a username and
+     * password and is never asked for an address they have no way to know.
+     */
+    private val defaultServer: String? = null,
     private val onSubmit: (name: String, server: String, username: String, password: String) -> Unit,
 ) {
     private var serverSocket: ServerSocket? = null
@@ -33,7 +40,10 @@ class PairingServer(
     @Volatile
     private var running = false
     private val token = (100_000..999_999).random().toString()
-    private val mainHandler = Handler(Looper.getMainLooper())
+
+    // Lazy so the class constructs on the JVM: unit tests exercise the form
+    // HTML, and an eager Handler needs an Android Looper they don't have.
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
 
     /** The URL to encode in the QR, or null when there is no LAN address. */
     var url: String? = null
@@ -117,13 +127,25 @@ class PairingServer(
                     }
                     .toMap()
                 val server = fields["server"]?.trim().orEmpty()
+                    .ifBlank { defaultServer.orEmpty() }
                 val username = fields["username"]?.trim().orEmpty()
                 val password = fields["password"].orEmpty()
-                val name = fields["name"]?.trim().orEmpty()
                 if (server.isBlank() || username.isBlank() || password.isBlank()) {
-                    respond("200 OK", formHtml(error = "All three provider fields are required."))
+                    respond(
+                        "200 OK",
+                        formHtml(
+                            error = if (defaultServer.isNullOrBlank()) {
+                                "All three fields are required."
+                            } else {
+                                "Both fields are required."
+                            }
+                        ),
+                    )
                 } else {
-                    mainHandler.post { onSubmit(name, server, username, password) }
+                    // Name left blank on purpose, matching the TV's own form:
+                    // it was an optional field nobody filled in, and the app
+                    // names the playlist for itself.
+                    mainHandler.post { onSubmit("", server, username, password) }
                     respond("200 OK", sentHtml())
                 }
             }
@@ -142,7 +164,9 @@ class PairingServer(
         }.getOrNull()
 
     // The phone-side page: dark, thumb-sized inputs, zero dependencies.
-    private fun formHtml(error: String? = null) = """
+    // Internal so tests can hold the page to the same rule as the TV form:
+    // a branded build never asks for a URL the viewer has no way to know.
+    internal fun formHtml(error: String? = null) = """
         <!doctype html><html><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Sign in to Agoro</title><style>
@@ -161,11 +185,12 @@ class PairingServer(
         </style></head><body><div class="card">
         <h1>Agoro</h1><p>Enter the login your IPTV provider gave you.</p>
         <form method="post">
-        <label>Playlist name (optional)</label>
-        <input name="name" autocomplete="off" autocapitalize="none">
+        ${
+        if (defaultServer.isNullOrBlank()) """
         <label>Server URL</label>
         <input name="server" autocomplete="off" autocapitalize="none" inputmode="url"
-               placeholder="http://example.com:8080" required>
+               placeholder="http://example.com:8080" required>""" else ""
+        }
         <label>Username</label>
         <input name="username" autocomplete="username" autocapitalize="none" required>
         <label>Password</label>
