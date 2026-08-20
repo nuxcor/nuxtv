@@ -68,6 +68,10 @@ ALIAS = {
     # the provider abbreviates or misspells these past any derivation
     'skysportpl': 'countries/united-kingdom/sky-sports-premier-league-hd-uk.png',
     'bbcparlament': 'countries/united-kingdom/bbc-parliament-uk.png',
+    # locals named without their call sign: the market knowledge lives here
+    'abc7newyork': 'countries/united-states/us-local/abc-7-wabc-us.png',
+    'fox2sanfrancisco': 'countries/united-states/us-local/fox-2-ktvu-us.png',
+    'bouncexl': 'countries/united-states/bounce-us.png',
 }
 
 # Umbrella brands a peel must never land on: "BBC Parliament" stripped to
