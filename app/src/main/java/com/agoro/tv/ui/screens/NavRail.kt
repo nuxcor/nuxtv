@@ -107,8 +107,10 @@ internal fun NavRail(
      */
     settingsBadge: Boolean = false,
 ) {
-    // Mirrors the caller's copy, which drives the content lane's width.
-    var expanded by remember { mutableStateOf(false) }
+    // Always the labeled form: the rail only exists while summoned now, and
+    // a drawer that arrives icons-first and then widens reads as two
+    // animations stacked on one entrance.
+    val expanded = true
     // Focus travel selects a tab only after the focus rests briefly, so
     // moving down the rail doesn't compose every tab it passes through.
     var focusedItem by remember { mutableStateOf<HomeTab?>(null) }
@@ -118,10 +120,7 @@ internal fun NavRail(
         delay(NuxMotion.TabDwellMs.toLong())
         onSelect(item)
     }
-    val width by animateDpAsState(
-        targetValue = if (expanded) RAIL_WIDTH_EXPANDED else RAIL_WIDTH_COLLAPSED,
-        label = "railWidth",
-    )
+    val width = RAIL_WIDTH_EXPANDED
 
     Column(
         modifier = Modifier
@@ -152,7 +151,6 @@ internal fun NavRail(
                 )
             }
             .onFocusChanged {
-                expanded = it.hasFocus
                 onRailFocusChanged(it.hasFocus)
                 if (!it.hasFocus) focusedItem = null // cancel pending select-on-focus
             }

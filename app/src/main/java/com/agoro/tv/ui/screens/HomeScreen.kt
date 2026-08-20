@@ -6,12 +6,17 @@
 package com.agoro.tv.ui.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.focus.onFocusChanged
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -66,8 +71,17 @@ fun HomeScreen(
     // tab composes into. Debounced by the lounge before it lands here.
     var homeHero by remember { mutableStateOf<HeroInfo?>(null) }
     var railFocused by remember { mutableStateOf(false) }
-    var railExpanded by remember { mutableStateOf(false) }
+    // The rail is a drawer now: not composed at all while browsing, sliding
+    // in over a scrim when summoned. LEFT past the content's edge or BACK
+    // opens it; focus leaving it closes it.
+    var railVisible by remember { mutableStateOf(false) }
     val railFocus = remember { FocusRequester() }
+    val railScope = rememberCoroutineScope()
+    fun openRail() {
+        railVisible = true
+        // The drawer composes on the flip above; focus can only land after.
+        railScope.launch { railFocus.requestFocusRetrying() }
+    }
     // Hoisted above the Ready branch so a refresh cycle doesn't wipe tab state.
     val tabStateHolder = rememberSaveableStateHolder()
 
@@ -106,29 +120,18 @@ fun HomeScreen(
         // at all. A long retry window, deliberately: this races a COLD
         // start, where content composes many frames in — not one.
         if (!contentFocus.requestFocusRetrying(retries = 25, intervalMs = 80)) {
-            // Content never composed (load error pane churn); the rail always exists.
-            runCatching { railFocus.requestFocus() }
+            // Content never composed (load error pane churn); summon the drawer.
+            openRail()
         }
         hasLaunched = true
     }
 
     BackHandler(enabled = !railFocused) {
-        runCatching { railFocus.requestFocus() }
+        openRail()
     }
     BackHandler(enabled = railFocused && !exitArmed) {
         exitArmed = true
     }
-
-    // The content lane tracks the rail's width instead of being covered by it.
-    // It used to reserve a fixed 64dp and let the expanded 190dp rail draw on
-    // top "so nothing reflows" — but the rail is expanded exactly when you are
-    // reading the rail *and* the content, and 68dp of every line was sliced
-    // off. Shifting with the animation costs nothing and is what TV launchers
-    // do; the reflow the old comment avoided was never the greater evil.
-    val railWidth by animateDpAsState(
-        targetValue = if (railExpanded) RAIL_WIDTH_EXPANDED else RAIL_WIDTH_COLLAPSED,
-        label = "railLane",
-    )
 
     Box(
         modifier = Modifier
@@ -140,11 +143,10 @@ fun HomeScreen(
                 false // observe only; never consume
             },
     ) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(start = railWidth)
-    ) {
+    // Content gets the whole panel: the drawer overlays it when summoned
+    // rather than shifting it, so nothing reflows and no strip of icons
+    // sits in the corner of the eye while watching posters.
+    Box(modifier = Modifier.fillMaxSize()) {
         if (tab == HomeTab.Home && contentState is ContentState.Ready) {
             // Already outside the gutter padding here, and stopping at the
             // rail is deliberate — so no bleed.
@@ -262,15 +264,62 @@ fun HomeScreen(
     // act on. Checking and Downloading are already in motion, and a dot for
     // them would nag about work the app is doing by itself.
     val updateState by vm.updateState.collectAsState()
-    NavRail(
-        selected = tab,
-        onSelect = { tab = it },
-        railFocus = railFocus,
-        onRailFocusChanged = { railFocused = it; railExpanded = it },
-        lastUserKeyMs = { lastKeyDownMs },
-        settingsBadge = updateState is com.agoro.tv.data.UpdateManager.State.Available ||
-            updateState is com.agoro.tv.data.UpdateManager.State.Ready,
+    // Invisible sliver at the panel's edge: the drawer is not composed while
+    // hidden, so LEFT off the content's first column needs somewhere to land.
+    Box(
+        modifier = Modifier
+            .align(Alignment.CenterStart)
+            .width(2.dp)
+            .fillMaxHeight()
+            .onFocusChanged { if (it.isFocused) openRail() }
+            .focusable(),
     )
+    androidx.compose.animation.AnimatedVisibility(
+        visible = railVisible,
+        enter = androidx.compose.animation.fadeIn(
+            tween(NuxMotion.StandardMs, easing = NuxMotion.StandardEasing)
+        ),
+        exit = androidx.compose.animation.fadeOut(
+            tween(NuxMotion.FastMs, easing = NuxMotion.ExitEasing)
+        ),
+    ) {
+        // Dim the content while the drawer is up, so the two read as layers.
+        Box(Modifier.fillMaxSize().background(NuxColors.Scrim))
+    }
+    androidx.compose.animation.AnimatedVisibility(
+        visible = railVisible,
+        enter = androidx.compose.animation.slideInHorizontally(
+            tween(NuxMotion.StandardMs, easing = NuxMotion.StandardEasing)
+        ) { -it } + androidx.compose.animation.fadeIn(
+            tween(NuxMotion.StandardMs, easing = NuxMotion.StandardEasing)
+        ),
+        exit = androidx.compose.animation.slideOutHorizontally(
+            tween(NuxMotion.FastMs, easing = NuxMotion.ExitEasing)
+        ) { -it } + androidx.compose.animation.fadeOut(
+            tween(NuxMotion.FastMs, easing = NuxMotion.ExitEasing)
+        ),
+    ) {
+        NavRail(
+            selected = tab,
+            onSelect = { tab = it },
+            railFocus = railFocus,
+            // The rail reports an initial "not focused" as it attaches;
+            // acting on that closed the drawer before the summons could
+            // land focus on it. Only a real loss — after a real gain —
+            // dismisses.
+            onRailFocusChanged = { focused ->
+                if (focused) {
+                    railFocused = true
+                } else if (railFocused) {
+                    railFocused = false
+                    railVisible = false
+                }
+            },
+            lastUserKeyMs = { lastKeyDownMs },
+            settingsBadge = updateState is com.agoro.tv.data.UpdateManager.State.Available ||
+                updateState is com.agoro.tv.data.UpdateManager.State.Ready,
+        )
+    }
     androidx.compose.animation.AnimatedVisibility(
         visible = exitArmed,
         enter = androidx.compose.animation.fadeIn(
