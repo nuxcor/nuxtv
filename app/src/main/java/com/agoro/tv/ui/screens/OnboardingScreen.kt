@@ -364,35 +364,6 @@ private fun ChooseStep(
                 if (cancellable) {
                     OutlinedButton(onClick = onCancel) { Text("Cancel") }
                 }
-                // Updates don't need a playlist or an account — reachable here
-                // so a first-run user never has to sideload again. Set apart
-                // from the two sign-in actions, and kept to one line: wrapped
-                // to two it was the tallest thing in the row and pulled the
-                // baseline of a screen whose whole job is "scan this code".
-                Spacer(Modifier.width(Space.m))
-                val update by vm.updateState.collectAsState()
-                OutlinedButton(onClick = {
-                    when (update) {
-                        is com.agoro.tv.data.UpdateManager.State.Available,
-                        is com.agoro.tv.data.UpdateManager.State.Ready ->
-                            vm.downloadAndInstallUpdate()
-                        is com.agoro.tv.data.UpdateManager.State.Downloading,
-                        is com.agoro.tv.data.UpdateManager.State.Checking -> Unit
-                        else -> vm.checkForUpdates()
-                    }
-                }) {
-                    Text(
-                        text = when (val u = update) {
-                            is com.agoro.tv.data.UpdateManager.State.Available -> "Update to ${u.version}"
-                            is com.agoro.tv.data.UpdateManager.State.Ready -> "Install update"
-                            is com.agoro.tv.data.UpdateManager.State.Downloading -> "Downloading… ${u.progressPercent}%"
-                            is com.agoro.tv.data.UpdateManager.State.Checking -> "Checking…"
-                            is com.agoro.tv.data.UpdateManager.State.UpToDate -> "Up to date"
-                            else -> "Updates"
-                        },
-                        maxLines = 1,
-                    )
-                }
             }
         }
 
