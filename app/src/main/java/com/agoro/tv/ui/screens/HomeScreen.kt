@@ -77,6 +77,10 @@ fun HomeScreen(
     var railVisible by remember { mutableStateOf(false) }
     val railFocus = remember { FocusRequester() }
     val railScope = rememberCoroutineScope()
+    var railDismiss by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    // When the drawer last closed; the catcher ignores arrivals right after,
+    // so a commit's own focus churn can never resurrect the drawer.
+    var railClosedAtMs by remember { mutableStateOf(0L) }
     fun openRail() {
         railVisible = true
         // The drawer composes on the flip above; focus can only land after.
@@ -273,7 +277,11 @@ fun HomeScreen(
     val updateState by vm.updateState.collectAsState()
     // Invisible sliver at the panel's edge: the drawer is not composed while
     // hidden, so LEFT off the content's first column needs somewhere to land.
-    Box(
+    // Gone while the drawer is open — it sits underneath the drawer, and the
+    // geometric search kept picking it over the next drawer item, whose
+    // summons then bounced focus straight back: UP/DOWN inside the open
+    // drawer looked dead on real hardware.
+    if (!railVisible) Box(
         modifier = Modifier
             .align(Alignment.CenterStart)
             .width(2.dp)
@@ -285,7 +293,8 @@ fun HomeScreen(
                 // every cold start. Only an arrival that closely follows a
                 // real key press is a summons; anything else bounces back
                 // to the content.
-                if (android.os.SystemClock.uptimeMillis() - lastKeyDownMs < 1_000) {
+                val now = android.os.SystemClock.uptimeMillis()
+                if (now - lastKeyDownMs < 1_000 && now - railClosedAtMs > 700) {
                     openRail()
                 } else {
                     railScope.launch { contentFocus.requestFocusRetrying() }
@@ -320,21 +329,51 @@ fun HomeScreen(
     ) {
         NavRail(
             selected = tab,
-            onSelect = { tab = it },
-            railFocus = railFocus,
-            // The rail reports an initial "not focused" as it attaches;
-            // acting on that closed the drawer before the summons could
-            // land focus on it. Only a real loss — after a real gain —
-            // dismisses.
-            onRailFocusChanged = { focused ->
-                if (focused) {
-                    railFocused = true
-                } else if (railFocused) {
-                    railFocused = false
+            // OK commits: switch the tab, close the drawer, and hand focus to
+            // the content — the modal form of what the old rail did on dwell.
+            // Selecting under an open drawer recomposed the screen beneath it
+            // and the reshuffle bounced focus back to the first item.
+            // Focus moves FIRST, the drawer closes after. Closing first left
+            // focus in free fall for a frame; it landed on the edge catcher,
+            // which read the commit's own key press as a summons and reopened
+            // the drawer it had just closed.
+            onSelect = {
+                tab = it
+                railDismiss?.cancel()
+                // The gate first: content refuses focus while the rail holds
+                // it (LocalArrivalFocusAllowed), so the hand-off can only
+                // land after railFocused drops. The drawer stays composed
+                // until focus is safely in the content — closing first left
+                // focus in free fall onto the edge catcher, which reopened
+                // the drawer it had just closed.
+                railFocused = false
+                railScope.launch {
+                    contentFocus.requestFocusRetrying(retries = 25, intervalMs = 80)
+                    railClosedAtMs = android.os.SystemClock.uptimeMillis()
                     railVisible = false
                 }
             },
-            lastUserKeyMs = { lastKeyDownMs },
+            railFocus = railFocus,
+            // Dismissal must survive a beat. The container reports "not
+            // focused" both as it attaches AND for the instant a child-to-
+            // child handoff clears focus before reassigning it — dismissing
+            // on that instant closed the drawer on every UP/DOWN press, and
+            // the edge catcher resurrected it on the first item: the whole
+            // drawer read as frozen on Home. A loss only counts if nothing
+            // reclaims focus within the debounce.
+            onRailFocusChanged = { focused ->
+                railDismiss?.cancel()
+                if (focused) {
+                    railFocused = true
+                } else if (railFocused) {
+                    railDismiss = railScope.launch {
+                        delay(80)
+                        railFocused = false
+                        railClosedAtMs = android.os.SystemClock.uptimeMillis()
+                        railVisible = false
+                    }
+                }
+            },
             settingsBadge = updateState is com.agoro.tv.data.UpdateManager.State.Available ||
                 updateState is com.agoro.tv.data.UpdateManager.State.Ready,
         )
