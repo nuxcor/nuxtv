@@ -17,7 +17,7 @@ plugins {
 }
 
 android {
-    namespace = "com.nuxcor.nuxtv.baselineprofile"
+    namespace = "com.agoro.tv.baselineprofile"
     compileSdk = 36
 
     compileOptions {

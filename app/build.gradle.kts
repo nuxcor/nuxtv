@@ -2,15 +2,40 @@ import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 /**
- * Bundled TMDB key, so ratings and artwork work out of the box instead of
- * asking every viewer to register for one. Read from local.properties (which
- * is gitignored) or the environment for CI — never committed. Builds fine
- * without it: the key is then empty and enrichment stays opt-in via Settings.
+ * Build-time secrets: local.properties (gitignored) for a desk build, the
+ * environment for CI. Never committed, and every one of them optional — an
+ * absent value builds to an empty string and the feature it feeds stays off.
  */
-val tmdbApiKey: String = Properties().apply {
+val localProperties = Properties().apply {
     rootProject.file("local.properties").takeIf { it.exists() }
         ?.inputStream()?.use { load(it) }
-}.getProperty("TMDB_API_KEY") ?: System.getenv("TMDB_API_KEY") ?: ""
+}
+
+fun secret(name: String): String =
+    localProperties.getProperty(name) ?: System.getenv(name) ?: ""
+
+/** Escaped for the Java string literal buildConfigField writes it into. */
+fun buildConfigString(value: String): String =
+    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+/**
+ * Bundled TMDB key, so ratings and artwork work out of the box instead of
+ * asking every viewer to register for one. Builds fine without it: the key is
+ * then empty and enrichment stays opt-in via Settings.
+ */
+val tmdbApiKey: String = secret("TMDB_API_KEY")
+
+/**
+ * The provider's server URL, so onboarding asks for a username and password
+ * and not for an address the viewer has no way to know. Empty builds behave
+ * exactly as before and ask for all three.
+ *
+ * Deliberately the host ONLY. It ends up in BuildConfig and therefore inside
+ * the APK, where anyone can read it — which is fine for an address (the
+ * catalogue manifest already names the same host in plain text) and would not
+ * be fine for a credential. Each viewer signs in as themselves.
+ */
+val providerHost: String = secret("PROVIDER_HOST")
 
 plugins {
     alias(libs.plugins.android.application)
@@ -21,7 +46,7 @@ plugins {
 }
 
 android {
-    namespace = "com.nuxcor.nuxtv"
+    namespace = "com.agoro.tv"
     compileSdk = 36
 
     /**
@@ -34,13 +59,14 @@ android {
     ndkVersion = "27.1.12297006"
 
     defaultConfig {
-        applicationId = "com.nuxcor.nuxtv"
+        applicationId = "com.agoro.tv"
         minSdk = 23
         targetSdk = 36
         versionCode = 62
         versionName = "2.22.0"
 
-        buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
+        buildConfigField("String", "TMDB_API_KEY", buildConfigString(tmdbApiKey))
+        buildConfigField("String", "PROVIDER_HOST", buildConfigString(providerHost))
 
         // One APK for every real device: both ARM ABIs, no x86 (emulators only).
         ndk {
