@@ -50,6 +50,7 @@ on disk.
 | Artwork match | `logo_match.py` | tv-logos index | `logo_map.json` |
 | Events | `ppv_parse.py` | panel PPV categories | `ppv_events.json` |
 | **Build** | `build_manifest.py` | all of the above | `manifest.json` |
+| Artwork gaps | `bind_logos.py` | `manifest.json`, tv-logos tree | `manifest.json` (in place) |
 
 Then copy the result over the shipped asset:
 
