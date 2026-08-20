@@ -151,7 +151,12 @@ internal fun SettingsTab(
             ScreenTitle("Settings")
         }
 
-        items(sources.orEmpty(), key = { it.id }) { source ->
+        // A build made for one provider has an ACCOUNT, not "playlists" — the
+        // source rows named a server host and the Add button invited a second
+        // one, both plumbing from the app's IPTV-tool ancestry. The generic
+        // build keeps them: there, managing sources is the whole point.
+        val brandedBuild = com.agoro.tv.BuildConfig.PROVIDER_HOST.isNotBlank()
+        if (!brandedBuild) items(sources.orEmpty(), key = { it.id }) { source ->
             val isActive = source.id == active?.id
             WideItem(
                 title = source.name,
@@ -238,7 +243,9 @@ internal fun SettingsTab(
 
         item(key = "playlist-buttons") {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = onAddPlaylist) { Text("Add playlist") }
+                if (!brandedBuild) {
+                    Button(onClick = onAddPlaylist) { Text("Add playlist") }
+                }
                 // The label is the progress indicator: one stable button, so a
                 // load in flight can't move focus out from under the press.
                 OutlinedButton(
