@@ -57,6 +57,29 @@ private fun Modifier.bleed(horizontal: Dp, vertical: Dp) = layout { measurable, 
  * inside [Space] margins needs to reach the screen edge;
  * pass zero when the caller already sits outside that padding.
  */
+/**
+ * Allocated once, like the theme's own gradients.
+ *
+ * Modifier.background caches its compiled Shader per Brush INSTANCE, so a
+ * fresh instance per recomposition threw that cache away and rebuilt a
+ * full-screen shader every time the hero changed — twice, on the largest
+ * surface in the app. Theme.kt hoists PageGradient and HeroGlow for exactly
+ * this reason; these two were the ones that got away.
+ */
+private val HorizontalScrim = Brush.horizontalGradient(
+    listOf(
+        NuxColors.Background,
+        NuxColors.Background.copy(alpha = 0.96f),
+        NuxColors.Background.copy(alpha = 0.72f),
+    )
+)
+
+private val VerticalScrim = Brush.verticalGradient(
+    0f to NuxColors.Background.copy(alpha = 0.10f),
+    0.45f to NuxColors.Background.copy(alpha = 0.45f),
+    1f to NuxColors.Background,
+)
+
 @Composable
 fun BoxScope.BackdropLayer(
     imageUrl: String?,
@@ -95,32 +118,10 @@ fun BoxScope.BackdropLayer(
                 // review copy. It also did nothing about the bottom, where the
                 // image was at full strength directly behind the densest
                 // content on the screen.
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(
-                                    NuxColors.Background,
-                                    NuxColors.Background.copy(alpha = 0.96f),
-                                    NuxColors.Background.copy(alpha = 0.72f),
-                                )
-                            )
-                        )
-                )
+                Box(modifier = Modifier.fillMaxSize().background(HorizontalScrim))
                 // Vertical falloff: ambient at the top where the hero text
                 // sits, opaque by the content band below it.
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0f to NuxColors.Background.copy(alpha = 0.10f),
-                                0.45f to NuxColors.Background.copy(alpha = 0.45f),
-                                1f to NuxColors.Background,
-                            )
-                        )
-                )
+                Box(modifier = Modifier.fillMaxSize().background(VerticalScrim))
             }
         }
     }

@@ -647,7 +647,13 @@ internal fun TimeRuler(
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         // The date names the day being VIEWED — on today it duplicated the
         // header's clock corner an inch away, so it only renders when paging.
-        val viewingToday = dayFmt.format(Date(dayMs)) == dayFmt.format(Date(nowMs))
+        // Day numbers, not two formatted strings: this ran two
+        // SimpleDateFormat passes per composition purely to compare dates.
+        val viewingToday = remember(dayMs, nowMs) {
+            val zone = java.util.TimeZone.getDefault()
+            fun dayOf(ms: Long) = (ms + zone.getOffset(ms)) / 86_400_000L
+            dayOf(dayMs) == dayOf(nowMs)
+        }
         Box(
             modifier = Modifier.width(CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP),
             contentAlignment = Alignment.CenterStart,
@@ -711,8 +717,36 @@ internal fun TimeRuler(
             }
         }
         Row(modifier = Modifier.horizontalScroll(timelineScroll, enabled = false)) {
-            var t = windowStart
-            while (t < windowEnd) {
+            // Windowed like the rows below it. The ruler spans the same 30
+            // hours — sixty labels, each with its own text layout, offset
+            // lambda and RenderNode — and the row windowing never reached it,
+            // so it was left composing as many nodes as the entire grid to
+            // show the five slots that fit. Slots outside the window are one
+            // spacer at each end, so widths and the shared scroll are
+            // unchanged.
+            val slotMillis = 30 * 60_000L
+            val slotCount = ((windowEnd - windowStart) / slotMillis).toInt()
+            val density = LocalDensity.current
+            val slotPx = with(density) { (dpPerMinute * 30).toPx() }
+            val viewportPx = timelineScroll.viewportSize.takeIf { it > 0 }?.toFloat() ?: 0f
+            val bucket by remember(slotPx, viewportPx) {
+                androidx.compose.runtime.derivedStateOf {
+                    if (viewportPx <= 0f) 0
+                    else (timelineScroll.value / (viewportPx / 2f)).toInt()
+                }
+            }
+            val range = remember(slotCount, slotPx, viewportPx, bucket) {
+                if (viewportPx <= 0f) 0 until slotCount
+                else {
+                    val from = ((bucket * (viewportPx / 2f) - viewportPx) / slotPx).toInt()
+                    val to = ((bucket * (viewportPx / 2f) + 2 * viewportPx) / slotPx).toInt()
+                    from.coerceAtLeast(0)..to.coerceAtMost(slotCount - 1)
+                }
+            }
+            if (range.first > 0) Spacer(Modifier.width(dpPerMinute * 30 * range.first))
+            var t = windowStart + range.first * slotMillis
+            val rulerEnd = windowStart + (range.last + 1) * slotMillis
+            while (t < rulerEnd) {
                 // The half-hour containing "now" is called out instead of
                 // labelled with a time you'd have to compare against a clock.
                 val isNow = nowMs >= t && nowMs < t + 30 * 60_000L
@@ -767,6 +801,8 @@ internal fun TimeRuler(
                 )
                 t += 30 * 60_000L
             }
+            val after = slotCount - 1 - range.last
+            if (after > 0) Spacer(Modifier.width(dpPerMinute * 30 * after))
         }
     }
     Spacer(Modifier.height(6.dp))
@@ -872,10 +908,10 @@ private fun GuideRow(
                 focusedScale = com.agoro.tv.ui.theme.NuxFocus.RowScale,
             ),
             border = ClickableSurfaceDefaults.border(
-                border = androidx.tv.material3.Border(
-                    androidx.compose.foundation.BorderStroke(1.dp, NuxColors.Stroke),
-                    shape = NuxShape.Chip,
-                ),
+                // The hoisted singleton, not a fresh Border per cell per
+                // composition — Theme.kt says why, and the guide is the
+                // densest focus surface in the app.
+                border = com.agoro.tv.ui.theme.NuxBorders.restingChip,
                 focusedBorder = com.agoro.tv.ui.theme.NuxFocus.ring8,
             ),
         ) {
@@ -1016,7 +1052,13 @@ private fun GuideRow(
                         startMinutesFromWindow = (spec.clampedStartMs - windowStart) / 60_000f,
                         timelineScroll = timelineScroll,
                         dpPerMinute = dpPerMinute,
-                        nowMs = nowMs,
+                        airingNow = nowMs in spec.program.startMs until spec.program.endMs,
+                        isPast = spec.program.endMs <= nowMs,
+                        progress = if (nowMs in spec.program.startMs until spec.program.endMs) {
+                            ((nowMs - spec.program.startMs).toFloat() /
+                                (spec.program.endMs - spec.program.startMs).coerceAtLeast(1))
+                                .coerceIn(0f, 1f)
+                        } else 0f,
                         focusRequester = cellRequesters[i],
                         onFocus = {
                             gridFocus.noteCellFocus(
@@ -1139,7 +1181,15 @@ private fun ProgramCell(
     startMinutesFromWindow: Float,
     timelineScroll: ScrollState,
     dpPerMinute: Dp,
-    nowMs: Long,
+    // Derived in the row, not here. The clock used to arrive as a value
+    // parameter, so its 30-second tick changed a parameter of EVERY composed
+    // cell and none of them could skip — sixty Surfaces rebuilt to tell one
+    // of them it had started. These flip for the one cell that actually
+    // crossed a boundary.
+    airingNow: Boolean,
+    isPast: Boolean,
+    /** 0..1 through the programme, only meaningful while [airingNow]. */
+    progress: Float,
     focusRequester: FocusRequester,
     onFocus: () -> Unit,
     hasArchive: Boolean,
@@ -1148,8 +1198,6 @@ private fun ProgramCell(
     onCatchup: () -> Unit,
     onSchedule: () -> Unit,
 ) {
-    val airingNow = nowMs in program.startMs until program.endMs
-    val isPast = program.endMs <= nowMs
     val fmt = rememberClockFormat()
 
     Surface(
@@ -1174,10 +1222,7 @@ private fun ProgramCell(
             focusedScale = com.agoro.tv.ui.theme.NuxFocus.RowScale,
         ),
         border = ClickableSurfaceDefaults.border(
-            border = androidx.tv.material3.Border(
-                androidx.compose.foundation.BorderStroke(1.dp, NuxColors.Stroke),
-                shape = NuxShape.Chip,
-            ),
+            border = com.agoro.tv.ui.theme.NuxBorders.restingChip,
             focusedBorder = com.agoro.tv.ui.theme.NuxFocus.ring8,
         ),
         colors = ClickableSurfaceDefaults.colors(
@@ -1245,8 +1290,6 @@ private fun ProgramCell(
             // How far through, without leaving the grid — the header repeats it
             // in words, but the header describes only the focused cell.
             if (airingNow) {
-                val span = (program.endMs - program.startMs).coerceAtLeast(1)
-                val progress = ((nowMs - program.startMs).toFloat() / span).coerceIn(0f, 1f)
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomStart)

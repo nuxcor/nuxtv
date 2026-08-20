@@ -131,6 +131,30 @@ private const val VOD_NEW_LABEL = "Recently added"
  */
 private const val VOD_NEW = "__new__"
 
+/**
+ * A category's worth of posters, built one cell at a time.
+ *
+ * The browser used to receive a fully materialised List<VodEntry>: entering
+ * Movies mapped all ~29,000 films into VodEntry + ArtRef + HeroInfo + two
+ * lambdas — and HeroInfo formats a rating, so ~29,000 Formatters — on the
+ * composition thread, for the twenty cells that fit on screen. It re-ran on
+ * every category the focus rested on. The grid only ever composes what is
+ * visible, so this hands it a size and a builder and lets it pay per cell.
+ */
+internal class VodPage(
+    val size: Int,
+    val keyAt: (Int) -> String,
+    val entryAt: (Int) -> VodEntry,
+) {
+    companion object {
+        val empty = VodPage(0, { "" }, { error("empty page") })
+
+        /** For lists small enough that materialising them costs nothing. */
+        fun of(entries: List<VodEntry>) =
+            VodPage(entries.size, { entries[it].id }, { entries[it] })
+    }
+}
+
 /** One poster, flattened out of Movie or Series so the browser can be shared. */
 internal data class VodEntry(
     val id: String,
@@ -217,7 +241,7 @@ private fun VodBrowser(
     vm: MainViewModel,
     categories: List<Category>,
     continueWatching: List<VodEntry>,
-    entriesFor: (String) -> List<VodEntry>,
+    entriesFor: (String) -> VodPage,
     initialHero: HeroInfo?,
 ) {
     var selectedCategory by rememberSaveable { mutableStateOf(VOD_ALL) }
@@ -244,14 +268,17 @@ private fun VodBrowser(
         selectedCategory = id
     }
 
-    val entries = remember(activeCategory, continueWatching, entriesFor) {
-        if (activeCategory == VOD_CONTINUE) continueWatching else entriesFor(activeCategory)
+    val page = remember(activeCategory, continueWatching, entriesFor) {
+        if (activeCategory == VOD_CONTINUE) VodPage.of(continueWatching)
+        else entriesFor(activeCategory)
     }
     var hero by remember(initialHero) { mutableStateOf(initialHero) }
     // The grid is replaced wholesale on a category switch without focus moving
     // inside it, so nothing else would clear the header of the item it was
     // describing in a category that is no longer shown.
-    LaunchedEffect(activeCategory) { hero = entries.firstOrNull()?.hero ?: initialHero }
+    LaunchedEffect(activeCategory) {
+        hero = (if (page.size > 0) page.entryAt(0).hero else null) ?: initialHero
+    }
 
     // Debounced so travelling a poster row doesn't hard-cut the hero (text and
     // backdrop together) 5x/second.
@@ -303,7 +330,7 @@ private fun VodBrowser(
                 )
             }
         }
-        if (entries.isEmpty()) {
+        if (page.size == 0) {
             StatusPane(
                 title = "Nothing in this category",
                 message = "Pick another from the row above.",
@@ -324,9 +351,13 @@ private fun VodBrowser(
         // scales about its centre and the grid clips, so the row that snapping
         // exists to show you was the one row guaranteed to be cut.
         val overhangPx = with(LocalDensity.current) { FOCUS_OVERHANG.roundToPx() }
-        LaunchedEffect(focusedEntryIndex, browsingGrid, overhangPx) {
+        val focusedRow = focusedEntryIndex / gridColumns
+        // Keyed on the ROW: focusedEntryIndex changes on LEFT/RIGHT too, so
+        // travelling sideways cancelled and restarted a full smooth-scroll
+        // animation to the row it was already on, once per keypress.
+        LaunchedEffect(focusedRow, browsingGrid, overhangPx) {
             if (!browsingGrid) return@LaunchedEffect
-            val row = focusedEntryIndex / gridColumns
+            val row = focusedRow
             // +1 skips the full-span hero header item. A negative offset seats
             // the row below the viewport start rather than on it.
             gridState.animateScrollToItem(1 + row * gridColumns, scrollOffset = -overhangPx)
@@ -372,7 +403,9 @@ private fun VodBrowser(
             ),
         ) {
             item(key = "hero", span = { GridItemSpan(maxLineSpan) }) { HeroHeader(shownHero) }
-            itemsIndexed(entries, key = { _, e -> e.id }) { index, entry ->
+            items(count = page.size, key = { page.keyAt(it) }) { index ->
+                // Built here, for this cell only — see [VodPage].
+                val entry = page.entryAt(index)
                 Box(modifier = Modifier.itemEntrance(index, gridEntrance)) {
                     PosterCard(
                         title = entry.title,
@@ -469,12 +502,13 @@ fun MoviesTab(
         continueWatching = continueWatching,
         entriesFor = { categoryId ->
             val known = categories.mapTo(HashSet()) { it.id }
-            when (categoryId) {
+            val list = when (categoryId) {
                 VOD_ALL -> movies
                 VOD_NEW -> movies.filter { it.addedMs != null }.sortedByDescending { it.addedMs }
                 VOD_MORE -> movies.filter { it.categoryId == null || it.categoryId !in known }
                 else -> movies.filter { it.categoryId == categoryId }
-            }.map { it.entry() }
+            }
+            VodPage(list.size, { list[it].id }, { list[it].entry() })
         },
         initialHero = movies.firstOrNull()?.toHero(),
     )
@@ -556,13 +590,14 @@ fun SeriesTab(
         continueWatching = continueWatching,
         entriesFor = { categoryId ->
             val known = categories.mapTo(HashSet()) { it.id }
-            when (categoryId) {
+            val list = when (categoryId) {
                 VOD_ALL -> seriesList
                 VOD_NEW ->
                     seriesList.filter { it.addedMs != null }.sortedByDescending { it.addedMs }
                 VOD_MORE -> seriesList.filter { it.categoryId == null || it.categoryId !in known }
                 else -> seriesList.filter { it.categoryId == categoryId }
-            }.map { it.entry() }
+            }
+            VodPage(list.size, { list[it].id }, { list[it].entry() })
         },
         initialHero = seriesList.firstOrNull()?.toHero(),
     )
