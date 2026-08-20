@@ -313,7 +313,15 @@ for k, sid, reg, sec, t in live_rows:
 TIER_RANK = {"8K":0,"4K":1,"UHD":2,"FHD":3,"HEVC":4,"H265":5,"RAW":6,"HD":7,None:8,"SD":9}
 # Hand-pinned territories where the fold's majority lands wrong: NBC News Now
 # grouped under UK because its surviving sources sit in UK categories.
-REGION_PIN = {'nbcnewsnow': 'US'}
+#
+# The same pin doubles as the fix for a genuinely global channel. A tile only
+# collapses within one territory, which is right for a "Comedy Central" that
+# differs per market — and wrong for a single worldwide broadcast: BBC World
+# News is one feed, and the provider's US copy of it is 576p while its CA copy
+# is 1080p. Pinning the key sends every territory's copy into one tile, where
+# the measured ranking picks the best of them and the SD copy is dropped like
+# any other. Only for channels that really are one broadcast everywhere.
+REGION_PIN = {'nbcnewsnow': 'US', 'bbcworldnews': 'US'}
 tiles = collections.defaultdict(list)
 for k, sid, reg, sec, t in live_rows:
     if k in REGION_PIN:
