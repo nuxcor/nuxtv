@@ -597,7 +597,7 @@ fun PinPrompt(
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
     val fieldFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { fieldFocus.requestFocus() } }
+    LaunchedEffect(Unit) { fieldFocus.requestFocusRetrying() }
     DialogScaffold(
         onDismiss = onDismiss,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -652,7 +652,10 @@ fun ContextMenu(
     onDismiss: () -> Unit,
 ) {
     val firstFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
+    // Retried: the row composes a frame after this effect runs, and a single
+    // attempt that lands too early leaves the menu open with focus still on
+    // the page behind it — the remote then drives the guide THROUGH the scrim.
+    LaunchedEffect(Unit) { firstFocus.requestFocusRetrying() }
     DialogScaffold(
         onDismiss = onDismiss,
         width = 420.dp,
@@ -780,7 +783,8 @@ fun ConfirmDialog(
     onDismiss: () -> Unit,
 ) {
     val cancelFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { cancelFocus.requestFocus() } }
+    // Retried — see ContextMenu; one early attempt leaves the dialog deaf.
+    LaunchedEffect(Unit) { cancelFocus.requestFocusRetrying() }
     DialogScaffold(
         onDismiss = onDismiss,
         width = 460.dp,
@@ -831,7 +835,7 @@ fun TextInputDialog(
 ) {
     var value by remember { mutableStateOf(initialValue) }
     val fieldFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { fieldFocus.requestFocus() } }
+    LaunchedEffect(Unit) { fieldFocus.requestFocusRetrying() }
     DialogScaffold(
         onDismiss = onDismiss,
         width = 620.dp,
