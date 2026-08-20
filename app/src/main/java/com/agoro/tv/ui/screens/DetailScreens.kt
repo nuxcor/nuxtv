@@ -37,7 +37,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
 import androidx.tv.material3.Icon
@@ -166,6 +170,11 @@ fun MovieDetailScreen(
                     color = NuxColors.OnSurfaceDim,
                 )
             }
+            if (!movie.cast.isNullOrBlank() || !movie.director.isNullOrBlank()) {
+                Spacer(Modifier.height(12.dp))
+                movie.cast?.takeIf { it.isNotBlank() }?.let { CreditLine("Starring", it) }
+                movie.director?.takeIf { it.isNotBlank() }?.let { CreditLine("Director", it) }
+            }
             if (movie.reviews.isNotEmpty()) {
                 Spacer(Modifier.height(18.dp))
                 Text(
@@ -186,6 +195,22 @@ fun MovieDetailScreen(
         }
     }
     }
+}
+
+/** "Starring  A, B, C" — bright label, dim names, one line. */
+@Composable
+private fun CreditLine(label: String, names: String) {
+    Spacer(Modifier.height(4.dp))
+    Text(
+        text = buildAnnotatedString {
+            withStyle(SpanStyle(color = NuxColors.OnSurface)) { append("$label  ") }
+            append(names)
+        },
+        style = MaterialTheme.typography.bodyMedium,
+        color = NuxColors.OnSurfaceDim,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
 }
 
 /**
@@ -338,6 +363,11 @@ fun SeriesDetailScreen(
                         color = NuxColors.OnSurfaceDim,
                         maxLines = 3,
                     )
+                }
+                // The header is compact, so credits get one line, not two.
+                (series.cast ?: series.director)?.let {
+                    Spacer(Modifier.height(4.dp))
+                    CreditLine(if (series.cast != null) "Starring" else "Director", it)
                 }
 
                 // The primary action, focused on arrival — the same shape the

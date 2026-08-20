@@ -1,5 +1,6 @@
 package com.agoro.tv.data
 
+import kotlinx.serialization.Serializable
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.InputStream
@@ -54,12 +55,18 @@ class XmltvMerger {
         }
     }
 
+    /**
+     * A snapshot of everything folded so far. Called after every pack — the
+     * guide publishes progressively — so it must not mutate the accumulator
+     * or share mutable lists with it: the previous snapshot may be mid-read
+     * on another thread while the next pack appends.
+     */
     fun build(): XmltvData? {
         if (count == 0) return null
-        contested.forEach { normalizedToId.remove(it) }
+        val resolvable = HashMap(normalizedToId).apply { contested.forEach { remove(it) } }
         val merged = HashMap<String, List<EpgProgram>>(programmes.size)
         programmes.forEach { (id, list) ->
-            merged[id] = if (list.size <= 1) list else list
+            merged[id] = if (list.size <= 1) list.toList() else list
                 // One programme per start time, the higher-ranked pack's —
                 // distinctBy keeps the first seen, and packs were added in
                 // rank order. This is also what bounds the concatenation:
@@ -69,15 +76,16 @@ class XmltvMerger {
                 .sortedBy { it.startMs }
         }
         return XmltvData(
-            channelNames = channelNames,
+            channelNames = HashMap(channelNames),
             programmes = merged,
-            nameToId = nameToId,
-            normalizedToId = normalizedToId,
-            altNames = altNames,
+            nameToId = HashMap(nameToId),
+            normalizedToId = resolvable,
+            altNames = HashMap(altNames),
         )
     }
 }
 
+@Serializable
 data class XmltvData(
     /** channel id → first display name (both trimmed). */
     val channelNames: Map<String, String>,

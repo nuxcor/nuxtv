@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.encodeToStream
 import kotlinx.coroutines.sync.withLock
@@ -77,6 +78,35 @@ class ContentRepository(context: Context) {
         runCatching {
             cacheFile(sourceId).outputStream().buffered().use { stream ->
                 bundleJson.encodeToStream(bundle, stream)
+            }
+        }
+    }
+
+    /**
+     * The merged guide, persisted so the next start publishes it instantly
+     * instead of holding a spinner through the multi-pack download. Gzipped:
+     * a merged guide serializes to tens of MB of JSON. Keyed by the guide URL
+     * inside the file so a swapped playlist never reads another's guide.
+     */
+    @Serializable
+    private class EpgCacheFile(val url: String, val savedAtMs: Long, val data: XmltvData)
+
+    private fun epgCacheFile() = java.io.File(appContext.filesDir, "epg-cache.json.gz")
+
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+    private fun readEpgCache(): EpgCacheFile? = runCatching {
+        epgCacheFile().takeIf { it.exists() }?.let { f ->
+            java.util.zip.GZIPInputStream(f.inputStream().buffered()).use { stream ->
+                bundleJson.decodeFromStream<EpgCacheFile>(stream)
+            }
+        }
+    }.getOrNull()
+
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+    private fun writeEpgCache(url: String, data: XmltvData) {
+        runCatching {
+            java.util.zip.GZIPOutputStream(epgCacheFile().outputStream().buffered()).use { stream ->
+                bundleJson.encodeToStream(EpgCacheFile(url, System.currentTimeMillis(), data), stream)
             }
         }
     }
@@ -388,9 +418,10 @@ class ContentRepository(context: Context) {
      * dozen packs — one of which is 55 MB — on a device with a TV box's heap.
      * [XmltvMerger] holds one set of maps for the whole fold.
      */
-    private fun fetchAndMerge(urls: List<String>): XmltvData {
+    private fun fetchAndMerge(urls: List<String>, onPartial: (XmltvData) -> Unit = {}): XmltvData {
         val now = System.currentTimeMillis()
         val merger = XmltvMerger()
+        var latest: XmltvData? = null
         for (u in urls) {
             val one = runCatching {
                 val request = Request.Builder().url(u).header("User-Agent", "Agoro/2.1").build()
@@ -415,9 +446,16 @@ class ContentRepository(context: Context) {
                 android.util.Log.w("Agoro", "EPG pack failed ($u): ${e.message}")
                 null
             }
-            if (one != null) merger.add(one)
+            if (one != null) {
+                merger.add(one)
+                // Publish after every pack: the first one carries most of the
+                // bindings, so the grid fills within seconds of it landing
+                // instead of waiting out the whole queue.
+                latest = merger.build()
+                latest?.let(onPartial)
+            }
         }
-        return merger.build() ?: throw IOException("No guide pack could be loaded")
+        return latest ?: throw IOException("No guide pack could be loaded")
     }
 
 
@@ -456,13 +494,37 @@ class ContentRepository(context: Context) {
                 System.currentTimeMillis() - lastEpgLoadedAt < 15 * 60_000 &&
                 _epg.value is EpgState.Ready
             if (fresh) return@withLock
-            if (_epg.value !is EpgState.Ready) _epg.value = EpgState.Loading
-            val result = withContext(Dispatchers.IO) {
+            // The last run's merged guide, published instantly: a slightly
+            // stale grid beats minutes of spinner while a dozen packs download.
+            // Younger than the app's own 6-hour refresh cycle there is nothing
+            // to fetch at all; older, the download still runs behind it. The
+            // 48h ceiling is the guide window — beyond it the cache holds
+            // nothing that is still on air.
+            if (_epg.value !is EpgState.Ready) {
+                val cached = withContext(Dispatchers.IO) { readEpgCache() }
+                if (cached != null && cached.url == url) {
+                    val age = System.currentTimeMillis() - cached.savedAtMs
+                    if (age < 48 * 3600_000L) {
+                        _epg.value = EpgState.Ready(cached.data)
+                        lastEpgUrl = url
+                        lastEpgLoadedAt = cached.savedAtMs
+                        if (age < 6 * 3600_000L) return@withLock
+                    }
+                }
+            }
+            // Progressive publishing is for a cold start only: with a full
+            // cached guide on screen, a one-pack partial would briefly shrink
+            // the grid before the fold catches back up.
+            val publishPartials = _epg.value !is EpgState.Ready
+            if (publishPartials) _epg.value = EpgState.Loading
+            withContext(Dispatchers.IO) {
                 runCatching {
                     // Several feeds merge into one guide: the manifest's ids are
                     // spread across a handful of packs, and a viewer wants one
                     // grid, not a source picker.
-                    if (urls.size > 1) return@runCatching EpgState.Ready(fetchAndMerge(urls))
+                    if (urls.size > 1) return@runCatching fetchAndMerge(urls) { partial ->
+                        if (publishPartials) _epg.value = EpgState.Ready(partial)
+                    }
                     val request = Request.Builder().url(url).header("User-Agent", "Agoro/2.1").build()
                     http.newCall(request).execute().use { resp ->
                         // Plain language for the viewer, the status for the
@@ -478,24 +540,26 @@ class ContentRepository(context: Context) {
                         )
                         val body = resp.body ?: throw IOException("Empty guide response")
                         val now = System.currentTimeMillis()
-                        EpgState.Ready(
-                            XmltvParser.parse(
-                                body.byteStream(),
-                                windowStartMs = now - 30L * 3600 * 1000,
-                                windowEndMs = now + 48L * 3600 * 1000,
-                            )
+                        XmltvParser.parse(
+                            body.byteStream(),
+                            windowStartMs = now - 30L * 3600 * 1000,
+                            windowEndMs = now + 48L * 3600 * 1000,
                         )
                     }
-                }.getOrElse { e ->
+                }.onSuccess { data ->
+                    _epg.value = EpgState.Ready(data)
+                    lastEpgUrl = url
+                    lastEpgLoadedAt = System.currentTimeMillis()
+                    // Written only on a real fetch — re-stamping the file when a
+                    // refresh fails would disguise stale data as fresh.
+                    writeEpgCache(url, data)
+                }.onFailure { e ->
                     android.util.Log.w("Agoro", "EPG load failed: ${e.message}")
                     // Keep an existing guide rather than replacing it with an error.
-                    (_epg.value as? EpgState.Ready) ?: EpgState.Error(e.message ?: "Failed to load the guide")
+                    if (_epg.value !is EpgState.Ready) {
+                        _epg.value = EpgState.Error(e.message ?: "Failed to load the guide")
+                    }
                 }
-            }
-            _epg.value = result
-            if (result is EpgState.Ready) {
-                lastEpgUrl = url
-                lastEpgLoadedAt = System.currentTimeMillis()
             }
         }
     }
@@ -585,6 +649,8 @@ class ContentRepository(context: Context) {
                         poster = enriched.poster ?: tmdb.posterUrl,
                         backdrop = tmdb.backdropUrl,
                         reviews = tmdb.reviews,
+                        cast = enriched.cast ?: tmdb.cast,
+                        director = enriched.director ?: tmdb.director,
                     )
                 }
         }
@@ -602,6 +668,8 @@ class ContentRepository(context: Context) {
             poster = series.poster ?: tmdb.posterUrl,
             backdrop = tmdb.backdropUrl,
             reviews = tmdb.reviews,
+            cast = series.cast ?: tmdb.cast,
+            director = series.director ?: tmdb.director,
         )
     }
 
