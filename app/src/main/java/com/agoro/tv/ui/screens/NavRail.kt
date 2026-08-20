@@ -99,6 +99,13 @@ internal fun NavRail(
      * before the viewer pressed anything.
      */
     lastUserKeyMs: () -> Long,
+    /**
+     * Marks the Settings item with a small dot — an update is waiting there.
+     * The app never interrupts playback or browsing over an update, so this
+     * dot is the entire nudge; Settings itself carries the version and the
+     * install button.
+     */
+    settingsBadge: Boolean = false,
 ) {
     // Mirrors the caller's copy, which drives the content lane's width.
     var expanded by remember { mutableStateOf(false) }
@@ -204,6 +211,7 @@ internal fun NavRail(
                 item = item,
                 selected = item == selected,
                 expanded = expanded,
+                badge = settingsBadge && item == HomeTab.Settings,
                 onClick = { onSelect(item) },
                 onItemFocused = {
                     val userDriven =
@@ -235,6 +243,7 @@ private fun RailItem(
     onClick: () -> Unit,
     onItemFocused: () -> Unit = onClick,
     modifier: Modifier = Modifier.fillMaxWidth(),
+    badge: Boolean = false,
 ) {
     Surface(
         onClick = onClick,
@@ -274,7 +283,26 @@ private fun RailItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Icon(item.icon, contentDescription = item.label, modifier = Modifier.size(22.dp))
+            Icon(
+                item.icon,
+                contentDescription = item.label,
+                modifier = Modifier
+                    .size(22.dp)
+                    // Drawn, not laid out, like the selection bar — the icon
+                    // never shifts. Secondary, not gold: teal already means
+                    // "an update is available" in Settings' own copy, and
+                    // gold here would read as a second selected tab. Sits
+                    // just off the icon's corner so the gear stays whole.
+                    .drawBehind {
+                        if (badge) {
+                            drawCircle(
+                                color = NuxColors.Secondary,
+                                radius = 3.dp.toPx(),
+                                center = Offset(size.width + 1.dp.toPx(), (-1).dp.toPx()),
+                            )
+                        }
+                    },
+            )
             AnimatedVisibility(
                 visible = expanded,
                 enter = fadeIn(tween(160, delayMillis = 120)),
