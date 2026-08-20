@@ -47,6 +47,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
@@ -91,15 +96,6 @@ internal fun NavRail(
     railFocus: FocusRequester,
     onRailFocusChanged: (Boolean) -> Unit,
     /**
-     * Uptime of the last real key press anywhere on the screen. The dwell
-     * only acts on focus changes that closely follow one: the system also
-     * moves focus by itself (splash dismissal re-runs default placement,
-     * restorers fire), and those moves are indistinguishable from user
-     * travel by timing alone — selecting a tab from them changed the screen
-     * before the viewer pressed anything.
-     */
-    lastUserKeyMs: () -> Long,
-    /**
      * Marks the Settings item with a small dot — an update is waiting there.
      * The app never interrupts playback or browsing over an update, so this
      * dot is the entire nudge; Settings itself carries the version and the
@@ -111,33 +107,47 @@ internal fun NavRail(
     // a drawer that arrives icons-first and then widens reads as two
     // animations stacked on one entrance.
     val expanded = true
-    // Focus travel selects a tab only after the focus rests briefly, so
-    // moving down the rail doesn't compose every tab it passes through.
-    var focusedItem by remember { mutableStateOf<HomeTab?>(null) }
-    val scope = rememberCoroutineScope()
-    LaunchedEffect(focusedItem) {
-        val item = focusedItem ?: return@LaunchedEffect
-        delay(NuxMotion.TabDwellMs.toLong())
-        onSelect(item)
-    }
+    // No select-on-dwell: that belonged to the always-visible rail, where
+    // travelling it previewed each tab live. In a modal drawer the dwell's
+    // tab switch recomposed the screen UNDER the open drawer, and the
+    // reshuffle bounced focus back to the first item — UP/DOWN read as dead
+    // on real hardware. A drawer navigates freely; OK commits.
     val width = RAIL_WIDTH_EXPANDED
+
+    // UP/DOWN are handled by hand, not left to the geometric search: inside
+    // this overlaid focus group the search proved unreliable (it refused the
+    // move outright on some devices), and a fixed vertical list needs no
+    // geometry — the next item is an index, not a direction.
+    val items = remember { HomeTab.entries.filterNot { it == HomeTab.Search } }
+    val itemFocus = remember { items.map { FocusRequester() } }
+    var focusedIndex by remember { mutableStateOf(0) }
 
     Column(
         modifier = Modifier
             .fillMaxHeight()
             .width(width)
-            // Every entry into the rail lands on the SELECTED tab's item.
-            // Left to the geometric search, a LEFT from the content lane
-            // landed on whichever rail item was vertically adjacent (the
-            // logo lockup offsets the items ~70dp below the category list,
-            // so the top categories beam onto Search and Live), and the
-            // dwell then switched the whole screen to that tab. A
-            // focusRestorer could not fix this: without a focus group the
-            // restorer's onEnter never fires, and the key-less forEach
-            // below gives all six items one compositeKeyHash, so a restore
-            // always resolved to the first item — Search.
-            .focusProperties { onEnter = { railFocus.requestFocus() } }
+            // No onEnter redirect. The old rail used one so a geometric LEFT
+            // from content landed on the selected item — but onEnter fires on
+            // EVERY transfer into the group, including the explicit
+            // requestFocus that moves between items below, and it snapped
+            // each one back to the selected tab: the whole drawer read as
+            // frozen on Home. Entry is openRail()'s explicit request now;
+            // there is no geometric side door left to guard.
             .focusGroup()
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.DirectionDown -> {
+                        itemFocus[(focusedIndex + 1).coerceAtMost(items.lastIndex)]
+                            .requestFocus(); true
+                    }
+                    Key.DirectionUp -> {
+                        itemFocus[(focusedIndex - 1).coerceAtLeast(0)]
+                            .requestFocus(); true
+                    }
+                    else -> false
+                }
+            }
             // Opaque so overlaid content never shows through the rail.
             .background(NuxColors.Background)
             // A hairline on the trailing edge so the rail reads as a plane, not
@@ -150,10 +160,7 @@ internal fun NavRail(
                     strokeWidth = 1f,
                 )
             }
-            .onFocusChanged {
-                onRailFocusChanged(it.hasFocus)
-                if (!it.hasFocus) focusedItem = null // cancel pending select-on-focus
-            }
+            .onFocusChanged { onRailFocusChanged(it.hasFocus) }
             .padding(horizontal = Space.s, vertical = Space.gutterVertical),
         verticalArrangement = Arrangement.spacedBy(Space.xs),
     ) {
@@ -177,7 +184,7 @@ internal fun NavRail(
         // in Home's empty state too, so the one control that makes a
         // 20,000-item playlist usable is never out of reach on a fresh
         // install, which is what put it here in the first place.
-        HomeTab.entries.filterNot { it == HomeTab.Search }.forEach { item ->
+        items.forEachIndexed { index, item ->
             // railFocus must be attached somewhere even while the Search tab
             // (railless) is selected, or entering the rail has no target.
             val holdsFocus = item == selected ||
@@ -188,23 +195,11 @@ internal fun NavRail(
                 expanded = expanded,
                 badge = settingsBadge && item == HomeTab.Settings,
                 onClick = { onSelect(item) },
-                onItemFocused = {
-                    val userDriven =
-                        android.os.SystemClock.uptimeMillis() - lastUserKeyMs() < 1_200
-                    if (userDriven) {
-                        focusedItem = item
-                    } else if (item != selected) {
-                        // A system-driven move (no key behind it): never select
-                        // from it, and put the ring back on the selected tab so
-                        // the resting state stays honest.
-                        scope.launch { runCatching { railFocus.requestFocus() } }
-                    }
-                },
-                modifier = if (holdsFocus) {
-                    Modifier.fillMaxWidth().focusRequester(railFocus)
-                } else {
-                    Modifier.fillMaxWidth()
-                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(itemFocus[index])
+                    .then(if (holdsFocus) Modifier.focusRequester(railFocus) else Modifier)
+                    .onFocusChanged { if (it.isFocused) focusedIndex = index },
             )
         }
     }
@@ -216,14 +211,12 @@ private fun RailItem(
     selected: Boolean,
     expanded: Boolean,
     onClick: () -> Unit,
-    onItemFocused: () -> Unit = onClick,
     modifier: Modifier = Modifier.fillMaxWidth(),
     badge: Boolean = false,
 ) {
     Surface(
         onClick = onClick,
-        // Tabs switch as focus travels the rail — no OK press needed.
-        modifier = modifier.onFocusChanged { if (it.isFocused) onItemFocused() },
+        modifier = modifier,
         shape = ClickableSurfaceDefaults.shape(NuxShape.Row),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) NuxColors.Primary.copy(alpha = 0.18f) else Color.Transparent,
