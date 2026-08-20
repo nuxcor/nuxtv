@@ -56,6 +56,7 @@ import androidx.compose.material.icons.filled.VideoLibrary
 import com.agoro.tv.ui.components.StatusAction
 import com.agoro.tv.ui.components.StatusPane
 import com.agoro.tv.ui.components.MetaChip
+import com.agoro.tv.ui.components.shelfRingRoom
 import com.agoro.tv.ui.components.PosterCard
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -338,6 +339,11 @@ private fun VodBrowser(
             columns = GridCells.Fixed(gridColumns),
             modifier = Modifier
                 .fillMaxSize()
+                // A vertical grid clips its cross axis at bounds too, so the
+                // FIRST COLUMN's focus ring lost its left edge exactly the
+                // way the shelves' first cards did. Same cure: widen, pad
+                // back, resting cells stay put.
+                .shelfRingRoom()
                 .focusRestorer()
                 .onPreviewKeyEvent { event ->
                     // UP from the first poster row returns to the strip.
@@ -356,8 +362,10 @@ private fun VodBrowser(
             horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
             verticalArrangement = Arrangement.spacedBy(20.dp),
             contentPadding = PaddingValues(
-                start = 4.dp,
-                end = 8.dp,
+                // The ring room plus the original inset, so cell widths and
+                // resting positions are exactly what they were.
+                start = com.agoro.tv.ui.components.ShelfRingRoom + 4.dp,
+                end = com.agoro.tv.ui.components.ShelfRingRoom + 8.dp,
                 // Covers the unscrolled case the snap never runs for.
                 top = FOCUS_OVERHANG,
                 bottom = 36.dp,
