@@ -73,6 +73,7 @@ class PlayerPrefs(private val context: Context) {
     private val subtitleLangKey = stringPreferencesKey("preferred_subtitle_lang")
     private val vodSpeedKey = stringPreferencesKey("vod_speed")
     private val keyHintsVersionKey = stringPreferencesKey("key_hints_version")
+    private val menuHintSeenKey = stringPreferencesKey("menu_hint_seen")
     private val knownQualitiesKey = stringPreferencesKey("known_qualities")
     private val guidePreviewModeKey = stringPreferencesKey("guide_preview_mode")
     private val liveTsMigratedKey = stringPreferencesKey("live_ts_migrated")
@@ -523,6 +524,18 @@ class PlayerPrefs(private val context: Context) {
 
     suspend fun setKeyHintsVersion(version: Int) {
         context.playerDataStore.edit { it[keyHintsVersionKey] = version.toString() }
+    }
+
+    /**
+     * One-time teach for the summoned nav drawer: the rail is invisible until
+     * called, so the first session says where it went — once, then retires.
+     */
+    val menuHintSeen: Flow<Boolean> = context.playerDataStore.data.map { prefs ->
+        prefs[menuHintSeenKey] == "1"
+    }
+
+    suspend fun setMenuHintSeen() {
+        context.playerDataStore.edit { it[menuHintSeenKey] = "1" }
     }
 
     val parentalPin: Flow<String?> = context.playerDataStore.data.map { prefs ->

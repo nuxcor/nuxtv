@@ -120,8 +120,15 @@ fun HomeScreen(
         // at all. A long retry window, deliberately: this races a COLD
         // start, where content composes many frames in — not one.
         if (!contentFocus.requestFocusRetrying(retries = 25, intervalMs = 80)) {
-            // Content never composed (load error pane churn); summon the drawer.
-            openRail()
+            // The loading pane has nothing to take focus, so a cold start
+            // slower than the first window used to fall through here. When
+            // the rail was a fixed strip that fallback was invisible; as a
+            // drawer it OPENED on boot. Stay patient while the library
+            // lands — the drawer is the landing only when content never
+            // produces anything focusable at all.
+            if (!contentFocus.requestFocusRetrying(retries = 100, intervalMs = 120)) {
+                openRail()
+            }
         }
         hasLaunched = true
     }
@@ -271,7 +278,19 @@ fun HomeScreen(
             .align(Alignment.CenterStart)
             .width(2.dp)
             .fillMaxHeight()
-            .onFocusChanged { if (it.isFocused) openRail() }
+            .onFocusChanged {
+                if (!it.isFocused) return@onFocusChanged
+                // The system's default focus placement lands here on boot —
+                // it is the left-most focusable — and the drawer opened on
+                // every cold start. Only an arrival that closely follows a
+                // real key press is a summons; anything else bounces back
+                // to the content.
+                if (android.os.SystemClock.uptimeMillis() - lastKeyDownMs < 1_000) {
+                    openRail()
+                } else {
+                    railScope.launch { contentFocus.requestFocusRetrying() }
+                }
+            }
             .focusable(),
     )
     androidx.compose.animation.AnimatedVisibility(
@@ -319,6 +338,53 @@ fun HomeScreen(
             settingsBadge = updateState is com.agoro.tv.data.UpdateManager.State.Available ||
                 updateState is com.agoro.tv.data.UpdateManager.State.Ready,
         )
+    }
+    // One-time teach: the rail is invisible until summoned now, and a first
+    // session with no visible navigation needs one line saying where it went.
+    // Retires after a single showing, or the moment the drawer is first
+    // opened — whichever comes first.
+    val menuHintSeen by vm.menuHintSeen.collectAsState()
+    var showMenuHint by remember { mutableStateOf(false) }
+    LaunchedEffect(hasLaunched, menuHintSeen) {
+        if (!hasLaunched || menuHintSeen) return@LaunchedEffect
+        delay(1_500) // let the landing screen settle before speaking
+        if (railVisible) { vm.markMenuHintSeen(); return@LaunchedEffect }
+        showMenuHint = true
+        delay(8_000)
+        showMenuHint = false
+        vm.markMenuHintSeen()
+    }
+    // Opening the drawer IS the lesson — retire the hint on the spot.
+    LaunchedEffect(railVisible) {
+        if (railVisible && showMenuHint) {
+            showMenuHint = false
+            vm.markMenuHintSeen()
+        }
+    }
+    androidx.compose.animation.AnimatedVisibility(
+        visible = showMenuHint && !railVisible && !exitArmed,
+        enter = androidx.compose.animation.fadeIn(
+            tween(NuxMotion.StandardMs, easing = NuxMotion.StandardEasing)
+        ) + androidx.compose.animation.slideInVertically(
+            tween(NuxMotion.StandardMs, easing = NuxMotion.StandardEasing)
+        ) { it / 2 },
+        exit = androidx.compose.animation.fadeOut(
+            tween(NuxMotion.FastMs, easing = NuxMotion.ExitEasing)
+        ),
+        modifier = Modifier.align(Alignment.BottomCenter),
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(bottom = 24.dp)
+                .background(NuxColors.Scrim, NuxShape.Row)
+                .padding(horizontal = 18.dp, vertical = 10.dp),
+        ) {
+            Text(
+                "Press BACK for the menu",
+                style = MaterialTheme.typography.labelLarge,
+                color = NuxColors.OnSurface,
+            )
+        }
     }
     androidx.compose.animation.AnimatedVisibility(
         visible = exitArmed,

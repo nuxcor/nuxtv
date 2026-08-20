@@ -653,6 +653,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val guidePreviewMode: StateFlow<String> = playerPrefs.guidePreviewMode
         .stateIn(viewModelScope, SharingStarted.Eagerly, "auto")
 
+    /** Starts true so the drawer hint never flashes for installs that saw it. */
+    val menuHintSeen: StateFlow<Boolean> = playerPrefs.menuHintSeen
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    fun markMenuHintSeen() {
+        viewModelScope.launch { playerPrefs.setMenuHintSeen() }
+    }
+
     /**
      * Auto keeps the preview on. "Connections" meter simultaneous STREAMS,
      * not logins — and while the guide is open nothing else is streaming, so
