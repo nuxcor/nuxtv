@@ -8,7 +8,7 @@ Encodes the agreed decisions:
   - movie genre from the panel's own get_vod_info metadata
   - hand-mapped categories the classifier could not place
 """
-import json, re, collections, datetime, os, sys
+import json, re, collections, datetime, os, sys, unicodedata
 
 HOST = "pro.dzidzi.online"
 # Allow-list AND shelf order: the app renders territories in this sequence, so
@@ -240,7 +240,8 @@ TIER = {"4K", "8K"}
 GENRE_SECTIONS  = ['NEWS','SPORTS','KIDS','DOCUMENTARY','MUSIC','MOVIES']
 BUNDLE_SECTIONS = ['LOCALS','ENTERTAINMENT','STREAMING','24/7']
 # upstream miscategorisations no rule recovers from
-SECTION_OVERRIDE = {"qvc": "ENTERTAINMENT", "abcnewslive": "NEWS", "foxweather": "NEWS"}
+SECTION_OVERRIDE = {"qvc": "ENTERTAINMENT", "abcnewslive": "NEWS", "foxweather": "NEWS",
+                    "hsn": "ENTERTAINMENT"}
 
 PLURALISE = [(r'\bSPORTS?\b', 'SPORT'), (r'\bNETWORKS?\b', 'NETWORK'),
              (r'\bCHANNELS?\b', 'CHANNEL')]
@@ -260,31 +261,64 @@ def region_from_name(n):
     return code if len(code) in (2,3) else None
 
 def tier_of(n):
-    u = asc(n).upper()
-    for t in ("8K","4K","UHD","FHD","HEVC","H265","HD","SD"):
+    # asc() deletes the superscript markers (ᴿᴬᵂ, ᴴᴰ) outright; NFKD folds
+    # them back to letters, so the tier survives the provider's styling. RAW
+    # rips are typically 1080p60 — ranked above a bare "HD" claim, below FHD.
+    # Resolution tokens beat codec/style tokens: "TNT SPORT 1 SD hevc" is an
+    # SD picture in an HEVC wrapper, not an HEVC-tier feed.
+    u = unicodedata.normalize('NFKD', n).upper()
+    for t in ("8K","4K","UHD","FHD","SD","HEVC","H265","RAW","HD"):
         if re.search(rf'\b{t}\b', u): return t
     return None
 
+# Measured heights from probe_tiers.py, when a probe run has landed. The
+# name's advertised tier is a claim; a decoded height is a fact, and where
+# both exist the fact ranks the tile. 0 means the probe couldn't decode the
+# stream — no information, so the advertised token stands.
+_probed = {}
+if os.path.exists('probed_tiers.json'):
+    _probed = {str(k): v for k, v in json.load(open('probed_tiers.json')).items() if v}
+
+def measured_tier(sid):
+    h = _probed.get(str(sid))
+    if not h: return None
+    return "4K" if h >= 2000 else "FHD" if h >= 1000 else "HD" if h >= 700 else "SD"
+
 live_rows = []
 junkset = set(junk)
+go_drop, sd_all_drop = [], []
 for s in ls:
     if s['stream_id'] in junkset: continue
     c = cat_live.get(str(s.get('category_id')))
     if not c: continue
+    # DGO re-streams carry a burned-in watermark and duplicate native feeds;
+    # dropped outright, not demoted — the catalogue serves the originals.
+    if re.match(r'^GO\s*:', asc(s['name']), re.I):
+        go_drop.append(s['stream_id']); continue
+    t = measured_tier(s['stream_id']) or tier_of(s['name'])
+    # SD is below the floor everywhere, fallback slots included. ", SD" is
+    # South Dakota, not a tier — "NBC (KDLT) SIOUX FALLS, SD" stays.
+    if t == "SD" and not re.search(r',\s*SD\b', asc(s['name']), re.I):
+        sd_all_drop.append(s['stream_id']); continue
     reg = c['region']
     if reg in TIER:                       # 4K/8K are tiers, not territories
         reg = region_from_name(s['name']) or reg
     live_rows.append((channel_key(s['name']), s['stream_id'], reg,
-                      c['section'], tier_of(s['name'])))
+                      c['section'], t))
 
 home = collections.defaultdict(set)
 for k, sid, reg, sec, t in live_rows:
     if reg not in TIER: home[k].add(reg)
 
-TIER_RANK = {"8K":0,"4K":1,"UHD":2,"FHD":3,"HEVC":4,"H265":5,"HD":6,None:7,"SD":8}
+TIER_RANK = {"8K":0,"4K":1,"UHD":2,"FHD":3,"HEVC":4,"H265":5,"RAW":6,"HD":7,None:8,"SD":9}
+# Hand-pinned territories where the fold's majority lands wrong: NBC News Now
+# grouped under UK because its surviving sources sit in UK categories.
+REGION_PIN = {'nbcnewsnow': 'US'}
 tiles = collections.defaultdict(list)
 for k, sid, reg, sec, t in live_rows:
-    if reg in TIER:
+    if k in REGION_PIN:
+        reg = REGION_PIN[k]
+    elif reg in TIER:
         h = home.get(k)
         if h and len(h) == 1: reg = next(iter(h))
     if reg not in KEEP_REGIONS: continue
@@ -299,11 +333,24 @@ def pick_section(sources):
     win = min(tied, key=lambda s: order.index(s) if s in order else 99)
     return win, (len(gen) > 1 and len(tied) == 1 and len(gen) > 1)
 
+# Sections the clean-surface pass sweeps from Live TV. Defined here because
+# the collapse below must know them too: donor feeds (streaming rips of real
+# channels) join tiles but must not vote the tile onto a swept shelf.
+DROP_LIVE_SECTIONS = {'MOVIES', '24/7', 'STREAMING'}
+
 collapse, needs_review = {}, []
+_cnm = {s['stream_id']: asc(s['name']) for s in ls}
+# Swept-section members that are not PRIME: donors get dropped later, so they
+# must never be declared primary — the app would only have to promote past
+# the corpse. They still trail the list as recorded fallbacks.
+def _swept_source(x):
+    return (x["section"] in DROP_LIVE_SECTIONS
+            and not re.match(r'^PRIME\s*:', _cnm.get(x["id"], ''), re.I))
 for (k, reg), srcs in tiles.items():
     if len(srcs) < 2: continue
-    srcs.sort(key=lambda x: TIER_RANK.get(x["tier"], 7))
-    sec, ambiguous = pick_section(srcs)
+    srcs.sort(key=lambda x: (_swept_source(x), TIER_RANK.get(x["tier"], 8)))
+    vote = [x for x in srcs if x["section"] not in DROP_LIVE_SECTIONS] or srcs
+    sec, ambiguous = pick_section(vote)
     if k in SECTION_OVERRIDE: sec = SECTION_OVERRIDE[k]
     elif ambiguous and len({x["section"] for x in srcs}) > 1:
         needs_review.append(k)
@@ -312,6 +359,15 @@ for (k, reg), srcs in tiles.items():
         "sources": [x["id"] for x in srcs],      # best tier first
         "primary": srcs[0]["id"],
     }
+
+# A tile member's territory was just resolved by the fold itself (home
+# regions, name prefixes). dropped_region was computed from the raw category
+# before that knowledge existed — left in place it killed the very 4K/8K
+# primaries the collapse promoted, and the app had to promote past the
+# corpse: 115 tiles shipped that way, playing their second-best source.
+# Members of tiles deleted by later passes are re-added to the drop there.
+_tile_member_ids = {x for t in collapse.values() for x in t['sources']}
+dropped_region = [sid for sid in dropped_region if sid not in _tile_member_ids]
 
 
 # ---------------------------------------------------------------- US locals
@@ -643,7 +699,10 @@ STRAY_AFFILIATE = re.compile(
     r'\b[WK][A-Z]{2,3}\b.*\b(SAN FRANCISCO|NEW YORK|CHICAGO|BOSTON|DALLAS|HOUSTON|ATLANTA'
     r'|PHOENIX|SEATTLE|PHILADELPHIA|WASHINGTON|LOS ANGELES|MIAMI|DENVER|DETROIT|TAMPA'
     r'|MINNEAPOLIS|ORLANDO|CLEVELAND|SACRAMENTO|LITTLE ROCK|WHEELING|WATERBURY)\b'
-    r'|^(?:ABC|CBS|NBC|FOX|CW|PBS|MYTV|MNT|TMO|UNIVISION|TELEMUNDO)[- ][A-Z]{4}$', re.I)
+    # The trailing token must be call-sign shaped ([WK]xxx), not any four
+    # capitals: [A-Z]{4} matched "FOX NEWS" / "CBS NEWS" and filed the
+    # national news networks under LOCALS before the NEWS rule could run.
+    r'|^(?:ABC|CBS|NBC|FOX|CW|PBS|MYTV|MNT|TMO|UNIVISION|TELEMUNDO)[- ][WK][A-Z]{2,3}$', re.I)
 # residue the provider leaves behind
 NAME_JUNK = re.compile(r'^[A-Z]{2}\|', re.I)          # "It| 20THCENTURYFOX"
 NOT_CALL = {'WEST','WITH','WILL','WHAT','WHEN','WIDE','WILD','WIND','WING','WOLF','WOOD',
@@ -677,22 +736,25 @@ for st in ls:
                 _entertainment_fixes['-> ' + target] += 1
             break
 
-# ------------------------------------------------------------- SD-only feeds
-# An SD stream inside a collapse group is already a fallback. An SD stream that
-# is a tile in its own right means no better feed exists - drop it.
-SD_RE = re.compile(r'\bSD\b', re.I)
+# SD feeds are dropped wholesale at ingest now (sd_all_drop, beside the DGO
+# drop) — fallback slots included, and measured-SD liars with them when a
+# probe run has landed. Only the group index survives from the old pass here.
 _in_group = {sid for t in collapse.values() for sid in t['sources']}
-sd_drop = [st['stream_id'] for st in ls
-           if st['stream_id'] not in _in_group and SD_RE.search(asc(st['name']))]
 
 # ------------------------------------------------- exact duplicates left over
 _seen, exact_dupe_drop = {}, []
 _QN = re.compile(r'\b(HD|SD|FHD|UHD|4K|8K|3840P|1080P|720P|HEVC|H265|VIP|RAW)\b', re.I)
 _PN = re.compile(r'^[A-Z0-9]{2,5}\s*:\s*')
+# A stream already condemned must never be the keeper: with "GO: A&E" first
+# in panel order, first-wins kept it, the DGO drop then removed it, and the
+# good "US: A&E HD" stayed condemned as its duplicate.
+_gone = junkset | set(dropped_region) | set(go_drop) | set(sd_all_drop) \
+        | set(locals_dropped) | set(locals_extra_drop)
 for st in ls:
     sid = st['stream_id']
     # collapse sources are deliberate fallbacks, not duplicate tiles
     if sid in _in_group: continue
+    if sid in _gone: continue
     c = cat_live.get(str(st.get('category_id')))
     if not c: continue
     k = (re.sub(r'[^a-z0-9+]', '', _QN.sub('', _PN.sub('', asc(st['name']))).lower()), c['region'])
@@ -773,7 +835,22 @@ for _key in [k for k, t in collapse.items()
 # ============================================================ clean-surface pass
 # Live TV carries only what is genuinely live. Movie channels and 24/7 loops
 # duplicate the VOD and series catalogues, which are on demand and complete.
-DROP_LIVE_SECTIONS = {'MOVIES', '24/7', 'STREAMING'}
+# (DROP_LIVE_SECTIONS is defined beside the collapse, which shares it.)
+
+# PRIME: rips of channels the catalogue already carries are donor feeds —
+# often the best picture the panel has (RAW 60fps) — and join their channel's
+# tile instead of being swept with the FAST loops. Only PRIME donates: the
+# Roku and Tubi bundles stay swept with the rest of the streaming section.
+# A group with no real-section member stays sweepable.
+_donor_nm = {s['stream_id']: s['name'] for s in ls}
+_donor_ok = set()
+for _srcs in tiles.values():
+    if len(_srcs) < 2: continue
+    if all(_final_section(x['id'], x['section']) in DROP_LIVE_SECTIONS for x in _srcs):
+        continue
+    _donor_ok.update(x['id'] for x in _srcs
+                     if _final_section(x['id'], x['section']) == 'STREAMING'
+                     and re.match(r'^PRIME\s*:', asc(_donor_nm.get(x['id'], '')), re.I))
 
 # 1. a second locals bundle hides under a CITY: prefix inside Entertainment
 CITY_LOCAL = re.compile(r'^CITY\s*:\s*(ABC|CBS|NBC|FOX|CW|PBS|MNT|TMO|MYTV)\b', re.I)
@@ -805,6 +882,8 @@ for st in ls:
         clean_drop.append(sid); clean_kind['bbc_regional'] += 1; continue
 
     if sec in DROP_LIVE_SECTIONS:
+        if sid in _donor_ok:
+            clean_kind['streaming_donor_kept'] += 1; continue
         clean_drop.append(sid); clean_kind['redundant_section'] += 1; continue
 
 # rebuild the metro tiles now that CITY: affiliates joined them
@@ -816,10 +895,18 @@ for (mk, net), items in _by.items():
         "label": items[0][1], "sources": [i[0] for i in items],
     }
 
+def _tile_disposable(key, t):
+    """True when every member sits in a swept section — a donor feed fronting
+    a real channel's tile must not take the whole tile down with it."""
+    members = tiles.get(tuple(key.rsplit('|', 1))) \
+        or [{'id': t['primary'], 'section': t['section']}]
+    return all(_final_section(x['id'], x['section']) in DROP_LIVE_SECTIONS
+               for x in members)
+
 for _key in [k for k, t in collapse.items()
-             if _final_section(t['primary'], t['section']) in DROP_LIVE_SECTIONS
-             or BBC_REGIONAL.match(asc(_nm.get(t['primary'], '')))
-             and 'LONDON' not in asc(_nm.get(t['primary'],'')).upper()]:
+             if _tile_disposable(k, t)
+             or (BBC_REGIONAL.match(asc(_nm.get(t['primary'], '')))
+                 and 'LONDON' not in asc(_nm.get(t['primary'], '')).upper())]:
     clean_drop.extend(collapse[_key]['sources']); del collapse[_key]
 
 # ================================================== second-pass surface cleanup
@@ -916,7 +1003,8 @@ for sid, win in section_canon.items():
     name_section[sid] = win
 # explicit corrections win over every rule above
 FINAL_OVERRIDE = {'fuse': 'MUSIC', 'fusemusic': 'MUSIC', 'qvc': 'ENTERTAINMENT', 'qvc2': 'ENTERTAINMENT', 'lovenature': 'DOCUMENTARY',
-                  'abcnewslive': 'NEWS', 'foxweather': 'NEWS', 'shoplc': 'ENTERTAINMENT'}
+                  'abcnewslive': 'NEWS', 'foxweather': 'NEWS', 'shoplc': 'ENTERTAINMENT',
+                  'hsn': 'ENTERTAINMENT'}
 for st in ls:
     k = channel_key(st['name'])
     if k in FINAL_OVERRIDE:
@@ -1033,7 +1121,8 @@ def _brand_key(n, match_rx, canon, alias):
 
 brands_out, brand_dupe = {}, []
 _dropped = set(junk) | set(dropped_region) | set(locals_dropped) | set(locals_extra_drop) \
-           | set(uk_locals_drop) | set(afr_drop) | set(sd_drop) | set(exact_dupe_drop) \
+           | set(uk_locals_drop) | set(afr_drop) | set(sd_all_drop) | set(go_drop) \
+           | set(exact_dupe_drop) \
            | set(junk_sweep) | set(region_section_drop) | set(clean_drop) | set(pass2_drop) \
            | set(replay_drop)
 _SEPJ = re.compile(r'^[\s#=\-*_~<>|.]+$')
@@ -1204,7 +1293,9 @@ for st in ls:
 # the CSN regional sports networks. Route those out, then keep the nationals.
 LOCAL_NEWS = re.compile(
     r'\b(?:ABC|CBS|NBC|FOX|CW|MYTV|PBS)\s*\d{1,3}\b'        # "CBS 11 Dallas"
-    r'|\b\d{1,2}\s?NEWS\b|\bNEWS\s?\d{1,2}\b'              # "7NEWS", "News 12"
+    # "7NEWS", "News 12" — but "ABC NEWS 2" is a numbered national feed,
+    # not a local station, so a network name before NEWS opts out.
+    r'|\b\d{1,2}\s?NEWS\b|(?<!ABC\s)(?<!CBS\s)(?<!NBC\s)(?<!FOX\s)\bNEWS\s?\d{1,2}\b'
     r'|\([WK][A-Z]{2,3}(?:-[A-Z]{2})?\)'                      # "(WHDH)"
     r'|\bSPECTRUM (?:NEWS|BAY NEWS)\b'
     r'|\b[WK][A-Z]{2,3}\s+\d{1,2}\s+NEWS\b', re.I)
@@ -1215,7 +1306,10 @@ MAIN_NEWS = {
         'fox business network','bloomberg','newsmax','news nation','newsnation','one american news network',
         'c-span','c-span 1','c-span 2','c-span 3','al jazeera english','bbc world news',
         'cheddar news','the weather channel','accuweather','yahoo finance','trt world',
-        'i24 news','rt news','real america\'s voice','the first','scripps news','necn'},
+        'i24 news','rt news','real america\'s voice','the first','scripps news','necn',
+        # both carry a SECTION_OVERRIDE to NEWS — trimming them here left
+        # their tiles declaring dead primaries
+        'fox weather','euronews','livenow from fox'},
 }
 news_trim, news_fix = [], collections.Counter()
 for st in ls:
@@ -1246,7 +1340,8 @@ CHANNEL_ALIAS = {
 }
 # region corrections: these are not US channels
 REGION_FIX = [(re.compile(r'^SUPER ?SPORT', re.I), 'AFR'),
-              (re.compile(r'^TSN\b', re.I), 'CA')]
+              (re.compile(r'^TSN\b', re.I), 'CA'),
+              (re.compile(r'^NBC NEWS NOW\b', re.I), 'US')]
 PAREN_PFX = re.compile(r'^\([A-Z0-9]{1,4}\)\s*')     # "(GT) Yes Network"
 
 def _alias_key(n):
@@ -1441,6 +1536,42 @@ for s in ser:
     elif float(s.get('rating_5based') or 0) >= SERIES_TOP_RATING: sec = 'TOP'
     series_section[str(sid)] = sec
 
+# -------------------------------------------------- reconcile tiles with drops
+# Per-stream passes (allowlist trims, junk sweeps, locals folds) can kill a
+# tile's declared primary — or every source it has — without the collapse
+# hearing about it. The app promotes past a dead primary, but the manifest
+# must record what it resolved: promote the best surviving source here, and
+# delete tiles nothing survives of. 112 tiles shipped declaring dead primaries.
+_drop_lists = [
+    ('junk', junk), ('dropped_region', dropped_region),
+    ('locals_dropped', locals_dropped), ('locals_extra_drop', locals_extra_drop),
+    ('uk_locals_drop', uk_locals_drop), ('afr_drop', afr_drop),
+    ('sd_all_drop', sd_all_drop), ('go_drop', go_drop),
+    ('exact_dupe_drop', exact_dupe_drop), ('junk_sweep', junk_sweep),
+    ('region_section_drop', region_section_drop), ('clean_drop', clean_drop),
+    ('pass2_drop', pass2_drop), ('replay_drop', replay_drop),
+    ('name_junk_drop', name_junk_drop), ('suffix_dupe', suffix_dupe),
+    ('ent_trim', ent_trim), ('news_trim', news_trim),
+    ('brand_dupe', brand_dupe), ('rsn_dupe', rsn_dupe),
+    ('alias_dupe', alias_dupe), ('misfiled_local', misfiled_local),
+]
+_all_drops = [sid for _, lst in _drop_lists for sid in lst]
+_dropset = set(_all_drops)
+dead_tiles = 0
+for _tset in (collapse, metro_tiles):
+    for _key in list(_tset):
+        t = _tset[_key]
+        alive = [s for s in t['sources'] if s not in _dropset]
+        if not alive:
+            del _tset[_key]; dead_tiles += 1; continue
+        if t['primary'] not in _dropset: continue
+        t['primary'] = alive[0]
+        if 'label' in t: t['label'] = _cnm.get(alive[0], t['label'])
+
+if os.environ.get('WHY'):
+    print("WHY", os.environ['WHY'], "->",
+          [nm for nm, lst in _drop_lists if int(os.environ['WHY']) in set(lst)])
+
 manifest = {
     "manifest_version": 1,
     "generated": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'),
@@ -1456,17 +1587,13 @@ manifest = {
         "separator_stream":   SEP.pattern,
         "channel_quality_words": QUAL.pattern,
         "collapse_requires_same_region": True,
-        "source_tier_order": ["8K","4K","UHD","FHD","HEVC","H265","HD",None,"SD"],
+        "source_tier_order": ["8K","4K","UHD","FHD","HEVC","H265","RAW","HD",None,"SD"],
         "normalize_season_ep": r"\bS(\d{1,3})\s*E(\d{1,4})\b -> S%02dE%02d",
         "strip_non_ascii_in_category_names": True,
     },
-    "drop_stream_ids": (junk + dropped_region + locals_dropped
-                        + locals_extra_drop + uk_locals_drop + afr_drop
-                        + sd_drop + exact_dupe_drop + junk_sweep
-                        + region_section_drop + clean_drop + pass2_drop
-                        + replay_drop + name_junk_drop + suffix_dupe + ent_trim
-                        + news_trim + brand_dupe + rsn_dupe + alias_dupe
-                        + misfiled_local),
+    # WHY=<stream_id> names each drop list that claimed a stream — see the
+    # _drop_lists table beside the tile reconciliation above.
+    "drop_stream_ids": _all_drops,
     "afr_assign": afr_assign,
     "region_fix": region_fix,
     "section_merge": section_merge_map,
@@ -1584,7 +1711,9 @@ manifest = {
         "logo_bound": len(_logo_map),
         "live_event_channels": sum(len(v) for v in live_events.values()),
         "live_event_groups": len(live_events),
-        "sd_only_dropped": len(sd_drop),
+        "sd_dropped": len(sd_all_drop),
+        "dgo_dropped": len(go_drop),
+        "tiers_measured": len(_probed),
         "exact_duplicates_dropped": len(exact_dupe_drop),
         "movie_genre_vocab": len(vocab),
         "movies_with_genre_ids": len(movie_genres),
