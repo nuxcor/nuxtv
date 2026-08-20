@@ -666,6 +666,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         MutableStateFlow<com.agoro.tv.data.XtreamClient.AccountInfo?>(null)
     val accountInfo: StateFlow<com.agoro.tv.data.XtreamClient.AccountInfo?> = _accountInfo
 
+    val frameStatsOverlay: StateFlow<Boolean> = playerPrefs.frameStatsOverlay
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setFrameStatsOverlay(on: Boolean) {
+        viewModelScope.launch { playerPrefs.setFrameStatsOverlay(on) }
+    }
+
     val guidePreviewMode: StateFlow<String> = playerPrefs.guidePreviewMode
         .stateIn(viewModelScope, SharingStarted.Eagerly, "auto")
 

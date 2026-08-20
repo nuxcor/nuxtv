@@ -87,6 +87,7 @@ class PlayerPrefs(private val context: Context) {
     private val liveTsMigratedKey = stringPreferencesKey("live_ts_migrated")
     private val episodeOriginsKey = stringPreferencesKey("episode_origins")
     private val artworkKey = stringPreferencesKey("tmdb_artwork")
+    private val frameStatsKey = stringPreferencesKey("frame_stats_overlay")
 
     /**
      * Live playback URLs changed from the panel's .m3u8 endpoint to the raw
@@ -417,6 +418,20 @@ class PlayerPrefs(private val context: Context) {
      * report a cosmetic max_connections of 1, which would pin auto off for
      * accounts that genuinely allow more.
      */
+    /**
+     * The on-screen frame-time readout. Off by default and deliberately not
+     * hidden behind a gesture: "not fluid" is a mood, "p95 210ms in the
+     * guide" is a fact, and the viewer's own box is the only place the
+     * measurement means anything.
+     */
+    val frameStatsOverlay: Flow<Boolean> = context.playerDataStore.data.map { prefs ->
+        prefs[frameStatsKey] == "1"
+    }
+
+    suspend fun setFrameStatsOverlay(on: Boolean) {
+        context.playerDataStore.edit { it[frameStatsKey] = if (on) "1" else "0" }
+    }
+
     val guidePreviewMode: Flow<String> = context.playerDataStore.data.map { prefs ->
         prefs[guidePreviewModeKey] ?: "auto"
     }
