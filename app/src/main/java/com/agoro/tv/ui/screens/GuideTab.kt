@@ -240,7 +240,11 @@ fun GuideTab(
     GuidePreviewEffect(
         controller = preview,
         enabled = previewEnabled,
-        channel = focusedChannel,
+        // Lambda, not the value: reading focusedChannel here made every
+        // D-pad press invalidate this whole composable — and with it every
+        // lambda below, every visible guide row, and every cell in them.
+        // That was the guide's sluggishness and its ANR under held keys.
+        channel = { focusedChannel },
     )
     // Changing category or day replaces the grid without moving focus
     // inside it, so nothing would clear these — the header would go on
@@ -471,7 +475,10 @@ fun GuideTab(
             // above — and UP again reaches the category strip.
             upFromTopRow = if (maxDayOffset > 0) dayFocus else chipsFocus,
             channels = channels,
-            programsFor = { vm.programsFor(it) },
+            // Remembered, not rebuilt per composition: an unstable lambda
+            // is a changed parameter, and a changed parameter recomposes
+            // every row it reaches — on a guide that is hundreds of cells.
+            programsFor = remember(vm) { { channel: LiveChannel -> vm.programsFor(channel) } },
             programsKey = epgState,
             onChannelLongPress = onChannelLongPress,
             windowStart = windowStart,
@@ -479,9 +486,11 @@ fun GuideTab(
             nowMs = nowTick,
             timelineScroll = timelineScroll,
             dpPerMinute = dpPerMinute,
-            onFocus = { channel, program ->
-                focusedChannel = channel
-                focusedProgram = program
+            onFocus = remember {
+                { channel: LiveChannel, program: EpgProgram? ->
+                    focusedChannel = channel
+                    focusedProgram = program
+                }
             },
             onPlayChannel = { channel ->
                 // Hand the connection back before the player asks for

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -569,25 +570,49 @@ internal fun GuideGrid(
 
         // The NOW marker — the defining element of an EPG. A dot caps the line
         // so it reads as a marker even where cell borders cross it.
-        val nowOffset = dpPerMinute * ((nowMs - windowStart) / 60_000f)
-        val scrolled = with(LocalDensity.current) { timelineScroll.value.toDp() }
-        val markerX = CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP + nowOffset - scrolled
-        if (markerX > CHANNEL_COLUMN_WIDTH) {
-            Box(
-                modifier = Modifier
-                    .padding(start = markerX)
-                    .width(2.dp)
-                    .fillMaxHeight()
-                    .background(NuxColors.Primary)
-            )
-            Box(
-                modifier = Modifier
-                    .padding(start = markerX - 3.dp)
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(NuxColors.Primary)
-            )
-        }
+        //
+        // The scroll position is read in the LAYOUT phase, never composition:
+        // as a composition read it recomposed this whole composable — the
+        // LazyColumn and every visible row with it — on each pixel of every
+        // horizontal scroll, which is what made travelling the timeline crawl.
+        // The marker also clips itself instead of vanishing behind an `if`,
+        // because that condition was a composition read of the same value.
+        val density = LocalDensity.current
+        val laneStartPx = with(density) { (CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP).roundToPx() }
+        val nowOffsetPx = with(density) { (dpPerMinute * ((nowMs - windowStart) / 60_000f)).roundToPx() }
+        val channelColumnPx = with(density) { CHANNEL_COLUMN_WIDTH.roundToPx() }
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(laneStartPx + nowOffsetPx - timelineScroll.value, 0) }
+                .width(2.dp)
+                .fillMaxHeight()
+                .drawWithContent {
+                    // Behind the channel column the marker is meaningless;
+                    // drawing is skipped rather than the node removed.
+                    if (laneStartPx + nowOffsetPx - timelineScroll.value > channelColumnPx) {
+                        drawContent()
+                    }
+                }
+                .background(NuxColors.Primary)
+        )
+        Box(
+            modifier = Modifier
+                .offset {
+                    IntOffset(
+                        laneStartPx + nowOffsetPx - timelineScroll.value -
+                            with(density) { 3.dp.roundToPx() },
+                        0,
+                    )
+                }
+                .size(8.dp)
+                .drawWithContent {
+                    if (laneStartPx + nowOffsetPx - timelineScroll.value > channelColumnPx) {
+                        drawContent()
+                    }
+                }
+                .clip(CircleShape)
+                .background(NuxColors.Primary)
+        )
     }
 }
 
@@ -962,8 +987,26 @@ private fun GuideRow(
                     }
                 }
             } else {
+                // Only the cells near the viewport are composed. horizontalScroll
+                // does not virtualize, so a row used to build every cell across
+                // the whole 30-hour window — sixty to a hundred TV Surfaces per
+                // row, ten rows on screen, for the six cells a viewer can see.
+                // That was the guide's real cost: frames in the hundreds of
+                // milliseconds, input backing up behind them, and the main
+                // thread starving the player's threads on the same core.
+                //
+                // Geometry is untouched: the skipped cells are replaced by one
+                // Spacer of exactly their width at each end, so every row still
+                // measures the full window and the shared ScrollState clamps
+                // identically. The window is bucketed so scrolling recomposes
+                // when it crosses a bucket, not on every pixel.
+                val visible = rememberVisibleCellRange(layout, dpPerMinute, timelineScroll)
+                if (visible.leadMinutes > 0f) {
+                    Spacer(Modifier.width(dpPerMinute * visible.leadMinutes))
+                }
                 layout.cells.forEachIndexed { i, spec ->
-                    if (spec.gapMinutesBefore > 0f) {
+                    if (i !in visible.range) return@forEachIndexed
+                    if (spec.gapMinutesBefore > 0f && i != visible.range.first) {
                         Spacer(Modifier.width(dpPerMinute * spec.gapMinutesBefore))
                     }
                     ProgramCell(
@@ -988,11 +1031,88 @@ private fun GuideRow(
                         onSchedule = { onSchedule(spec.program) },
                     )
                 }
-                if (layout.tailMinutes > 0f) {
-                    Spacer(Modifier.width(dpPerMinute * layout.tailMinutes))
+                if (visible.trailMinutes + layout.tailMinutes > 0f) {
+                    Spacer(Modifier.width(dpPerMinute * (visible.trailMinutes + layout.tailMinutes)))
                 }
             }
         }
+    }
+}
+
+/** Which cells a row composes, and the width standing in for the rest. */
+internal class VisibleCells(
+    val range: IntRange,
+    val leadMinutes: Float,
+    val trailMinutes: Float,
+)
+
+/**
+ * The cells whose time overlaps the visible lane, plus a screen of margin on
+ * each side so ordinary travel never outruns the composed set — the margin is
+ * what keeps a focus requester attached for the cell D-pad is about to reach.
+ *
+ * Bucketed by half a viewport: recomposing per scrolled pixel would cost more
+ * than the cells it saves.
+ */
+@Composable
+private fun rememberVisibleCellRange(
+    layout: GuideRowLayout,
+    dpPerMinute: Dp,
+    timelineScroll: ScrollState,
+): VisibleCells {
+    val density = LocalDensity.current
+    val perMinutePx = with(density) { dpPerMinute.toPx() }
+    // viewportSize is 0 until the row has been laid out once; a full window
+    // then, so the first frame is correct and the second is cheap.
+    val viewportPx = timelineScroll.viewportSize.takeIf { it > 0 }?.toFloat()
+    val bucketPx = (viewportPx ?: 0f).coerceAtLeast(1f) / 2f
+    val bucket by remember(layout, perMinutePx, viewportPx) {
+        androidx.compose.runtime.derivedStateOf {
+            (timelineScroll.value / bucketPx).toInt()
+        }
+    }
+    return remember(layout, perMinutePx, viewportPx, bucket) {
+        if (viewportPx == null) {
+            return@remember VisibleCells(layout.cells.indices, 0f, 0f)
+        }
+        val marginPx = viewportPx
+        val fromPx = bucket * bucketPx - marginPx
+        val toPx = bucket * bucketPx + viewportPx + marginPx
+        var cursorMinutes = 0f
+        var first = -1
+        var last = -1
+        var leadMinutes = 0f
+        var trailMinutes = 0f
+        layout.cells.forEachIndexed { i, spec ->
+            val startMinutes = cursorMinutes + spec.gapMinutesBefore
+            val endMinutes = startMinutes + spec.widthMinutes
+            val startPx = startMinutes * perMinutePx
+            val endPx = endMinutes * perMinutePx
+            when {
+                endPx < fromPx -> leadMinutes = endMinutes
+                startPx > toPx -> if (last >= 0 && trailMinutes == 0f) trailMinutes = -1f
+                else -> {
+                    if (first < 0) first = i
+                    last = i
+                }
+            }
+            cursorMinutes = endMinutes
+        }
+        if (first < 0) return@remember VisibleCells(IntRange.EMPTY, 0f, cursorMinutes)
+        // The lead spacer stands in for everything before the first composed
+        // cell, gaps included, so the first cell lands exactly where it would
+        // have; the trail covers the remainder to the window's end.
+        var endOfLast = 0f
+        var cursor = 0f
+        layout.cells.forEachIndexed { i, spec ->
+            val startMinutes = cursor + spec.gapMinutesBefore
+            val endMinutes = startMinutes + spec.widthMinutes
+            if (i == first) leadMinutes = startMinutes
+            if (i == last) endOfLast = endMinutes
+            cursor = endMinutes
+        }
+        trailMinutes = (cursor - endOfLast).coerceAtLeast(0f)
+        VisibleCells(first..last, leadMinutes, trailMinutes)
     }
 }
 

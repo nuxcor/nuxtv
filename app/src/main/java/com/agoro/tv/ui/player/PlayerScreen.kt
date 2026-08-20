@@ -474,7 +474,14 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     // may leave the viewer on a spinner with no way forward. The failure
     // ladder is the real recovery path — this only catches a stream that
     // neither plays nor reports an error, which otherwise reads as a hang.
-    LaunchedEffect(session.tuning, request) {
+    //
+    // Keyed on the CHANNEL, not the request: every ladder step rewrites the
+    // request, and keying on it restarted this clock on each hop — a channel
+    // with a deep fallback ladder could cascade for minutes with the viewer
+    // pinned to "Tuning…" and no way out. The budget covers the whole
+    // ladder; when it runs out mid-cascade the error card takes over, which
+    // trades an automatic retry for the viewer getting their remote back.
+    LaunchedEffect(session.tuning, session.currentIndex) {
         if (!session.tuning) return@LaunchedEffect
         delay(TUNE_TIMEOUT_MS)
         if (session.tuning && session.errorMessage == null) {
