@@ -1144,6 +1144,22 @@ def _tile_ids():
 
 _tiles = _tile_ids()
 
+# 3840P/2160P are 4K by another name; ranking them "unknown" made the 4K feed
+# lose to an HD one and dropped the better stream. Resolution tokens beat
+# codec tokens ("SD hevc" is an SD picture), NFKD folds the superscript
+# markers asc() deletes, and a probed height beats every claim. Callers pass
+# the RAW provider name, not asc(n).
+TIER_ORDER = {'8K':0,'4320P':0,'4K':1,'3840P':1,'2160P':1,'UHD':2,'1440P':2,
+              'FHD':3,'1080P':3,'HEVC':4,'H265':5,'RAW':6,'HD':7,'720P':7,None:8,'SD':9}
+def _tier_rank(n, sid=None):
+    m = measured_tier(sid) if sid is not None else None
+    if m: return {'4K':1,'FHD':3,'HD':7,'SD':9}[m]
+    u = unicodedata.normalize('NFKD', n).upper()
+    for t in ('8K','4320P','4K','3840P','2160P','UHD','1440P','FHD','1080P',
+              'SD','HEVC','H265','RAW','HD','720P'):
+        if re.search(rf'\b{t}\b', u): return TIER_ORDER[t]
+    return TIER_ORDER[None]
+
 # CSN <market> was renamed NBC Sports <market>; the provider ships both as
 # separate tiles. Fold on the tile, keeping the current name.
 rsn_dupe, _rsn_seen = [], {}
@@ -1171,10 +1187,21 @@ for b in BRANDS:
         if not mrx.search(n) or _SEPJ.match(n) or n.count('#') >= 4: continue
         k = _brand_key(n, b['match'], canon, b['alias'])
         if k in seen:
-            hidden_dupes.append(sid); continue     # hidden in this view, tile still exists
+            # was first-seen-wins: panel order chose which duplicate survived.
+            # The better feed keeps the slot; the other hides behind the tile.
+            keep = seen[k]
+            if _tier_rank(ls_by_id[sid]['name'], sid) \
+                    < _tier_rank(ls_by_id[keep]['name'], keep):
+                hidden_dupes.append(keep); seen[k] = sid
+            else:
+                hidden_dupes.append(sid)
+            continue
         seen[k] = sid
+    # classify once the best of each duplicate pair is known
+    for _sid in seen.values():
+        n = asc(ls_by_id[_sid]['name'])
         stripped = QUALW.sub('', TERR.sub('', re.sub(r'^[A-Za-z0-9]{2,5}\s*[:;,]\s*', '', n))).strip()
-        (over if orx.search(stripped) else main).append(sid)
+        (over if orx.search(stripped) else main).append(_sid)
     # Overflow feeds are event content, not channels: send them to PPV so they
     # leave the browse row entirely and surface through Live Events instead.
     for _sid in over:
@@ -1351,17 +1378,6 @@ def _alias_key(n):
     k = re.sub(r'[^a-z0-9]', '', x.lower())
     return CHANNEL_ALIAS.get(k)
 
-# 3840P/2160P are 4K by another name; ranking them "unknown" made the 4K feed
-# lose to an HD one and dropped the better stream.
-TIER_ORDER = {'8K':0,'4320P':0,'4K':1,'3840P':1,'2160P':1,'UHD':2,'1440P':2,
-              'FHD':3,'1080P':3,'HEVC':4,'H265':5,'HD':6,'720P':6,None:7,'SD':8}
-def _tier_rank(n):
-    u = asc(n).upper()
-    for t in ('8K','4320P','4K','3840P','2160P','UHD','1440P','FHD','1080P',
-              'HEVC','H265','HD','720P','SD'):
-        if re.search(rf'\b{t}\b', u): return TIER_ORDER[t]
-    return 7
-
 alias_dupe, _alias_best, region_fix = [], {}, {}
 for st in ls:
     sid = st['stream_id']
@@ -1385,7 +1401,7 @@ for st in ls:
     if not k: continue
     if k in _alias_best:                             # keep the best tier
         keep = _alias_best[k]
-        if _tier_rank(n) < _tier_rank(asc(ls_by_id[keep]['name'])):
+        if _tier_rank(st['name'], sid) < _tier_rank(ls_by_id[keep]['name'], keep):
             alias_dupe.append(keep); _alias_best[k] = sid
         else:
             alias_dupe.append(sid)

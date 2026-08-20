@@ -80,7 +80,19 @@ ALIAS = {
 PEEL_STOP = {'bbc', 'sky'}
 
 
+# Hand-verified marks whose only artwork lives outside the channel's own
+# territory folder — the region gate would veto them, so they bypass it.
+# i24 News broadcasts from Israel; the UK/US feeds are the same channel.
+CROSS_TERRITORY = {
+    'i24news': 'countries/israel/i24-news-il.png',
+    'i24newstv': 'countries/israel/i24-news-il.png',
+}
+
+
 def alias_for(key, region):
+    hand = CROSS_TERRITORY.get(key)
+    if hand:
+        return hand
     path = ALIAS.get(key)
     if path and path.split('/')[1] in REGION_DIRS.get(region, []):
         return path

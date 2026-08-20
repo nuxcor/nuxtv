@@ -33,6 +33,10 @@ import java.io.File
 @Serializable
 data class CatalogueManifest(
     @SerialName("manifest_version") val version: Int = 1,
+    /** Build timestamp (ISO 8601) — the content version. [version] is the
+     *  schema number and is identical across rebuilds, so freshness must
+     *  compare this instead. Lexicographic order is chronological order. */
+    val generated: String = "",
     val provider: Provider = Provider(),
     val sections: Sections = Sections(),
     val categories: Categories = Categories(),
@@ -357,16 +361,22 @@ class ManifestRepository(
         cached?.let { return it }
         return withContext(Dispatchers.IO) {
             if (remoteUrl != null) refreshIfStale(remoteUrl)
-            // Highest version wins, not simply "cache beats asset". An app
+            // Newest content wins, not simply "cache beats asset". An app
             // update ships a newer bundled manifest than whatever the cache
-            // last fetched, and preferring the cache unconditionally let a
-            // stale download shadow it until the TTL happened to expire.
+            // last fetched — but comparing [version] couldn't see that: it is
+            // the SCHEMA number, 1 on both sides of every rebuild, and the
+            // tie sent every comparison to the cache. A cached remote from
+            // before the update then shadowed the new bundle for a full TTL,
+            // resurrecting channels the new manifest had dropped. The
+            // [generated] build stamp is the content version.
             val fromCache = readCache()
             val fromAsset = readAsset()
             val parsed = when {
                 fromCache == null -> fromAsset
                 fromAsset == null -> fromCache
                 fromAsset.version > fromCache.version -> fromAsset
+                fromAsset.version == fromCache.version &&
+                    fromAsset.generated > fromCache.generated -> fromAsset
                 else -> fromCache
             }
             parsed?.also { cached = it }
