@@ -184,7 +184,8 @@ class XtreamClient(
                 // picture quality no matter what the player asks for.
                 url = "$baseUrl/live/$userP/$passP/$id.ts",
                 categoryId = obj.str("category_id"),
-                number = obj.int("num"),
+                // No number here: panels' `num` fields carry gaps and repeats,
+                // and curation reorders anyway — [renumberChannels] owns it.
                 // Blank, not null, was how panels say "no id" — and a stored
                 // "" used to defeat the null-skip in EPG matching.
                 epgId = obj.str("epg_channel_id")?.takeIf { it.isNotBlank() },
@@ -272,6 +273,9 @@ class XtreamClient(
                 rating = obj.dbl("rating_5based")?.times(2) ?: obj.dbl("rating"),
                 plot = obj.str("plot")?.takeIf { it.isNotBlank() },
                 genre = obj.str("genre")?.takeIf { it.isNotBlank() },
+                // Panels ship the actor list under either key.
+                cast = (obj.str("cast") ?: obj.str("actors"))?.takeIf { it.isNotBlank() },
+                director = obj.str("director")?.takeIf { it.isNotBlank() },
                 xtreamId = id,
                 // Series have no `added`; `last_modified` is the panel's
                 // equivalent — it moves when a new episode lands, which is
@@ -364,6 +368,10 @@ class XtreamClient(
         return movie.copy(
             plot = info.str("plot")?.takeIf { it.isNotBlank() } ?: movie.plot,
             genre = info.str("genre")?.takeIf { it.isNotBlank() } ?: movie.genre,
+            // Panels ship the actor list under either key.
+            cast = (info.str("cast") ?: info.str("actors"))?.takeIf { it.isNotBlank() }
+                ?: movie.cast,
+            director = info.str("director")?.takeIf { it.isNotBlank() } ?: movie.director,
             durationText = info.str("duration")?.takeIf { it.isNotBlank() } ?: movie.durationText,
             poster = info.str("movie_image")?.takeIf { it.isNotBlank() } ?: movie.poster,
             year = movie.year ?: yearFrom(info.str("releasedate") ?: info.str("release_date")),

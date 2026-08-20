@@ -79,7 +79,7 @@ enum class HomeTab(val label: String, val icon: ImageVector) {
     Search("Search", Icons.Default.Search),
     Live("Live TV", Icons.Default.LiveTv),
     Movies("Movies", Icons.Default.Movie),
-    Series("Series", Icons.Default.VideoLibrary),
+    Series("Shows", Icons.Default.VideoLibrary),
     Recordings("Recordings", Icons.Default.Videocam),
     Settings("Settings", Icons.Default.Settings),
 }
@@ -107,8 +107,10 @@ internal fun NavRail(
      */
     settingsBadge: Boolean = false,
 ) {
-    // Mirrors the caller's copy, which drives the content lane's width.
-    var expanded by remember { mutableStateOf(false) }
+    // Always the labeled form: the rail only exists while summoned now, and
+    // a drawer that arrives icons-first and then widens reads as two
+    // animations stacked on one entrance.
+    val expanded = true
     // Focus travel selects a tab only after the focus rests briefly, so
     // moving down the rail doesn't compose every tab it passes through.
     var focusedItem by remember { mutableStateOf<HomeTab?>(null) }
@@ -118,10 +120,7 @@ internal fun NavRail(
         delay(NuxMotion.TabDwellMs.toLong())
         onSelect(item)
     }
-    val width by animateDpAsState(
-        targetValue = if (expanded) RAIL_WIDTH_EXPANDED else RAIL_WIDTH_COLLAPSED,
-        label = "railWidth",
-    )
+    val width = RAIL_WIDTH_EXPANDED
 
     Column(
         modifier = Modifier
@@ -152,51 +151,27 @@ internal fun NavRail(
                 )
             }
             .onFocusChanged {
-                expanded = it.hasFocus
                 onRailFocusChanged(it.hasFocus)
                 if (!it.hasFocus) focusedItem = null // cancel pending select-on-focus
             }
             .padding(horizontal = Space.s, vertical = Space.gutterVertical),
         verticalArrangement = Arrangement.spacedBy(Space.xs),
     ) {
-        // The brand mark itself, not a letter standing in for it. Same lockup
-        // as onboarding: mark alone when collapsed, mark plus wordmark when
-        // there is room for it.
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        // The brand mark alone — the wordmark came off: the mark is
+        // distinctive enough to carry identity, and a drawer that opens with
+        // its own name in caps read as the app introducing itself on every
+        // visit.
+        Image(
+            painter = painterResource(R.drawable.ic_logo),
+            contentDescription = "Agoro",
+            // ic_logo, not ic_splash: the splash copy is padded into a
+            // square and scaled for its circular mask, so drawing it here
+            // gave about 59% of the size asked for.
             modifier = Modifier
                 .padding(start = 10.dp, bottom = 20.dp)
-                .animateContentSize(),
-        ) {
-            Image(
-                painter = painterResource(R.drawable.ic_logo),
-                contentDescription = "Agoro",
-                // ic_logo, not ic_splash: the splash copy is padded into a
-                // square and scaled for its circular mask, so drawing it here
-                // gave about 59% of the size asked for.
-                //
-                // 48dp against titleLarge's 17.1dp cap height is the banner's
-                // 2.81:1. The old 32dp was inherited from the square drawable
-                // rather than derived from anything, and came out at 1.88:1 —
-                // the mark reading as an afterthought beside its own wordmark.
-                // 35dp wide clears the 54dp the collapsed rail leaves.
-                modifier = Modifier.height(48.dp).width(35.dp),
-            )
-            AnimatedVisibility(
-                visible = expanded,
-                enter = fadeIn(tween(160, delayMillis = 120)),
-                exit = fadeOut(tween(80)),
-            ) {
-                Text(
-                    text = "AGORO",
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black),
-                    color = NuxColors.Primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Clip,
-                )
-            }
-        }
+                .height(48.dp)
+                .width(35.dp),
+        )
         // Search is reached from Home's top-right pill, not the rail — a
         // launcher lists destinations, and search is an action. It is offered
         // in Home's empty state too, so the one control that makes a

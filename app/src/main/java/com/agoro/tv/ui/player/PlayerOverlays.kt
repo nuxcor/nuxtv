@@ -65,6 +65,30 @@ internal fun PlayerBadge(text: String, color: Color) {
     }
 }
 
+/**
+ * Channel-number entry readout: the digits collected so far, large, in a
+ * scrim pill — sized to be read from the couch mid-type, where [PlayerBadge]'s
+ * label type is annotation-sized. Never a focus target: digits arrive through
+ * the scaffold's key routing, and the pill must not disturb whatever chrome
+ * is up. [dim] is the "No channel 481" verdict — an answer, not an error.
+ */
+@Composable
+internal fun DigitEntryPill(text: String, dim: Boolean = false) {
+    Box(
+        modifier = Modifier
+            .clip(PlayerTheme.PillShape)
+            .background(NuxColors.Scrim)
+            .padding(horizontal = 22.dp, vertical = 10.dp),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = if (dim) NuxColors.OnSurfaceDim else NuxColors.OnSurface,
+            maxLines = 1,
+        )
+    }
+}
+
 @Composable
 internal fun CatchupOverlay(
     vm: MainViewModel,

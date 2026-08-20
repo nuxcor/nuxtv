@@ -58,7 +58,6 @@ object ContentClassifier {
         val liveGroups = LinkedHashMap<String, String>()
         val movieGroups = LinkedHashMap<String, String>()
         val seriesGroups = LinkedHashMap<String, String>()
-        var channelNumber = 1
 
         fun groupId(map: LinkedHashMap<String, String>, name: String?): String? {
             val n = name?.trim()?.takeIf { it.isNotBlank() } ?: return null
@@ -77,7 +76,7 @@ object ContentClassifier {
                     logo = entry.logo,
                     url = entry.url,
                     categoryId = groupId(liveGroups, entry.group),
-                    number = channelNumber++,
+                    // Numbering waits for the finished list — see [renumberChannels].
                     epgId = entry.tvgId,
                     tvgName = entry.tvgName,
                     // Raw TS/progressive streams can be recorded by dumping bytes; HLS can't.

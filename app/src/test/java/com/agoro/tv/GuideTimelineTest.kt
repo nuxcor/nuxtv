@@ -2,9 +2,7 @@ package com.agoro.tv
 
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.agoro.tv.ui.screens.CHANNEL_COLUMN_GAP
-import com.agoro.tv.ui.screens.CHANNEL_COLUMN_WIDTH
-import com.agoro.tv.ui.screens.RAIL_WIDTH_COLLAPSED
+import com.agoro.tv.ui.screens.GUIDE_BROWSE_FIXED_COSTS
 import com.agoro.tv.ui.screens.guideDpPerMinute
 import com.agoro.tv.ui.theme.Space
 import org.junit.Assert.assertEquals
@@ -20,12 +18,12 @@ import org.junit.Test
 class GuideTimelineTest {
 
     /**
-     * Everything the timeline doesn't get: gutters, collapsed rail, channel
-     * column. Built from the production constants — a hardcoded copy silently
-     * diverged when the channel column widened.
+     * Everything the timeline doesn't get: gutters and the channel column.
+     * The production value itself — a rebuilt copy silently diverged twice,
+     * first when the channel column widened, then when the rail became a
+     * summoned drawer and stopped reserving anything.
      */
-    private val fixedCosts =
-        Space.gutter * 2 + RAIL_WIDTH_COLLAPSED + CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP
+    private val fixedCosts = GUIDE_BROWSE_FIXED_COSTS
 
     private fun columnsVisible(screenWidth: Dp): Float {
         val lane = screenWidth - fixedCosts

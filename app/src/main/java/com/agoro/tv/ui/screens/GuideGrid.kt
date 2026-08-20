@@ -120,11 +120,12 @@ private val ROW_HEIGHT = 62.dp
  *  960dp panel, more on a wider one since the scale grows with it. */
 internal const val MIN_CELL_MINUTES = 16f
 
-/** What the browse guide's timeline never gets: TV-safe gutters, the collapsed
- *  rail and the channel column. The player overlay pays different costs — no
- *  rail, its own padding — so [guideDpPerMinute] takes them as a parameter. */
+/** What the browse guide's timeline never gets: TV-safe gutters and the
+ *  channel column. The rail is a summoned drawer now and reserves nothing.
+ *  The player overlay pays different costs — its own padding — so
+ *  [guideDpPerMinute] takes them as a parameter. */
 internal val GUIDE_BROWSE_FIXED_COSTS: Dp
-    get() = Space.gutter * 2 + RAIL_WIDTH_COLLAPSED + CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP
+    get() = Space.gutter * 2 + CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP
 
 /**
  * Timeline scale for a panel [screenWidth] dp wide: the lane left after
@@ -858,6 +859,18 @@ private fun GuideRow(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             ) {
+                // The number is the address the digit keys answer to — here
+                // and in the player — so the row that defines it shows it.
+                // Dim and in a fixed slot: the name stays the headline, and
+                // logos line up whether the number is 7 or 1042.
+                Text(
+                    text = channel.number?.toString().orEmpty(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NuxColors.OnSurfaceDim,
+                    maxLines = 1,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                    modifier = Modifier.width(28.dp),
+                )
                 Artwork(
                     imageUrl = channel.logo,
                     title = channel.displayName,
@@ -885,8 +898,6 @@ private fun GuideRow(
                         com.agoro.tv.ui.components.MetaChip(it)
                     }
                 }
-                // No channel-number text: digits still tune, but the ordinal
-                // was dead weight in a row this narrow.
             }
         }
         Spacer(Modifier.width(CHANNEL_COLUMN_GAP))

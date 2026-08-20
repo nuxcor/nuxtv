@@ -81,6 +81,7 @@ data class LiveChannel(
 }
 
 /** One EPG programme, used for the catch-up picker. */
+@Serializable
 data class EpgProgram(
     val id: String,
     val title: String,
@@ -117,6 +118,9 @@ data class Movie(
      * never "new". Null for M3U, which carries no such field.
      */
     val addedMs: Long? = null,
+    /** Top-billed actors, comma-separated. Provider value, else TMDB credits. */
+    val cast: String? = null,
+    val director: String? = null,
 )
 
 @Serializable
@@ -152,6 +156,9 @@ data class Series(
     val backdrop: String? = null,
     /** When the provider last touched this series (Xtream `last_modified`). */
     val addedMs: Long? = null,
+    /** Top-billed actors, comma-separated. Provider value, else TMDB credits. */
+    val cast: String? = null,
+    val director: String? = null,
 )
 
 @Serializable

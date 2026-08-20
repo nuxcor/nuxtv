@@ -42,6 +42,7 @@ import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -73,6 +74,28 @@ private const val LogoFitFraction = 0.72f
 
 private val ChipShape = NuxShape.Chip
 private val RestingBorder = NuxBorders.restingCard
+
+/**
+ * Clip room for a shelf of scaling cards. A scrollable clips its main axis,
+ * so the first card's focus ring — 3dp of stroke plus half the 6% scale
+ * growth — lost its left edge against the row's own bound. The row measures
+ * wider than its slot by this much on each side and reports its original
+ * width, so resting cards keep the gutter alignment while the ring gets
+ * somewhere to exist. Pair with contentPadding = PaddingValues(horizontal =
+ * ShelfRingRoom) so the first card still rests on the gutter line.
+ */
+internal val ShelfRingRoom = 14.dp
+
+internal fun Modifier.shelfRingRoom(room: Dp = ShelfRingRoom): Modifier =
+    layout { measurable, constraints ->
+        val extra = room.roundToPx() * 2
+        val placeable = measurable.measure(
+            constraints.copy(maxWidth = constraints.maxWidth + extra)
+        )
+        layout(placeable.width - extra, placeable.height) {
+            placeable.placeRelative(-room.roundToPx(), 0)
+        }
+    }
 
 /**
  * Clock format honouring Android's "Use 24-hour format" toggle.

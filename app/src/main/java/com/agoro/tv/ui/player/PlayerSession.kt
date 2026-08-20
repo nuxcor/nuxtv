@@ -74,6 +74,15 @@ class PlayerSession internal constructor(
         const val LIVE_PAUSE_REJOIN_MS = 30_000L
 
         private const val RETRIES_PER_ITEM = 2
+
+        /**
+         * Repeated stalls inside this window mean the feed can't keep up —
+         * a starving stream never throws, so without this the fallback
+         * ladder only ever ran for hard failures while the viewer watched
+         * the stutter.
+         */
+        private const val STALL_WINDOW_MS = 60_000L
+        private const val STALLS_BEFORE_HOP = 3
     }
 
     var request: PlaybackRequest by mutableStateOf(initialRequest)
@@ -155,6 +164,9 @@ class PlayerSession internal constructor(
     /** When live playback was paused, for the stale-buffer rejoin decision. */
     private var pauseStartedMs = 0L
 
+    /** Recent mid-play stall timestamps; see [STALL_WINDOW_MS]. */
+    private val stallClock = ArrayDeque<Long>()
+
     internal val listener = object : PlayerEngine.Listener {
         override fun onItemChanged(index: Int) {
             // A genuinely new item restarts the failure ladder; the same index
@@ -173,6 +185,24 @@ class PlayerSession internal constructor(
             } else if (!b && playing) {
                 // An actual pause, not a stall: start the rejoin clock.
                 pauseStartedMs = System.currentTimeMillis()
+            }
+            // A live feed that stalls three times in a minute is starving,
+            // not hiccuping. Hop straight down the tile's measured source
+            // ladder — the format isn't wrong when it plays but can't keep
+            // up, and the .m3u8 re-wrap caps quality anyway. Catch-up is
+            // exempt: seeking buffers legitimately.
+            if (b && playing && !tuning && request.isLive && !request.isCatchup) {
+                val now = System.currentTimeMillis()
+                stallClock += now
+                while (stallClock.isNotEmpty() && now - stallClock.first() > STALL_WINDOW_MS) {
+                    stallClock.removeFirst()
+                }
+                if (stallClock.size >= STALLS_BEFORE_HOP) {
+                    stallClock.clear()
+                    if (swapSource()) {
+                        statusMessage = "Stream can't keep up — trying another source…"
+                    }
+                }
             }
             playing = p
             buffering = b
@@ -280,6 +310,7 @@ class PlayerSession internal constructor(
         retriesLeft = RETRIES_PER_ITEM
         liveFormatStage = 0
         sourceStage = 0
+        stallClock.clear()
     }
 
     /**

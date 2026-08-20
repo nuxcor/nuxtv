@@ -2,8 +2,11 @@
 
 package com.agoro.tv.ui.player
 
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -39,8 +42,8 @@ import java.util.Date
 import kotlinx.coroutines.delay
 
 /**
- * TiviMate-style channel banner on the bottom gradient: number and logo on
- * the left, name / now-programme / progress / next in the middle, clock and
+ * TiviMate-style channel banner on the bottom gradient: logo on the left,
+ * number and name / now-programme / progress / next in the middle, clock and
  * status chips on the right. Shown on every channel change so zapping is
  * never blind. The gradient itself belongs to the scaffold's bottom column,
  * which stacks this above the transport bar — their spacing is layout, not a
@@ -77,8 +80,7 @@ internal fun ChannelBanner(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        // --- left: logo card (no channel number — dead weight on screen;
-        // digits still tune) -----------------------------------------------
+        // --- left: logo card ----------------------------------------------
         if (isLive && channel != null) {
             Box(
                 modifier = Modifier
@@ -105,6 +107,16 @@ internal fun ChannelBanner(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                // The number the digit keys tune by, beside the name it means —
+                // dim, because the name is what the viewer is reading.
+                channel?.number?.let { number ->
+                    Text(
+                        text = number.toString(),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = NuxColors.OnSurfaceDim,
+                        maxLines = 1,
+                    )
+                }
                 Text(
                     text = channel?.displayName ?: item?.title.orEmpty(),
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
@@ -206,10 +218,13 @@ internal fun ChannelBanner(
 }
 
 /**
- * What tuning looks like: the channel's identity with a working spinner,
- * instead of a bare spinner over black that could mean anything. Shown from
- * the moment a tune is requested until the new stream renders; mid-stream
- * stalls get only a corner chip.
+ * What tuning looks like: the channel's name breathing over the dimmed last
+ * frame, with a light sweeping a thin line beneath it — identity plus motion,
+ * no card, no logo tile, no spinner. The boxy scrim card this replaces put a
+ * letterboxed logo and a stock spinner in the middle of every channel change,
+ * which read as chrome interrupting the picture rather than the picture
+ * changing. Shown from the moment a tune is requested until the new stream
+ * renders; mid-stream stalls get only a corner chip.
  */
 @Composable
 internal fun TuneCard(
@@ -217,57 +232,68 @@ internal fun TuneCard(
     item: PlayableItem?,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier
-            .widthIn(max = 560.dp)
-            .clip(PlayerTheme.PanelShape)
-            .background(PlayerTheme.ScrimMedium)
-            .padding(horizontal = 20.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(18.dp),
+    val motion = androidx.compose.animation.core.rememberInfiniteTransition(label = "tune")
+    // One light sweeping left-to-right, restarting — a scanner bounce reads
+    // as retro, a single direction reads as progress.
+    val sweep by motion.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            androidx.compose.animation.core.tween(
+                1_100,
+                easing = androidx.compose.animation.core.FastOutSlowInEasing,
+            ),
+            androidx.compose.animation.core.RepeatMode.Restart,
+        ),
+        label = "sweep",
+    )
+    val trackWidth = 200.dp
+    val glowWidth = 72.dp
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        if (channel != null) {
-            com.agoro.tv.ui.components.Artwork(
-                imageUrl = channel.logo,
-                title = channel.displayName,
+        Text(
+            text = channel?.displayName ?: item?.title.orEmpty(),
+            style = MaterialTheme.typography.headlineMedium.copy(
+                fontWeight = FontWeight.SemiBold,
+                // Legibility without a scrim card: the text floats over
+                // whatever frame the zap left behind.
+                shadow = androidx.compose.ui.graphics.Shadow(
+                    color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.7f),
+                    blurRadius = 18f,
+                ),
+            ),
+            color = NuxColors.OnSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 720.dp),
+        )
+        Spacer(Modifier.height(14.dp))
+        Box(
+            modifier = Modifier
+                .width(trackWidth)
+                .height(3.dp)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
+                .background(NuxColors.OnSurface.copy(alpha = 0.16f)),
+        ) {
+            Box(
                 modifier = Modifier
-                    .size(width = 86.dp, height = 54.dp)
-                    .clip(PlayerTheme.ChipShape),
-                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    // The glow starts fully off the left edge and exits fully
+                    // right, so the loop point is invisible.
+                    .offset(x = (trackWidth + glowWidth) * sweep - glowWidth)
+                    .width(glowWidth)
+                    .fillMaxHeight()
+                    .background(
+                        androidx.compose.ui.graphics.Brush.horizontalGradient(
+                            listOf(
+                                androidx.compose.ui.graphics.Color.Transparent,
+                                NuxColors.Primary,
+                                androidx.compose.ui.graphics.Color.Transparent,
+                            )
+                        )
+                    ),
             )
-        }
-        Column {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Text(
-                    text = channel?.displayName ?: item?.title.orEmpty(),
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-                    color = NuxColors.OnSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                CircularProgressIndicator(
-                    color = NuxColors.Primary,
-                    strokeWidth = 2.5.dp,
-                    modifier = Modifier.size(18.dp),
-                )
-                Text(
-                    // "Tuning" is what you do to a channel. A film opening
-                    // with live-TV vocabulary is the first thing the app says
-                    // on every VOD playback, so it says the right thing.
-                    text = if (channel != null) "Tuning…" else "Starting…",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = NuxColors.OnSurfaceDim,
-                )
-            }
         }
     }
 }

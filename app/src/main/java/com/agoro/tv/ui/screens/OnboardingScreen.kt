@@ -301,28 +301,20 @@ private fun ChooseStep(
         horizontalArrangement = Arrangement.spacedBy(56.dp),
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            // Same lockup as the launcher banner — mark a little over twice
-            // the cap height — so the first screen and the tile it launched
-            // from are the same mark. Height derives from the wordmark so it
-            // tracks the TV's font-size setting; aspectRatio keeps ic_logo's
-            // own 55:76.
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
-            ) {
+            // The mark alone, matching the launcher banner and the drawer —
+            // the wordmark came off everywhere at once, so the tile, the
+            // first screen and the nav all carry the same identity. Height
+            // still derives from the headline size so it tracks the TV's
+            // font-size setting; aspectRatio keeps ic_logo's own 55:76.
+            run {
                 val wordSize = MaterialTheme.typography.headlineLarge.fontSize
                 val markHeight = with(androidx.compose.ui.platform.LocalDensity.current) {
                     wordSize.toDp() * 2f
                 }
                 androidx.compose.foundation.Image(
                     painter = androidx.compose.ui.res.painterResource(com.agoro.tv.R.drawable.ic_logo),
-                    contentDescription = null,
+                    contentDescription = "Agoro",
                     modifier = Modifier.height(markHeight).aspectRatio(55f / 76f),
-                )
-                Text(
-                    text = "AGORO",
-                    style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Black),
-                    color = NuxColors.Primary,
                 )
             }
             Spacer(Modifier.height(26.dp))

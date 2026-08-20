@@ -20,6 +20,9 @@ data class TmdbInfo(
     val backdropUrl: String?,
     /** "author — excerpt" strings, at most three. */
     val reviews: List<String>,
+    /** Top-billed actors, comma-separated. */
+    val cast: String?,
+    val director: String?,
 )
 
 /**
@@ -99,6 +102,23 @@ class TmdbClient(private val http: OkHttpClient, private val apiKey: String) {
                 }.take(3)
             } ?: emptyList()
 
+        // TV credits list directors per-episode, so for series this usually
+        // yields cast only — the provider's director field fills that gap.
+        val credits = get("https://api.themoviedb.org/3/$kind/$id/credits?api_key=$apiKey")
+        val cast = (credits?.get("cast") as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonObject)?.str("name") }
+            .take(6)
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(", ")
+        val director = (credits?.get("crew") as? JsonArray).orEmpty()
+            .filterIsInstance<JsonObject>()
+            .filter { it.str("job") == "Director" }
+            .mapNotNull { it.str("name") }
+            .distinct()
+            .take(2)
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(", ")
+
         return TmdbInfo(
             rating = first.dbl("vote_average")?.takeIf { it > 0 },
             voteCount = first.int("vote_count"),
@@ -106,6 +126,8 @@ class TmdbClient(private val http: OkHttpClient, private val apiKey: String) {
             posterUrl = first.posterUrl(),
             backdropUrl = first.backdropUrl(),
             reviews = reviews,
+            cast = cast,
+            director = director,
         )
     }
 
