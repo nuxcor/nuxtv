@@ -14,14 +14,21 @@ def _plural(s):
     for pat, base in PLUR: s = re.sub(pat, base, s, flags=re.I)
     return s
 
-def slug_keys(filename):
-    """Every lookup key a logo filename should answer to."""
+def _slug(filename):
     s = filename.rsplit('.',1)[0].lower()
     s = CC.sub('', s)
     prev = None
     while prev != s:                      # strip repeated quality/variant tokens
         prev = s; s = QUAL.sub('', s)
-    s = s.replace('-and-', 'and').replace('&', 'and')
+    return s.replace('-and-', 'and').replace('&', 'and')
+
+def full_key(filename):
+    """A filename's whole normalized name, no words dropped."""
+    return re.sub(r'[^a-z0-9]','', _plural(_slug(filename).replace('-',' ')))
+
+def slug_keys(filename):
+    """Every lookup key a logo filename should answer to."""
+    s = _slug(filename)
     base = _plural(s.replace('-',' '))
     k1 = re.sub(r'[^a-z0-9]','', base)
     k2 = re.sub(r'[^a-z0-9]','', DROP.sub('', base))
