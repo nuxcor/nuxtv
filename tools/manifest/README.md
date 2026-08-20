@@ -50,7 +50,14 @@ on disk.
 | Artwork match | `logo_match.py` | tv-logos index | `logo_map.json` |
 | Events | `ppv_parse.py` | panel PPV categories | `ppv_events.json` |
 | **Build** | `build_manifest.py` | all of the above | `manifest.json` |
+| Measure | `probe_tiers.py` | `manifest.json`, panel streams | `probed_tiers.json` |
 | Artwork gaps | `bind_logos.py` | `manifest.json`, tv-logos tree | `manifest.json` (in place) |
+
+Providers lie about tiers, so `probe_tiers.py` ffprobes what each tile source
+actually decodes and the build prefers the measurement. Iterate
+probe → rebuild until no primary is unprobed (a demoted liar promotes a
+source that may itself be unmeasured); `--all` extends the truth to the
+fallback ladders. One connection at a time — panels meter them.
 
 Then copy the result over the shipped asset:
 
