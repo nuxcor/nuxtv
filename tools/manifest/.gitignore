@@ -1,0 +1,5 @@
+# Machine-generated inputs and outputs. Large, re-fetchable, and none of them
+# is a source of truth — the scripts beside them are.
+*.json
+*.m3u
+dup_ids.txt
