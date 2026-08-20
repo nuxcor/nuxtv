@@ -107,6 +107,11 @@ jobs:
           # Absent secret builds fine — enrichment just falls back to the
           # Settings field, as it did before the key was bundled.
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          # The provider's address, so onboarding asks only for a username
+          # and password. Absent secret builds fine and asks for all three.
+          # The host is not a credential — each viewer still signs in as
+          # themselves — so it being readable in the APK is by design.
+          PROVIDER_HOST: ${{ secrets.PROVIDER_HOST }}
         run: ./gradlew assembleRelease
 
       # Two names for one APK. The versioned one is the archive; the plain one
