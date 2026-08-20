@@ -19,6 +19,26 @@ import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
+/**
+ * Channel numbers are positions in the finished live list — the exact order
+ * the guide draws its rows in — assigned 1-based here and nowhere else.
+ * Provider `num` fields and parse-time ordinals don't survive curation:
+ * dropped and collapsed channels leave gaps, and a number with gaps in it is
+ * one the viewer can type and miss. Idempotent, so it runs on every bundle
+ * the app publishes (fresh fetches and caches written before this rule alike)
+ * and the guide's row labels, the banner, and number-key zapping can never
+ * disagree about what a number means.
+ */
+internal fun renumberChannels(bundle: ContentBundle): ContentBundle {
+    if (bundle.channels.isEmpty()) return bundle
+    var untouched = true
+    val numbered = bundle.channels.mapIndexed { index, channel ->
+        if (channel.number == index + 1) channel
+        else channel.copy(number = index + 1).also { untouched = false }
+    }
+    return if (untouched) bundle else bundle.copy(channels = numbered)
+}
+
 class ContentRepository(context: Context) {
 
     private val store = SourceStore(context.applicationContext)
@@ -49,6 +69,7 @@ class ContentRepository(context: Context) {
         // bundle rewrites its shelf labels, so cache and network disagreed
         // about what the same catalogue is called. See [ContentBundle.cleaned].
     }.getOrNull()?.let { if (it.cleaned) it else CategoryCleaner.clean(it) }
+        ?.let(::renumberChannels)
 
     /**
      * The #EXTM3U url-tvg header, persisted beside the playlist cache. It only
@@ -321,9 +342,11 @@ class ContentRepository(context: Context) {
     // sources it wasn't written for, in which case the bundle passes through.
     private suspend fun fetch(source: PlaylistSource): ContentBundle {
         val cleaned = CategoryCleaner.clean(fetchRaw(source))
-        val manifest = manifests.load() ?: return cleaned
-        if (!manifestApplies(source, manifest)) return cleaned
-        return withContext(Dispatchers.Default) { ManifestCuration.apply(cleaned, manifest) }
+        val manifest = manifests.load()
+        val curated =
+            if (manifest == null || !manifestApplies(source, manifest)) cleaned
+            else withContext(Dispatchers.Default) { ManifestCuration.apply(cleaned, manifest) }
+        return renumberChannels(curated)
     }
 
     /** A manifest describes one provider; applying it to another would gut the library. */

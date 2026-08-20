@@ -24,6 +24,7 @@ class PlayerKeyHandlerTest {
         isKeyDown: Boolean = true,
         isKeyUp: Boolean = false,
         repeatCount: Int = 0,
+        digitsPending: Boolean = false,
     ) = playerKeyAction(
         code = code,
         isKeyDown = isKeyDown,
@@ -36,6 +37,7 @@ class PlayerKeyHandlerTest {
         bannerVisible = bannerVisible,
         centerArmed = centerArmed,
         centerLongPressFired = centerLongPressFired,
+        digitsPending = digitsPending,
     )
 
     // --- OK press / hold ---------------------------------------------------
@@ -278,6 +280,102 @@ class PlayerKeyHandlerTest {
         }
         assertFalse(press(KeyEvent.KEYCODE_5, layer = PlayerLayer.Guide).consumed)
         assertFalse(press(KeyEvent.KEYCODE_5, isLive = false).consumed)
+    }
+
+    @Test
+    fun `numpad digits collect like the remote's own digit row`() {
+        // HID keyboards and air-mouse remotes send NUMPAD codes instead.
+        val result = press(KeyEvent.KEYCODE_NUMPAD_7)
+        assertTrue(result.consumed)
+        assertEquals(PlayerKeyAction.Digit(7), result.action)
+        assertFalse(press(KeyEvent.KEYCODE_NUMPAD_7, isLive = false).consumed)
+    }
+
+    @Test
+    fun `OK with digits pending commits the number on release`() {
+        // The press is swallowed so a channel-list row can't also be clicked.
+        val down = press(KeyEvent.KEYCODE_DPAD_CENTER, digitsPending = true)
+        assertTrue(down.consumed)
+        assertEquals(null, down.action)
+        val up = press(
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            digitsPending = true,
+            isKeyDown = false,
+            isKeyUp = true,
+        )
+        assertTrue(up.consumed)
+        assertEquals(PlayerKeyAction.CommitDigits, up.action)
+        // From the channel list too — everywhere digits collect.
+        assertEquals(
+            PlayerKeyAction.CommitDigits,
+            press(
+                KeyEvent.KEYCODE_DPAD_CENTER,
+                layer = PlayerLayer.ChannelList,
+                digitsPending = true,
+                isKeyDown = false,
+                isKeyUp = true,
+            ).action,
+        )
+    }
+
+    // --- typed-number resolution ------------------------------------------
+
+    private fun channel(id: String, number: Int) = com.agoro.tv.data.LiveChannel(
+        id = id,
+        name = "Channel $id",
+        logo = null,
+        url = "http://host/live/u/p/$id.ts",
+        categoryId = null,
+        number = number,
+    )
+
+    private fun item(channel: com.agoro.tv.data.LiveChannel) = com.agoro.tv.data.PlayableItem(
+        url = channel.url,
+        title = channel.name,
+        channelId = channel.id,
+    )
+
+    @Test
+    fun `a number inside the zap playlist jumps within it`() {
+        val channels = listOf(channel("a", 1), channel("b", 2), channel("c", 3))
+        val items = listOf(item(channels[1]), item(channels[2]))
+        assertEquals(
+            com.agoro.tv.ui.player.DigitTune.Jump(1),
+            com.agoro.tv.ui.player.resolveDigitTune(3, items, channels),
+        )
+    }
+
+    @Test
+    fun `a number outside the zap playlist retunes onto the full list`() {
+        // The playlist is often one category; the typed number must reach
+        // everything the guide numbers.
+        val channels = listOf(channel("a", 1), channel("b", 2), channel("c", 3))
+        val items = listOf(item(channels[1]))
+        assertEquals(
+            com.agoro.tv.ui.player.DigitTune.Retune(0),
+            com.agoro.tv.ui.player.resolveDigitTune(1, items, channels),
+        )
+    }
+
+    @Test
+    fun `a number nothing carries is unknown, never a positional guess`() {
+        val channels = listOf(channel("a", 1), channel("b", 2))
+        assertEquals(
+            com.agoro.tv.ui.player.DigitTune.Unknown(9),
+            com.agoro.tv.ui.player.resolveDigitTune(9, listOf(item(channels[0])), channels),
+        )
+    }
+
+    @Test
+    fun `a rewritten stream url still resolves to its own playlist entry`() {
+        // The failure ladder swaps an item's url in place; the channel id is
+        // the identity that survives recovery.
+        val channels = listOf(channel("a", 1))
+        val items = listOf(item(channels[0]).copy(url = "http://host/live/u/p/a.m3u8"))
+        assertEquals(
+            com.agoro.tv.ui.player.DigitTune.Jump(0),
+            com.agoro.tv.ui.player.resolveDigitTune(1, items, channels),
+        )
     }
 
     @Test

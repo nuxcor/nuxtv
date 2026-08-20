@@ -1,6 +1,8 @@
 package com.agoro.tv.ui.player
 
 import android.view.KeyEvent as AndroidKeyEvent
+import com.agoro.tv.data.LiveChannel
+import com.agoro.tv.data.PlayableItem
 
 /**
  * Which piece of player chrome owns the screen. Exactly one layer at a time —
@@ -30,6 +32,9 @@ internal sealed interface PlayerKeyAction {
     data object OpenTracks : PlayerKeyAction
 
     data class Digit(val digit: Int) : PlayerKeyAction
+
+    /** OK with digits collected: tune to the typed number now, skip the wait. */
+    data object CommitDigits : PlayerKeyAction
 
     /** VOD LEFT/RIGHT: seek with the transient seek chrome. */
     data class Seek(val deltaMs: Long) : PlayerKeyAction
@@ -82,6 +87,8 @@ internal fun playerKeyAction(
     bannerVisible: Boolean,
     centerArmed: Boolean,
     centerLongPressFired: Boolean,
+    /** True while typed channel digits are waiting out their commit timer. */
+    digitsPending: Boolean = false,
 ): PlayerKeyResult {
     // "No overlay" — bare playback or the transport bar. Panels (channel
     // list, guide, tracks, catch-up, options) and the error card own their
@@ -97,6 +104,16 @@ internal fun playerKeyAction(
         code == AndroidKeyEvent.KEYCODE_ENTER ||
         code == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER ||
         code == AndroidKeyEvent.KEYCODE_BUTTON_A
+
+    // OK while digits are collected commits the number at once instead of
+    // arming — acting on the release, with the press swallowed, so the same
+    // preview interception that blocks a channel-list row's click here can
+    // never half-run it. NUMPAD_ENTER is deliberately in [isCenter] for this:
+    // keypad remotes end a typed number with their own enter key.
+    if (isCenter && digitsPending) {
+        return if (isKeyUp) PlayerKeyResult(consumed = true, action = PlayerKeyAction.CommitDigits)
+        else PlayerKeyResult(consumed = true)
+    }
 
     // OK on bare playback: press arms, hold opens options, release opens the
     // channel options. Acting on the release is what keeps the two press lengths
@@ -224,7 +241,11 @@ internal fun playerKeyAction(
                 else -> PlayerKeyResult.Ignored
             }
 
-        in AndroidKeyEvent.KEYCODE_0..AndroidKeyEvent.KEYCODE_9 ->
+        // Both digit rows: the remote's own keys and the NUMPAD codes that
+        // HID keyboards and air-mouse remotes send instead.
+        in AndroidKeyEvent.KEYCODE_0..AndroidKeyEvent.KEYCODE_9,
+        in AndroidKeyEvent.KEYCODE_NUMPAD_0..AndroidKeyEvent.KEYCODE_NUMPAD_9,
+        ->
             // Digits work from bare playback, the controls, the channel list —
             // and the error card, where typing a number is a way out of a dead
             // stream, exactly like zapping.
@@ -233,7 +254,10 @@ internal fun playerKeyAction(
                         layer == PlayerLayer.Error
                     )
             ) {
-                PlayerKeyResult(true, PlayerKeyAction.Digit(code - AndroidKeyEvent.KEYCODE_0))
+                val base = if (code >= AndroidKeyEvent.KEYCODE_NUMPAD_0) {
+                    AndroidKeyEvent.KEYCODE_NUMPAD_0
+                } else AndroidKeyEvent.KEYCODE_0
+                PlayerKeyResult(true, PlayerKeyAction.Digit(code - base))
             } else PlayerKeyResult.Ignored
 
         // BACK must not poke: its KeyDown would raise the controls
@@ -247,4 +271,40 @@ internal fun playerKeyAction(
             if (noOverlay) PlayerKeyResult(consumed = false, action = PlayerKeyAction.ShowControls)
             else PlayerKeyResult.Ignored
     }
+}
+
+/** Where a typed channel number leads — see [resolveDigitTune]. */
+internal sealed interface DigitTune {
+    /** The channel is in the current zap playlist: jump within it. */
+    data class Jump(val itemIndex: Int) : DigitTune
+
+    /** It lives outside the playlist: retune onto the full list at this index. */
+    data class Retune(val channelIndex: Int) : DigitTune
+
+    /** No channel carries this number. */
+    data class Unknown(val number: Int) : DigitTune
+}
+
+/**
+ * Resolves a committed channel number against the FULL live list, not just the
+ * playlist the player is zapping through. A category pick narrows the zap list
+ * to that category, and the whole point of typing a number is that it works
+ * from anywhere — matching only inside the current playlist made most numbers
+ * "unknown" the moment a category was chosen.
+ *
+ * Matched by [LiveChannel.number], never by position: the numbers are what the
+ * guide's rows display, so typing what you see always lands on it.
+ */
+internal fun resolveDigitTune(
+    number: Int,
+    items: List<PlayableItem>,
+    channels: List<LiveChannel>,
+): DigitTune {
+    val channelIndex = channels.indexOfFirst { it.number == number }
+    if (channelIndex < 0) return DigitTune.Unknown(number)
+    val channel = channels[channelIndex]
+    // The url as well as the id: the failure ladder rewrites an item's url in
+    // place, so the id is the identity that survives recovery.
+    val itemIndex = items.indexOfFirst { it.channelId == channel.id || it.url == channel.url }
+    return if (itemIndex >= 0) DigitTune.Jump(itemIndex) else DigitTune.Retune(channelIndex)
 }

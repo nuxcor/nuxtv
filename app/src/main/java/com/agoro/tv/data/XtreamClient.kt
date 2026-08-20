@@ -184,7 +184,8 @@ class XtreamClient(
                 // picture quality no matter what the player asks for.
                 url = "$baseUrl/live/$userP/$passP/$id.ts",
                 categoryId = obj.str("category_id"),
-                number = obj.int("num"),
+                // No number here: panels' `num` fields carry gaps and repeats,
+                // and curation reorders anyway — [renumberChannels] owns it.
                 // Blank, not null, was how panels say "no id" — and a stored
                 // "" used to defeat the null-skip in EPG matching.
                 epgId = obj.str("epg_channel_id")?.takeIf { it.isNotBlank() },

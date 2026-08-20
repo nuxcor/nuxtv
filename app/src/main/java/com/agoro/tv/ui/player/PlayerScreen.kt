@@ -394,27 +394,54 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         session.commitPendingTune()
     }
 
-    // Channel-number entry: digits collect briefly, then jump. Four digits is
-    // the cap — no playlist numbers past 9999 — and a full buffer jumps at once.
-    LaunchedEffect(session.digitBuffer) {
-        if (session.digitBuffer.isEmpty()) return@LaunchedEffect
-        if (session.digitBuffer.length < 4) delay(1_600)
+    // The full live lineup, for number entry. Collected here — not read off
+    // the StateFlow at commit time — so the WhileSubscribed upstream stays
+    // warm for as long as the player can be asked to tune by number.
+    val liveChannels by vm.displayChannels.collectAsState()
+
+    // A committed number that matched nothing; the pill shows it dim briefly.
+    var noChannelNumber by remember { mutableStateOf<Int?>(null) }
+
+    // Typed digits resolve against the FULL channel list. A number inside the
+    // current zap playlist jumps within it; one outside retunes onto the full
+    // list — the playlist is often one category, and a typed number must
+    // reach everything the guide numbers. Named so OK can commit early.
+    fun commitDigits() {
         val n = session.digitBuffer.toIntOrNull()
         session.digitBuffer = ""
-        if (n != null) {
-            // Match the channel number shown in the lists; fall back to position.
-            val byNumber = request.items.indexOfFirst { entry ->
-                entry.channelId?.let { id -> vm.channelById(id)?.number } == n
-            }
-            val target = if (byNumber >= 0) byNumber else n - 1
-            if (target in request.items.indices) {
-                session.jumpTo(target)
+        when (val tune = n?.let { resolveDigitTune(it, request.items, liveChannels) }) {
+            is DigitTune.Jump -> {
+                session.jumpTo(tune.itemIndex)
                 // Typing a number means "watch it now" — drop the list.
                 if (session.layer == PlayerLayer.ChannelList) session.layer = PlayerLayer.None
-            } else {
-                session.statusMessage = "No channel $n"
             }
+            is DigitTune.Retune -> {
+                // Same bookkeeping as tuning from the grid guide: the old
+                // playlist's previous-index means nothing on the new one.
+                session.layer = PlayerLayer.None
+                session.previousIndex = -1
+                session.positionMs = 0
+                vm.playChannels(liveChannels, tune.channelIndex)
+            }
+            is DigitTune.Unknown -> noChannelNumber = tune.number
+            null -> Unit
         }
+    }
+
+    // Channel-number entry: digits collect briefly, then tune. Four digits is
+    // the cap — no playlist numbers past 9999 — and a full buffer commits at
+    // once.
+    LaunchedEffect(session.digitBuffer) {
+        if (session.digitBuffer.isEmpty()) return@LaunchedEffect
+        noChannelNumber = null // a new entry replaces the last miss
+        if (session.digitBuffer.length < 4) delay(1_600)
+        commitDigits()
+    }
+    // The miss dismisses itself; no error card for a number that isn't there.
+    LaunchedEffect(noChannelNumber) {
+        if (noChannelNumber == null) return@LaunchedEffect
+        delay(1_600)
+        noChannelNumber = null
     }
 
     // Sleep timer: a wall-clock deadline, so the badge can count down.
@@ -477,6 +504,12 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     // toggle against bare playback forever with no way out. OK owns the
     // channel list now, so none of it is load-bearing: BACK can just go back.
     BackHandler {
+        // Digits mid-entry: BACK cancels the number, nothing else moves.
+        if (session.digitBuffer.isNotEmpty() || noChannelNumber != null) {
+            session.digitBuffer = ""
+            noChannelNumber = null
+            return@BackHandler
+        }
         when (session.layer) {
             PlayerLayer.Guide, PlayerLayer.ChannelList, PlayerLayer.Tracks,
             PlayerLayer.Catchup, PlayerLayer.Options, PlayerLayer.Controls ->
@@ -538,6 +571,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     bannerVisible = session.bannerVisible,
                     centerArmed = session.centerArmed,
                     centerLongPressFired = session.centerLongPressFired,
+                    digitsPending = session.digitBuffer.isNotEmpty(),
                 )
                 when (val action = result.action) {
                     PlayerKeyAction.CenterArm -> session.centerArmed = true
@@ -585,6 +619,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         if (session.digitBuffer.length < 4) {
                             session.digitBuffer += action.digit.toString()
                         }
+                    PlayerKeyAction.CommitDigits -> commitDigits()
                     null -> Unit
                 }
                 result.consumed
@@ -939,8 +974,13 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             ) {
                 PlayerBadge(text = "Buffering…", color = NuxColors.OnSurfaceDim)
             }
+            // Digits large, in their own pill — read from the couch mid-type.
+            // The dim state is the verdict on a number that matched nothing;
+            // it self-dismisses, never an error card.
             if (session.digitBuffer.isNotEmpty()) {
-                PlayerBadge(text = "Channel ${session.digitBuffer}", color = NuxColors.FocusBorder)
+                DigitEntryPill(text = session.digitBuffer)
+            } else {
+                noChannelNumber?.let { DigitEntryPill(text = "No channel $it", dim = true) }
             }
             if (!request.isLive && session.durationMs > 0 &&
                 session.durationMs - session.positionMs in 1_000..15_000 &&

@@ -859,6 +859,18 @@ private fun GuideRow(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             ) {
+                // The number is the address the digit keys answer to — here
+                // and in the player — so the row that defines it shows it.
+                // Dim and in a fixed slot: the name stays the headline, and
+                // logos line up whether the number is 7 or 1042.
+                Text(
+                    text = channel.number?.toString().orEmpty(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NuxColors.OnSurfaceDim,
+                    maxLines = 1,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                    modifier = Modifier.width(28.dp),
+                )
                 Artwork(
                     imageUrl = channel.logo,
                     title = channel.displayName,
@@ -886,8 +898,6 @@ private fun GuideRow(
                         com.agoro.tv.ui.components.MetaChip(it)
                     }
                 }
-                // No channel-number text: digits still tune, but the ordinal
-                // was dead weight in a row this narrow.
             }
         }
         Spacer(Modifier.width(CHANNEL_COLUMN_GAP))

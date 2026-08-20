@@ -42,8 +42,8 @@ import java.util.Date
 import kotlinx.coroutines.delay
 
 /**
- * TiviMate-style channel banner on the bottom gradient: number and logo on
- * the left, name / now-programme / progress / next in the middle, clock and
+ * TiviMate-style channel banner on the bottom gradient: logo on the left,
+ * number and name / now-programme / progress / next in the middle, clock and
  * status chips on the right. Shown on every channel change so zapping is
  * never blind. The gradient itself belongs to the scaffold's bottom column,
  * which stacks this above the transport bar — their spacing is layout, not a
@@ -80,8 +80,7 @@ internal fun ChannelBanner(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        // --- left: logo card (no channel number — dead weight on screen;
-        // digits still tune) -----------------------------------------------
+        // --- left: logo card ----------------------------------------------
         if (isLive && channel != null) {
             Box(
                 modifier = Modifier
@@ -108,6 +107,16 @@ internal fun ChannelBanner(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                // The number the digit keys tune by, beside the name it means —
+                // dim, because the name is what the viewer is reading.
+                channel?.number?.let { number ->
+                    Text(
+                        text = number.toString(),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = NuxColors.OnSurfaceDim,
+                        maxLines = 1,
+                    )
+                }
                 Text(
                     text = channel?.displayName ?: item?.title.orEmpty(),
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
