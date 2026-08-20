@@ -367,12 +367,24 @@ class ContentRepository(context: Context) {
     // drop, which section a channel really belongs to) and is absent for
     // sources it wasn't written for, in which case the bundle passes through.
     private suspend fun fetch(source: PlaylistSource): ContentBundle {
-        val cleaned = CategoryCleaner.clean(fetchRaw(source))
+        val raw = fetchRaw(source)
         val manifest = manifests.load()
-        val curated =
-            if (manifest == null || !manifestApplies(source, manifest)) cleaned
-            else withContext(Dispatchers.Default) { ManifestCuration.apply(cleaned, manifest) }
-        return renumberChannels(curated)
+        // ALL of it off the main thread, not just the manifest pass. fetch is
+        // reached from viewModelScope.launch — Main.immediate — and fetchRaw's
+        // withContext(IO) hands control back to Main before the cleaner runs.
+        // So the cleaner and the renumber ran on the UI thread over the RAW
+        // catalogue (18,800 channels, 29,000 movies, 8,600 series): ~260,000
+        // regex passes over titles, ~6.5 million string comparisons in the
+        // category filter, and two full list rebuilds — on every cold start,
+        // every hourly refresh and every resume. A multi-second silent freeze
+        // that no amount of UI work could have fixed.
+        return withContext(Dispatchers.Default) {
+            val cleaned = CategoryCleaner.clean(raw)
+            val curated =
+                if (manifest == null || !manifestApplies(source, manifest)) cleaned
+                else ManifestCuration.apply(cleaned, manifest)
+            renumberChannels(curated)
+        }
     }
 
     /** A manifest describes one provider; applying it to another would gut the library. */

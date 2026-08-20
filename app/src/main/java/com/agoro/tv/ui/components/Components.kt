@@ -223,11 +223,18 @@ fun Artwork(
                 }
             }
             if (!imageUrl.isNullOrBlank() && !failed) {
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
+                val context = LocalContext.current
+                // Remembered per URL: this was rebuilt on every composition of
+                // every card in every grid, and a grid recomposes constantly
+                // while it scrolls.
+                val request = remember(imageUrl, context) {
+                    ImageRequest.Builder(context)
                         .data(imageUrl)
                         .crossfade(NuxMotion.ImageCrossfadeMs)
-                        .build(),
+                        .build()
+                }
+                AsyncImage(
+                    model = request,
                     contentDescription = title,
                     contentScale = contentScale,
                     // A stale logo is worse than no logo: it mislabels what the
@@ -398,9 +405,13 @@ fun Modifier.itemEntrance(index: Int, listStartedAtMs: Long): Modifier {
     val animate = remember {
         android.os.SystemClock.uptimeMillis() - listStartedAtMs < 300
     }
-    val progress = remember { androidx.compose.animation.core.Animatable(if (animate) 0f else 1f) }
+    // Every cell composed after the entrance window allocated an Animatable,
+    // launched a coroutine that immediately returned, and added a
+    // graphicsLayer — i.e. a RenderNode — to draw itself at alpha 1. That is
+    // every cell a scroll brings into view, forever.
+    if (!animate) return this
+    val progress = remember { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(Unit) {
-        if (!animate) return@LaunchedEffect
         val stagger = (index.coerceAtMost(NuxMotion.StaggerCap) * NuxMotion.StaggerStepMs).toLong()
         kotlinx.coroutines.delay(stagger)
         progress.animateToOrSnap(

@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -306,14 +307,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val displayChannels: StateFlow<List<LiveChannel>> =
         kotlinx.coroutines.flow.combine(
             content,
-            playerPrefs.hidden,
-            playerPrefs.mergeDuplicates,
+            // distinctUntilChanged on every preference source. DataStore
+            // re-emits the WHOLE Preferences object to every collector on any
+            // write, and combine re-runs on any emission regardless of value —
+            // so saving a borrowed poster (one per TMDB lookup, two dozen in
+            // flight while a grid scrolls) rebuilt the entire channel list,
+            // twice, at ~8 regex per channel. None of these values changed.
+            playerPrefs.hidden.distinctUntilChanged(),
+            playerPrefs.mergeDuplicates.distinctUntilChanged(),
             // Folded into one source so the unlock is something this combine can
             // see; the typed combine overloads stop at five flows.
             kotlinx.coroutines.flow.combine(playerPrefs.parentalPin, _parentalUnlocked) { pin, unlocked ->
                 pin.takeIf { !unlocked }
-            },
-            playerPrefs.channelOrder,
+            }.distinctUntilChanged(),
+            playerPrefs.channelOrder.distinctUntilChanged(),
         ) { c, hiddenSet, merge, effectivePin, order ->
             val bundle = (c as? ContentState.Ready)?.bundle
                 ?: return@combine Triple(emptyList<LiveChannel>(), false, 0)
@@ -329,7 +336,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // decoded-quality overlay runs before merge/sort so duplicate
             // merging and the quality ordering act on the truth, not on
             // whatever tag the provider typed into the stream name.
-            .combine(playerPrefs.knownQualities) { (visible, merge, order), known ->
+            .combine(playerPrefs.knownQualities.distinctUntilChanged()) { (visible, merge, order), known ->
                 val corrected =
                     if (known.isEmpty()) visible
                     else visible.map { ch ->
@@ -351,7 +358,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             .flowOn(kotlinx.coroutines.Dispatchers.Default)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            // Long enough to outlast navigation. At 5s a trip between tabs
+            // tore the combine down, and the next screen re-collected all six
+            // upstream flows — re-parsing their JSON — and redid both merges
+            // and the sort, which is precisely the "slow to navigate" path.
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(60_000), emptyList())
 
     /**
      * What the "All channels" shelf shows: [displayChannels] with duplicates
@@ -367,7 +378,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * quality, which re-emits, which re-merged the entire catalogue mid-zap.
      */
     val allChannelsView: StateFlow<List<LiveChannel>> =
-        displayChannels.combine(playerPrefs.mergeDuplicates) { channels, merge ->
+        displayChannels.combine(playerPrefs.mergeDuplicates.distinctUntilChanged()) { channels, merge ->
             if (!merge) channels
             else com.agoro.tv.data.QualityTag.mergeBestQuality(
                 channels,
@@ -375,7 +386,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
             .flowOn(kotlinx.coroutines.Dispatchers.Default)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(60_000), emptyList())
 
     var playback by mutableStateOf<PlaybackRequest?>(null)
         private set

@@ -426,10 +426,7 @@ private fun SourceOptionCard(
         // selected thing should visibly come forward.
         scale = ClickableSurfaceDefaults.scale(focusedScale = NuxFocus.CardScale),
         border = ClickableSurfaceDefaults.border(
-            border = androidx.tv.material3.Border(
-                androidx.compose.foundation.BorderStroke(1.dp, NuxColors.Stroke),
-                shape = NuxShape.Card,
-            ),
+            border = com.agoro.tv.ui.theme.NuxBorders.restingCard,
             focusedBorder = NuxFocus.ring16,
         ),
     ) {
