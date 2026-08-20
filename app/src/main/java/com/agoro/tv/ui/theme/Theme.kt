@@ -71,10 +71,14 @@ object Space {
 
     /**
      * TV-safe margins. Nominal overscan is 5% (48dp/27dp on a 960x540dp
-     * canvas) but real panels crop more — verified against a Sony Bravia
-     * clipping content at 48dp.
+     * canvas) and a Sony Bravia was once seen clipping at 48dp, which is
+     * where 58dp came from — but 58dp on each side spends an eighth of the
+     * panel on nothing, and it shows: the guide reads four rows where
+     * TiviMate reads eight, and channel names truncate to make room that the
+     * margin is holding. 40dp still clears the nominal safe area on the sets
+     * that crop at all, and modern panels crop nothing.
      */
-    val gutter = 58.dp
+    val gutter = 40.dp
     val gutterVertical = 32.dp
 }
 

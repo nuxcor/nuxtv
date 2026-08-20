@@ -481,13 +481,44 @@ class ContentRepository(context: Context) {
      * set of maps for the whole fold — the old pairwise merge grew with the
      * square of the pack count.
      */
+    /**
+     * The guide ids and name keys this playlist can bind to.
+     *
+     * The manifest's own bindings come first and need no catalogue, so this
+     * answers even during login, when the guide download runs beside the
+     * first catalogue fetch. Empty means "keep everything" — the honest
+     * answer for a playlist no manifest describes.
+     */
+    private suspend fun wantedGuideKeys(): Pair<Set<String>, Set<String>> {
+        val ids = HashSet<String>()
+        val names = HashSet<String>()
+        manifests.load()?.epg?.channelMap?.values?.forEach { binding ->
+            binding.id.takeIf { it.isNotBlank() }?.let { ids += it.lowercase() }
+        }
+        (_content.value as? ContentState.Ready)?.bundle?.channels?.forEach { channel ->
+            channel.epgId?.takeIf { it.isNotBlank() }?.let { ids += it.lowercase() }
+            names += EpgMatcher.normalizeKey(channel.name)
+        }
+        return ids to names
+    }
+
     private suspend fun fetchAndMerge(
         urls: List<String>,
+        wantedIds: Set<String> = emptySet(),
+        wantedNameKeys: Set<String> = emptySet(),
         onPartial: (XmltvData) -> Unit = {},
     ): XmltvData = kotlinx.coroutines.coroutineScope {
         val now = System.currentTimeMillis()
         val merger = XmltvMerger()
         var latest: XmltvData? = null
+
+        // Packs from a run that was killed mid-fold — a force-stop, a crash,
+        // the system reclaiming the app — are never reclaimed otherwise, and
+        // they are tens of megabytes each.
+        runCatching {
+            appContext.cacheDir.listFiles { f -> f.name.startsWith("epg-pack") }
+                ?.forEach { it.delete() }
+        }
 
         fun downloadAsync(u: String) = async(Dispatchers.IO) {
             runCatching {
@@ -518,6 +549,8 @@ class ContentRepository(context: Context) {
                         it,
                         windowStartMs = now - 30L * 3600 * 1000,
                         windowEndMs = now + 48L * 3600 * 1000,
+                        wantedIds = wantedIds,
+                        wantedNameKeys = wantedNameKeys,
                     )
                 }
             }.getOrElse { e ->
@@ -604,13 +637,20 @@ class ContentRepository(context: Context) {
             // the grid before the fold catches back up.
             val publishPartials = _epg.value !is EpgState.Ready
             if (publishPartials) _epg.value = EpgState.Loading
+            val (wantedIds, wantedNameKeys) = wantedGuideKeys()
             withContext(Dispatchers.IO) {
                 runCatching {
                     // Several feeds merge into one guide: the manifest's ids are
                     // spread across a handful of packs, and a viewer wants one
                     // grid, not a source picker.
-                    if (urls.size > 1) return@runCatching fetchAndMerge(urls) { partial ->
-                        if (publishPartials) _epg.value = EpgState.Ready(partial)
+                    if (urls.size > 1) {
+                        return@runCatching fetchAndMerge(
+                            urls,
+                            wantedIds = wantedIds,
+                            wantedNameKeys = wantedNameKeys,
+                        ) { partial ->
+                            if (publishPartials) _epg.value = EpgState.Ready(partial)
+                        }
                     }
                     val request = Request.Builder().url(url).header("User-Agent", "Agoro/2.1").build()
                     http.newCall(request).execute().use { resp ->
@@ -631,6 +671,8 @@ class ContentRepository(context: Context) {
                             body.byteStream(),
                             windowStartMs = now - 30L * 3600 * 1000,
                             windowEndMs = now + 48L * 3600 * 1000,
+                            wantedIds = wantedIds,
+                            wantedNameKeys = wantedNameKeys,
                         )
                     }
                 }.onSuccess { data ->

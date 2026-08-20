@@ -118,6 +118,22 @@ object XmltvParser {
          *  so multi-week guide packs don't exhaust memory on TV boxes. */
         windowStartMs: Long = Long.MIN_VALUE,
         windowEndMs: Long = Long.MAX_VALUE,
+        /**
+         * Guide ids this playlist can actually use, lowercase. The national
+         * feeds carry tens of thousands of channels; this catalogue binds 919
+         * of them, and the rest were parsed into memory, merged, cached and
+         * decoded again on the next start — a 59 MB cache for a guide the app
+         * could only ever read a fortieth of, which is why "Loading the guide"
+         * outlasted the viewer's patience with and without a cache.
+         *
+         * CHANNEL DECLARATIONS are always kept: they are small, and the
+         * matcher needs their names to bind by name. Only PROGRAMMES — all
+         * the bulk — are filtered. Empty means keep everything, which is what
+         * a playlist with no manifest gets.
+         */
+        wantedIds: Set<String> = emptySet(),
+        /** [EpgMatcher.normalizeKey] of this playlist's channel names. */
+        wantedNameKeys: Set<String> = emptySet(),
     ): XmltvData {
         // SimpleDateFormat is not thread-safe; create per parse call.
         val zoned = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US)
@@ -150,6 +166,21 @@ object XmltvParser {
         var programme: ProgrammeBuilder? = null
         var textTarget: TextTarget = TextTarget.NONE
 
+        // Ids worth keeping programmes for, decided as each channel is
+        // declared — XMLTV declares every channel before the first
+        // programme, so the set is complete by the time it is consulted.
+        val filtering = wantedIds.isNotEmpty() || wantedNameKeys.isNotEmpty()
+        val keepIds = HashSet<String>()
+        fun noteChannel(id: String) {
+            val lower = id.lowercase()
+            if (lower in wantedIds) {
+                keepIds += lower
+                return
+            }
+            val names = channelAlts[id] ?: return
+            if (names.any { EpgMatcher.normalizeKey(it) in wantedNameKeys }) keepIds += lower
+        }
+
         var event = parser.eventType
         while (event != XmlPullParser.END_DOCUMENT) {
             when (event) {
@@ -161,7 +192,8 @@ object XmltvParser {
                         val start = parseTime(parser.getAttributeValue(null, "start"))
                         val stop = parseTime(parser.getAttributeValue(null, "stop"))
                         programme = if (channel != null && start != null && stop != null &&
-                            stop > windowStartMs && start < windowEndMs
+                            stop > windowStartMs && start < windowEndMs &&
+                            (!filtering || channel.lowercase() in keepIds)
                         ) {
                             ProgrammeBuilder(channel, start, stop)
                         } else null
@@ -182,7 +214,10 @@ object XmltvParser {
                 }
 
                 XmlPullParser.END_TAG -> when (parser.name) {
-                    "channel" -> currentChannelId = null
+                    "channel" -> {
+                        currentChannelId?.let { if (filtering) noteChannel(it) }
+                        currentChannelId = null
+                    }
                     "display-name", "title", "desc" -> textTarget = TextTarget.NONE
                     "programme" -> {
                         programme?.let { p ->
