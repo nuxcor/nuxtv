@@ -507,7 +507,7 @@ fun HomeLoungeTab(
             item(key = "starterSeries") {
                 val rowIndex = rowKeys.indexOf("starterSeries")
                 Column {
-                    SectionTitle("Series")
+                    SectionTitle("Shows")
                     LazyRow(
                         modifier = Modifier.focusRestorer(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),

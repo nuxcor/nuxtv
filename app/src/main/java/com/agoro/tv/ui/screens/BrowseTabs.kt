@@ -203,8 +203,10 @@ fun HeroHeader(hero: HeroInfo?) {
 }
 
 /**
- * Poster browsing with a category column — shared by Movies and Series, which
- * differ only in what a card says and where it goes.
+ * Poster browsing with a category strip along the top — shared by Movies and
+ * Shows, which differ only in what a card says and where it goes. The strip is
+ * the same grammar as Live TV's: chips in a row, dwell selects, UP from the
+ * first poster row comes back to it, and the grid keeps the full pane width.
  *
  * The hero scrolls with the grid rather than sitting above it: it is 150dp of a
  * 476dp lane, and pinning it would leave room for a single row of posters.
@@ -258,11 +260,8 @@ private fun VodBrowser(
         shownHero = hero
     }
 
-    // Browsing posters gets the full width: the category column collapses
-    // while focus lives in the grid (the way every TV catalog browses) and
-    // LEFT from the grid's first column brings it back. Driven by explicit
-    // events, not raw hasFocus — visibility flapping mid-transition steals
-    // the frame the focus move needs.
+    // True while focus lives in the grid — gates the row snapping so the
+    // strip above never scrolls the grid out from under itself.
     var browsingGrid by remember { mutableStateOf(false) }
     val categoriesFocus = remember { FocusRequester() }
     var focusedEntryIndex by remember { mutableStateOf(0) }
@@ -277,22 +276,13 @@ private fun VodBrowser(
         borrowedArt(vm, shownHero?.art, shownHero?.backdrop, wide = true)
             ?: shownHero?.poster
     )
-    Row(
-        modifier = Modifier.fillMaxSize(),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        androidx.compose.animation.AnimatedVisibility(
-            visible = !browsingGrid,
-            enter = androidx.compose.animation.expandHorizontally(),
-            exit = androidx.compose.animation.shrinkHorizontally(),
-        ) {
-        LazyColumn(
+    Column(modifier = Modifier.fillMaxSize()) {
+        androidx.compose.foundation.lazy.LazyRow(
             modifier = Modifier
-                .width(190.dp)
-                .fillMaxHeight()
+                .padding(bottom = 10.dp)
                 .focusRestorer(),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-            contentPadding = PaddingValues(bottom = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(end = 16.dp),
         ) {
             itemsIndexed(shown, key = { _, c -> c.id }) { index, category ->
                 CategoryItem(
@@ -300,11 +290,11 @@ private fun VodBrowser(
                     selected = category.id == activeCategory,
                     onClick = { selectedCategory = category.id },
                     // The re-entry target must be an ITEM: focusing the
-                    // column landed on the scroll container itself — no
+                    // strip landed on the scroll container itself — no
                     // ring, no dwell, focus stranded.
                     modifier = if (index == 0) {
-                        Modifier.fillMaxWidth().focusRequester(categoriesFocus)
-                    } else Modifier.fillMaxWidth(),
+                        Modifier.focusRequester(categoriesFocus)
+                    } else Modifier,
                     onFocus = {
                         browsingGrid = false
                         focusedCategory = category.id
@@ -312,18 +302,17 @@ private fun VodBrowser(
                 )
             }
         }
-        }
         if (entries.isEmpty()) {
             StatusPane(
                 title = "Nothing in this category",
-                message = "Pick another from the list on the left.",
+                message = "Pick another from the row above.",
                 icon = Icons.Default.Movie,
             )
-            return@Row
+            return@Column
         }
         val gridEntrance = rememberListEntrance(activeCategory)
         val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
-        BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxHeight()) {
+        BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
         val gridColumns = gridColumnsFor(maxWidth)
         // Row snapping: the focused row aligns to the top of the pane, so the
         // rows above scroll fully away instead of leaving an orphaned caption
@@ -351,13 +340,13 @@ private fun VodBrowser(
                 .fillMaxSize()
                 .focusRestorer()
                 .onPreviewKeyEvent { event ->
-                    // LEFT from the first column re-opens the categories.
-                    // Intercepted here because the collapsed column is not
-                    // composed, so the geometric search would land on the
-                    // rail instead.
+                    // UP from the first poster row returns to the strip.
+                    // Intercepted, not left to geometry: the hero header
+                    // sits between them, takes no focus, and the search
+                    // could sail past a scrolled strip to the clock.
                     if (event.type == KeyEventType.KeyDown &&
-                        event.key == Key.DirectionLeft &&
-                        focusedEntryIndex % gridColumns == 0
+                        event.key == Key.DirectionUp &&
+                        focusedEntryIndex < gridColumns
                     ) {
                         browsingGrid = false
                         scope.launch { categoriesFocus.requestFocusRetrying() }
@@ -492,7 +481,7 @@ fun SeriesTab(
 ) {
     if (bundle.series.isEmpty()) {
         StatusPane(
-            title = "No series",
+            title = "No shows",
             message = "This playlist doesn't carry a box-set library.",
             icon = Icons.Default.VideoLibrary,
             primaryAction = StatusAction("Switch playlist", onOpenSettings),
@@ -591,7 +580,7 @@ internal fun Series.toHero() = HeroInfo(
     backdrop = backdrop,
     art = artRef(),
     chips = listOfNotNull(
-        "Series",
+        "Show",
         year?.toString(),
         rating?.let { "★ %.1f".format(it) },
         episodes?.let { "${it.size} episodes" },

@@ -130,7 +130,7 @@ fun SearchTab(
                 if (results.series.isNotEmpty()) {
                     item(key = "series") {
                         Column {
-                            SectionTitle("Series", results.series.size)
+                            SectionTitle("Shows", results.series.size)
                             LazyRow(modifier = Modifier.focusRestorer(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                 itemsIndexed(results.series, key = { _, s -> s.id }) { _, series ->
                                     PosterCard(

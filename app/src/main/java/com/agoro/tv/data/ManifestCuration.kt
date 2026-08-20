@@ -178,7 +178,7 @@ object ManifestCuration {
         )
     }
 
-    private val SERIES_LABELS = mapOf("NEW" to "Recently added", "TOP" to "Top rated", "ALL" to "All series")
+    private val SERIES_LABELS = mapOf("NEW" to "Recently added", "TOP" to "Top rated", "ALL" to "All shows")
     private val SERIES_ORDER = listOf("NEW", "TOP", "ALL")
 
     /** "Sports" alone is ambiguous across four territories; "Sports · UK" is not. */

@@ -257,7 +257,7 @@ fun SeriesDetailScreen(
     val contentState by vm.content.collectAsState()
     val base: Series? = remember(seriesId, contentState) { vm.seriesById(seriesId) }
     if (base == null) {
-        MissingItemPane("Series", contentState, onBack)
+        MissingItemPane("Show", contentState, onBack)
         return
     }
     var series by remember(seriesId) { mutableStateOf(base) }
