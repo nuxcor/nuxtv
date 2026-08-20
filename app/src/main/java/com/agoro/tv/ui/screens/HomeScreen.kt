@@ -274,6 +274,14 @@ fun HomeScreen(
     // Available or Ready — the two states with something for the viewer to
     // act on. Checking and Downloading are already in motion, and a dot for
     // them would nag about work the app is doing by itself.
+    // Top-right, above everything: the readout has to survive the drawer and
+    // any pane that opens over the content, or it stops measuring exactly
+    // when the viewer is doing the thing that feels slow.
+    val showFrameStats by vm.frameStatsOverlay.collectAsState()
+    com.agoro.tv.ui.components.FrameStatsOverlay(
+        enabled = showFrameStats,
+        modifier = Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 4.dp),
+    )
     val updateState by vm.updateState.collectAsState()
     // Invisible sliver at the panel's edge: the drawer is not composed while
     // hidden, so LEFT off the content's first column needs somewhere to land.

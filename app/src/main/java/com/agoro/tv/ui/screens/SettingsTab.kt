@@ -288,6 +288,19 @@ internal fun SettingsTab(
             )
         }
 
+        item(key = "frame-stats") {
+            val on by vm.frameStatsOverlay.collectAsState()
+            SettingsChoiceRow(
+                title = "Performance readout",
+                description = "Shows measured frame times in the corner. " +
+                    "Turn it on, travel the guide, and report the numbers — " +
+                    "\"not fluid\" can't be fixed, p95 210ms can.",
+                options = listOf("Off", "On"),
+                selectedIndex = if (on) 1 else 0,
+                onSelect = { vm.setFrameStatsOverlay(it == 1) },
+            )
+        }
+
         item(key = "guide-preview") {
             val mode by vm.guidePreviewMode.collectAsState()
             SettingsChoiceRow(

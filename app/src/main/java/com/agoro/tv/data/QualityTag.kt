@@ -45,7 +45,19 @@ object QualityTag {
     // Bare numbers ("Sky 1080") stay part of the identity; only explicit
     // quality tokens are stripped for duplicate grouping.
     private val allTags =
-        Regex("""(?i)\b(4k|uhd|2k|fhd|full\s?hd|hd|sd|1080p|720p|1440p|2160p|3840p|480p|576p)\b""")
+        Regex(
+            // Codec tokens belong here too. Without them "BBC NEWS HEVC 4K"
+            // lost its 4K and kept its HEVC, so the channel called itself
+            // "BBC NEWS HEVC" on screen — and grouped separately from the
+            // same channel's other feeds, which is the whole reason this
+            // reduction exists.
+            //
+            // ASCII "RAW" is deliberately absent: WWE Raw is a channel, and
+            // the provider's decorative RAW arrives in superscript, which
+            // stripDecoration has already removed by the time this runs.
+            """(?i)\b(4k|8k|uhd|2k|fhd|full\s?hd|hd|sd|hevc|h\.?265|h\.?264|""" +
+                """1080p|720p|1440p|2160p|3840p|4320p|480p|576p)\b"""
+        )
 
     // Hoisted: baseName runs per channel per merge, and a Regex compiled
     // inside the call was the only allocation on that path.
