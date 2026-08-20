@@ -23,6 +23,8 @@ import com.agoro.tv.player.ExoEngine
 import com.agoro.tv.player.PlayerEngine
 import com.agoro.tv.player.VlcEngine
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
  * How long focus has to rest on a channel before its stream is opened.
@@ -120,19 +122,37 @@ fun rememberGuidePreview(engineChoice: EngineChoice, highestQuality: Boolean): G
  * Drives [controller] from the focused channel. Split out so the guide's header
  * stays a layout concern and this stays a lifecycle one.
  */
+/**
+ * [channel] is a lambda, not a value: read as a parameter it made the caller
+ * observe the focused channel, so every D-pad press invalidated the whole
+ * guide — the tab, its lambdas, and with them every visible row and cell.
+ * Reading it inside snapshotFlow keeps the observation here, where the only
+ * cost of a focus move is re-arming this one effect.
+ */
 @Composable
 fun GuidePreviewEffect(
     controller: GuidePreviewController,
     enabled: Boolean,
-    channel: LiveChannel?,
+    channel: () -> LiveChannel?,
 ) {
-    LaunchedEffect(enabled, channel?.url) {
-        if (!enabled || channel == null) {
+    LaunchedEffect(enabled, controller) {
+        if (!enabled) {
             controller.release()
             return@LaunchedEffect
         }
-        delay(PREVIEW_DWELL_MS)
-        controller.play(channel)
+        androidx.compose.runtime.snapshotFlow { channel() }
+            .distinctUntilChanged { a, b -> a?.url == b?.url }
+            .collectLatest { focused ->
+                if (focused == null) {
+                    controller.release()
+                    return@collectLatest
+                }
+                // collectLatest cancels this on the next focus move, so the
+                // dwell restarts per channel exactly as it did when the
+                // effect itself was re-keyed.
+                delay(PREVIEW_DWELL_MS)
+                controller.play(focused)
+            }
     }
 }
 

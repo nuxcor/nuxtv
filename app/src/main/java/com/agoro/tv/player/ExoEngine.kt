@@ -84,8 +84,11 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
         val httpFactory = DefaultHttpDataSource.Factory()
             .setUserAgent(USER_AGENT)
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(15_000)
+            .setConnectTimeoutMs(10_000)
+            // A live feed that stops sending is dead NOW, not in fifteen
+            // seconds: the recovery ladder can't run until this fires, and
+            // every second here is a second of frozen picture first.
+            .setReadTimeoutMs(8_000)
         val renderers = DefaultRenderersFactory(context)
             // ON, not PREFER: hardware decoders first, software only as a
             // fallback. PREFER puts software ahead of MediaCodec, which drops
@@ -114,9 +117,14 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
                         // marginal connection re-stalled seconds later — a
                         // stall costs far more than the second it saved.
                         /* bufferForPlaybackMs = */ 2_500,
-                        // Deeper after a stall: coming back on the same thin
-                        // buffer that just failed invites a rebuffer loop.
-                        /* bufferForPlaybackAfterRebufferMs = */ 5_000,
+                        // Deeper after a stall than at start — coming back on
+                        // the same thin buffer that just failed invites a
+                        // rebuffer loop — but not 5s: a live panel feeds in
+                        // real time, so it REFILLS in real time, and every
+                        // stall then cost a visible five-second hole. 3s
+                        // still clears the start threshold while roughly
+                        // halving how long a hiccup stays on screen.
+                        /* bufferForPlaybackAfterRebufferMs = */ 3_000,
                     )
                     .setPrioritizeTimeOverSizeThresholds(true)
                     .build()

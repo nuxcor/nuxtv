@@ -618,21 +618,37 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun saveSource(source: PlaylistSource, onSuccess: () -> Unit, existing: Boolean) {
         addState = AddState.Loading("Downloading channels, movies and series…")
         viewModelScope.launch {
+            // The guide starts NOW, beside the catalog, not after it: the
+            // manifest names its packs without needing the catalog or the
+            // credentials, and the two downloads share nothing but
+            // bandwidth. By the time the library lands, the first pack —
+            // which carries most of the bindings — usually has too.
+            val epgJob = launch {
+                runCatching {
+                    repo.loadEpg(playerPrefs.epgOverrideUrl.first(), sourceHint = source)
+                }
+            }
             val outcome =
                 if (existing) repo.validateAndUpdate(source) else repo.validateAndAdd(source)
             outcome.fold(
                 onSuccess = {
-                    // Setup finishes with everything the first screen needs:
-                    // the guide used to load after onboarding closed, so a
-                    // fresh install opened onto an empty, still-loading Live
-                    // tab. A guide failure doesn't block setup — the app
-                    // retries EPG on its own cycle.
+                    // Setup finishes with everything the first screen needs —
+                    // but "everything" is the FIRST pack, not the whole fold:
+                    // the guide publishes progressively and the remaining
+                    // packs keep landing behind the open app. The timeout
+                    // covers a guide that can't load at all; setup must not
+                    // hang on it, the app retries EPG on its own cycle.
                     addState = AddState.Loading("Downloading the TV guide…")
-                    runCatching { repo.loadEpg(playerPrefs.epgOverrideUrl.first()) }
+                    kotlinx.coroutines.withTimeoutOrNull(45_000) {
+                        repo.epg.first { it is ContentRepository.EpgState.Ready }
+                    }
                     addState = AddState.Idle
                     onSuccess()
                 },
                 onFailure = { e ->
+                    // A login that failed must not keep downloading a guide
+                    // for it.
+                    epgJob.cancel()
                     addState = AddState.Error(e.message ?: "Could not load the playlist")
                 },
             )

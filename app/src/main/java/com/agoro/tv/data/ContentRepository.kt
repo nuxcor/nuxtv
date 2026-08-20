@@ -2,6 +2,7 @@ package com.agoro.tv.data
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -460,40 +461,58 @@ class ContentRepository(context: Context) {
      * fails is skipped rather than failing the load — a partial guide beats an
      * empty one.
      *
-     * Each pack is parsed, merged, and dropped before the next is requested.
-     * The old shape accumulated with a pairwise merge that rebuilt every map
-     * per pack, so the cost grew with the square of the pack count over a
-     * dozen packs — one of which is 55 MB — on a device with a TV box's heap.
-     * [XmltvMerger] holds one set of maps for the whole fold.
+     * The NEXT pack downloads to disk while the current one parses: the two
+     * dominate different resources (network vs CPU), so overlapping them
+     * roughly halves a cold fold. Disk, not memory — a pack can be 55 MB and
+     * TV heaps are small; the parse still streams from the file and each
+     * temp file dies as soon as its pack is folded. [XmltvMerger] holds one
+     * set of maps for the whole fold — the old pairwise merge grew with the
+     * square of the pack count.
      */
-    private fun fetchAndMerge(urls: List<String>, onPartial: (XmltvData) -> Unit = {}): XmltvData {
+    private suspend fun fetchAndMerge(
+        urls: List<String>,
+        onPartial: (XmltvData) -> Unit = {},
+    ): XmltvData = kotlinx.coroutines.coroutineScope {
         val now = System.currentTimeMillis()
         val merger = XmltvMerger()
         var latest: XmltvData? = null
-        for (u in urls) {
-            val one = runCatching {
+
+        fun downloadAsync(u: String) = async(Dispatchers.IO) {
+            runCatching {
                 val request = Request.Builder().url(u).header("User-Agent", "Agoro/2.1").build()
                 http.newCall(request).execute().use { resp ->
                     if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
                     val body = resp.body ?: throw IOException("empty")
-                    // Straight through: the parser sniffs the gzip magic bytes
-                    // itself, so gating on a ".gz" suffix added nothing and
-                    // could take it away — OkHttp transparently inflates a body
-                    // whenever it set Accept-Encoding itself, and wrapping an
-                    // already-inflated stream in GZIPInputStream throws, losing
-                    // a pack that was downloaded intact.
-                    body.byteStream().use {
-                        XmltvParser.parse(
-                            it,
-                            windowStartMs = now - 30L * 3600 * 1000,
-                            windowEndMs = now + 48L * 3600 * 1000,
-                        )
-                    }
+                    val tmp = java.io.File.createTempFile("epg-pack", null, appContext.cacheDir)
+                    tmp.outputStream().buffered().use { out -> body.byteStream().copyTo(out) }
+                    tmp
                 }
             }.getOrElse { e ->
                 android.util.Log.w("Agoro", "EPG pack failed ($u): ${e.message}")
                 null
             }
+        }
+
+        var pending = downloadAsync(urls.first())
+        for (i in urls.indices) {
+            val file = pending.await()
+            if (i + 1 < urls.size) pending = downloadAsync(urls[i + 1])
+            if (file == null) continue
+            val one = runCatching {
+                // The parser sniffs the gzip magic bytes itself, so the file
+                // needs no extension bookkeeping.
+                file.inputStream().buffered().use {
+                    XmltvParser.parse(
+                        it,
+                        windowStartMs = now - 30L * 3600 * 1000,
+                        windowEndMs = now + 48L * 3600 * 1000,
+                    )
+                }
+            }.getOrElse { e ->
+                android.util.Log.w("Agoro", "EPG pack unreadable: ${e.message}")
+                null
+            }
+            file.delete()
             if (one != null) {
                 merger.add(one)
                 // Publish after every pack: the first one carries most of the
@@ -503,7 +522,7 @@ class ContentRepository(context: Context) {
                 latest?.let(onPartial)
             }
         }
-        return latest ?: throw IOException("No guide pack could be loaded")
+        latest ?: throw IOException("No guide pack could be loaded")
     }
 
 
@@ -511,9 +530,17 @@ class ContentRepository(context: Context) {
      * Loads the XMLTV guide. A user-set override URL (e.g. an epgshare01
      * pack) wins; otherwise Xtream's xmltv.php or the M3U url-tvg/epgUrl.
      */
-    suspend fun loadEpg(overrideUrl: String? = null) {
+    suspend fun loadEpg(
+        overrideUrl: String? = null,
+        /**
+         * Lets login start the guide BEFORE the source is stored: the
+         * manifest path needs no credentials and no catalog, so the packs
+         * can download alongside the first fetch instead of after it.
+         */
+        sourceHint: PlaylistSource? = null,
+    ) {
         lastEpgOverride = overrideUrl
-        val source = activeSource.first() ?: return
+        val source = sourceHint ?: activeSource.first() ?: return
         // A manifest names the guide feeds its channel ids came from. Without
         // them the ids resolve to nothing and every row reads "No information",
         // so they take precedence over the provider's own guide — which is
