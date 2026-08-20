@@ -41,6 +41,8 @@ import com.agoro.tv.ui.components.StatusPane
 import com.agoro.tv.ui.components.dpadFieldNavigation
 import com.agoro.tv.ui.components.rememberClockFormat
 import com.agoro.tv.ui.components.PosterCard
+import com.agoro.tv.ui.components.ShelfRingRoom
+import com.agoro.tv.ui.components.shelfRingRoom
 import com.agoro.tv.ui.components.SectionTitle
 import com.agoro.tv.ui.components.WideItem
 import com.agoro.tv.ui.theme.NuxColors
@@ -114,7 +116,11 @@ fun SearchTab(
                     item(key = "movies") {
                         Column {
                             SectionTitle("Movies", results.movies.size)
-                            LazyRow(modifier = Modifier.focusRestorer(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            LazyRow(
+                                modifier = Modifier.focusRestorer().shelfRingRoom(),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                contentPadding = PaddingValues(horizontal = ShelfRingRoom),
+                            ) {
                                 itemsIndexed(results.movies, key = { _, m -> m.id }) { _, movie ->
                                     PosterCard(
                                         title = movie.name,
@@ -131,7 +137,11 @@ fun SearchTab(
                     item(key = "series") {
                         Column {
                             SectionTitle("Shows", results.series.size)
-                            LazyRow(modifier = Modifier.focusRestorer(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            LazyRow(
+                                modifier = Modifier.focusRestorer().shelfRingRoom(),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                contentPadding = PaddingValues(horizontal = ShelfRingRoom),
+                            ) {
                                 itemsIndexed(results.series, key = { _, s -> s.id }) { _, series ->
                                     PosterCard(
                                         title = series.name,
@@ -155,8 +165,9 @@ fun SearchTab(
                         Column {
                             SectionTitle("Live channels", results.channels.size)
                             LazyRow(
-                                modifier = Modifier.focusRestorer(),
+                                modifier = Modifier.focusRestorer().shelfRingRoom(),
                                 horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                contentPadding = PaddingValues(horizontal = ShelfRingRoom),
                             ) {
                                 itemsIndexed(
                                     results.channels,

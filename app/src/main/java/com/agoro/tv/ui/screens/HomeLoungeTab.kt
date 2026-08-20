@@ -63,6 +63,8 @@ import com.agoro.tv.ui.components.ContextMenu
 import com.agoro.tv.ui.components.MenuAction
 import com.agoro.tv.ui.components.PosterCard
 import com.agoro.tv.ui.components.SectionTitle
+import com.agoro.tv.ui.components.ShelfRingRoom
+import com.agoro.tv.ui.components.shelfRingRoom
 import com.agoro.tv.ui.components.StatusAction
 import com.agoro.tv.ui.components.StatusPane
 import com.agoro.tv.ui.components.itemEntrance
@@ -393,8 +395,9 @@ fun HomeLoungeTab(
                 Column {
                     SectionTitle("Continue watching")
                     LazyRow(
-                        modifier = Modifier.focusRestorer(),
+                        modifier = Modifier.focusRestorer().shelfRingRoom(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        contentPadding = PaddingValues(horizontal = ShelfRingRoom),
                     ) {
                         itemsIndexed(
                             continueRow,
@@ -428,8 +431,9 @@ fun HomeLoungeTab(
                 Column {
                     SectionTitle("Favorites · on now")
                     LazyRow(
-                        modifier = Modifier.focusRestorer(),
+                        modifier = Modifier.focusRestorer().shelfRingRoom(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        contentPadding = PaddingValues(horizontal = ShelfRingRoom),
                     ) {
                         itemsIndexed(favoritesRow, key = { _, c -> c.id }) { index, channel ->
                             ChannelTile(favoritesRow, rowIndex, index, channel)
@@ -448,8 +452,9 @@ fun HomeLoungeTab(
                     // costs an app its credibility.
                     SectionTitle("Recently added")
                     LazyRow(
-                        modifier = Modifier.focusRestorer(),
+                        modifier = Modifier.focusRestorer().shelfRingRoom(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        contentPadding = PaddingValues(horizontal = ShelfRingRoom),
                     ) {
                         itemsIndexed(
                             recentlyAdded,
@@ -477,8 +482,9 @@ fun HomeLoungeTab(
                 Column {
                     SectionTitle("Live channels")
                     LazyRow(
-                        modifier = Modifier.focusRestorer(),
+                        modifier = Modifier.focusRestorer().shelfRingRoom(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        contentPadding = PaddingValues(horizontal = ShelfRingRoom),
                     ) {
                         itemsIndexed(starterChannels, key = { _, c -> c.id }) { index, channel ->
                             ChannelTile(starterChannels, rowIndex, index, channel)
@@ -493,8 +499,9 @@ fun HomeLoungeTab(
                 Column {
                     SectionTitle("Movies")
                     LazyRow(
-                        modifier = Modifier.focusRestorer(),
+                        modifier = Modifier.focusRestorer().shelfRingRoom(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        contentPadding = PaddingValues(horizontal = ShelfRingRoom),
                     ) {
                         itemsIndexed(starterMovies, key = { _, m -> m.id }) { index, movie ->
                             MoviePoster(movie, rowIndex, index)
@@ -509,8 +516,9 @@ fun HomeLoungeTab(
                 Column {
                     SectionTitle("Shows")
                     LazyRow(
-                        modifier = Modifier.focusRestorer(),
+                        modifier = Modifier.focusRestorer().shelfRingRoom(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        contentPadding = PaddingValues(horizontal = ShelfRingRoom),
                     ) {
                         itemsIndexed(starterSeries, key = { _, x -> x.id }) { index, series ->
                             SeriesPoster(series, rowIndex, index)
@@ -525,8 +533,9 @@ fun HomeLoungeTab(
                 Column {
                     SectionTitle("Recent channels")
                     LazyRow(
-                        modifier = Modifier.focusRestorer(),
+                        modifier = Modifier.focusRestorer().shelfRingRoom(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        contentPadding = PaddingValues(horizontal = ShelfRingRoom),
                     ) {
                         itemsIndexed(recentsRow, key = { _, c -> c.id }) { index, channel ->
                             ChannelTile(recentsRow, rowIndex, index, channel)
