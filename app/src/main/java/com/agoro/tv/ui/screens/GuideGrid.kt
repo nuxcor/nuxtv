@@ -1054,6 +1054,63 @@ internal class VisibleCells(
  * Bucketed by half a viewport: recomposing per scrolled pixel would cost more
  * than the cells it saves.
  */
+/**
+ * The pure half of [rememberVisibleCellRange], so the geometry can be tested:
+ * getting it wrong shows up as cells that drift out of line with the ruler,
+ * which is invisible in review and obvious on a TV.
+ *
+ * Invariant the tests hold it to: lead + composed spans + trail always equals
+ * the row's full width, so every row still measures the same and the shared
+ * ScrollState clamps identically.
+ */
+internal fun visibleCellsFor(
+    layout: GuideRowLayout,
+    perMinutePx: Float,
+    scrollPx: Int,
+    viewportPx: Float,
+): VisibleCells {
+    if (viewportPx <= 0f) return VisibleCells(layout.cells.indices, 0f, 0f)
+    val marginPx = viewportPx
+    val fromPx = scrollPx - marginPx
+    val toPx = scrollPx + viewportPx + marginPx
+    var cursor = 0f
+    var first = -1
+    var last = -1
+    layout.cells.forEachIndexed { i, spec ->
+        val startMinutes = cursor + spec.gapMinutesBefore
+        val endMinutes = startMinutes + spec.widthMinutes
+        if (endMinutes * perMinutePx >= fromPx && startMinutes * perMinutePx <= toPx) {
+            if (first < 0) first = i
+            last = i
+        }
+        cursor = endMinutes
+    }
+    val total = cursor
+    if (first < 0) return VisibleCells(IntRange.EMPTY, 0f, total)
+    var lead = 0f
+    var endOfLast = 0f
+    var walk = 0f
+    layout.cells.forEachIndexed { i, spec ->
+        val startMinutes = walk + spec.gapMinutesBefore
+        val endMinutes = startMinutes + spec.widthMinutes
+        // The lead spacer swallows everything before the first composed cell,
+        // its own leading gap included — which is why that gap is skipped in
+        // the render loop for the first cell.
+        if (i == first) lead = startMinutes
+        if (i == last) endOfLast = endMinutes
+        walk = endMinutes
+    }
+    return VisibleCells(first..last, lead, (total - endOfLast).coerceAtLeast(0f))
+}
+
+/**
+ * The cells whose time overlaps the visible lane, plus a screen of margin on
+ * each side so ordinary travel never outruns the composed set — the margin is
+ * what keeps a focus requester attached for the cell D-pad is about to reach.
+ *
+ * Bucketed by half a viewport: recomposing per scrolled pixel would cost more
+ * than the cells it saves.
+ */
 @Composable
 private fun rememberVisibleCellRange(
     layout: GuideRowLayout,
@@ -1064,55 +1121,13 @@ private fun rememberVisibleCellRange(
     val perMinutePx = with(density) { dpPerMinute.toPx() }
     // viewportSize is 0 until the row has been laid out once; a full window
     // then, so the first frame is correct and the second is cheap.
-    val viewportPx = timelineScroll.viewportSize.takeIf { it > 0 }?.toFloat()
-    val bucketPx = (viewportPx ?: 0f).coerceAtLeast(1f) / 2f
+    val viewportPx = timelineScroll.viewportSize.takeIf { it > 0 }?.toFloat() ?: 0f
+    val bucketPx = (viewportPx / 2f).coerceAtLeast(1f)
     val bucket by remember(layout, perMinutePx, viewportPx) {
-        androidx.compose.runtime.derivedStateOf {
-            (timelineScroll.value / bucketPx).toInt()
-        }
+        androidx.compose.runtime.derivedStateOf { (timelineScroll.value / bucketPx).toInt() }
     }
     return remember(layout, perMinutePx, viewportPx, bucket) {
-        if (viewportPx == null) {
-            return@remember VisibleCells(layout.cells.indices, 0f, 0f)
-        }
-        val marginPx = viewportPx
-        val fromPx = bucket * bucketPx - marginPx
-        val toPx = bucket * bucketPx + viewportPx + marginPx
-        var cursorMinutes = 0f
-        var first = -1
-        var last = -1
-        var leadMinutes = 0f
-        var trailMinutes = 0f
-        layout.cells.forEachIndexed { i, spec ->
-            val startMinutes = cursorMinutes + spec.gapMinutesBefore
-            val endMinutes = startMinutes + spec.widthMinutes
-            val startPx = startMinutes * perMinutePx
-            val endPx = endMinutes * perMinutePx
-            when {
-                endPx < fromPx -> leadMinutes = endMinutes
-                startPx > toPx -> if (last >= 0 && trailMinutes == 0f) trailMinutes = -1f
-                else -> {
-                    if (first < 0) first = i
-                    last = i
-                }
-            }
-            cursorMinutes = endMinutes
-        }
-        if (first < 0) return@remember VisibleCells(IntRange.EMPTY, 0f, cursorMinutes)
-        // The lead spacer stands in for everything before the first composed
-        // cell, gaps included, so the first cell lands exactly where it would
-        // have; the trail covers the remainder to the window's end.
-        var endOfLast = 0f
-        var cursor = 0f
-        layout.cells.forEachIndexed { i, spec ->
-            val startMinutes = cursor + spec.gapMinutesBefore
-            val endMinutes = startMinutes + spec.widthMinutes
-            if (i == first) leadMinutes = startMinutes
-            if (i == last) endOfLast = endMinutes
-            cursor = endMinutes
-        }
-        trailMinutes = (cursor - endOfLast).coerceAtLeast(0f)
-        VisibleCells(first..last, leadMinutes, trailMinutes)
+        visibleCellsFor(layout, perMinutePx, (bucket * bucketPx).toInt(), viewportPx)
     }
 }
 
