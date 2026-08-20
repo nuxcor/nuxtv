@@ -110,12 +110,16 @@ private const val TARGET_COLUMNS = 5
 private val MIN_DP_PER_MINUTE = 2.6.dp
 private val MAX_DP_PER_MINUTE = 6.dp
 
-// 280, not 230: after the logo, quality chip and number, a 230dp row left
-// the NAME about 90dp — "Sports Chann…" everywhere. The timeline loses
-// 50dp it never missed.
-internal val CHANNEL_COLUMN_WIDTH = 280.dp
+// 330, not 280: the name is what a viewer reads, and at 280 it still only
+// got 160dp once the number, logo, gaps and padding were paid — enough for
+// "Sky Sports…" but not for "Sky Sports Darts". The parts around it are
+// slimmed below as well, so the name now has ~230dp and the timeline gives
+// up less than the column gains.
+internal val CHANNEL_COLUMN_WIDTH = 330.dp
 internal val CHANNEL_COLUMN_GAP = 8.dp
-private val ROW_HEIGHT = 62.dp
+// 52, not 62: the row carried a second deck for the quality chip and no
+// longer does, and every dp here is a channel the viewer can see at once.
+private val ROW_HEIGHT = 52.dp
 
 /** The narrowest cell that still shows a title and a focus ring — 61dp on a
  *  960dp panel, more on a wider one since the scale grows with it. */
@@ -917,8 +921,8 @@ private fun GuideRow(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
             ) {
                 // The number is the address the digit keys answer to — here
                 // and in the player — so the row that defines it shows it.
@@ -930,12 +934,12 @@ private fun GuideRow(
                     color = NuxColors.OnSurfaceDim,
                     maxLines = 1,
                     textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                    modifier = Modifier.width(28.dp),
+                    modifier = Modifier.width(24.dp),
                 )
                 Artwork(
                     imageUrl = channel.logo,
                     title = channel.displayName,
-                    modifier = Modifier.size(width = 52.dp, height = 40.dp).clip(NuxShape.Chip),
+                    modifier = Modifier.size(width = 44.dp, height = 36.dp).clip(NuxShape.Chip),
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                     monogramStyle = MaterialTheme.typography.labelMedium,
                 )
@@ -951,13 +955,12 @@ private fun GuideRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    // Second deck, not inline: sharing the name's line cost
-                    // ~50dp and truncated every name the chip appeared on.
-                    // The tier is corrected by measured playback where the
-                    // app has seen the stream decode.
-                    channel.quality?.let {
-                        com.agoro.tv.ui.components.MetaChip(it)
-                    }
+                    // No quality chip here. It cost a whole second deck per
+                    // row — the reason the guide showed four channels where
+                    // the app it is measured against shows eight — to repeat
+                    // something the channel list, the player's banner and
+                    // search all say. In a grid the NAME is what a viewer
+                    // reads, and it gets the line to itself.
                 }
             }
         }
