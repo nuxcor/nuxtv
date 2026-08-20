@@ -9,7 +9,16 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 
-private val Context.dataStore by preferencesDataStore(name = "nuxtv")
+// The corruption handler is the difference between "sign in again" and a
+// permanent crash loop: TV boxes lose power mid-write routinely, and a
+// corrupted preferences file otherwise throws into every reader on every
+// launch until the user clears app data.
+private val Context.dataStore by preferencesDataStore(
+    name = "nuxtv",
+    corruptionHandler = androidx.datastore.core.handlers.ReplaceFileCorruptionHandler {
+        androidx.datastore.preferences.core.emptyPreferences()
+    },
+)
 
 /** Persists configured playlist sources and the active selection. */
 class SourceStore(private val context: Context) {

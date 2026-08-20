@@ -94,10 +94,27 @@ class ContentRepository(context: Context) {
         }
     }
 
+    /**
+     * Write beside, rename over. Writing the live file in place meant a crash
+     * mid-write left a truncated cache; the next start survived it (decode
+     * fails, refetch) but paid the full multi-minute reload for it — which is
+     * exactly what viewers report as "the cache broke". A rename on the same
+     * filesystem is atomic, so the cache is always either the old complete
+     * bundle or the new one.
+     */
+    private fun atomicWrite(target: java.io.File, write: (java.io.OutputStream) -> Unit) {
+        val tmp = java.io.File(target.parentFile, target.name + ".tmp")
+        tmp.outputStream().buffered().use(write)
+        if (!tmp.renameTo(target)) {
+            target.delete()
+            tmp.renameTo(target)
+        }
+    }
+
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     private fun writeCache(sourceId: String, bundle: ContentBundle) {
         runCatching {
-            cacheFile(sourceId).outputStream().buffered().use { stream ->
+            atomicWrite(cacheFile(sourceId)) { stream ->
                 bundleJson.encodeToStream(bundle, stream)
             }
         }
@@ -126,8 +143,10 @@ class ContentRepository(context: Context) {
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     private fun writeEpgCache(url: String, data: XmltvData) {
         runCatching {
-            java.util.zip.GZIPOutputStream(epgCacheFile().outputStream().buffered()).use { stream ->
-                bundleJson.encodeToStream(EpgCacheFile(url, System.currentTimeMillis(), data), stream)
+            atomicWrite(epgCacheFile()) { raw ->
+                java.util.zip.GZIPOutputStream(raw).use { stream ->
+                    bundleJson.encodeToStream(EpgCacheFile(url, System.currentTimeMillis(), data), stream)
+                }
             }
         }
     }
@@ -136,7 +155,13 @@ class ContentRepository(context: Context) {
     val activeSource: Flow<PlaylistSource?> =
         combine(store.sources, store.activeId) { list, id -> list.firstOrNull { it.id == id } }
 
-    private val _content = MutableStateFlow<ContentState>(ContentState.Empty)
+    // Loading, not Empty: Empty renders "No playlist loaded — Connect your
+    // provider", and starting there put that pane on screen from frame one
+    // of every cold start while the cached bundle was still being read off
+    // flash — seconds of looking signed-out on a box that is anything but.
+    // Empty is a VERDICT; only ensureLoaded may reach it, after the source
+    // store has actually answered.
+    private val _content = MutableStateFlow<ContentState>(ContentState.Loading("Loading your library…"))
     val content: StateFlow<ContentState> = _content
 
     sealed class EpgState {

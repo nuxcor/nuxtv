@@ -41,7 +41,15 @@ data class ArtEntry(
     }
 }
 
-private val Context.playerDataStore: DataStore<Preferences> by preferencesDataStore(name = "nuxtv_player")
+// Corruption resets these preferences instead of crash-looping the app —
+// losing learned qualities and favorites to a power cut is recoverable;
+// an app that dies on launch until its data is cleared is not.
+private val Context.playerDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "nuxtv_player",
+    corruptionHandler = androidx.datastore.core.handlers.ReplaceFileCorruptionHandler {
+        androidx.datastore.preferences.core.emptyPreferences()
+    },
+)
 
 /**
  * How many recently-watched channels to keep. Deep enough to cover an evening
