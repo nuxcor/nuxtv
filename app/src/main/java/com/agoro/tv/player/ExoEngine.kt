@@ -110,7 +110,12 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
                     // IPTV feeds are bursty. A deeper buffer rides out the
                     // provider hiccups that otherwise read as "bad quality".
                     .setBufferDurationsMs(
-                        /* minBufferMs = */ 15_000,
+                        // 25s of headroom, not 15: this is what a hiccup is
+                        // spent from, and a line that jitters for three
+                        // seconds should cost the viewer nothing rather than
+                        // a visible hole. Memory is the trade, and a TV box
+                        // can hold 25s of one stream.
+                        /* minBufferMs = */ 25_000,
                         /* maxBufferMs = */ 60_000,
                         // Stock 2.5s to start. 1.5s made channel changes feel
                         // quicker but began playback on a thinner buffer, so a

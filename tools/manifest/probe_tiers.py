@@ -25,6 +25,9 @@ import json, os, subprocess, sys, time
 
 manifest_path = next((a for a in sys.argv[1:] if not a.startswith('--')), 'manifest-new.json')
 probe_all = '--all' in sys.argv
+# Re-measure ids already recorded. Resolution varies over the day, and the
+# ranking keeps the lowest sample seen, so a second pass can only improve it.
+reprobe = '--reprobe' in sys.argv
 limit = int(sys.argv[sys.argv.index('--limit') + 1]) if '--limit' in sys.argv else 0
 
 HOST, USER, PASS = (os.environ[k] for k in ('AGORO_HOST', 'AGORO_USER', 'AGORO_PASS'))
@@ -37,7 +40,7 @@ queue, seen = [], set()
 for t in tiles:
     for sid in (t['sources'] if probe_all else [t['primary']]):
         s = str(sid)
-        if s not in done and s not in seen:
+        if (reprobe or s not in done) and s not in seen:
             seen.add(s); queue.append(s)
 if limit: queue = queue[:limit]
 print(f"{len(queue)} streams to probe ({len(done)} already recorded)", flush=True)
@@ -58,7 +61,14 @@ def probe(sid):
 
 
 for i, sid in enumerate(queue, 1):
-    done[sid] = probe(sid)
+    height = probe(sid)
+    # The LOWEST sample wins, never the latest. A live feed's resolution is
+    # not a constant: BBC News measured 1080 one morning and 576 that
+    # afternoon, and ranking on the optimistic sample put an SD feed at the
+    # front of its tile — which is exactly the complaint the measuring was
+    # meant to end. A feed that ever drops to SD is not an HD source.
+    previous = done.get(sid) or 0
+    done[sid] = min(previous, height) if (previous and height) else (height or previous)
     if i % 10 == 0 or i == len(queue):
         json.dump(done, open(OUT, 'w'))
         print(f"{i}/{len(queue)}  last {sid} -> {done[sid]}", flush=True)

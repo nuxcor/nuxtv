@@ -295,6 +295,13 @@ for s in ls:
     # dropped outright, not demoted — the catalogue serves the originals.
     if re.match(r'^GO\s*:', asc(s['name']), re.I):
         go_drop.append(s['stream_id']); continue
+    # PPV event slots are not channels. "NCAAF 06: FOX" reduces to the key
+    # "fox" once the prefix comes off, which put a college-football slot into
+    # the FOX tile — and, once the real feeds were trimmed, at the FRONT of
+    # it: the News shelf's FOX played an event slot. Events have their own
+    # destination and must never join a channel's fold.
+    if c['section'] == 'PPV':
+        continue
     t = measured_tier(s['stream_id']) or tier_of(s['name'])
     # SD is below the floor everywhere, fallback slots included. ", SD" is
     # South Dakota, not a tier — "NBC (KDLT) SIOUX FALLS, SD" stays.

@@ -187,10 +187,7 @@ class PlayerSession internal constructor(
                 pauseStartedMs = System.currentTimeMillis()
             }
             // A live feed that stalls three times in a minute is starving,
-            // not hiccuping. Hop straight down the tile's measured source
-            // ladder — the format isn't wrong when it plays but can't keep
-            // up, and the .m3u8 re-wrap caps quality anyway. Catch-up is
-            // exempt: seeking buffers legitimately.
+            // not hiccuping. Catch-up is exempt: seeking buffers legitimately.
             if (b && playing && !tuning && request.isLive && !request.isCatchup) {
                 val now = System.currentTimeMillis()
                 stallClock += now
@@ -199,8 +196,20 @@ class PlayerSession internal constructor(
                 }
                 if (stallClock.size >= STALLS_BEFORE_HOP) {
                     stallClock.clear()
-                    if (swapSource()) {
-                        statusMessage = "Stream can't keep up — trying another source…"
+                    // HLS FIRST, a different source second. The raw .ts mux is
+                    // one long-lived HTTP body: a blip in it is a broken
+                    // stream and costs a full reconnect, which is what a
+                    // viewer sees as the picture stopping for seconds. The
+                    // .m3u8 form of the SAME stream is segments, and a player
+                    // re-requests a lost segment without the viewer knowing —
+                    // which is how apps that never chose .ts ride out the
+                    // same line. Quality is why .ts leads; when a feed has
+                    // proven it can't sustain it, resilience wins.
+                    when {
+                        swapLiveFormat() ->
+                            statusMessage = "Stream keeps breaking — switching to a steadier feed…"
+                        swapSource() ->
+                            statusMessage = "Stream can't keep up — trying another source…"
                     }
                 }
             }
