@@ -293,7 +293,8 @@ internal fun SettingsTab(
             SettingsChoiceRow(
                 title = "Guide preview",
                 description = "Plays the focused channel muted in the guide's corner. " +
-                    "Auto turns it on when your account has a spare connection.",
+                    "Auto keeps it on, pausing only while a recording is using " +
+                    "your plan's only stream.",
                 options = listOf("Auto", "On", "Off"),
                 selectedIndex = when (mode) {
                     "on" -> 1

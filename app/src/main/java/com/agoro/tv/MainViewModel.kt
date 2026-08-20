@@ -654,19 +654,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.Eagerly, "auto")
 
     /**
-     * Auto decides from the account's connection limit: on when the provider
-     * allows a second connection, off on single-connection plans and M3U
-     * links. The manual override exists because playlist middlemen
-     * (IPTVEditor) report a cosmetic max_connections that defaults to 1 —
-     * auto can never turn on for those accounts even when the real plan
-     * allows more.
+     * Auto keeps the preview on. "Connections" meter simultaneous STREAMS,
+     * not logins — and while the guide is open nothing else is streaming, so
+     * even a single-stream plan has its slot free; the guide releases the
+     * preview before fullscreen opens, and this held up against a real
+     * 1-connection line. The one thing that genuinely occupies the slot is
+     * an active recording, so auto yields to it — unless the plan has a
+     * second connection to spare. The manual Off stays for panels that
+     * dislike the churn; On stays for middlemen (IPTVEditor) whose cosmetic
+     * max_connections misreports the real plan.
      */
     val guidePreview: StateFlow<Boolean> =
-        combine(playerPrefs.guidePreviewMode, accountInfo) { mode, account ->
+        combine(
+            playerPrefs.guidePreviewMode,
+            accountInfo,
+            com.agoro.tv.recording.RecordingManager.active,
+        ) { mode, account, recording ->
             when (mode) {
                 "on" -> true
                 "off" -> false
-                else -> (account?.maxConnections ?: 1) >= 2
+                else -> recording == null || (account?.maxConnections ?: 1) >= 2
             }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
