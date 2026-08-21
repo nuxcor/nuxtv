@@ -11,6 +11,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
 
 /**
  * The guide store is where the app's memory problem was solved, so these
@@ -18,6 +19,13 @@ import org.robolectric.RuntimeEnvironment
  * descriptions, a replace that actually replaces — not about SQLite.
  */
 @RunWith(RobolectricTestRunner::class)
+// Pinned, and not because of compileSdk. Robolectric's image for API 35+ is
+// built for Java 21, and CI runs Java 17 — so an unpinned run passes on a
+// laptop with a newer JDK and dies in CI with UnsupportedOperationException
+// out of DefaultSdkProvider. 34 is the newest image Java 17 will load. None of
+// it matters to what is under test: this is framework SQLite and plain SQL,
+// unchanged across these levels, and the app's own floor is 23.
+@Config(sdk = [34])
 class GuideStoreTest {
 
     private lateinit var store: GuideStore
