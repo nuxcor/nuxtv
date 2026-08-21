@@ -884,12 +884,29 @@ private fun groupByRegion(categories: List<Category>): List<StripEntry> = buildL
         val region = category.id.substringBefore('|').takeIf { category.id.contains('|') }
         val shelf = if (region != null) category.name.substringBefore(SHELF_SEPARATOR) else category.name
         if (region != null && region != lastRegion) {
-            add(StripEntry.Group(category.name.substringAfter(SHELF_SEPARATOR, category.name)))
+            add(StripEntry.Group(regionHeading(region, category.name)))
         }
         lastRegion = region
         add(StripEntry.Chip(category, shelf.trim()))
     }
 }
+
+/**
+ * What the strip calls a territory: its CODE where that is a country code,
+ * and the manifest's label otherwise.
+ *
+ * "UNITED STATES" and "UNITED KINGDOM" spent more of the strip than the shelf
+ * names they were introducing — two headings could cost more width than the
+ * five chips between them, on the one row where width is the whole budget.
+ * Every viewer reads US, UK and CA without help.
+ *
+ * AFR is why this is not simply the code: the manifest labels it "DSTV",
+ * which is a platform rather than a place, and no one would recognise "AFR".
+ * A code only wins when it is one people already use.
+ */
+private fun regionHeading(region: String, categoryName: String): String =
+    if (region.length == 2) region
+    else categoryName.substringAfter(SHELF_SEPARATOR, categoryName)
 
 /** Matches the separator [ManifestCuration] builds shelf labels with. */
 private const val SHELF_SEPARATOR = " · "
