@@ -71,6 +71,61 @@ class SportsParserTest {
         assertEquals(ms(2026, 8, 20, 15, 0, "UTC"), e.startMs)
     }
 
+    /**
+     * The listings pack, copied exactly. A fifth time format — a bare
+     * timestamp in brackets — and the competition billed right after the
+     * fixture, both of which have to come off before the clubs are readable.
+     */
+    @Test
+    fun `reads the listings pack`() {
+        val now = ms(2026, 8, 22, 4, 30, "Australia/Sydney")
+        val roster = mapOf("Premier League" to listOf("Arsenal", "Coventry City"))
+        val e = SportsParser.parse(
+            1,
+            "AU (STAN 13) |  \u2022 Arsenal v Coventry City  Premier League Matchweek 1 " +
+                "2026/2027 (2026-08-22 04:50:29)",
+            now, roster,
+        )!!
+        assertEquals("Premier League", e.league)
+        assertEquals("Arsenal", e.home)
+        assertEquals("Coventry City", e.away)
+        // 04:50 is Sydney's clock, not UTC — 18:50 UTC, an evening kick-off in
+        // England. Read as UTC it would land ten hours late.
+        assertEquals(ms(2026, 8, 22, 4, 50, "Australia/Sydney"), e.startMs)
+        assertTrue("still ahead of now, so it is cued", e.startMs!! > now)
+        assertTrue(
+            "and it shows",
+            SportsParser.upcoming(listOf(e), now, cueMinutes = 60).isNotEmpty(),
+        )
+    }
+
+    /**
+     * Arsenal v Coventry arrived on four slots at the same tier: studio
+     * coverage, a player camera, a multi camera and the match. The studio show
+     * took the row and brought its own earlier start with it.
+     */
+    @Test
+    fun `the match beats its own studio and camera feeds`() {
+        val now = ms(2026, 8, 22, 4, 30, "Australia/Sydney")
+        val roster = mapOf("Premier League" to listOf("Arsenal", "Coventry City"))
+        fun slot(id: Int, label: String, minute: String) = SportsParser.parse(
+            id,
+            "AU (STAN $id) | $label Arsenal v Coventry City  Premier League Matchweek 1 " +
+                "2026/2027 (2026-08-22 04:$minute:29)",
+            now, roster,
+        )!!
+        val studio = slot(12, "Studio Coverage:", "00")
+        val match = slot(13, "", "50")
+        val player = slot(14, "Player Camera", "50")
+        val rows = SportsParser.upcoming(listOf(studio, match, player), now, cueMinutes = 60)
+        assertEquals("one row", 1, rows.size)
+        assertEquals("the match itself leads", 13, rows[0].streamId)
+        assertEquals(
+            "and it carries the real kick-off, not the studio's start",
+            ms(2026, 8, 22, 4, 50, "Australia/Sydney"), rows[0].startMs,
+        )
+    }
+
     /** 2,001 slots say this. None of them is a match. */
     @Test
     fun `an empty slot is not a fixture`() {

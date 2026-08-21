@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-21T17:03:32+00:00",
+ "generated": "2026-08-21T17:34:10+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -62367,24 +62367,32 @@
     "Brighton",
     "Burnley",
     "Chelsea",
+    "Coventry City",
     "Crystal Palace",
     "Everton",
     "Fulham",
+    "Hove Albion",
+    "Hull City",
+    "Ipswich",
+    "Ipswich Town",
     "Leeds",
+    "Leeds United",
     "Liverpool",
-    "Manchester City",
     "Man City",
-    "Manchester United",
     "Man United",
     "Man Utd",
+    "Manchester City",
+    "Manchester United",
     "Newcastle",
+    "Newcastle United",
     "Nottingham Forest",
+    "Spurs",
     "Sunderland",
     "Tottenham",
-    "Spurs",
+    "Tottenham Hotspur",
     "West Ham",
-    "Wolves",
-    "Wolverhampton"
+    "Wolverhampton",
+    "Wolves"
    ],
    "La Liga": [
     "Alaves",
@@ -62609,6 +62617,9 @@
   "telemundo_streams": 96,
   "regional_sport_streams": 137,
   "us_regional_news_streams": 64,
+  "sport_clubs_derived": {
+   "Premier League": 21
+  },
   "dstv_duplicates_dropped": 22,
   "ca_clutter_streams": 93,
   "timeshift_demoted": 47,

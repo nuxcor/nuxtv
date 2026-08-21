@@ -2094,6 +2094,56 @@ SPORT_LEAGUES = {
 # sides threw the whole competition away.
 SPORT_AMBIGUOUS = ["Giants", "Cardinals", "Jets", "Panthers", "Kings", "Rangers"]
 
+# The provider bills the competition in the slot name for the big leagues, so
+# the roster can be read off its own listings instead of authored by hand.
+#
+# Authored lists drift: the hand-written Premier League twenty was last
+# season's, and the panel had already moved to 2026/27 — Coventry City, Hull
+# City and Ipswich Town were up, Burnley, Wolves and West Ham were down, and a
+# promoted club's fixtures were invisible. Reading the clubs out of the
+# fixtures themselves means promotion and relegation take care of themselves.
+#
+# The authored list stays as the floor: if a season's listings are thin, or the
+# provider changes how it bills them, a short derived roster must not quietly
+# replace a good one.
+SPORT_BILLED = {
+    'Premier League': re.compile(
+        r'\bPremier League\b(?!.*\b(?:Caribbean|DFA|Dominica)\b)', re.I),
+    'La Liga': re.compile(r'\bLaLiga\b|\bLa Liga\b', re.I),
+    'Serie A': re.compile(r'\bSerie A\b', re.I),
+    'Bundesliga': re.compile(r'\bBundesliga\b', re.I),
+    'Ligue 1': re.compile(r'\bLigue 1\b', re.I),
+}
+_BILLED_FIXTURE = re.compile(
+    r"([A-Z][A-Za-z.'\- ]{2,28}?)\s+(?:vs?\.?|v)\s+([A-Z][A-Za-z.'\- ]{2,28}?)\s{2,}", re.I)
+_BILLED_NOISE = re.compile(
+    r'^(?:Studio Coverage|Player Camera|Multi Camera|Match Centre)\s*[:]?\s*', re.I)
+
+def _derive_rosters():
+    out = collections.defaultdict(collections.Counter)
+    for st in ls:
+        n = asc(st['name'])
+        for comp, pat in SPORT_BILLED.items():
+            if not pat.search(n):
+                continue
+            m = _BILLED_FIXTURE.search(n)
+            if m:
+                for side in m.groups():
+                    club = _BILLED_NOISE.sub('', side.strip(" .-")).strip()
+                    if len(club) > 2:
+                        out[comp][club] += 1
+            break
+    return out
+
+_derived = _derive_rosters()
+sport_derived = {}
+for _comp, _clubs in _derived.items():
+    # Half the authored list is the bar. Below it the listings are too thin to
+    # trust, and the authored roster stands on its own.
+    if len(_clubs) >= max(6, len(SPORT_LEAGUES.get(_comp, [])) // 2):
+        SPORT_LEAGUES[_comp] = sorted(set(SPORT_LEAGUES.get(_comp, [])) | set(_clubs))
+        sport_derived[_comp] = len(_clubs)
+
 # How early a fixture may appear, in minutes. An hour ahead of kick-off, which
 # also covers the catalogue refresh: slot names only change when the catalogue
 # is re-fetched, so a shorter cue would let a match start before it is listed.
@@ -2210,6 +2260,7 @@ manifest = {
         "telemundo_streams": len(telemundo_drop),
         "regional_sport_streams": len(rsn_drop),
         "us_regional_news_streams": len(us_news_drop),
+        "sport_clubs_derived": sport_derived,
         "dstv_duplicates_dropped": len(cross_region_dupe),
         "ca_clutter_streams": len(ca_drop),
         "timeshift_demoted": len(timeshift),
