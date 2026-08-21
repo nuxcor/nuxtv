@@ -300,6 +300,38 @@ def measured_tier(sid):
 #    channel the viewer can never get back.
 TELEMUNDO = re.compile(r'\bTELEMUNDO\d*\b', re.I)
 
+# Brands that exist ONLY as regional sports networks — no national feed shares
+# the name, so the brand alone is enough to condemn them.
+RSN_BRAND = re.compile(r"""\b(
+    BALLY\s+SPORTS | AT&?T\s+SPORTSNET | ROOT\s+SPORTS | MARQUEE\s+SPORTS |
+    NESN | YES\s+NETWORK | ALTITUDE\s+SPORTS | SPECTRUM\s+SPORTSNET |
+    MSG\s*(SPORTSNET|2|\+)? | SNY | MASN | MIDCO\s+SPORTS | SWX
+)\b""", re.I | re.X)
+
+# Brands with a national feed AND regional ones. Condemned only when a market
+# name follows: "FOX SPORTS 1" is national and stays, "FOX SPORTS OHIO" does
+# not. The market list is deliberately explicit rather than "any word" —
+# guessing here deletes national sport.
+RSN_MARKET = re.compile(r"""\b(FOX\s+SPORTS|NBC\s+SPORTS|SPORTSNET)\b[^|]*?\b(
+    SOUTHEAST | SOUTHWEST | MIDWEST | NORTHWEST | NORTH | SOUTH | WEST | EAST |
+    OHIO | DETROIT | FLORIDA | ARIZONA | SUN | INDIANA | WISCONSIN | TENNESSEE |
+    KANSAS\s+CITY | OKLAHOMA | NEW\s+ORLEANS | SAN\s+DIEGO | CAROLINAS? |
+    CINCINNATI | GREAT\s+LAKES | PITTSBURGH | BOSTON | CHICAGO | PHILADELPHIA |
+    WASHINGTON | CALIFORNIA | BAY\s+AREA | NEW\s+ENGLAND | ROCKY\s+MOUNTAIN |
+    PRIME\s+TICKET | SOCAL | UTAH | NEW\s+YORK | MINNESOTA | MISSOURI | TEXAS
+)\b""", re.I | re.X)
+
+def _regional_sport(name):
+    """A US regional sports network, as opposed to a national sports channel.
+
+    Two tests, because the brands split two ways. Bally, NESN, YES and the
+    rest have no national feed, so the brand condemns them outright. FOX
+    SPORTS and NBC SPORTS do have one, so those are condemned only when a
+    named market follows — FOX SPORTS 1 stays, FOX SPORTS OHIO goes.
+    """
+    n = asc(name)
+    return bool(RSN_BRAND.search(n) or RSN_MARKET.search(n))
+
 RELIGIOUS_NETWORK = re.compile(r"""\b(
     EWTN | TBN | TRINITY\s+BROADCASTING | DAYSTAR | GOD\s?TV | CBN | INSP |
     3ABN | HOPE\s+CHANNEL | JCTV | GAITHER | HILLSONG | LOVEWORLD |
@@ -325,7 +357,7 @@ def _religious(name):
 live_rows = []
 junkset = set(junk)
 go_drop, sd_all_drop, religion_drop = [], [], []
-telemundo_drop = []
+telemundo_drop, rsn_drop = [], []
 for s in ls:
     if s['stream_id'] in junkset: continue
     c = cat_live.get(str(s.get('category_id')))
@@ -340,6 +372,12 @@ for s in ls:
     # is a tile that renders nothing.
     if TELEMUNDO.search(asc(s['name'])):
         telemundo_drop.append(s['stream_id']); continue
+    # Regional sports networks. Sixty of them survived into US Sports, one per
+    # metro, and a viewer in one market can watch none of the other
+    # fifty-nine — they are blackout-locked to a territory this package does
+    # not sell.
+    if _regional_sport(s['name']):
+        rsn_drop.append(s['stream_id']); continue
     # PPV event slots are not channels. "NCAAF 06: FOX" reduces to the key
     # "fox" once the prefix comes off, which put a college-football slot into
     # the FOX tile — and, once the real feeds were trimmed, at the FRONT of
@@ -818,7 +856,7 @@ _PN = re.compile(r'^[A-Z0-9]{2,5}\s*:\s*')
 # in panel order, first-wins kept it, the DGO drop then removed it, and the
 # good "US: A&E HD" stayed condemned as its duplicate.
 _gone = junkset | set(dropped_region) | set(go_drop) | set(sd_all_drop) \
-        | set(religion_drop) | set(telemundo_drop) \
+        | set(religion_drop) | set(telemundo_drop) | set(rsn_drop) \
         | set(locals_dropped) | set(locals_extra_drop)
 for st in ls:
     sid = st['stream_id']
@@ -1243,7 +1281,7 @@ def _brand_key(n, match_rx, canon, alias):
 brands_out, brand_dupe = {}, []
 _dropped = set(junk) | set(dropped_region) | set(locals_dropped) | set(locals_extra_drop) \
            | set(uk_locals_drop) | set(afr_drop) | set(sd_all_drop) | set(go_drop) \
-           | set(religion_drop) | set(telemundo_drop) \
+           | set(religion_drop) | set(telemundo_drop) | set(rsn_drop) \
            | set(exact_dupe_drop) \
            | set(junk_sweep) | set(region_section_drop) | set(clean_drop) | set(pass2_drop) \
            | set(replay_drop)
@@ -1686,6 +1724,7 @@ _drop_lists = [
     ('uk_locals_drop', uk_locals_drop), ('afr_drop', afr_drop),
     ('sd_all_drop', sd_all_drop), ('go_drop', go_drop),
     ('religion_drop', religion_drop), ('telemundo_drop', telemundo_drop),
+    ('rsn_drop', rsn_drop),
     ('exact_dupe_drop', exact_dupe_drop), ('junk_sweep', junk_sweep),
     ('region_section_drop', region_section_drop), ('clean_drop', clean_drop),
     ('pass2_drop', pass2_drop), ('replay_drop', replay_drop),
@@ -1812,6 +1851,7 @@ manifest = {
         "dropped_region_streams": len(dropped_region),
         "religion_streams": len(religion_drop),
         "telemundo_streams": len(telemundo_drop),
+        "regional_sport_streams": len(rsn_drop),
         "timeshift_demoted": len(timeshift),
         "us_locals_kept": len(locals_market),
         "us_locals_dropped": len(locals_dropped),

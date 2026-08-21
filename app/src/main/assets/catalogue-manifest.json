@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-21T05:50:18+00:00",
+ "generated": "2026-08-21T06:45:11+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -6372,7 +6372,143 @@
   654923,
   1853744,
   1853513,
+  1536599,
+  1536554,
+  325890,
+  325888,
+  325898,
+  437220,
   1476256,
+  1476224,
+  1820218,
+  1820199,
+  1820201,
+  1820258,
+  1819971,
+  1820217,
+  1820198,
+  1820216,
+  1820197,
+  1820215,
+  1820316,
+  1820317,
+  1820318,
+  1820196,
+  1820200,
+  429578,
+  429577,
+  429576,
+  429575,
+  429574,
+  429573,
+  429572,
+  429571,
+  429570,
+  429569,
+  429568,
+  429567,
+  429565,
+  429563,
+  429562,
+  429561,
+  429560,
+  429558,
+  429557,
+  429555,
+  429553,
+  429552,
+  429551,
+  429550,
+  429549,
+  429548,
+  429547,
+  429546,
+  429545,
+  429544,
+  325014,
+  325013,
+  325015,
+  325033,
+  325012,
+  325038,
+  325037,
+  325039,
+  325011,
+  325010,
+  325008,
+  325009,
+  325007,
+  325006,
+  325005,
+  325004,
+  325040,
+  325085,
+  325068,
+  1824605,
+  325045,
+  325069,
+  325071,
+  325065,
+  325063,
+  325064,
+  325066,
+  325062,
+  325070,
+  325034,
+  828142,
+  828139,
+  828141,
+  437221,
+  325036,
+  2044651,
+  2044652,
+  2044650,
+  2044644,
+  2044645,
+  2044646,
+  430368,
+  430367,
+  430366,
+  430365,
+  430364,
+  430363,
+  430362,
+  430361,
+  430359,
+  430360,
+  430358,
+  430357,
+  430356,
+  620070,
+  430355,
+  430354,
+  430353,
+  430352,
+  430351,
+  430350,
+  430349,
+  430348,
+  430347,
+  430346,
+  430345,
+  430344,
+  430343,
+  430342,
+  430341,
+  430340,
+  430339,
+  430338,
+  430337,
+  430336,
+  430335,
+  430334,
+  430333,
+  430332,
+  430331,
+  414069,
+  500453,
+  500449,
+  746363,
   1601211,
   1601206,
   1601178,
@@ -13368,8 +13504,6 @@
   1536557,
   1520115,
   1476225,
-  1536554,
-  1476224,
   1536551,
   1548312,
   1536549,
@@ -15126,25 +15260,6 @@
   1476379,
   926228,
   926207,
-  429576,
-  429560,
-  325038,
-  429572,
-  429552,
-  325009,
-  429570,
-  429551,
-  325007,
-  429567,
-  429546,
-  325005,
-  1238999,
-  1238998,
-  1238997,
-  1238996,
-  1238993,
-  414069,
-  500453,
   1238976,
   1238975,
   1238974,
@@ -15152,12 +15267,15 @@
   1238970,
   414071,
   500450,
-  746363,
+  1238999,
+  1238998,
+  1238997,
+  1238996,
+  1238993,
   1238968,
   1238967,
   1238966,
   1238964,
-  500449,
   162253,
   639165,
   639185,
@@ -16333,22 +16451,10 @@
   1853518,
   788078,
   325092,
-  325036,
-  437221,
   1527641,
   588045,
   324938,
   324937,
-  324939,
-  1820217,
-  324936,
-  1820317,
-  324933,
-  1820196,
-  324951,
-  324952,
-  1820318,
-  324934,
   1568576,
   1568790,
   828139,
@@ -17256,18 +17362,11 @@
    "region": "US",
    "section": "SPORTS",
    "label": "MSG",
-   "main": [
-    325890,
-    325888,
-    325898
-   ],
+   "main": [],
    "overflow": [
     2044647,
     2044648,
-    2044649,
-    2044644,
-    2044645,
-    2044646
+    2044649
    ],
    "hidden_duplicates": [],
    "overflow_destination": "PPV"
@@ -17326,30 +17425,19 @@
    "section": "SPORTS",
    "label": "YES Network",
    "main": [
-    325041,
-    2044651
+    325041
    ],
-   "overflow": [
-    2044652
-   ],
-   "hidden_duplicates": [
-    325036
-   ],
+   "overflow": [],
+   "hidden_duplicates": [],
    "overflow_destination": "PPV"
   },
   "NESN": {
    "region": "US",
    "section": "SPORTS",
    "label": "NESN",
-   "main": [
-    828142
-   ],
-   "overflow": [
-    828141
-   ],
-   "hidden_duplicates": [
-    437221
-   ],
+   "main": [],
+   "overflow": [],
+   "hidden_duplicates": [],
    "overflow_destination": "PPV"
   },
   "beIN Sports US": {
@@ -35484,9 +35572,6 @@
   "2044647": "PPV",
   "2044648": "PPV",
   "2044649": "PPV",
-  "2044644": "PPV",
-  "2044645": "PPV",
-  "2044646": "PPV",
   "325090": "PPV",
   "325089": "PPV",
   "325088": "PPV",
@@ -35500,8 +35585,6 @@
   "324996": "PPV",
   "324998": "PPV",
   "324995": "PPV",
-  "2044652": "PPV",
-  "828141": "PPV",
   "325031": "PPV",
   "325030": "PPV",
   "325029": "PPV",
@@ -37989,111 +38072,6 @@
     ],
     "primary": 325016
    },
-   "foxsportdetroit|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     325014,
-     429578
-    ],
-    "primary": 325014
-   },
-   "foxsportflorida|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429577,
-     429563,
-     325013
-    ],
-    "primary": 325013
-   },
-   "foxsportnorth|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429575,
-     429558,
-     325012
-    ],
-    "primary": 325012
-   },
-   "foxsportprimeticket|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429574,
-     325011
-    ],
-    "primary": 325011
-   },
-   "foxsportsandiego|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429573,
-     429555,
-     325010
-    ],
-    "primary": 325010
-   },
-   "foxsportsouth|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429571,
-     429553,
-     325008
-    ],
-    "primary": 325008
-   },
-   "foxsportsun|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429569,
-     429548,
-     325006
-    ],
-    "primary": 325006
-   },
-   "foxsporttennessee|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429568,
-     429547,
-     325040
-    ],
-    "primary": 325040
-   },
-   "foxsportarizona|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429565,
-     325015
-    ],
-    "primary": 325015
-   },
-   "foxsportohio|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429557,
-     325033
-    ],
-    "primary": 325033
-   },
-   "foxsportwisconsin|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429545,
-     325004
-    ],
-    "primary": 325004
-   },
    "foxsoccerplus|US": {
     "section": "SPORTS",
     "region": "US",
@@ -38140,15 +38118,6 @@
      325023
     ],
     "primary": 325023
-   },
-   "nesn|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     828142,
-     828139
-    ],
-    "primary": 828142
    },
    "globalmaritimes|CA": {
     "section": "NEWS",
@@ -61660,13 +61629,14 @@
   "movie_categories": 67,
   "unresolved_live_categories": 0,
   "movies_with_genre": 0,
-  "live_tiles_after_collapse": 7439,
-  "live_tiles_collapsed": 2517,
-  "collapse_groups": 193,
+  "live_tiles_after_collapse": 7372,
+  "live_tiles_collapsed": 2486,
+  "collapse_groups": 181,
   "collapse_needs_review": 0,
   "dropped_region_streams": 1387,
   "religion_streams": 41,
   "telemundo_streams": 96,
+  "regional_sport_streams": 137,
   "timeshift_demoted": 47,
   "us_locals_kept": 457,
   "us_locals_dropped": 945,
@@ -61679,7 +61649,7 @@
   "afr_kept": 190,
   "afr_dropped": 862,
   "afr_usuk_duplicates": 22,
-  "name_section_overrides": 1161,
+  "name_section_overrides": 1156,
   "entertainment_fixes": {
    "-> LOCALS": 227,
    "-> NEWS": 163,
@@ -61709,7 +61679,7 @@
    "dead": 2
   },
   "region_section_dropped": 1520,
-  "clean_pass_dropped": 5621,
+  "clean_pass_dropped": 5619,
   "clean_pass_detail": {
    "redundant_section": 4375,
    "city_locals_dropped": 173,
@@ -61717,7 +61687,7 @@
    "city_locals_folded": 101,
    "bbc_regional": 43
   },
-  "pass2_dropped": 1250,
+  "pass2_dropped": 1234,
   "pass2_detail": {
    "overflow": 58,
    "stray_local_folded": 181,
@@ -61728,8 +61698,8 @@
   "replay_feeds_dropped": 719,
   "section_canonicalised": 57,
   "brand_groups": 10,
-  "brand_dupes_dropped": 8,
-  "rsn_dupes_dropped": 12,
+  "brand_dupes_dropped": 6,
+  "rsn_dupes_dropped": 2,
   "alias_dupes_dropped": 6,
   "region_fixed": 118,
   "misfiled_us_locals": 1,
@@ -61741,8 +61711,8 @@
   "live_event_groups": 14,
   "sd_dropped": 197,
   "dgo_dropped": 312,
-  "tiers_measured": 1267,
-  "exact_duplicates_dropped": 231,
+  "tiers_measured": 1305,
+  "exact_duplicates_dropped": 230,
   "movie_genre_vocab": 0,
   "movies_with_genre_ids": 0,
   "vod_dupes_dropped": 5273,
