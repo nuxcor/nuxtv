@@ -86,6 +86,19 @@ private val RestingBorder = NuxBorders.restingCard
  */
 internal val ShelfRingRoom = 14.dp
 
+/**
+ * Spends the screen's TV-safe gutter, so a pane runs to the panel's edge.
+ *
+ * Every screen sits inside [Space.gutter] of horizontal padding, which is
+ * right for text and posters and wrong for a guide: a schedule grid that
+ * stops 40dp short on each side wastes most of a programme column, and the
+ * TiviMate-style guide the viewer is comparing against runs its lane clean
+ * off the edge. Applied to the grid only — the header and the chips keep the
+ * gutter, so nothing that has to be *read* moves into the overscan margin.
+ */
+internal fun Modifier.spendGutter(gutter: Dp = Space.gutter): Modifier =
+    shelfRingRoom(gutter)
+
 internal fun Modifier.shelfRingRoom(room: Dp = ShelfRingRoom): Modifier =
     layout { measurable, constraints ->
         val extra = room.roundToPx() * 2
@@ -560,7 +573,7 @@ fun MetaChip(text: String, accent: Boolean = false) {
     Box(
         modifier = Modifier
             .clip(ChipShape)
-            .background(if (accent) NuxColors.Primary.copy(alpha = 0.18f) else NuxColors.SurfaceVariant)
+            .background(NuxColors.SurfaceVariant)
             .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
         Text(
@@ -934,7 +947,7 @@ fun SegmentedControl(
                 onClick = { onSelect(index) },
                 shape = ClickableSurfaceDefaults.shape(NuxShape.Row),
                 colors = ClickableSurfaceDefaults.colors(
-                    containerColor = if (selected) NuxColors.Primary.copy(alpha = 0.18f)
+                    containerColor = if (selected) NuxColors.SelectedContainer
                     else NuxColors.Surface,
                     focusedContainerColor = NuxColors.SurfaceRaised,
                     contentColor = if (selected) NuxColors.Primary else NuxColors.OnSurfaceDim,

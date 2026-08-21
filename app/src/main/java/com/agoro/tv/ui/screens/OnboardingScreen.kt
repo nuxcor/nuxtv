@@ -445,7 +445,7 @@ private fun SourceOptionCard(
                 modifier = Modifier
                     .size(46.dp)
                     .clip(CircleShape)
-                    .background(NuxColors.Primary.copy(alpha = 0.14f)),
+                    .background(NuxColors.SelectedContainer),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(

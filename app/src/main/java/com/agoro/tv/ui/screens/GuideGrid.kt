@@ -125,12 +125,15 @@ private val ROW_HEIGHT = 52.dp
  *  960dp panel, more on a wider one since the scale grows with it. */
 internal const val MIN_CELL_MINUTES = 16f
 
-/** What the browse guide's timeline never gets: TV-safe gutters and the
- *  channel column. The rail is a summoned drawer now and reserves nothing.
- *  The player overlay pays different costs — its own padding — so
- *  [guideDpPerMinute] takes them as a parameter. */
+/** What the browse guide's timeline never gets: the channel column. The rail
+ *  is a summoned drawer now and reserves nothing, and the grid spends most
+ *  of the TV-safe gutter to reach the panel edge (see Modifier.spendGutter),
+ *  so only the narrow grid gutter is left to pay. The player overlay pays
+ *  different
+ *  costs — its own padding — so [guideDpPerMinute] takes them as a
+ *  parameter. */
 internal val GUIDE_BROWSE_FIXED_COSTS: Dp
-    get() = Space.gutter * 2 + CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP
+    get() = Space.gutterGrid * 2 + CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP
 
 /**
  * Timeline scale for a panel [screenWidth] dp wide: the lane left after
@@ -891,17 +894,24 @@ private fun GuideRow(
                 },
             shape = ClickableSurfaceDefaults.shape(NuxShape.Chip),
             colors = ClickableSurfaceDefaults.colors(
-                // The gold tint marks the channel the player is tuned to — the
-                // overlay's "you are here". Same treatment as a selected
-                // CategoryItem, so it reads as state rather than focus.
+                // Transparent at rest: the channel column is a LIST, not a
+                // column of cards. Every row carrying its own fill and stroke
+                // is what made this read as a stack of tiles next to a stack
+                // of tiles, where the guides it is measured against draw the
+                // names straight onto the page and let the grid be the only
+                // ruled thing on screen.
                 containerColor = if (playing) {
-                    NuxColors.Primary.copy(alpha = 0.16f)
+                    NuxColors.SelectedContainer
                 } else {
-                    NuxColors.Surface
+                    androidx.compose.ui.graphics.Color.Transparent
                 },
                 focusedContainerColor = NuxColors.SurfaceRaised,
-                contentColor = NuxColors.OnSurface,
-                focusedContentColor = NuxColors.OnSurface,
+                // Gold marks the tuned channel, as TEXT. The container used to
+                // carry it as a 16% tint, which is where "you are here" lived
+                // — and which mixed down to brown. Text keeps the luminance
+                // that makes gold read as gold.
+                contentColor = if (playing) NuxColors.Primary else NuxColors.OnSurface,
+                focusedContentColor = if (playing) NuxColors.Primary else NuxColors.OnSurface,
             ),
             // Explicit, like every other row in the app. Left unset, this takes
             // tv-material3's 1.1 default, and in a grid whose cells sit 2dp
@@ -912,10 +922,10 @@ private fun GuideRow(
                 focusedScale = com.agoro.tv.ui.theme.NuxFocus.RowScale,
             ),
             border = ClickableSurfaceDefaults.border(
-                // The hoisted singleton, not a fresh Border per cell per
-                // composition — Theme.kt says why, and the guide is the
-                // densest focus surface in the app.
-                border = com.agoro.tv.ui.theme.NuxBorders.restingChip,
+                // No resting outline. Focus still gets its ring — that is a
+                // signal — but a box drawn around every channel all the time
+                // is decoration, and 4,000 of them is a lot of decoration.
+                border = androidx.tv.material3.Border.None,
                 focusedBorder = com.agoro.tv.ui.theme.NuxFocus.ring8,
             ),
         ) {
@@ -936,12 +946,16 @@ private fun GuideRow(
                     textAlign = androidx.compose.ui.text.style.TextAlign.End,
                     modifier = Modifier.width(24.dp),
                 )
+                // Bigger, and on nothing. A logo is already a shape on a
+                // transparent ground; setting it in a grey tile framed it a
+                // second time and shrank the mark itself to fit the frame.
                 Artwork(
                     imageUrl = channel.logo,
                     title = channel.displayName,
-                    modifier = Modifier.size(width = 44.dp, height = 36.dp).clip(NuxShape.Chip),
+                    modifier = Modifier.size(width = 56.dp, height = 40.dp),
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                     monogramStyle = MaterialTheme.typography.labelMedium,
+                    background = androidx.compose.ui.graphics.Color.Transparent,
                 )
                 Column(
                     modifier = Modifier.weight(1f),
@@ -949,7 +963,9 @@ private fun GuideRow(
                 ) {
                     Text(
                         text = channel.displayName,
-                        style = MaterialTheme.typography.titleSmall,
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                        ),
                         // One line: two lines of 24sp need 48dp and the row's
                         // content box is 46dp, so the second was always clipped.
                         maxLines = 1,
@@ -1225,7 +1241,10 @@ private fun ProgramCell(
             focusedScale = com.agoro.tv.ui.theme.NuxFocus.RowScale,
         ),
         border = ClickableSurfaceDefaults.border(
-            border = com.agoro.tv.ui.theme.NuxBorders.restingChip,
+            // Same reasoning as the channel column: the fill already separates
+            // one programme from the next, and outlining every cell as well
+            // turned a schedule into a grid of boxes.
+            border = androidx.tv.material3.Border.None,
             focusedBorder = com.agoro.tv.ui.theme.NuxFocus.ring8,
         ),
         colors = ClickableSurfaceDefaults.colors(

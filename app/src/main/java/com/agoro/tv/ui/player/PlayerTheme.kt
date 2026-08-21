@@ -64,7 +64,7 @@ internal object PlayerTheme {
     val RowFill = NuxColors.Surface.copy(alpha = 0.6f)
 
     /** Gold selection tint — selection is gold, focus is the white ring. */
-    val SelectionTint = NuxColors.Primary.copy(alpha = 0.18f)
+    val SelectionTint = NuxColors.SelectedContainer
 
     /** The prominent (play/pause) control's resting fill. */
     val ProminentFill = NuxColors.OnSurface.copy(alpha = 0.14f)

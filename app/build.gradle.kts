@@ -62,8 +62,8 @@ android {
         applicationId = "com.agoro.tv"
         minSdk = 23
         targetSdk = 36
-        versionCode = 75
-        versionName = "2.26.3"
+        versionCode = 76
+        versionName = "2.27.0"
 
         buildConfigField("String", "TMDB_API_KEY", buildConfigString(tmdbApiKey))
         buildConfigField("String", "PROVIDER_HOST", buildConfigString(providerHost))
@@ -107,6 +107,14 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    testOptions {
+        unitTests {
+            // Robolectric needs the platform resources and android.jar the
+            // guide store's SQLiteOpenHelper runs against.
+            isIncludeAndroidResources = true
+        }
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
@@ -185,4 +193,9 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation("net.sf.kxml:kxml2:2.3.0")
+    // Real SQLite in a JVM test. The guide store is the app's persistence
+    // layer now, and a persistence layer whose transactions, windowing and
+    // upgrade path are never executed by a test is a persistence layer whose
+    // bugs ship. Test-only — nothing here reaches the APK.
+    testImplementation(libs.robolectric)
 }

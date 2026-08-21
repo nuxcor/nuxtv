@@ -184,6 +184,13 @@ data class HeroInfo(
      * channels — a live channel has no backdrop to borrow.
      */
     val art: ArtRef? = null,
+    /**
+     * The programme whose synopsis belongs in [plot], when the guide has one
+     * and it has not been read yet. Guide synopses live in a table and are
+     * read one at a time, so a live hero names the programme it wants and
+     * the screen fills the text once focus settles.
+     */
+    val plotKey: String? = null,
 )
 
 @Composable

@@ -219,7 +219,7 @@ private fun RailItem(
         modifier = modifier,
         shape = ClickableSurfaceDefaults.shape(NuxShape.Row),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (selected) NuxColors.Primary.copy(alpha = 0.18f) else Color.Transparent,
+            containerColor = if (selected) NuxColors.SelectedContainer else Color.Transparent,
             focusedContainerColor = NuxColors.SurfaceRaised,
             contentColor = if (selected) NuxColors.Primary else NuxColors.OnSurfaceDim,
             focusedContentColor = NuxColors.OnSurface,

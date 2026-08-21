@@ -56,7 +56,32 @@ object NuxColors {
     // Gradient stops. Same warm hue as the surface ramp so black-level lift
     // can't shift them to another colour (see the ramp comment above).
     val BackgroundRaised = Color(0xFF171614) // top stop of the page gradient
-    val AccentGlow = Color(0xFF2B2113)       // radial glow behind hero panes
+    /**
+     * The radial glow behind hero panes. Warm, not sepia.
+     *
+     * It was gold's hue at 39% saturation, which at 12% luminance is not gold
+     * — it is brown, and being a full-screen gradient it washed every hero
+     * screen with it. Gold only reads as gold near the 52% luminance it has
+     * at full strength; dimmed, the same hue is mud. Same warmth at a third
+     * of the saturation reads as a lit dark room, which is what a glow is for.
+     */
+    val AccentGlow = Color(0xFF1C1815)
+
+    /**
+     * The container behind a SELECTED chip, rail item or row.
+     *
+     * Deliberately neutral. This was Primary at 16% alpha, and mixing a
+     * 69%-saturated amber into a near-black page keeps the saturation while
+     * collapsing the luminance: #2C210F, 49% saturation at 12% luminance, a
+     * textbook brown. It was in seven places at once — the nav rail, both
+     * category strips, the ON NOW badge, chips, onboarding, the player — so
+     * the whole app read brown rather than one control.
+     *
+     * Gold still says "selected", but as TEXT, where it keeps the luminance
+     * that makes it gold. The file already said as much: gold means brand,
+     * never a fill.
+     */
+    val SelectedContainer = SurfaceVariant
     val OnSecondary = Color(0xFF06251F)
 }
 
@@ -79,6 +104,13 @@ object Space {
      * that crop at all, and modern panels crop nothing.
      */
     val gutter = 40.dp
+    /**
+     * What the guide keeps of [gutter]. A schedule grid is a data surface,
+     * not prose: stopping it 40dp short on each side threw away most of a
+     * programme column and left a dead strip the eye reads as the app not
+     * fitting the screen. Kept non-zero so nothing lands in a TV's overscan.
+     */
+    val gutterGrid = 16.dp
     val gutterVertical = 32.dp
 }
 
@@ -95,6 +127,16 @@ object NuxShape {
     val Card = RoundedCornerShape(16.dp)    // posters, wide rows, detail art
     val Dialog = RoundedCornerShape(20.dp)  // dialogs and sheets
     val Track = RoundedCornerShape(2.dp)    // progress bars, selection markers
+    /**
+     * The category strips above Live TV, the guide and the browse grids —
+     * bigger than [Chip], which is for guide cells and logo tiles.
+     *
+     * 14dp, between [Row] and [Card] rather than a full capsule. At 8dp the
+     * chip read as a rectangle with the corners knocked off; at 50% it was a
+     * lozenge, which on a wide short shape is more shape than the word inside
+     * it needs. This is the radius that still reads as "chip".
+     */
+    val FilterChip = RoundedCornerShape(14.dp)
 }
 
 val NuxShapes = Shapes(
@@ -177,7 +219,10 @@ object NuxFocus {
     const val RowScale = 1.0f
     const val ButtonScale = 1.06f
 
-    private val Stroke = BorderStroke(3.dp, NuxColors.FocusBorder)
+    // 2dp, not 3: at three the ring stopped reading as an outline and started
+    // reading as a frame drawn around the chip, heavy enough to be the loudest
+    // thing on the strip. Focus should be unmistakable, not shouted.
+    private val Stroke = BorderStroke(2.dp, NuxColors.FocusBorder)
 
     // One ring per corner radius in use, allocated once.
     //
@@ -192,6 +237,7 @@ object NuxFocus {
     val ring16: Border = Border(Stroke, shape = NuxShape.Card)
     val ring20: Border = Border(Stroke, shape = NuxShape.Dialog)
     val ring22: Border = Border(Stroke, shape = RoundedCornerShape(22.dp)) // player pills
+    val ringChip: Border = Border(Stroke, shape = NuxShape.FilterChip)
     val ringCircle: Border = Border(Stroke, shape = CircleShape)
 
     /** The card/row default — [NuxShape.Card]. */

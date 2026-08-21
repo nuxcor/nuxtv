@@ -284,9 +284,42 @@ def measured_tier(sid):
     if not h: return None
     return "4K" if h >= 2000 else "FHD" if h >= 1000 else "HD" if h >= 700 else "SD"
 
+# Religious broadcasting, dropped at ingest like the DGO re-streams above.
+# There is no religious CATEGORY to filter on — this provider files these
+# under Entertainment and Kids alongside everything else — so the rule reads
+# names. Two halves, kept apart because they fail differently:
+#
+#  - Named broadcasters, which are unambiguous and are most of what lands.
+#  - Generic words, which are only safe word-bounded: "CHURCH" must not take
+#    Churchill, and bare "GOD" would take Godzilla, so the loose ones that
+#    would need that judgement ("GOD", "ANGEL", "HOLY", "MIRACLE") are left
+#    out entirely. A missed channel is a nuisance; a wrongly dropped one is a
+#    channel the viewer can never get back.
+RELIGIOUS_NETWORK = re.compile(r"""\b(
+    EWTN | TBN | TRINITY\s+BROADCASTING | DAYSTAR | GOD\s?TV | CBN | INSP |
+    3ABN | HOPE\s+CHANNEL | JCTV | GAITHER | HILLSONG | LOVEWORLD |
+    EMMANUEL\s+TV | SAT-?7 | PEACE\s+TV | IQRAA | HUDA\s+TV | AL\s?RESALAH |
+    ISLAM\s+CHANNEL | SHALOM\s+TV | K-?LOVE | REVELATION\s+TV |
+    WORD\s+NETWORK | IMPACT\s+NETWORK | SONLIFE | NRB\s+TV
+)\b""", re.I | re.X)
+# Bare CHRISTIAN and CATHOLIC are deliberately absent. In this panel they are
+# overwhelmingly school names on college sports slots — Lubbock Christian,
+# Bergen Catholic, Christian Brothers University — and one of them is Christian
+# Bale. They are only religious when paired, so they are spelled out that way.
+RELIGIOUS_WORD = re.compile(r"""\b(
+    GOSPEL | CHURCH | ISLAMIC | QURAN | KORAN | BIBLE |
+    WORSHIP | PREACHING | MINISTRIES | MINISTRY | EVANGEL \w* | PENTECOSTAL |
+    ADVENTIST | RELIGIOUS | RELIGION | JESUS | TORAH | RABBI | SERMON |
+    CATHOLIC \s+ (?:TV|CHANNEL|NETWORK) |
+    CHRISTIAN \s+ (?:TV|CHANNEL|NETWORK|HITS|MUSIC|RADIO)
+)\b""", re.I | re.X)
+def _religious(name):
+    n = asc(name)
+    return bool(RELIGIOUS_NETWORK.search(n) or RELIGIOUS_WORD.search(n))
+
 live_rows = []
 junkset = set(junk)
-go_drop, sd_all_drop = [], []
+go_drop, sd_all_drop, religion_drop = [], [], []
 for s in ls:
     if s['stream_id'] in junkset: continue
     c = cat_live.get(str(s.get('category_id')))
@@ -302,6 +335,11 @@ for s in ls:
     # destination and must never join a channel's fold.
     if c['section'] == 'PPV':
         continue
+    # After PPV, and never on a 24/7 marathon: both are named for the fixture
+    # or the star rather than the subject, and both have their own
+    # destination — "24/7: CHRISTIAN BALE" is a movie channel.
+    if c['section'] != '24/7' and _religious(s['name']):
+        religion_drop.append(s['stream_id']); continue
     t = measured_tier(s['stream_id']) or tier_of(s['name'])
     # SD is below the floor everywhere, fallback slots included. ", SD" is
     # South Dakota, not a tier — "NBC (KDLT) SIOUX FALLS, SD" stays.
@@ -764,7 +802,7 @@ _PN = re.compile(r'^[A-Z0-9]{2,5}\s*:\s*')
 # in panel order, first-wins kept it, the DGO drop then removed it, and the
 # good "US: A&E HD" stayed condemned as its duplicate.
 _gone = junkset | set(dropped_region) | set(go_drop) | set(sd_all_drop) \
-        | set(locals_dropped) | set(locals_extra_drop)
+        | set(religion_drop) | set(locals_dropped) | set(locals_extra_drop)
 for st in ls:
     sid = st['stream_id']
     # collapse sources are deliberate fallbacks, not duplicate tiles
@@ -1137,6 +1175,7 @@ def _brand_key(n, match_rx, canon, alias):
 brands_out, brand_dupe = {}, []
 _dropped = set(junk) | set(dropped_region) | set(locals_dropped) | set(locals_extra_drop) \
            | set(uk_locals_drop) | set(afr_drop) | set(sd_all_drop) | set(go_drop) \
+           | set(religion_drop) \
            | set(exact_dupe_drop) \
            | set(junk_sweep) | set(region_section_drop) | set(clean_drop) | set(pass2_drop) \
            | set(replay_drop)
@@ -1578,6 +1617,7 @@ _drop_lists = [
     ('locals_dropped', locals_dropped), ('locals_extra_drop', locals_extra_drop),
     ('uk_locals_drop', uk_locals_drop), ('afr_drop', afr_drop),
     ('sd_all_drop', sd_all_drop), ('go_drop', go_drop),
+    ('religion_drop', religion_drop),
     ('exact_dupe_drop', exact_dupe_drop), ('junk_sweep', junk_sweep),
     ('region_section_drop', region_section_drop), ('clean_drop', clean_drop),
     ('pass2_drop', pass2_drop), ('replay_drop', replay_drop),
@@ -1702,6 +1742,7 @@ manifest = {
         "collapse_groups": len(collapse),
         "collapse_needs_review": len(needs_review),
         "dropped_region_streams": len(dropped_region),
+        "religion_streams": len(religion_drop),
         "timeshift_demoted": len(timeshift),
         "us_locals_kept": len(locals_market),
         "us_locals_dropped": len(locals_dropped),

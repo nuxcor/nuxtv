@@ -14,36 +14,47 @@ import org.junit.Test
  */
 class EpgMatcherTest {
 
-    private fun ch(id: String, name: String, epgId: String? = null, tvgName: String? = null) =
+    private fun ch(
+        id: String,
+        name: String,
+        epgId: String? = null,
+        tvgName: String? = null,
+        /** "US|NEWS" — the matcher reads the territory off the front of it. */
+        categoryId: String? = null,
+    ) =
         LiveChannel(
             id = id, name = name, logo = null, url = "http://x/$id",
-            categoryId = null, epgId = epgId, tvgName = tvgName,
+            categoryId = categoryId, epgId = epgId, tvgName = tvgName,
         )
 
-    private fun programmes(vararg ids: String): Map<String, List<EpgProgram>> =
-        ids.associateWith {
-            listOf(EpgProgram(it, "P", null, 0L, 1L, hasArchive = false))
+    /** [counts] gives a guide id more of the day than its rivals. */
+    private fun programmes(
+        ids: Collection<String>,
+        counts: Map<String, Int> = emptyMap(),
+    ): Map<String, List<EpgProgram>> =
+        ids.associateWith { id ->
+            (0 until (counts[id] ?: 1)).map {
+                EpgProgram("$id:$it", "P", null, it * 1000L, it * 1000L + 999, hasArchive = false)
+            }
         }
 
     private fun guide(
         alts: Map<String, List<String>>,
         withProgrammes: Set<String> = alts.keys,
+        counts: Map<String, Int> = emptyMap(),
     ): XmltvData {
         val nameToId = HashMap<String, String>()
-        val normalizedToId = HashMap<String, String>()
-        val contested = HashSet<String>()
+        val normalizedToId = HashMap<String, MutableList<String>>()
         alts.forEach { (id, names) ->
             names.forEach { name ->
                 nameToId.putIfAbsent(name.trim().lowercase(), id)
-                val key = EpgMatcher.normalizeKey(name)
-                val holder = normalizedToId.putIfAbsent(key, id)
-                if (holder != null && holder != id) contested += key
+                val holders = normalizedToId.getOrPut(EpgMatcher.normalizeKey(name)) { mutableListOf() }
+                if (id !in holders) holders += id
             }
         }
-        contested.forEach { normalizedToId.remove(it) }
         return XmltvData(
             channelNames = alts.mapValues { it.value.first() },
-            programmes = programmes(*withProgrammes.toTypedArray()),
+            programmes = programmes(withProgrammes, counts),
             nameToId = nameToId,
             normalizedToId = normalizedToId,
             altNames = alts,
@@ -155,5 +166,124 @@ class EpgMatcherTest {
         )
         val res = EpgMatcher.resolve(listOf(ch("c1", "UK| Sky Sports 1 FHD")), data)
         assertNull(res.byChannelId["c1"])
+    }
+
+    /**
+     * The rows that read "No information" while their schedule sat in the
+     * table: the provider decorates its names, no guide does, and matching
+     * only the raw name meant a whole block of channels bound to nothing.
+     */
+    @Test
+    fun `a decorated provider name still finds its guide channel`() {
+        val data = guide(mapOf("hbocomedy.us" to listOf("HBO Comedy")))
+        val resolution = EpgMatcher.resolve(
+            listOf(ch("live:1", "PRIME: HBO COMEDY \u1d3f\u1d2c\u1d42")),
+            data,
+        )
+        assertEquals("hbocomedy.us", resolution.byChannelId["live:1"])
+    }
+
+    /** A precise name still wins; the display name is a fallback, not an override. */
+    @Test
+    fun `the raw name is preferred over the display name`() {
+        val data = guide(
+            mapOf(
+                "sky.sports.hd.uk" to listOf("Sky Sports HD"),
+                "sky.sports.uk" to listOf("Sky Sports"),
+            )
+        )
+        val resolution = EpgMatcher.resolve(listOf(ch("live:1", "Sky Sports HD")), data)
+        assertEquals("sky.sports.hd.uk", resolution.byChannelId["live:1"])
+    }
+
+    // --- two feeds, one channel -------------------------------------------
+
+    /**
+     * The empty row this was written for: a network carried by two feeds
+     * bound to neither, because the shared name looked like ambiguity. Both
+     * candidates are the same US channel, so the fuller schedule wins.
+     */
+    @Test
+    fun `two feeds carrying one channel resolve to the fuller schedule`() {
+        val data = guide(
+            alts = mapOf(
+                "abcnewslive.us" to listOf("ABC News Live"),
+                "abc.news.live.us2" to listOf("ABC News Live"),
+            ),
+            counts = mapOf("abcnewslive.us" to 127, "abc.news.live.us2" to 109),
+        )
+        val resolution = EpgMatcher.resolve(
+            listOf(ch("live:1", "PRIME: ABC NEWS LIVE", categoryId = "US|NEWS")),
+            data,
+        )
+        assertEquals("abcnewslive.us", resolution.byChannelId["live:1"])
+    }
+
+    /**
+     * Territory outranks the schedule. This is what the old refusal was
+     * really protecting: a fuller foreign feed must never win a US channel.
+     */
+    @Test
+    fun `the channel's own territory beats a fuller foreign feed`() {
+        val data = guide(
+            alts = mapOf(
+                "court.tv.uk" to listOf("Court TV"),
+                "courttv.us" to listOf("Court TV"),
+            ),
+            counts = mapOf("court.tv.uk" to 500, "courttv.us" to 10),
+        )
+        val resolution = EpgMatcher.resolve(
+            listOf(ch("live:1", "PRIME: COURT TV", categoryId = "US|ENTERTAINMENT")),
+            data,
+        )
+        assertEquals("courttv.us", resolution.byChannelId["live:1"])
+    }
+
+    /** A dead heat has no answer in it, so it stays unmatched. */
+    @Test
+    fun `same territory and the same schedule stays unmatched`() {
+        val data = guide(
+            alts = mapOf(
+                "one.us" to listOf("Court TV"),
+                "two.us" to listOf("Court TV"),
+            ),
+            counts = mapOf("one.us" to 40, "two.us" to 40),
+        )
+        val resolution = EpgMatcher.resolve(
+            listOf(ch("live:1", "PRIME: COURT TV", categoryId = "US|ENTERTAINMENT")),
+            data,
+        )
+        assertNull(resolution.byChannelId["live:1"])
+    }
+
+    /** With no territory to go on, the fuller schedule is the whole answer. */
+    @Test
+    fun `an uncategorised channel still takes the fuller schedule`() {
+        val data = guide(
+            alts = mapOf(
+                "court.tv.uk" to listOf("Court TV"),
+                "courttv.us" to listOf("Court TV"),
+            ),
+            counts = mapOf("court.tv.uk" to 90, "courttv.us" to 12),
+        )
+        val resolution = EpgMatcher.resolve(listOf(ch("live:1", "PRIME: COURT TV")), data)
+        assertEquals("court.tv.uk", resolution.byChannelId["live:1"])
+    }
+
+    /** A candidate with an empty lane is no candidate at all. */
+    @Test
+    fun `a rival with no schedule never wins`() {
+        val data = guide(
+            alts = mapOf(
+                "empty.us" to listOf("Court TV"),
+                "courttv.us" to listOf("Court TV"),
+            ),
+            withProgrammes = setOf("courttv.us"),
+        )
+        val resolution = EpgMatcher.resolve(
+            listOf(ch("live:1", "COURT TV", categoryId = "US|ENTERTAINMENT")),
+            data,
+        )
+        assertEquals("courttv.us", resolution.byChannelId["live:1"])
     }
 }
