@@ -17,6 +17,7 @@ object ManifestCuration {
     fun apply(bundle: ContentBundle, manifest: CatalogueManifest): ContentBundle {
         val liveCats = LinkedHashMap<String, Category>()
         val channels = ArrayList<LiveChannel>(bundle.channels.size)
+        val events = ArrayList<LiveChannel>()
 
         for (channel in bundle.channels) {
             val id = channel.xtreamId ?: run { channels += channel; continue }
@@ -45,7 +46,14 @@ object ManifestCuration {
             val region = tile?.region
                 ?: section?.let { manifest.regionFor(id, channel.categoryId) }
             if (section != null) {
-                if (section in manifest.hiddenSections) continue
+                // A hidden section opens no shelf. PPV is kept anyway, on its
+                // own list, because the Sport destination reads the fixtures
+                // out of these slots' names — dropping them here is what left
+                // live sport with nothing to show.
+                if (section in manifest.hiddenSections) {
+                    if (section == "PPV") events += channel
+                    continue
+                }
                 if (manifest.keptRegionSet.isNotEmpty() &&
                     region != null && region !in manifest.keptRegionSet
                 ) continue
@@ -191,6 +199,7 @@ object ManifestCuration {
         return bundle.copy(
             liveCategories = labelled,
             channels = channels,
+            events = events,
             movieCategories = movieCats.values.sortedBy { movieOrder(manifest, it.id) }
                 .ifEmpty { bundle.movieCategories },
             movies = movies,

@@ -418,6 +418,9 @@ class ContentRepository(context: Context) {
     }
 
     /** A manifest describes one provider; applying it to another would gut the library. */
+    /** The curation manifest, for the few screens that read it directly. */
+    suspend fun manifest(): CatalogueManifest? = manifests.load()
+
     private fun manifestApplies(source: PlaylistSource, manifest: CatalogueManifest): Boolean {
         val host = manifest.provider.host.takeIf { it.isNotBlank() } ?: return false
         val sourceHost = when (source) {

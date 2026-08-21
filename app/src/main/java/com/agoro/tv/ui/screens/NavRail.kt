@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.runtime.Composable
@@ -83,6 +84,12 @@ enum class HomeTab(val label: String, val icon: ImageVector) {
     Home("Home", Icons.Default.Home),
     Search("Search", Icons.Default.Search),
     Live("Live TV", Icons.Default.LiveTv),
+    // Beside Live TV because that is what it is — live, just organised by
+    // fixture instead of by channel. "Sport" and not "Sports": the Live TV
+    // strip already has a Sports shelf of channels, and two rail-level things
+    // reading the same word would be two names for what a viewer would assume
+    // is one place.
+    Sport("Sport", Icons.Default.SportsSoccer),
     Movies("Movies", Icons.Default.Movie),
     Series("Shows", Icons.Default.VideoLibrary),
     Recordings("Recordings", Icons.Default.Videocam),

@@ -2028,6 +2028,67 @@ kept_live = [
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'kept_live.json'), 'w') as _fh:
     json.dump(kept_live, _fh, indent=1)
 
+# ------------------------------------------------------- live sport fixtures
+# Which leagues the Sport destination carries, as team names.
+#
+# Team names, NOT competition names, and that is the whole trick: the packs
+# write the competition inconsistently and the obvious rule over-matches
+# badly — "Premier League" also catches the Caribbean Premier League (cricket)
+# and the DFA Premier League (Dominica). A fixture is two teams, so if either
+# side is on a list the league is known for certain and no competition string
+# is needed.
+#
+# Aliases are listed beside the full name because the packs disagree with
+# themselves: "Man United" and "Manchester United", "Red Bull New York" and
+# "New York Red Bulls" all appear. Matching is substring on a normalised name,
+# so the shorter alias must come with the longer one.
+SPORT_LEAGUES = {
+ "NFL": ["Cardinals","Falcons","Ravens","Bills","Panthers","Bears","Bengals","Browns",
+   "Cowboys","Broncos","Lions","Packers","Texans","Colts","Jaguars","Chiefs","Raiders",
+   "Chargers","Rams","Dolphins","Vikings","Patriots","Saints","Giants","Jets","Eagles",
+   "Steelers","49ers","Seahawks","Buccaneers","Titans","Commanders"],
+ "NBA": ["Hawks","Celtics","Nets","Hornets","Bulls","Cavaliers","Mavericks","Nuggets",
+   "Pistons","Warriors","Rockets","Pacers","Clippers","Lakers","Grizzlies","Heat","Bucks",
+   "Timberwolves","Pelicans","Knicks","Thunder","Magic","76ers","Sixers","Suns",
+   "Trail Blazers","Blazers","Kings","Spurs","Raptors","Jazz","Wizards"],
+ "MLS": ["Atlanta United","Austin FC","Charlotte FC","Chicago Fire","FC Cincinnati",
+   "Colorado Rapids","Columbus Crew","DC United","D.C. United","FC Dallas","Houston Dynamo",
+   "Sporting Kansas City","LA Galaxy","LAFC","Los Angeles FC","Inter Miami","Minnesota United",
+   "CF Montreal","CF Montreal","Nashville SC","New England Revolution","New York City",
+   "New York Red Bulls","Red Bull New York","Orlando City","Philadelphia Union",
+   "Portland Timbers","Real Salt Lake","San Diego FC","San Jose Earthquakes",
+   "Seattle Sounders","St. Louis City","Toronto FC","Vancouver Whitecaps"],
+ "Premier League": ["Arsenal","Aston Villa","Bournemouth","Brentford","Brighton","Burnley",
+   "Chelsea","Crystal Palace","Everton","Fulham","Leeds","Liverpool","Manchester City",
+   "Man City","Manchester United","Man United","Man Utd","Newcastle","Nottingham Forest",
+   "Sunderland","Tottenham","Spurs","West Ham","Wolves","Wolverhampton"],
+ "La Liga": ["Alaves","Athletic Club","Athletic Bilbao","Atletico Madrid","Barcelona",
+   "Celta Vigo","Elche","Espanyol","Getafe","Girona","Levante","Mallorca","Osasuna",
+   "Rayo Vallecano","Real Betis","Real Madrid","Real Sociedad","Sevilla","Valencia",
+   "Villarreal","Real Oviedo"],
+ "Serie A": ["Atalanta","Bologna","Cagliari","Como","Cremonese","Fiorentina","Genoa",
+   "Inter Milan","Internazionale","Juventus","Lazio","Lecce","AC Milan","Napoli","Parma",
+   "Pisa","Roma","Sassuolo","Torino","Udinese","Verona"],
+ "Bundesliga": ["Augsburg","Bayer Leverkusen","Leverkusen","Bayern Munich","Bayern Munchen",
+   "Borussia Dortmund","Dortmund","Borussia Monchengladbach","Gladbach","Eintracht Frankfurt",
+   "Freiburg","Hamburger SV","Heidenheim","Hoffenheim","Koln","Cologne","Mainz","RB Leipzig",
+   "St. Pauli","Stuttgart","Union Berlin","Werder Bremen","Wolfsburg"],
+ "Ligue 1": ["Angers","Auxerre","Brest","Le Havre","Lens","Lille","Lorient","Lyon",
+   "Marseille","Metz","Monaco","Nantes","Nice","Paris FC","Paris Saint-Germain","PSG",
+   "Rennes","Strasbourg","Toulouse"],
+ # The big-five clubs above cover most of the draw; these are the regulars from
+ # everywhere else, so a Champions League night is not half empty.
+ "Champions League": ["Ajax","PSV","Feyenoord","Benfica","Porto","Sporting CP","Celtic",
+   "Rangers","Galatasaray","Fenerbahce","Shakhtar","Red Bull Salzburg","Club Brugge",
+   "Olympiacos","Copenhagen","Slavia Prague","Sparta Prague","Dinamo Zagreb","Young Boys",
+   "Bodo/Glimt","Qarabag","Union Saint-Gilloise","Pafos","Kairat"],
+}
+
+# How early a fixture may appear, in minutes. An hour ahead of kick-off, which
+# also covers the catalogue refresh: slot names only change when the catalogue
+# is re-fetched, so a shorter cue would let a match start before it is listed.
+SPORT_CUE_MINUTES = 60
+
 manifest = {
     "manifest_version": 1,
     "generated": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'),
@@ -2114,6 +2175,7 @@ manifest = {
     "kept_regions": list(KEEP_REGIONS),   # authored order — see KEEP_REGIONS
     # These share one shelf per genre; anything else keeps its own shelf.
     "merged_regions": list(MERGED_REGIONS),
+    "sport": {"leagues": SPORT_LEAGUES, "cue_minutes": SPORT_CUE_MINUTES},
     # Section-level fold, applied to whatever section a channel resolves to.
     # The per-stream merged_section map cannot cover a channel that no pass
     # enumerated, and a handful of strays were enough to reopen a shelf.

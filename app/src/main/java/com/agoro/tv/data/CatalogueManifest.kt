@@ -31,6 +31,17 @@ import java.io.File
  *  - [vodNameRules]    regexes that strip "4K-NF - " and friends
  */
 @Serializable
+data class Sport(
+    /**
+     * League name to its teams. Teams, not competitions: the packs write the
+     * competition inconsistently and "Premier League" also names a cricket
+     * league in the Caribbean and a football league in Dominica.
+     */
+    val leagues: Map<String, List<String>> = emptyMap(),
+    @SerialName("cue_minutes") val cueMinutes: Int = 60,
+)
+
+@Serializable
 data class CatalogueManifest(
     @SerialName("manifest_version") val version: Int = 1,
     /** Build timestamp (ISO 8601) — the content version. [version] is the
@@ -57,6 +68,8 @@ data class CatalogueManifest(
      * reopen a shelf holding one channel.
      */
     @SerialName("section_fold") val sectionFold: Map<String, String> = emptyMap(),
+    /** Leagues the Sport destination carries, and how early a fixture is cued. */
+    val sport: Sport? = null,
     @SerialName("region_labels") val regionLabels: Map<String, String> = emptyMap(),
     @SerialName("drop_stream_ids") val dropStreamIds: List<Int> = emptyList(),
     @SerialName("name_section") val nameSection: Map<String, String> = emptyMap(),
