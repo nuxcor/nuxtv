@@ -2011,7 +2011,13 @@ _folded = {s for _tset in (collapse, metro_tiles, uk_collapse)
            for t in _tset.values() for s in t['sources'] if s != t['primary']}
 kept_live = [
     {"id": s['stream_id'], "name": _cnm.get(s['stream_id'], s['name']),
-     "region": _eff_region(s)}
+     "region": _eff_region(s),
+     # So the probe can tell a channel from a PPV event slot. 6,300 of the
+     # survivors are event slots on a shelf hidden by default, and probing
+     # them buried the 154 real channels that had never been measured.
+     "section": _final_section(
+         s['stream_id'],
+         (cat_live.get(str(s.get('category_id'))) or {}).get('section'))}
     for s in ls
     if s['stream_id'] not in _dropset and s['stream_id'] not in _folded
 ]

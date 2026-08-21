@@ -52,7 +52,13 @@ kept_path = os.path.join(here, 'kept_live.json')
 if not os.path.exists(kept_path):
     sys.exit(f"{kept_path} not found — run build_manifest.py first; it writes the line-up")
 kept = json.load(open(kept_path))
-candidates = [str(c['id']) for c in kept]
+# PPV event slots are 6,286 of the 6,941 survivors and sit on a shelf hidden
+# by default. Probing them in queue order buried the real channels: a sweep
+# reported ~6,300 unmeasured when only 154 browsable channels had never been
+# opened. --ppv includes them; by default the queue is what a viewer browses.
+skip_ppv = '--ppv' not in sys.argv
+candidates = [str(c['id']) for c in kept
+              if not (skip_ppv and c.get('section') == 'PPV')]
 # --all reaches past the line-up into the backups a tile is holding in reserve.
 if probe_all:
     candidates += [str(s) for t in tiles for s in t['sources']]
