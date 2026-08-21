@@ -282,12 +282,25 @@ object ContentClassifier {
             """(?:NORTH|SOUTH|EAST|WEST)(?:\s+(?:EAST|WEST|MIDLANDS|YORKSHIRE))?)\b"""
     )
 
+    /**
+     * The parent network written in front of one of its own channels: the
+     * playlist carries CNBC's best US feed as "NBC CNBC". The prefix is the
+     * provider filing it under the family it belongs to, not part of the name,
+     * and a shelf reading "NBC CNBC" beside "MSNBC" looks like a mistake.
+     *
+     * Only where the network's own initials already open the channel's name,
+     * which is why it is these two and not a general rule: "NBC Sports" and
+     * "NBC News Now" are NBC's channels, not a prefix on someone else's.
+     */
+    private val redundantNetworkPrefix = Regex("""(?i)^NBC\s+(?=(?:C|MS)NBC\b)""")
+
     fun stripChannelTags(raw: String): String {
         var t = raw
         repeat(2) { t = t.replace(platformPrefix, "") }
         t = t.replace(countryTag, " ")
         t = t.replace(edgeDecoration, "")
         t = t.replace(multiSpace, " ").trim()
+        t = t.replace(redundantNetworkPrefix, "")
         return ukRegionalFeed.find(t)?.groupValues?.get(1)?.trim() ?: t
     }
 

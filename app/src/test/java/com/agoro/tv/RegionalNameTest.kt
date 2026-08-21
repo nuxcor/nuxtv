@@ -47,6 +47,19 @@ class RegionalNameTest {
         cases.forEach { (raw, want) -> assertEquals(raw, want, display(raw)) }
     }
 
+    /**
+     * The parent network written in front of its own channel. CNBC's best US
+     * feed is filed as "NBC CNBC"; the shelf must not read the prefix back.
+     */
+    @Test
+    fun `a network prefixed onto its own channel is dropped`() {
+        assertEquals("NBC CNBC", "CNBC", display("US: NBC CNBC \u1D3F\u1D2C\u1D42"))
+        assertEquals("NBC MSNBC", "MSNBC", display("US: NBC MSNBC HD"))
+        // NBC's own channels keep the network in their names.
+        assertEquals("NBC News Now", "NBC NEWS NOW", display("US: NBC NEWS NOW"))
+        assertEquals("NBC Sports", "NBC SPORTS", display("US: NBC SPORTS"))
+    }
+
     /** All of one network's regional feeds must reduce to a single name. */
     @Test
     fun `every regional feed of a network collapses to one name`() {

@@ -284,12 +284,23 @@ CHANNEL_ALIAS = {
 # Provider source tags — "NBC NEWS NOW (A)", "(D)", "(H)", "(PC)" — which name
 # where the feed comes from, not what channel it is. Left in the key they made
 # a separate tile each, so NBC News Now stood on the US news shelf five times.
-# One or two letters only: a callsign like "(WABC)" is four and identifies a
-# genuinely different station.
-VARIANT_TAG = re.compile(r'\(\s*[A-Za-z]{1,2}\s*\)')
+#
+# Single letters and "PC", and nothing else. Two letters generally would also
+# strip "(NY)", "(PA)", "(TX)" and the rest of the state codes, which name a
+# genuinely different station — two locals differing only by state would have
+# folded into one tile. Nothing folds that way today; the narrower pattern is
+# so nothing starts to.
+VARIANT_TAG = re.compile(r'\(\s*(?:[A-Za-z]|PC)\s*\)')
+
+# The provider prefixes its NBC-family feeds with the parent network: "NBC
+# CNBC", "NBC MSNBC". The prefix is not part of the channel's name, and left in
+# place it kept CNBC's only 1080p US feed out of both the CNBC tile and the
+# news allowlist — so the US shelf carried a 720p copy while the good feed sat
+# dropped. Applied to both keys, because the two disagreeing is what hid it.
+NBC_FAMILY = re.compile(r'^\s*NBC\s+(?=(?:C|MS)NBC\b)', re.I)
 
 def channel_key(n):
-    n = VARIANT_TAG.sub('', QUAL.sub('', SPFX.sub('', asc(n))))
+    n = NBC_FAMILY.sub('', VARIANT_TAG.sub('', QUAL.sub('', SPFX.sub('', asc(n)))))
     for pat, base in PLURALISE:          # "Sky Sport 1" == "Sky Sports 1"
         n = re.sub(pat, base, n, flags=re.I)
     k = re.sub(r'[^a-z0-9]', '', n.lower())
@@ -515,6 +526,9 @@ TIER_RANK = {"8K":0,"4K":1,"UHD":2,"FHD":3,"HEVC":4,"H265":5,"RAW":6,"HD":7,None
 # the measured ranking picks the best of them and the SD copy is dropped like
 # any other. Only for channels that really are one broadcast everywhere.
 REGION_PIN = {'nbcnewsnow': 'US', 'bbcworldnews': 'US'}
+
+# The territories that share one shelf per genre. DSTV (AFR) keeps its own.
+MERGED_REGIONS = ('US', 'UK', 'CA')
 tiles = collections.defaultdict(list)
 for k, sid, reg, sec, t in live_rows:
     if k in REGION_PIN:
@@ -523,7 +537,16 @@ for k, sid, reg, sec, t in live_rows:
         h = home.get(k)
         if h and len(h) == 1: reg = next(iter(h))
     if reg not in KEEP_REGIONS: continue
-    tiles[(k, reg)].append({"id": sid, "section": sec, "tier": t})
+    # The shelves are genre-only now — one News, one Sports — so US, UK and CA
+    # copies of a channel land on the same row, and a fold that stopped at the
+    # territory line left CNN sitting beside CNN. They share a bucket, which
+    # also catches the case a later pass cannot see: two territories holding
+    # ONE copy each never formed a tile at all, so nothing ever compared them.
+    #
+    # DSTV keeps its own shelf and is bucketed separately, because what it
+    # keeps is decided below on a different rule: uniqueness, not quality.
+    tiles[(k, 'MERGED' if reg in MERGED_REGIONS else reg)].append(
+        {"id": sid, "section": sec, "tier": t, "region": reg})
 
 def pick_section(sources):
     c = collections.Counter(x["section"] for x in sources)
@@ -549,17 +572,41 @@ def _swept_source(x):
             and not re.match(r'^PRIME\s*:', _cnm.get(x["id"], ''), re.I))
 for (k, reg), srcs in tiles.items():
     if len(srcs) < 2: continue
-    srcs.sort(key=lambda x: (_swept_source(x), TIER_RANK.get(x["tier"], 8)))
+    # Measured height breaks the tie inside a tier. Two feeds both calling
+    # themselves HD are indistinguishable to TIER_RANK, so the winner was
+    # whichever landed first — and a feed that failed to decode (recorded 0)
+    # beat one measured at 720p that way. A number we took beats a word the
+    # provider chose; 0 sorts last because it means "we could not tell".
+    srcs.sort(key=lambda x: (_swept_source(x), TIER_RANK.get(x["tier"], 8),
+                             -_probed.get(str(x["id"]), 0)))
     vote = [x for x in srcs if x["section"] not in DROP_LIVE_SECTIONS] or srcs
     sec, ambiguous = pick_section(vote)
     if k in SECTION_OVERRIDE: sec = SECTION_OVERRIDE[k]
     elif ambiguous and len({x["section"] for x in srcs}) > 1:
         needs_review.append(k)
-    collapse[f"{k}|{reg}"] = {
-        "section": sec, "region": reg,
+    # The bucket is not a territory. Record the primary's own, so the app's
+    # kept-region gate still recognises the tile.
+    out_reg = srcs[0].get("region", reg) if reg == 'MERGED' else reg
+    collapse[f"{k}|{out_reg}"] = {
+        "section": sec, "region": out_reg,
         "sources": [x["id"] for x in srcs],      # best tier first
         "primary": srcs[0]["id"],
     }
+
+# ------------------------------------------------- unique-only on the DSTV shelf
+# US, UK and CA already share one tile per channel — they were bucketed
+# together above, so the measured ranking picked one primary for all three.
+# DSTV is bucketed apart because what it keeps is decided on a different rule:
+# it keeps its own shelf, and keeps only the channels that exist nowhere else.
+# A South African feed of something already on a merged row is the same
+# duplication seen from the other side.
+cross_region_dupe = []
+_by_key = collections.defaultdict(set)
+for _tkey, _t in collapse.items():
+    _by_key[_tkey.rsplit('|', 1)[0]].add(_t['region'])
+for _tkey in [k for k in collapse if collapse[k]['region'] == 'AFR']:
+    if _by_key[_tkey.rsplit('|', 1)[0]] - {'AFR'}:
+        cross_region_dupe += collapse.pop(_tkey)['sources']
 
 # A tile member's territory was just resolved by the fold itself (home
 # regions, name prefixes). dropped_region was computed from the raw category
@@ -647,7 +694,10 @@ def local_market(name):
 # separate services, and rescuing them too just puts a second ABC back on the
 # shelf beside the first — which is the clutter this is meant to remove.
 NATIONAL_NEWS = re.compile(
-    r'\b(?:ABC|CBS|NBC|FOX)\s+NEWS\b(?!\s*(?:INTERNATIONAL\b|\d))', re.I)
+    r'\b(?:ABC|CBS|NBC|FOX)\s+NEWS\b(?!\s*(?:INTERNATIONAL\b|\d))'
+    # CNBC and MSNBC are filed the same way and were dropped the same way.
+    # CNBC World is excluded deliberately: it measures 480p.
+    r'|\b(?:C|MS)NBC\b(?!\s*WORLD\b)', re.I)
 
 locals_market, locals_dropped = {}, []
 for s in ls:
@@ -1058,9 +1108,20 @@ for st in ls:
     if not allowed: continue
     if _final_section(st['stream_id'], c['section']) not in allowed:
         region_section_drop.append(st['stream_id'])
+# Only when the tile is that territory's alone. A tile records the territory
+# of its primary, and territories share tiles now — so a channel whose best
+# copy happened to be the Canadian one was recorded as Canadian, failed this
+# restriction (Canada contributes sports and news only), and was deleted for
+# every territory at once. National Geographic went that way. The per-stream
+# loop above already drops the disallowed Canadian streams; a tile that keeps
+# copies from elsewhere is not a Canadian tile.
+def _sole_region(t, reg):
+    return all(_eff_region(ls_by_id[s]) == reg for s in t['sources'] if s in ls_by_id)
+
 for _key in [k for k, t in collapse.items()
              if REGION_SECTIONS.get(t['region'])
-             and _final_section(t['primary'], t['section']) not in REGION_SECTIONS[t['region']]]:
+             and _final_section(t['primary'], t['section']) not in REGION_SECTIONS[t['region']]
+             and _sole_region(t, t['region'])]:
     region_section_drop.extend(collapse[_key]['sources']); del collapse[_key]
 
 # ============================================================ clean-surface pass
@@ -1607,6 +1668,7 @@ MAIN_ENTERTAINMENT = {
 }
 def _ent_key(n):
     x = re.sub(r'^[A-Za-z0-9]{2,5}\s*[:;,]\s*', '', asc(n))
+    x = NBC_FAMILY.sub('', x)
     x = QUALW.sub('', x)
     x = re.sub(r'\s*\([^)]*\)', '', x)                 # "(Awe)", "(WZME) (SP)"
     x = re.sub(r'\s+(TV|CHANNEL|NETWORK|ENTERTAINMENT)$', '', x, flags=re.I).strip()
@@ -1765,7 +1827,12 @@ for (reg, sec), n in _pre.items():
 
 merged_section = {}
 for sid, reg, sec in _tile_ids():
-    tgt = section_merge_map.get(f"{reg}|{sec}")
+    # SECTION_MERGE applies everywhere, so fall back to it directly. Keying
+    # only on the region|section pair meant a section that existed in one
+    # territory and not another kept its own row for the stragglers — four
+    # Canadian channels and one African one were enough to put Kids,
+    # Documentary and Music back in the strip beside Entertainment.
+    tgt = section_merge_map.get(f"{reg}|{sec}") or SECTION_MERGE.get(sec)
     if tgt: merged_section[str(sid)] = tgt
 
 # --------------------------------------- US affiliates mislabelled as non-US
@@ -1902,6 +1969,7 @@ _drop_lists = [
     ('sd_all_drop', sd_all_drop), ('go_drop', go_drop),
     ('religion_drop', religion_drop), ('telemundo_drop', telemundo_drop),
     ('rsn_drop', rsn_drop), ('ca_drop', ca_drop), ('us_news_drop', us_news_drop),
+    ('cross_region_dupe', cross_region_dupe),
     ('exact_dupe_drop', exact_dupe_drop), ('junk_sweep', junk_sweep),
     ('region_section_drop', region_section_drop), ('clean_drop', clean_drop),
     ('pass2_drop', pass2_drop), ('replay_drop', replay_drop),
@@ -1947,7 +2015,13 @@ _folded = {s for _tset in (collapse, metro_tiles, uk_collapse)
            for t in _tset.values() for s in t['sources'] if s != t['primary']}
 kept_live = [
     {"id": s['stream_id'], "name": _cnm.get(s['stream_id'], s['name']),
-     "region": _eff_region(s)}
+     "region": _eff_region(s),
+     # So the probe can tell a channel from a PPV event slot. 6,300 of the
+     # survivors are event slots on a shelf hidden by default, and probing
+     # them buried the 154 real channels that had never been measured.
+     "section": _final_section(
+         s['stream_id'],
+         (cat_live.get(str(s.get('category_id'))) or {}).get('section'))}
     for s in ls
     if s['stream_id'] not in _dropset and s['stream_id'] not in _folded
 ]
@@ -2038,6 +2112,12 @@ manifest = {
     "movie_genres": movie_genres,
     "movie_year": movie_year,
     "kept_regions": list(KEEP_REGIONS),   # authored order — see KEEP_REGIONS
+    # These share one shelf per genre; anything else keeps its own shelf.
+    "merged_regions": list(MERGED_REGIONS),
+    # Section-level fold, applied to whatever section a channel resolves to.
+    # The per-stream merged_section map cannot cover a channel that no pass
+    # enumerated, and a handful of strays were enough to reopen a shelf.
+    "section_fold": dict(SECTION_MERGE),
     "region_sections": {k: sorted(v) for k, v in REGION_SECTIONS.items()},
     "destinations": LIVE_DESTINATION,
     "demote_stream_ids": timeshift,
@@ -2057,6 +2137,7 @@ manifest = {
         "telemundo_streams": len(telemundo_drop),
         "regional_sport_streams": len(rsn_drop),
         "us_regional_news_streams": len(us_news_drop),
+        "dstv_duplicates_dropped": len(cross_region_dupe),
         "ca_clutter_streams": len(ca_drop),
         "timeshift_demoted": len(timeshift),
         "us_locals_kept": len(locals_market),

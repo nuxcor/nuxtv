@@ -38,7 +38,10 @@ object ManifestCuration {
             // filed under region "4K", matched no kept territory, and was
             // deleted for owning the very source the fold added.
             val tile = manifest.tileShelf[id]
-            val section = tile?.section ?: manifest.sectionFor(id, channel.categoryId)
+            // A tile carries its own section and would otherwise skip the
+            // fold that sectionFor applies.
+            val section = tile?.section?.let(manifest::foldSection)
+                ?: manifest.sectionFor(id, channel.categoryId)
             val region = tile?.region
                 ?: section?.let { manifest.regionFor(id, channel.categoryId) }
             if (section != null) {
@@ -60,6 +63,14 @@ object ManifestCuration {
             // things and sorts between the shelves it duplicates.
             val shelfId = when {
                 section == null -> null
+                // The merged territories share one shelf per genre. Four of
+                // them each opening a News and a Sports put fourteen chips in
+                // the strip, most of them the same word twice, and the same
+                // channel sat on several of those rows at once. The build
+                // folded those duplicates into one tile; this puts them on one
+                // row. A territory outside the merge — DSTV — still opens its
+                // own, because what it carries is genuinely its own.
+                region != null && region in manifest.mergedRegions -> section
                 region != null -> "$region|$section"
                 manifest.keptRegions.isEmpty() -> section
                 else -> null
@@ -67,7 +78,10 @@ object ManifestCuration {
             val catId = shelfId ?: channel.categoryId
             if (shelfId != null) {
                 liveCats.getOrPut(shelfId) {
-                    Category(id = shelfId, name = shelfLabel(manifest, section!!, region))
+                    // A merged shelf names the genre and nothing else — the
+                    // territory stopped being what the row is about.
+                    val shelfRegion = region.takeIf { shelfId != section }
+                    Category(id = shelfId, name = shelfLabel(manifest, section!!, shelfRegion))
                 }
             }
             // Manifest artwork wins over the provider's: it was matched against
@@ -167,7 +181,11 @@ object ManifestCuration {
         val regionsPresent = liveCats.keys.mapNotNull { key ->
             key.substringBefore('|').takeIf { key.contains('|') }
         }.toSet()
-        val labelled = if (regionsPresent.size >= 2) ordered else ordered.map { cat ->
+        // A merged shelf carries no territory in its id. Where one exists, the
+        // territories that kept their own shelf must keep their suffix too —
+        // stripping it would put a bare "Sports" beside the merged "Sports".
+        val hasMergedShelf = liveCats.keys.any { !it.contains('|') }
+        val labelled = if (hasMergedShelf || regionsPresent.size >= 2) ordered else ordered.map { cat ->
             cat.copy(name = manifest.label(cat.id.substringAfter('|')))
         }
         return bundle.copy(

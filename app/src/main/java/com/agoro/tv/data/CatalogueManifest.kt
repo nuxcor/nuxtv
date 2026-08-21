@@ -41,6 +41,22 @@ data class CatalogueManifest(
     val sections: Sections = Sections(),
     val categories: Categories = Categories(),
     @SerialName("kept_regions") val keptRegions: List<String> = emptyList(),
+    /**
+     * Territories that share one shelf per genre — a single News, a single
+     * Sports — rather than opening a shelf each. Their duplicates were folded
+     * into one tile at build time, so the row holds one copy of a channel at
+     * the best measured quality of any territory's feed. Anything not listed
+     * here keeps its own shelf: DSTV does, holding only what is unique to it.
+     */
+    @SerialName("merged_regions") val mergedRegions: List<String> = emptyList(),
+    /**
+     * Sections folded into another wherever they appear — Kids, Documentary and
+     * Music all read as Entertainment. Applied to whatever section a channel
+     * resolves to, because the per-channel [mergedSection] table can only cover
+     * channels a build pass enumerated, and a handful it missed were enough to
+     * reopen a shelf holding one channel.
+     */
+    @SerialName("section_fold") val sectionFold: Map<String, String> = emptyMap(),
     @SerialName("region_labels") val regionLabels: Map<String, String> = emptyMap(),
     @SerialName("drop_stream_ids") val dropStreamIds: List<Int> = emptyList(),
     @SerialName("name_section") val nameSection: Map<String, String> = emptyMap(),
@@ -311,7 +327,10 @@ data class CatalogueManifest(
     }
 
     private fun applyMerge(streamId: Int, section: String) =
-        mergedSection[streamId.toString()] ?: section
+        foldSection(mergedSection[streamId.toString()] ?: section)
+
+    /** [sectionFold], for the paths that resolve a section without this class. */
+    fun foldSection(section: String): String = sectionFold[section] ?: section
 
     /**
      * The territory a channel belongs to, or null when it has none.
