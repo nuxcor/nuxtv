@@ -124,12 +124,24 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
                         /* bufferForPlaybackMs = */ 2_500,
                         // Deeper after a stall than at start — coming back on
                         // the same thin buffer that just failed invites a
-                        // rebuffer loop — but not 5s: a live panel feeds in
-                        // real time, so it REFILLS in real time, and every
-                        // stall then cost a visible five-second hole. 3s
-                        // still clears the start threshold while roughly
-                        // halving how long a hiccup stays on screen.
-                        /* bufferForPlaybackAfterRebufferMs = */ 3_000,
+                        // rebuffer loop.
+                        //
+                        // This was 3s, on the reasoning that a live panel
+                        // feeds in real time so the buffer refills in real
+                        // time, making a deeper threshold a proportionally
+                        // longer hole. Measured against the panel, that is
+                        // simply not true: Sky Sports Main Event is an 11
+                        // Mbit/s stream delivered at three to three and a half
+                        // times real time. Six seconds of threshold is about
+                        // two seconds of wall clock more than three was, and
+                        // buys something like eighteen seconds of cushion to
+                        // spend on the next dip.
+                        //
+                        // Which matters more than it sounds: the alternative
+                        // to cushion is hopping to another source, and that
+                        // costs a black screen mid-match. Riding the dip out
+                        // invisibly beats recovering from it visibly.
+                        /* bufferForPlaybackAfterRebufferMs = */ 6_000,
                     )
                     .setPrioritizeTimeOverSizeThresholds(true)
                     .build()
