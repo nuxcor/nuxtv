@@ -274,6 +274,18 @@ internal fun SettingsTab(
                 if (recentChannels.isNotEmpty()) {
                     OutlinedButton(onClick = { vm.clearRecentChannels() }) { Text("Clear recent") }
                 }
+                // The way back from "Not interested". All of them at once
+                // rather than a screen listing them: dismissing a title off
+                // Home is a small, frequent act, and undoing one specific
+                // dismissal months later is not a thing anyone asks for —
+                // where "put the suggestions back" is. Counted so the button
+                // says what it will do, and absent when it would do nothing.
+                val hiddenTitles by vm.hiddenTitles.collectAsState()
+                if (hiddenTitles.isNotEmpty()) {
+                    OutlinedButton(onClick = { vm.showHiddenTitlesAgain() }) {
+                        Text("Show ${hiddenTitles.size} hidden on Home")
+                    }
+                }
             }
         }
 
