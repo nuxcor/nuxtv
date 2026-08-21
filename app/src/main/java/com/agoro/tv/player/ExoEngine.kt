@@ -132,10 +132,15 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
                         // longer hole. Measured against the panel, that is
                         // simply not true: Sky Sports Main Event is an 11
                         // Mbit/s stream delivered at three to three and a half
-                        // times real time. Six seconds of threshold is about
-                        // two seconds of wall clock more than three was, and
-                        // buys something like eighteen seconds of cushion to
-                        // spend on the next dip.
+                        // times real time.
+                        //
+                        // The threshold is a depth of buffered MEDIA, not a
+                        // wall-clock wait: six seconds means six seconds of
+                        // playback held back, twice what three did. What the
+                        // 3x delivery changes is the price — reaching six
+                        // seconds of media takes about two seconds of real
+                        // time, so the deeper cushion costs roughly one second
+                        // more than the shallower one did, not three.
                         //
                         // Which matters more than it sounds: the alternative
                         // to cushion is hopping to another source, and that

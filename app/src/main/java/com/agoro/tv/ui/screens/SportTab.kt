@@ -68,7 +68,22 @@ fun SportTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
     val sport by vm.sport.collectAsState()
     val leagues = sport?.leagues.orEmpty()
     val cue = sport?.cueMinutes ?: 60
-    val ambiguous = sport?.ambiguous.orEmpty().toSet()
+    // Remembered so the produceState keys below stay the same instances
+    // between recompositions instead of fresh collections to compare.
+    val ambiguous = remember(sport) { sport?.ambiguous.orEmpty().toSet() }
+    val leagueOrder = remember(leagues) { leagues.keys.toList() }
+
+    // Before the parse, not after it. With no leagues there is nothing to look
+    // for, and walking eight thousand slots to discover that is work spent to
+    // render a status pane.
+    if (leagues.isEmpty()) {
+        StatusPane(
+            title = "Sport isn't set up",
+            message = "This playlist's manifest carries no leagues.",
+            icon = Icons.Default.SportsSoccer,
+        )
+        return
+    }
 
     // Parsed OFF the main thread, and once — not on every minute tick.
     //
@@ -78,6 +93,10 @@ fun SportTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
     // it again every sixty seconds. It is time-independent work, so it belongs
     // behind the catalogue, not behind the clock.
     val parsed by produceState<List<SportsEvent>?>(null, bundle.events, leagues, ambiguous) {
+        // Cleared first: produceState keeps its last value across a key
+        // change, so a re-parse would otherwise go on rendering the previous
+        // catalogue's fixtures until the new ones landed.
+        value = null
         value = withContext(Dispatchers.Default) {
             SportsParser.parseAll(
                 bundle.events.mapNotNull { ch -> ch.xtreamId?.let { it to ch.name } },
@@ -92,20 +111,12 @@ fun SportTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
         Box(Modifier.fillMaxSize())
         return
     }
-    if (leagues.isEmpty()) {
-        StatusPane(
-            title = "Sport isn't set up",
-            message = "This playlist's manifest carries no leagues.",
-            icon = Icons.Default.SportsSoccer,
-        )
-        return
-    }
     // The clock lives in here, not up there. Ticking in this composable would
-    // recompose the scope that holds produceState every thirty seconds, and
-    // its key is bundle.events — six thousand channels compared field by
-    // field, on the main thread, twice a minute, for a screen that only wanted
-    // to know the time.
-    Fixtures(parsed.orEmpty(), leagues.keys.toList(), cue, onPlay, vm)
+    // recompose the whole of SportTab every thirty seconds — the manifest
+    // collect, the produceState scope and every key it compares — so that a
+    // label could say "in 5 min". Only the part that reads the clock should
+    // answer to it.
+    Fixtures(parsed.orEmpty(), leagueOrder, cue, onPlay, vm)
 }
 
 @Composable
@@ -216,7 +227,10 @@ private fun FixtureRow(event: SportsEvent, nowMs: Long, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.width(StatusColumnWidth), contentAlignment = Alignment.CenterStart) {
-                if (event.live) LiveBadge() else {
+                // isLive(nowMs), not the flag stamped at parse time: parsing
+                // happens once per catalogue and a match that kicks off after
+                // it would otherwise never light up.
+                if (event.isLive(nowMs)) LiveBadge() else {
                     Text(
                         text = statusOf(event, nowMs),
                         style = MaterialTheme.typography.labelLarge,

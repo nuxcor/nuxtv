@@ -142,13 +142,27 @@ object SportsParser {
      * conclude, so nothing is lost that would otherwise have been kept.
      */
     private fun worthParsing(name: String, clubWords: Set<String>): Boolean {
-        if (name.isEmpty() || name.contains("NO EVENT", ignoreCase = true)) return false
+        // No emptiness check: a blank or whitespace-only name carries no
+        // separator, so the next line rejects it, and parseIndexed keeps its
+        // own guard for the callers that reach it directly.
+        if (name.contains("NO EVENT", ignoreCase = true)) return false
         if (!fixtureSeparator.containsMatchIn(name)) return false
         return norm(name).split(' ').any { it in clubWords }
     }
 
-    /** "A vs B", "A v B", "A at B", "A x B" — the four the packs use. */
-    private val fixtureSeparator = Regex("""(?i)\s(?:vs?\.?|at|x)\s""")
+    /**
+     * "A vs B", "A v B", "A at B", "A x B" — the four the packs use.
+     *
+     * Bounded on non-alphanumerics rather than on spaces, because the sieve
+     * reads the RAW name while the parser reads a noise-stripped field, and
+     * stripping turns "(NYK)" into a space. "Knicks (NYK)x Timberwolves"
+     * parses fine and a space-bounded test would have rejected it before the
+     * parser ever saw it — the sieve is only safe while it stays strictly
+     * weaker than what the parser concludes. Nothing on the panel is shaped
+     * that way today; this is so nothing has to be.
+     */
+    private val fixtureSeparator =
+        Regex("""(?i)(?<![A-Za-z0-9])(?:vs?\.?|at|x)(?![A-Za-z0-9])""")
 
     fun parse(
         streamId: Int,

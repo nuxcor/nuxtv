@@ -497,11 +497,29 @@ internal fun GuideGrid(
     // Focus entry: land on the channel playing, else the one last watched,
     // else the first row. Same retry as every arrival focus — the row composes
     // a frame after the scroll.
-    LaunchedEffect(entryFocusTick) {
+    // Keyed on the answer as well as the tick. displayChannels merges a beat
+    // after the catalogue lands and recents arrive from DataStore later still,
+    // so a tick that fires in that window read nulls and stopped. Re-running
+    // when the real values arrive costs nothing once something holds focus —
+    // the remembered row wins below, and lands where the viewer already is.
+    LaunchedEffect(entryFocusTick, lastPlayedChannelId) {
         if (entryFocusTick == 0) return@LaunchedEffect
-        val target = playingChannelId ?: lastPlayedChannelId
-        val index = channels.indexOfFirst { it.id == target }
-            .takeIf { it >= 0 } ?: 0
+        // A row this grid has already held beats any of it. The tick fires on
+        // every sustained re-entry, not only on a return from the player —
+        // stepping out to the rail and back would otherwise throw a viewer
+        // who is browsing channel 500 down to whatever they last watched.
+        // focusedRow is -1 until something takes focus, which is what tells a
+        // first arrival from a return to a grid that still remembers.
+        val remembered = gridFocus.focusedRow.takeIf { it in channels.indices }
+        val index = when {
+            playingChannelId != null ->
+                channels.indexOfFirst { it.id == playingChannelId }.takeIf { it >= 0 }
+            // Only on a first arrival — which is what a return from the player
+            // is, since the grid leaves composition while the player is up.
+            remembered == null ->
+                channels.indexOfFirst { it.id == lastPlayedChannelId }.takeIf { it >= 0 }
+            else -> null
+        } ?: remembered ?: 0
         landOnRow(index)
     }
 
