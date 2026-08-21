@@ -2,6 +2,16 @@
 
 package com.agoro.tv.ui.screens
 
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -104,13 +114,20 @@ fun SportTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
-        contentPadding = PaddingValues(bottom = 32.dp),
+        // Leagues need air between them; fixtures inside one belong together.
+        verticalArrangement = Arrangement.spacedBy(Space.l),
+        contentPadding = PaddingValues(bottom = Space.xl),
     ) {
         items(byLeague, key = { it.first }) { (league, list) ->
             Column {
                 SectionTitle(league)
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // The cap lives on the container, not the rows. Put on the
+                // row itself it was ignored — the TV Surface fills whatever it
+                // is given — so the width has to be gone before it gets there.
+                Column(
+                    modifier = Modifier.widthIn(max = FixtureRowWidth),
+                    verticalArrangement = Arrangement.spacedBy(Space.xs),
+                ) {
                     list.forEach { event ->
                         FixtureRow(event, now) {
                             vm.playEvent(event.streamId, event.alternates)
@@ -123,6 +140,22 @@ fun SportTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
     }
 }
 
+/**
+ * Wide enough for the longest club pairing and no wider.
+ *
+ * Full-bleed was the first cut and it read as a fault: a fixture is a short
+ * line, and stretched across a 4K panel it left most of a metre of empty row
+ * between the clubs and their status.
+ *
+ * 620dp, the same cap the browse rows use. The canvas here is about 960dp
+ * wide whatever the panel's pixels are, so an earlier 900 was 94% of the
+ * screen and looked like no cap at all.
+ */
+private val FixtureRowWidth = 620.dp
+
+/** The status column, fixed so the clubs line up down the page. */
+private val StatusColumnWidth = 96.dp
+
 @Composable
 private fun FixtureRow(event: SportsEvent, nowMs: Long, onClick: () -> Unit) {
     Surface(
@@ -130,7 +163,9 @@ private fun FixtureRow(event: SportsEvent, nowMs: Long, onClick: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         shape = ClickableSurfaceDefaults.shape(NuxShape.Row),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = NuxColors.SurfaceRaised,
+            // Unfocused rows sit flat on the background so the focused one is
+            // the only lifted thing on screen — the same rule the shelves use.
+            containerColor = Color.Transparent,
             focusedContainerColor = NuxColors.SurfaceRaised,
             contentColor = NuxColors.OnSurface,
             focusedContentColor = NuxColors.OnSurface,
@@ -143,21 +178,62 @@ private fun FixtureRow(event: SportsEvent, nowMs: Long, onClick: () -> Unit) {
                 .fillMaxWidth()
                 .padding(horizontal = Space.m, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            Box(Modifier.width(StatusColumnWidth), contentAlignment = Alignment.CenterStart) {
+                if (event.live) LiveBadge() else {
+                    Text(
+                        text = statusOf(event, nowMs),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = NuxColors.OnSurfaceDim,
+                        maxLines = 1,
+                    )
+                }
+            }
+            // Home right, away left, the "v" between them: the clubs sit on a
+            // common axis so a column of fixtures reads down rather than
+            // ragged.
             Text(
-                text = event.title,
+                text = event.home,
                 style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.End,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
             Text(
-                text = statusOf(event, nowMs),
+                text = "v",
                 style = MaterialTheme.typography.labelLarge,
-                color = if (event.live) NuxColors.Primary else NuxColors.OnSurfaceDim,
+                color = NuxColors.OnSurfaceDim,
+                modifier = Modifier.padding(horizontal = Space.m),
+            )
+            Text(
+                text = event.away,
+                style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.Start,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
         }
+    }
+}
+
+/** A gold dot and the word, which is all "on now" needs to say. */
+@Composable
+private fun LiveBadge() {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(NuxColors.Primary)
+        )
+        Spacer(Modifier.width(Space.s))
+        Text(
+            text = "LIVE",
+            style = MaterialTheme.typography.labelLarge,
+            color = NuxColors.Primary,
+        )
     }
 }
 
