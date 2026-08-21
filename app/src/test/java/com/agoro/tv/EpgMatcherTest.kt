@@ -143,8 +143,10 @@ class EpgMatcherTest {
         // showing no guide for the row.
         val data = guide(
             mapOf("foxnews.us" to listOf("Fox News"), "foxsports.us" to listOf("Fox Sports")),
+            counts = mapOf("foxnews.us" to 130, "foxsports.us" to 145), // PROBE
         )
-        val res = EpgMatcher.resolve(listOf(ch("c1", "Fox")), data)
+        val res = EpgMatcher.resolve(listOf(ch("c1", "Fox", categoryId = "US|NEWS")), data)
+        println("PROBE Fox resolved to " + res.byChannelId["c1"])
         assertNull(res.byChannelId["c1"])
         assertEquals(0, res.matched)
     }
