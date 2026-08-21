@@ -37,6 +37,13 @@ data class SportsEvent(
 ) {
     val title: String get() = "$home v $away"
 
+    /**
+     * On now, judged against the clock rather than the flag set when this was
+     * parsed. Parsing 6,000 slots is expensive enough to do once and keep, so
+     * the answer has to age with the minute rather than with the parse.
+     */
+    fun isLive(nowMs: Long): Boolean = startMs?.let { it <= nowMs } ?: live
+
     companion object {
         const val TIER_UNKNOWN = 9
     }
@@ -96,12 +103,40 @@ object SportsParser {
      */
     private val americanZone: TimeZone = TimeZone.getTimeZone("America/New_York")
 
+    /**
+     * Every slot in one pass, with the rosters flattened once up front.
+     *
+     * The per-slot entry point below rebuilds that index on every call, which
+     * is fine for a handful and ruinous for six thousand — this is what the
+     * screen calls.
+     */
+    fun parseAll(
+        slots: List<Pair<Int, String>>,
+        nowMs: Long,
+        leagues: Map<String, List<String>>,
+        ambiguous: Set<String> = emptySet(),
+    ): List<SportsEvent> {
+        val idx = index(leagues)
+        val amb = ambiguous.mapTo(HashSet()) { norm(it) }
+        return slots.mapNotNull { (id, name) -> parseIndexed(id, name, nowMs, idx, amb) }
+    }
+
     fun parse(
         streamId: Int,
         rawName: String,
         nowMs: Long,
         leagues: Map<String, List<String>>,
         ambiguous: Set<String> = emptySet(),
+    ): SportsEvent? = parseIndexed(
+        streamId, rawName, nowMs, index(leagues), ambiguous.mapTo(HashSet()) { norm(it) },
+    )
+
+    private fun parseIndexed(
+        streamId: Int,
+        rawName: String,
+        nowMs: Long,
+        idx: List<Triple<String, String, String>>,
+        ambiguous: Set<String>,
     ): SportsEvent? {
         val name = rawName.trim()
         if (name.isEmpty() || name.contains("NO EVENT", ignoreCase = true)) return null
@@ -109,7 +144,7 @@ object SportsParser {
         if (otherLeague.containsMatchIn(name)) return null
 
         val (home, away) = readFixture(name) ?: return null
-        val league = leagueOf(home, away, leagues, ambiguous.map { norm(it) }.toSet()) ?: return null
+        val league = leagueIn(home, away, idx, ambiguous) ?: return null
         val start = readStart(name, nowMs)
 
         // A fixture with no readable kick-off is only shown when the pack has
@@ -215,6 +250,23 @@ object SportsParser {
 
     private data class Match(val league: String, val team: String)
 
+    /** [leagueOf] over the flattened index — the same rules, without the scan. */
+    private fun leagueIn(
+        home: String,
+        away: String,
+        idx: List<Triple<String, String, String>>,
+        ambiguous: Set<String>,
+    ): String? {
+        val h = norm(home)
+        val a = norm(away)
+        val hHit = idx.firstOrNull { hasWord(h, it.third) }
+        val aHit = idx.firstOrNull { hasWord(a, it.third) }
+        val hit = hHit ?: aHit ?: return null
+        if (hHit != null && aHit != null) return hHit.first
+        if (hit.third in ambiguous) return null
+        return if (hit.second.trim().contains(' ')) hit.first else null
+    }
+
     private fun matchFor(side: String, leagues: Map<String, List<String>>): Match? {
         for ((league, teams) in leagues) {
             for (team in teams) {
@@ -224,6 +276,20 @@ object SportsParser {
         }
         return null
     }
+
+    /**
+     * The rosters, flattened once, longest name first.
+     *
+     * Scanning every club of every league for every side of every one of six
+     * thousand slots is a quarter of a million string searches per pass, on
+     * the CPU of a streaming stick. Flattening costs nothing and the longest
+     * name first means "Coventry City" is found before "Coventry" would be.
+     */
+    fun index(leagues: Map<String, List<String>>): List<Triple<String, String, String>> =
+        leagues.entries
+            .flatMap { (league, teams) -> teams.map { Triple(league, it, norm(it)) } }
+            .filter { it.third.length >= 3 }
+            .sortedByDescending { it.third.length }
 
     /** [needle] present in [text] as whole words, not buried inside a longer one. */
     private fun hasWord(text: String, needle: String): Boolean {
@@ -393,7 +459,9 @@ object SportsParser {
                 val s = e.startMs ?: return@filter e.live
                 s <= nowMs + cue && nowMs <= s + FIXTURE_LENGTH_MS
             }
-        ).sortedWith(compareByDescending<SportsEvent> { it.live }.thenBy { it.startMs ?: 0L })
+        ).sortedWith(
+            compareByDescending<SportsEvent> { it.isLive(nowMs) }.thenBy { it.startMs ?: 0L }
+        )
     }
 
     /**

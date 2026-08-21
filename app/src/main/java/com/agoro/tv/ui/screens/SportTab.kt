@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,6 +49,8 @@ import com.agoro.tv.ui.theme.NuxColors
 import com.agoro.tv.ui.theme.NuxFocus
 import com.agoro.tv.ui.theme.NuxShape
 import com.agoro.tv.ui.theme.Space
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -78,14 +81,34 @@ fun SportTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
         }
     }
 
-    val fixtures = remember(bundle.events, leagues, now / 60_000) {
-        val parsed = bundle.events.mapNotNull { channel ->
-            val id = channel.xtreamId ?: return@mapNotNull null
-            SportsParser.parse(id, channel.name, now, leagues, ambiguous)
+    // Parsed OFF the main thread, and once — not on every minute tick.
+    //
+    // This reads six thousand PPV slots, several regexes each, against every
+    // club of every league. In composition on the main thread that froze the
+    // app the moment the tab was opened on a streaming stick, and then froze
+    // it again every sixty seconds. It is time-independent work, so it belongs
+    // behind the catalogue, not behind the clock.
+    val parsed by produceState<List<SportsEvent>?>(null, bundle.events, leagues, ambiguous) {
+        value = withContext(Dispatchers.Default) {
+            SportsParser.parseAll(
+                bundle.events.mapNotNull { ch -> ch.xtreamId?.let { it to ch.name } },
+                System.currentTimeMillis(), leagues, ambiguous,
+            )
         }
-        SportsParser.upcoming(parsed, now, cue)
     }
 
+    // Only this runs on the tick, over a handful of fixtures rather than
+    // thousands of slots.
+    val fixtures = remember(parsed, now / 60_000, cue) {
+        SportsParser.upcoming(parsed.orEmpty(), now, cue)
+    }
+
+    // Null means the first parse has not landed. Saying "nothing on right now"
+    // and then replacing it a second later reads as a fault, so say nothing.
+    if (parsed == null) {
+        Box(Modifier.fillMaxSize())
+        return
+    }
     if (leagues.isEmpty()) {
         StatusPane(
             title = "Sport isn't set up",
