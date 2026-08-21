@@ -266,6 +266,15 @@ CHANNEL_ALIAS = {
     # One channel, two house styles.
     'viaplaysport1': 'viaplay1',
     'viaplaysport2': 'viaplay2',
+    # Canada carries each of these twice, under the short name and the full
+    # one. Folding points at the name the broadcaster actually uses, so the
+    # tile is labelled correctly and the better feed wins on measurement.
+    'cbcnews': 'cbcnewsnetwork',
+    'ctvnewsnetwork': 'ctvnewschannel',   # renamed in 2011; panel kept both
+    'globalnews': 'globalnewsnational',
+    'theweathernetwork': 'weathernetwork',
+    'rogerssportsnetone': 'sportsnetone',
+    'golf': 'golfchannel',
 }
 
 def channel_key(n):
@@ -346,6 +355,42 @@ RSN_MARKET = re.compile(r"""\b(FOX\s+SPORTS|NBC\s+SPORTS|SPORTSNET)\b[^|]*?\b(
     PRIME\s+TICKET | SOCAL | UTAH | NEW\s+YORK | MINNESOTA | MISSOURI | TEXAS
 )\b""", re.I | re.X)
 
+# Canada ships the same three kinds of clutter the other territories did:
+# a news channel per city, numbered event feeds, and regional sports networks.
+CA_REGIONAL_NEWS = re.compile(
+    r'\bGLOBAL NEWS\s+(?!NATIONAL\b)\w'      # Global News BC, Halifax, Regina...
+    r'|\b(CBC|CTV)\s+\w+\s+NEWS\b(?!\s*(NETWORK|CHANNEL))'
+    r'|\b(CBC|CTV)\s+NEWS\s+(?!NETWORK\b|CHANNEL\b)[A-Za-z]'
+    r'|\bCITY ?NEWS\s+\w+', re.I)
+CA_EVENT_FEED = re.compile(
+    r'\bCTV NEWS LIVE EVENTS?\s*\d+'
+    r'|\bROGERS SUPER SPORTS PACK\s*\d+', re.I)
+# Sportsnet ONE and 360 are national and stay; the compass points are regional.
+# Sportsnet's regional feeds carry the same schedule with different local
+# rights. "SPORTSN ET" is not a typo here — the panel really does split the
+# word on this one, and the unspaced pattern walked straight past it.
+CA_REGIONAL_SPORT = re.compile(
+    r'\bSPORTSN\s?ET\s+(ONTARIO|EAST|WEST|PACIFIC)\b', re.I)
+# Rogers TV is per-city community programming; Global's named stations are
+# regional affiliates of the national feed that survives above.
+CA_LOCAL_STATION = re.compile(
+    r'\bROGERS TV\s+\w'
+    r'|\bGLOBAL\s+(MARITIMES|BC|OKANAGAN|LETHBRIDGE|SASKATOON|REGINA'
+    r'|WINNIPEG|DURHAM|PETERBOROUGH|KINGSTON|BARRIE|HALIFAX)\b', re.I)
+
+def _ca_clutter(name):
+    """Canadian regional variants and numbered event feeds.
+
+    Gated on the CA prefix so nothing outside Canada can match: "CITY NEWS" and
+    "EAST"/"WEST" are common enough words that an unanchored rule would reach
+    into the other territories.
+    """
+    n = asc(name)
+    if not re.match(r'^\s*CA(\s+(EN|FR))?\s*:', n, re.I):
+        return False
+    return bool(CA_REGIONAL_NEWS.search(n) or CA_EVENT_FEED.search(n)
+                or CA_REGIONAL_SPORT.search(n) or CA_LOCAL_STATION.search(n))
+
 def _regional_sport(name):
     """A US regional sports network, as opposed to a national sports channel.
 
@@ -382,7 +427,7 @@ def _religious(name):
 live_rows = []
 junkset = set(junk)
 go_drop, sd_all_drop, religion_drop = [], [], []
-telemundo_drop, rsn_drop = [], []
+telemundo_drop, rsn_drop, ca_drop = [], [], []
 for s in ls:
     if s['stream_id'] in junkset: continue
     c = cat_live.get(str(s.get('category_id')))
@@ -403,6 +448,8 @@ for s in ls:
     # not sell.
     if _regional_sport(s['name']):
         rsn_drop.append(s['stream_id']); continue
+    if _ca_clutter(s['name']):
+        ca_drop.append(s['stream_id']); continue
     # PPV event slots are not channels. "NCAAF 06: FOX" reduces to the key
     # "fox" once the prefix comes off, which put a college-football slot into
     # the FOX tile — and, once the real feeds were trimmed, at the FRONT of
@@ -891,7 +938,7 @@ _PN = re.compile(r'^[A-Z0-9]{2,5}\s*:\s*')
 # in panel order, first-wins kept it, the DGO drop then removed it, and the
 # good "US: A&E HD" stayed condemned as its duplicate.
 _gone = junkset | set(dropped_region) | set(go_drop) | set(sd_all_drop) \
-        | set(religion_drop) | set(telemundo_drop) | set(rsn_drop) \
+        | set(religion_drop) | set(telemundo_drop) | set(rsn_drop) | set(ca_drop) \
         | set(locals_dropped) | set(locals_extra_drop)
 for st in ls:
     sid = st['stream_id']
@@ -1333,7 +1380,7 @@ def _brand_key(n, match_rx, canon, alias):
 brands_out, brand_dupe = {}, []
 _dropped = set(junk) | set(dropped_region) | set(locals_dropped) | set(locals_extra_drop) \
            | set(uk_locals_drop) | set(afr_drop) | set(sd_all_drop) | set(go_drop) \
-           | set(religion_drop) | set(telemundo_drop) | set(rsn_drop) \
+           | set(religion_drop) | set(telemundo_drop) | set(rsn_drop) | set(ca_drop) \
            | set(exact_dupe_drop) \
            | set(junk_sweep) | set(region_section_drop) | set(clean_drop) | set(pass2_drop) \
            | set(replay_drop)
@@ -1808,7 +1855,7 @@ _drop_lists = [
     ('uk_locals_drop', uk_locals_drop), ('afr_drop', afr_drop),
     ('sd_all_drop', sd_all_drop), ('go_drop', go_drop),
     ('religion_drop', religion_drop), ('telemundo_drop', telemundo_drop),
-    ('rsn_drop', rsn_drop),
+    ('rsn_drop', rsn_drop), ('ca_drop', ca_drop),
     ('exact_dupe_drop', exact_dupe_drop), ('junk_sweep', junk_sweep),
     ('region_section_drop', region_section_drop), ('clean_drop', clean_drop),
     ('pass2_drop', pass2_drop), ('replay_drop', replay_drop),
@@ -1841,6 +1888,25 @@ for _tset in (collapse, metro_tiles):
 if os.environ.get('WHY'):
     print("WHY", os.environ['WHY'], "->",
           [nm for nm, lst in _drop_lists if int(os.environ['WHY']) in set(lst)])
+
+# The surviving line-up, written beside this script for probe_tiers.py.
+#
+# Nothing reads it at runtime — it exists because "which channels actually
+# survived?" used to be answered by hand, once per region, and every
+# hand-rolled version missed the loose channels that belong to no tile: 97 of
+# DSTV's 146 and 83 of Canada's 107 went unmeasured behind a region that had
+# already been called done. This is the one place that knows the answer, so
+# this is the place that writes it down.
+_folded = {s for _tset in (collapse, metro_tiles, uk_collapse)
+           for t in _tset.values() for s in t['sources'] if s != t['primary']}
+kept_live = [
+    {"id": s['stream_id'], "name": _cnm.get(s['stream_id'], s['name']),
+     "region": _eff_region(s)}
+    for s in ls
+    if s['stream_id'] not in _dropset and s['stream_id'] not in _folded
+]
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'kept_live.json'), 'w') as _fh:
+    json.dump(kept_live, _fh, indent=1)
 
 manifest = {
     "manifest_version": 1,
@@ -1944,6 +2010,7 @@ manifest = {
         "religion_streams": len(religion_drop),
         "telemundo_streams": len(telemundo_drop),
         "regional_sport_streams": len(rsn_drop),
+        "ca_clutter_streams": len(ca_drop),
         "timeshift_demoted": len(timeshift),
         "us_locals_kept": len(locals_market),
         "us_locals_dropped": len(locals_dropped),

@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-21T07:49:28+00:00",
+ "generated": "2026-08-21T11:49:55+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -5732,22 +5732,36 @@
   1562761,
   1562760,
   1562759,
+  325848,
+  325850,
+  325920,
+  668552,
+  668550,
+  668554,
+  718375,
+  718376,
   325800,
   325846,
   436117,
+  434017,
+  324948,
   1601182,
   1601084,
   1600913,
   1600837,
   1600579,
   1600243,
+  7335,
   429429,
   1860577,
+  324992,
+  436112,
+  498814,
   412908,
   414125,
-  414124,
   414206,
   414209,
+  414161,
   1239045,
   1239032,
   1239020,
@@ -5757,8 +5771,6 @@
   1239001,
   1238988,
   1238986,
-  1238984,
-  1238980,
   1238959,
   1238955,
   162159,
@@ -6524,6 +6536,99 @@
   500453,
   500449,
   746363,
+  706429,
+  498629,
+  813889,
+  498729,
+  412845,
+  498329,
+  498328,
+  498327,
+  498325,
+  498326,
+  498324,
+  498323,
+  498321,
+  498320,
+  498319,
+  498317,
+  498318,
+  498316,
+  574201,
+  498314,
+  1683571,
+  498310,
+  498309,
+  498308,
+  498307,
+  498306,
+  498305,
+  498304,
+  498303,
+  414124,
+  414066,
+  414071,
+  500451,
+  500450,
+  996821,
+  996819,
+  996818,
+  996817,
+  996816,
+  996815,
+  996814,
+  996813,
+  996812,
+  996811,
+  996810,
+  996809,
+  996808,
+  996807,
+  996806,
+  996805,
+  996804,
+  996803,
+  996802,
+  996801,
+  996800,
+  996799,
+  996798,
+  996797,
+  996796,
+  996795,
+  996794,
+  996793,
+  996792,
+  996791,
+  996790,
+  996789,
+  996788,
+  996787,
+  996786,
+  996785,
+  996784,
+  996783,
+  996782,
+  996781,
+  1238999,
+  1238998,
+  1238997,
+  1238996,
+  1238993,
+  1238984,
+  1238983,
+  1238982,
+  1238981,
+  1238980,
+  1238976,
+  1238975,
+  1238974,
+  1238973,
+  1238970,
+  1238968,
+  1238967,
+  1238966,
+  1238964,
   1601211,
   1601206,
   1601178,
@@ -8274,8 +8379,6 @@
   498737,
   1537339,
   414157,
-  1537337,
-  498729,
   1537336,
   1260958,
   1537327,
@@ -12241,7 +12344,13 @@
   1537351,
   1537343,
   1537338,
+  1537337,
   1537335,
+  1537334,
+  1537333,
+  1537332,
+  1537331,
+  1537330,
   1537325,
   1537324,
   1537323,
@@ -15281,22 +15390,6 @@
   1476379,
   926228,
   926207,
-  1238976,
-  1238975,
-  1238974,
-  1238973,
-  1238970,
-  414071,
-  500450,
-  1238999,
-  1238998,
-  1238997,
-  1238996,
-  1238993,
-  1238968,
-  1238967,
-  1238966,
-  1238964,
   162253,
   639165,
   639185,
@@ -17184,8 +17277,6 @@
   "717708": "ENTERTAINMENT",
   "788030": "ENTERTAINMENT",
   "325780": "ENTERTAINMENT",
-  "325848": "ENTERTAINMENT",
-  "325850": "ENTERTAINMENT",
   "325831": "ENTERTAINMENT",
   "325832": "ENTERTAINMENT",
   "325775": "ENTERTAINMENT",
@@ -17197,12 +17288,7 @@
   "325869": "ENTERTAINMENT",
   "325793": "ENTERTAINMENT",
   "325837": "ENTERTAINMENT",
-  "668552": "ENTERTAINMENT",
-  "668550": "ENTERTAINMENT",
   "668555": "ENTERTAINMENT",
-  "668554": "ENTERTAINMENT",
-  "718375": "ENTERTAINMENT",
-  "718376": "ENTERTAINMENT",
   "325786": "ENTERTAINMENT",
   "325792": "ENTERTAINMENT",
   "325785": "ENTERTAINMENT",
@@ -38144,51 +38230,6 @@
     ],
     "primary": 325023
    },
-   "globalmaritimes|CA": {
-    "section": "NEWS",
-    "region": "CA",
-    "sources": [
-     1537334,
-     498314
-    ],
-    "primary": 498314
-   },
-   "globalnewsbc|CA": {
-    "section": "NEWS",
-    "region": "CA",
-    "sources": [
-     1537333,
-     498329
-    ],
-    "primary": 498329
-   },
-   "globalnewscalgary|CA": {
-    "section": "NEWS",
-    "region": "CA",
-    "sources": [
-     1537332,
-     498328
-    ],
-    "primary": 498328
-   },
-   "globalnewsedmonton|CA": {
-    "section": "NEWS",
-    "region": "CA",
-    "sources": [
-     1537331,
-     498327
-    ],
-    "primary": 498327
-   },
-   "globalnewstoronto|CA": {
-    "section": "NEWS",
-    "region": "CA",
-    "sources": [
-     1537330,
-     498318
-    ],
-    "primary": 498318
-   },
    "bbcworldnews|US": {
     "section": "NEWS",
     "region": "US",
@@ -38198,6 +38239,25 @@
      162143
     ],
     "primary": 498790
+   },
+   "globalnewsnational|CA": {
+    "section": "NEWS",
+    "region": "CA",
+    "sources": [
+     1754412,
+     498322
+    ],
+    "primary": 1754412
+   },
+   "cbcnewsnetwork|CA": {
+    "section": "NEWS",
+    "region": "CA",
+    "sources": [
+     498779,
+     498315,
+     414118
+    ],
+    "primary": 498779
    },
    "cnbc|CA": {
     "section": "ENTERTAINMENT",
@@ -38217,6 +38277,16 @@
     ],
     "primary": 498815
    },
+   "ctvnewschannel|CA": {
+    "section": "NEWS",
+    "region": "CA",
+    "sources": [
+     498760,
+     498311,
+     414102
+    ],
+    "primary": 498760
+   },
    "foxnews|CA": {
     "section": "NEWS",
     "region": "CA",
@@ -38225,6 +38295,15 @@
      498302
     ],
     "primary": 498735
+   },
+   "golfchannel|CA": {
+    "section": "SPORTS",
+    "region": "CA",
+    "sources": [
+     498727,
+     414163
+    ],
+    "primary": 498727
    },
    "nbatv|CA": {
     "section": "SPORTS",
@@ -38235,6 +38314,15 @@
     ],
     "primary": 498698
    },
+   "weathernetwork|CA": {
+    "section": "ENTERTAINMENT",
+    "region": "CA",
+    "sources": [
+     498654,
+     414193
+    ],
+    "primary": 498654
+   },
    "tvasport|CA": {
     "section": "SPORTS",
     "region": "CA",
@@ -38244,64 +38332,17 @@
     ],
     "primary": 498806
    },
-   "rogerstvlondon|CA": {
-    "section": "SPORTS",
-    "region": "CA",
-    "sources": [
-     412845,
-     996821
-    ],
-    "primary": 996821
-   },
-   "cbcnewsnetwork|CA": {
-    "section": "NEWS",
-    "region": "CA",
-    "sources": [
-     498315,
-     414118
-    ],
-    "primary": 498315
-   },
-   "ctvnewschannel|CA": {
-    "section": "NEWS",
-    "region": "CA",
-    "sources": [
-     498311,
-     414102
-    ],
-    "primary": 498311
-   },
-   "ctvnewsliveevents1|CA": {
-    "section": "NEWS",
-    "region": "CA",
-    "sources": [
-     498310,
-     498309
-    ],
-    "primary": 498310
-   },
    "sportsnetone|CA": {
     "section": "SPORTS",
     "region": "CA",
     "sources": [
      500452,
+     996822,
      1238991,
      414070,
      1238990
     ],
     "primary": 500452
-   },
-   "sportsnetontario|CA": {
-    "section": "SPORTS",
-    "region": "CA",
-    "sources": [
-     414066,
-     1238983,
-     500451,
-     1238982,
-     1238981
-    ],
-    "primary": 414066
    },
    "sportsnetworld|CA": {
     "section": "SPORTS",
@@ -61598,14 +61639,15 @@
   "movie_categories": 67,
   "unresolved_live_categories": 0,
   "movies_with_genre": 0,
-  "live_tiles_after_collapse": 7352,
-  "live_tiles_collapsed": 2490,
-  "collapse_groups": 176,
+  "live_tiles_after_collapse": 7266,
+  "live_tiles_collapsed": 2471,
+  "collapse_groups": 171,
   "collapse_needs_review": 0,
   "dropped_region_streams": 1387,
   "religion_streams": 41,
   "telemundo_streams": 96,
   "regional_sport_streams": 137,
+  "ca_clutter_streams": 93,
   "timeshift_demoted": 47,
   "us_locals_kept": 457,
   "us_locals_dropped": 945,
@@ -61647,17 +61689,17 @@
    "radio": 85,
    "dead": 2
   },
-  "region_section_dropped": 1520,
-  "clean_pass_dropped": 5633,
+  "region_section_dropped": 1518,
+  "clean_pass_dropped": 5639,
   "clean_pass_detail": {
-   "redundant_section": 4376,
+   "redundant_section": 4382,
    "city_locals_dropped": 173,
-   "streaming_donor_kept": 56,
+   "streaming_donor_kept": 50,
    "city_locals_folded": 101,
    "bbc_regional": 43,
    "itv_regional": 13
   },
-  "pass2_dropped": 1228,
+  "pass2_dropped": 1212,
   "pass2_detail": {
    "overflow": 58,
    "stray_local_folded": 181,
@@ -61674,14 +61716,14 @@
   "region_fixed": 118,
   "misfiled_us_locals": 1,
   "sections_merged": 6,
-  "tiles_resectioned": 119,
+  "tiles_resectioned": 112,
   "epg_bound": 919,
   "logo_bound": 4386,
   "live_event_channels": 7847,
   "live_event_groups": 14,
-  "sd_dropped": 213,
+  "sd_dropped": 225,
   "dgo_dropped": 312,
-  "tiers_measured": 1541,
+  "tiers_measured": 2043,
   "exact_duplicates_dropped": 230,
   "movie_genre_vocab": 0,
   "movies_with_genre_ids": 0,
