@@ -898,13 +898,17 @@ private fun GuideRow(
                 // overlay's "you are here". Same treatment as a selected
                 // CategoryItem, so it reads as state rather than focus.
                 containerColor = if (playing) {
-                    NuxColors.Primary.copy(alpha = 0.16f)
+                    NuxColors.SelectedContainer
                 } else {
                     NuxColors.Surface
                 },
                 focusedContainerColor = NuxColors.SurfaceRaised,
-                contentColor = NuxColors.OnSurface,
-                focusedContentColor = NuxColors.OnSurface,
+                // Gold marks the tuned channel, as TEXT. The container used to
+                // carry it as a 16% tint, which is where "you are here" lived
+                // — and which mixed down to brown. Text keeps the luminance
+                // that makes gold read as gold.
+                contentColor = if (playing) NuxColors.Primary else NuxColors.OnSurface,
+                focusedContentColor = if (playing) NuxColors.Primary else NuxColors.OnSurface,
             ),
             // Explicit, like every other row in the app. Left unset, this takes
             // tv-material3's 1.1 default, and in a grid whose cells sit 2dp

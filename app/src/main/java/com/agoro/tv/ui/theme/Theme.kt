@@ -56,7 +56,32 @@ object NuxColors {
     // Gradient stops. Same warm hue as the surface ramp so black-level lift
     // can't shift them to another colour (see the ramp comment above).
     val BackgroundRaised = Color(0xFF171614) // top stop of the page gradient
-    val AccentGlow = Color(0xFF2B2113)       // radial glow behind hero panes
+    /**
+     * The radial glow behind hero panes. Warm, not sepia.
+     *
+     * It was gold's hue at 39% saturation, which at 12% luminance is not gold
+     * — it is brown, and being a full-screen gradient it washed every hero
+     * screen with it. Gold only reads as gold near the 52% luminance it has
+     * at full strength; dimmed, the same hue is mud. Same warmth at a third
+     * of the saturation reads as a lit dark room, which is what a glow is for.
+     */
+    val AccentGlow = Color(0xFF1C1815)
+
+    /**
+     * The container behind a SELECTED chip, rail item or row.
+     *
+     * Deliberately neutral. This was Primary at 16% alpha, and mixing a
+     * 69%-saturated amber into a near-black page keeps the saturation while
+     * collapsing the luminance: #2C210F, 49% saturation at 12% luminance, a
+     * textbook brown. It was in seven places at once — the nav rail, both
+     * category strips, the ON NOW badge, chips, onboarding, the player — so
+     * the whole app read brown rather than one control.
+     *
+     * Gold still says "selected", but as TEXT, where it keeps the luminance
+     * that makes it gold. The file already said as much: gold means brand,
+     * never a fill.
+     */
+    val SelectedContainer = SurfaceVariant
     val OnSecondary = Color(0xFF06251F)
 }
 

@@ -367,7 +367,7 @@ fun CategoryItem(
         // be told apart by brightness alone: a chip can be selected, focused,
         // both, or neither, and all four read differently.
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (selected) NuxColors.Primary.copy(alpha = 0.16f) else Color.Transparent,
+            containerColor = if (selected) NuxColors.SelectedContainer else Color.Transparent,
             focusedContainerColor = NuxColors.FocusBorder,
             contentColor = if (selected) NuxColors.Primary else NuxColors.OnSurfaceDim,
             // Dark ON the fill: white text on a white chip is a blank pill.

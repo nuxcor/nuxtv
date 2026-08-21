@@ -573,7 +573,7 @@ fun MetaChip(text: String, accent: Boolean = false) {
     Box(
         modifier = Modifier
             .clip(ChipShape)
-            .background(if (accent) NuxColors.Primary.copy(alpha = 0.18f) else NuxColors.SurfaceVariant)
+            .background(NuxColors.SurfaceVariant)
             .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
         Text(
@@ -947,7 +947,7 @@ fun SegmentedControl(
                 onClick = { onSelect(index) },
                 shape = ClickableSurfaceDefaults.shape(NuxShape.Row),
                 colors = ClickableSurfaceDefaults.colors(
-                    containerColor = if (selected) NuxColors.Primary.copy(alpha = 0.18f)
+                    containerColor = if (selected) NuxColors.SelectedContainer
                     else NuxColors.Surface,
                     focusedContainerColor = NuxColors.SurfaceRaised,
                     contentColor = if (selected) NuxColors.Primary else NuxColors.OnSurfaceDim,
