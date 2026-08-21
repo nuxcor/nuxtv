@@ -133,13 +133,38 @@ class ContentRepository(context: Context) {
     private fun epgCacheFile() = java.io.File(appContext.filesDir, "epg-cache.json.gz")
 
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+    /**
+     * A guide cache this large is not worth reading — it is worth deleting.
+     *
+     * Before programmes were filtered to the channels a playlist can bind,
+     * this file reached 59 MB gzipped, which inflates to hundreds of
+     * megabytes of objects. A TV box does not have that, and the read did not
+     * fail politely: it took the app down, which a viewer sees as a freeze
+     * and then the launcher. The ceiling is generous next to the ~8 MB a
+     * filtered guide takes, so only a file from before the filter — or one
+     * that has grown pathological — trips it, and the guide simply
+     * re-downloads.
+     */
+    private val EPG_CACHE_MAX_BYTES = 24L * 1024 * 1024
+
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     private fun readEpgCache(): EpgCacheFile? = runCatching {
-        epgCacheFile().takeIf { it.exists() }?.let { f ->
-            java.util.zip.GZIPInputStream(f.inputStream().buffered()).use { stream ->
-                bundleJson.decodeFromStream<EpgCacheFile>(stream)
-            }
+        val f = epgCacheFile().takeIf { it.exists() } ?: return null
+        if (f.length() > EPG_CACHE_MAX_BYTES) {
+            android.util.Log.w("Agoro", "Discarding ${f.length()} byte guide cache")
+            f.delete()
+            return null
         }
-    }.getOrNull()
+        java.util.zip.GZIPInputStream(f.inputStream().buffered()).use { stream ->
+            bundleJson.decodeFromStream<EpgCacheFile>(stream)
+        }
+        // OutOfMemoryError is an Error, not an Exception: runCatching sees it,
+        // but only because it catches Throwable — and a cache that OOMs once
+        // will OOM every start until it is gone.
+    }.getOrElse { e ->
+        if (e is OutOfMemoryError) runCatching { epgCacheFile().delete() }
+        null
+    }
 
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     private fun writeEpgCache(url: String, data: XmltvData) {

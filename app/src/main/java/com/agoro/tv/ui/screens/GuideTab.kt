@@ -128,8 +128,14 @@ fun GuideTab(
     // rides above a working grid instead, and the lanes simply read "No
     // information" until a guide arrives.
     val notice: GuideNotice? = when (val state = epgState) {
+        // No banner while it downloads. It said "channels are ready to watch
+        // now", which is true and therefore not worth a bar across the top of
+        // the screen for the whole load — the lanes already read "No
+        // information" until programmes arrive, and they fill in as packs
+        // land. Only a guide that FAILED still says so, because that one the
+        // viewer can act on.
         is ContentRepository.EpgState.Idle,
-        is ContentRepository.EpgState.Loading -> GuideNotice.Loading
+        is ContentRepository.EpgState.Loading -> null // see [GuideNotice]
 
         is ContentRepository.EpgState.Error -> GuideNotice.Missing(matchFailure = false)
 
@@ -704,10 +710,16 @@ private fun GuideHeader(
     }
 }
 
-/** What, if anything, is wrong with the guide sitting above the grid. */
+/**
+ * What, if anything, is wrong with the guide sitting above the grid.
+ *
+ * There is deliberately no "still loading" state. A bar reading "channels are
+ * ready to watch now" for the length of a guide download says nothing the
+ * viewer can act on, and sat across the top of the screen the whole time; the
+ * lanes read "No information" until programmes arrive and fill in as they do.
+ * Only a guide that FAILED gets a notice.
+ */
 internal sealed interface GuideNotice {
-    /** The download is still in flight; the grid shows what the cache has. */
-    data object Loading : GuideNotice
 
     /**
      * No usable guide. [matchFailure] separates "the download failed" from
@@ -750,22 +762,6 @@ private fun GuideNoticeBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        if (notice is GuideNotice.Loading) {
-            androidx.compose.material3.CircularProgressIndicator(
-                color = NuxColors.Primary,
-                strokeWidth = 2.dp,
-                modifier = Modifier.size(16.dp),
-            )
-            Text(
-                text = "Loading the guide — channels are ready to watch now.",
-                style = MaterialTheme.typography.labelLarge,
-                color = NuxColors.OnSurfaceDim,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            return@Row
-        }
-
         val missing = notice as GuideNotice.Missing
         Icon(
             Icons.Default.Info,
