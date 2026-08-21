@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-21T05:48:01+00:00",
+ "generated": "2026-08-21T05:50:18+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -19,7 +19,7 @@
    },
    {
     "key": "LOCALS",
-    "label": "Locals & Networks",
+    "label": "Locals",
     "hidden_by_default": false
    },
    {

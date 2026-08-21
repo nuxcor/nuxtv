@@ -71,7 +71,10 @@ MOVIE_MANUAL = {
 SECTIONS_LIVE = [
     ("NEWS",          "News",                False),
     ("SPORTS",        "Sports",              False),
-    ("LOCALS",        "Locals & Networks",   False),
+    # "Locals", not "Locals & Networks": the shelf is metro affiliate stations
+    # and nothing else, so the second half named a thing that is not there and
+    # cost width in a strip where width is the whole budget.
+    ("LOCALS",        "Locals",              False),
     ("ENTERTAINMENT", "Entertainment",       False),
     ("MOVIES",        "Movies 24/7",         False),
     ("KIDS",          "Kids",                False),
