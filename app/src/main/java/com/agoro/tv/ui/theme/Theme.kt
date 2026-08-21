@@ -128,13 +128,15 @@ object NuxShape {
     val Dialog = RoundedCornerShape(20.dp)  // dialogs and sheets
     val Track = RoundedCornerShape(2.dp)    // progress bars, selection markers
     /**
-     * Fully rounded ends, for the things that read as pills rather than
-     * boxes: the category strips above Live TV, the guide and the browse
-     * grids. An 8dp radius on a chip half as tall as it is wide leaves the
-     * focus ring looking square-cornered — the ring traces the shape, so the
-     * shape is what has to be round.
+     * The category strips above Live TV, the guide and the browse grids —
+     * bigger than [Chip], which is for guide cells and logo tiles.
+     *
+     * 14dp, between [Row] and [Card] rather than a full capsule. At 8dp the
+     * chip read as a rectangle with the corners knocked off; at 50% it was a
+     * lozenge, which on a wide short shape is more shape than the word inside
+     * it needs. This is the radius that still reads as "chip".
      */
-    val Pill = RoundedCornerShape(percent = 50)
+    val FilterChip = RoundedCornerShape(14.dp)
 }
 
 val NuxShapes = Shapes(
@@ -235,7 +237,7 @@ object NuxFocus {
     val ring16: Border = Border(Stroke, shape = NuxShape.Card)
     val ring20: Border = Border(Stroke, shape = NuxShape.Dialog)
     val ring22: Border = Border(Stroke, shape = RoundedCornerShape(22.dp)) // player pills
-    val ringPill: Border = Border(Stroke, shape = NuxShape.Pill)
+    val ringChip: Border = Border(Stroke, shape = NuxShape.FilterChip)
     val ringCircle: Border = Border(Stroke, shape = CircleShape)
 
     /** The card/row default — [NuxShape.Card]. */

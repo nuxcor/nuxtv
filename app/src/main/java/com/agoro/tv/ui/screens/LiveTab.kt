@@ -353,10 +353,10 @@ fun CategoryItem(
     Surface(
         onClick = onClick,
         modifier = modifier.onFocusChanged { if (it.isFocused) onFocus() },
-        // A pill, so the focus ring that traces it has rounded ends. These
-        // chips are wide and short, and the old 8dp corner made the ring read
-        // as a rectangle drawn around the word.
-        shape = ClickableSurfaceDefaults.shape(NuxShape.Pill),
+        // 14dp: at 8dp these read as rectangles with the corners knocked
+        // off, and at a full capsule they read as lozenges — more shape than
+        // the word inside needs on something this wide and short.
+        shape = ClickableSurfaceDefaults.shape(NuxShape.FilterChip),
         // Focus is a FILL, not an outline. A 2dp ring is a desktop idiom read
         // from 60cm; across a room the eye finds a solid shape long before it
         // finds a hairline, and it is what every chip strip on this platform
