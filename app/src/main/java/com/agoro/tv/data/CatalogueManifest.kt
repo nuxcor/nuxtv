@@ -50,6 +50,8 @@ data class CatalogueManifest(
     @SerialName("uk_reassign") val ukReassign: Map<String, String> = emptyMap(),
     val collapse: Collapse = Collapse(),
     @SerialName("metro_locals") val metroLocals: Map<String, MetroLocal> = emptyMap(),
+    /** Market order for the Locals shelf; see [metroRank]. */
+    @SerialName("top_metros") val topMetros: List<String> = emptyList(),
     @SerialName("vod_drop") val vodDrop: List<Int> = emptyList(),
     /** series id -> NEW | TOP | ALL. */
     @SerialName("series_section") val seriesSection: Map<String, String> = emptyMap(),
@@ -165,6 +167,32 @@ data class CatalogueManifest(
         sections.movies.filter { it.hidden }.map { it.key }.toSet()
     }
     val sectionOrder: List<String> by lazy { sections.live.map { it.key } }
+
+    /**
+     * Every metro-local stream → the market it serves.
+     *
+     * The Locals shelf is ordered by this. Left in the provider's fetch
+     * order it interleaved markets — a New York ABC, then a Houston FOX,
+     * then a Boston CBS — which is unreadable when what a viewer wants is
+     * "my city's stations". Sources as well as primaries, because a fold can
+     * promote a source when the declared primary is dropped.
+     */
+    val metroOf: Map<Int, String> by lazy {
+        buildMap {
+            metroLocals.values.forEach { t ->
+                if (t.metro.isBlank()) return@forEach
+                put(t.primary, t.metro)
+                t.sources.forEach { put(it, t.metro) }
+            }
+        }
+    }
+
+    /** Where a market sorts. Unlisted markets trail the named ones, alphabetically. */
+    fun metroRank(metro: String?): Int {
+        if (metro == null) return Int.MAX_VALUE
+        val i = topMetros.indexOf(metro)
+        return if (i >= 0) i else topMetros.size
+    }
 
     /** (declared primary, every source) for collapse tiles and metro locals alike. */
     private val tiles: List<Pair<Int, List<Int>>> by lazy {
