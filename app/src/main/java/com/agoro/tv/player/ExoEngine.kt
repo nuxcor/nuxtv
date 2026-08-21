@@ -350,7 +350,12 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
     override fun audioTracks(): List<Track> = tracksOf(C.TRACK_TYPE_AUDIO)
     override fun textTracks(): List<Track> = tracksOf(C.TRACK_TYPE_TEXT)
 
-    /** True when neither a rung nor Auto has been chosen — the default. */
+    /**
+     * True only while "Highest available" is the standing choice — set from
+     * the quality sheet, or re-applied per stream from the viewer's quality
+     * preference. The default is adaptive (false): the selector climbs to the
+     * top rung on its own, and pinning it regardless of the line macroblocks.
+     */
     val isForcingHighest: Boolean
         get() = trackSelector.parameters.forceHighestSupportedBitrate
 

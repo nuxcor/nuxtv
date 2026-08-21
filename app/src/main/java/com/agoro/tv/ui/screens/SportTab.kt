@@ -70,17 +70,6 @@ fun SportTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
     val cue = sport?.cueMinutes ?: 60
     val ambiguous = sport?.ambiguous.orEmpty().toSet()
 
-    // A fixture list is a clock face: a match kicks off, another ends, and the
-    // screen is wrong until something recomposes it. Ticking every half minute
-    // costs nothing and keeps "starts in 5 min" honest.
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(30_000)
-            now = System.currentTimeMillis()
-        }
-    }
-
     // Parsed OFF the main thread, and once — not on every minute tick.
     //
     // This reads six thousand PPV slots, several regexes each, against every
@@ -97,12 +86,6 @@ fun SportTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
         }
     }
 
-    // Only this runs on the tick, over a handful of fixtures rather than
-    // thousands of slots.
-    val fixtures = remember(parsed, now / 60_000, cue) {
-        SportsParser.upcoming(parsed.orEmpty(), now, cue)
-    }
-
     // Null means the first parse has not landed. Saying "nothing on right now"
     // and then replacing it a second later reads as a fault, so say nothing.
     if (parsed == null) {
@@ -117,6 +100,36 @@ fun SportTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
         )
         return
     }
+    // The clock lives in here, not up there. Ticking in this composable would
+    // recompose the scope that holds produceState every thirty seconds, and
+    // its key is bundle.events — six thousand channels compared field by
+    // field, on the main thread, twice a minute, for a screen that only wanted
+    // to know the time.
+    Fixtures(parsed.orEmpty(), leagues.keys.toList(), cue, onPlay, vm)
+}
+
+@Composable
+private fun Fixtures(
+    parsed: List<SportsEvent>,
+    leagueOrder: List<String>,
+    cue: Int,
+    onPlay: () -> Unit,
+    vm: MainViewModel,
+) {
+    // A fixture list is a clock face: a match kicks off, another ends, and the
+    // screen is wrong until something recomposes it. Half a minute keeps
+    // "starts in 5 min" honest and costs nothing here.
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000)
+            now = System.currentTimeMillis()
+        }
+    }
+
+    val fixtures = remember(parsed, now / 60_000, cue) {
+        SportsParser.upcoming(parsed, now, cue)
+    }
     if (fixtures.isEmpty()) {
         StatusPane(
             title = "Nothing on right now",
@@ -129,8 +142,8 @@ fun SportTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
     // Grouped by league, in the manifest's own order, so the sports a viewer
     // follows sit where they were last time rather than moving with the
     // fixture list.
-    val byLeague = remember(fixtures, leagues) {
-        leagues.keys.mapNotNull { league ->
+    val byLeague = remember(fixtures, leagueOrder) {
+        leagueOrder.mapNotNull { league ->
             fixtures.filter { it.league == league }.takeIf { it.isNotEmpty() }?.let { league to it }
         }
     }

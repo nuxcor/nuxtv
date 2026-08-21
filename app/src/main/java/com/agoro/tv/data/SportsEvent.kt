@@ -118,8 +118,37 @@ object SportsParser {
     ): List<SportsEvent> {
         val idx = index(leagues)
         val amb = ambiguous.mapTo(HashSet()) { norm(it) }
-        return slots.mapNotNull { (id, name) -> parseIndexed(id, name, nowMs, idx, amb) }
+        // Every word any club we carry uses, for the cheap test below.
+        val clubWords = idx.flatMapTo(HashSet()) { it.third.split(' ') }
+            .filterTo(HashSet()) { it.length >= 3 }
+        return slots.mapNotNull { (id, name) ->
+            if (!worthParsing(name, clubWords)) null
+            else parseIndexed(id, name, nowMs, idx, amb)
+        }
     }
+
+    /**
+     * A cheap sieve in front of the expensive path.
+     *
+     * Parsing means splitting the name, running eight noise substitutions over
+     * each field and then scanning 231 clubs — call it thirty regex operations
+     * a slot. Across the nearly eight thousand slots a panel carries that is
+     * hundreds of thousands of them, which a streaming stick feels even on a
+     * background thread, through the allocation churn if nothing else.
+     *
+     * Two tests, both cheap, reject nine in ten before any of that happens: a
+     * fixture needs a separator between two sides, and it needs to mention a
+     * club we carry. Both are strictly weaker than what [parseIndexed] would
+     * conclude, so nothing is lost that would otherwise have been kept.
+     */
+    private fun worthParsing(name: String, clubWords: Set<String>): Boolean {
+        if (name.isEmpty() || name.contains("NO EVENT", ignoreCase = true)) return false
+        if (!fixtureSeparator.containsMatchIn(name)) return false
+        return norm(name).split(' ').any { it in clubWords }
+    }
+
+    /** "A vs B", "A v B", "A at B", "A x B" — the four the packs use. */
+    private val fixtureSeparator = Regex("""(?i)\s(?:vs?\.?|at|x)\s""")
 
     fun parse(
         streamId: Int,

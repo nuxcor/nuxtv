@@ -654,9 +654,13 @@ fun HomeLoungeTab(
                     // so it retries on the Boolean instead of trusting one call.
                     kotlinx.coroutines.delay(120)
                     repeat(10) {
-                        if (runCatching { rowFocus.requestFocus() }.getOrDefault(false)) {
-                            return@launch
-                        }
+                        val r = runCatching { rowFocus.requestFocus() }
+                        android.util.Log.w(
+                            "AgoroFocus",
+                            "restore attempt $it row=$focusedRow ok=${r.getOrNull()} " +
+                                "err=${r.exceptionOrNull()?.javaClass?.simpleName}",
+                        )
+                        if (r.getOrDefault(false)) return@launch
                         kotlinx.coroutines.delay(60)
                     }
                 }
