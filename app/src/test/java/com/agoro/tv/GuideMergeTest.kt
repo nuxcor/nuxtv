@@ -19,7 +19,7 @@ class GuideMergeTest {
 
     private fun data(
         programmes: Map<String, List<EpgProgram>> = emptyMap(),
-        normalized: Map<String, String> = emptyMap(),
+        normalized: Map<String, List<String>> = emptyMap(),
         names: Map<String, String> = emptyMap(),
     ) = XmltvData(
         channelNames = names,
@@ -61,32 +61,36 @@ class GuideMergeTest {
         assertEquals(listOf(100L, 5000L), out.programmes["bbc"]!!.map { it.startMs })
     }
 
+    /**
+     * The merger collects candidates; it does not arbitrate between them.
+     * It used to drop a key two packs disagreed on, which is how a channel
+     * carried by two feeds ended up with no binding at all. Deciding needs
+     * the playlist channel in hand — its territory is what breaks the tie —
+     * so it belongs to EpgMatcher, and the fold's job is only to lose
+     * nothing.
+     */
     @Test
-    fun `a normalized key two packs disagree on is dropped, not arbitrated`() {
-        // Finding 9: first-wins here is exactly the cross-wiring the field's
-        // own contract says must never happen.
-        val a = data(normalized = mapOf("skysports1" to "sky1"))
-        val b = data(normalized = mapOf("skysports1" to "sky1hd"))
-        assertNull(merge(a, b)!!.normalizedToId["skysports1"])
+    fun `a key two packs disagree on keeps both candidates, in pack order`() {
+        val a = data(normalized = mapOf("skysports1" to listOf("sky1")))
+        val b = data(normalized = mapOf("skysports1" to listOf("sky1hd")))
+        assertEquals(listOf("sky1", "sky1hd"), merge(a, b)!!.normalizedToId["skysports1"])
     }
 
     @Test
-    fun `a contested key stays dropped when a later pack repeats it`() {
-        // The pairwise fold could reinstate a key a previous step had removed,
-        // because nothing remembered that it was contested.
-        val a = data(normalized = mapOf("k" to "one"))
-        val b = data(normalized = mapOf("k" to "two"))
-        val c = data(normalized = mapOf("k" to "one"))
-        assertNull(merge(a, b, c)!!.normalizedToId["k"])
+    fun `a candidate a later pack repeats is not added twice`() {
+        val a = data(normalized = mapOf("k" to listOf("one")))
+        val b = data(normalized = mapOf("k" to listOf("two")))
+        val c = data(normalized = mapOf("k" to listOf("one")))
+        assertEquals(listOf("one", "two"), merge(a, b, c)!!.normalizedToId["k"])
     }
 
     @Test
-    fun `an uncontested key survives and keeps the first pack's answer`() {
-        val a = data(normalized = mapOf("k" to "one"))
-        val b = data(normalized = mapOf("k" to "one", "j" to "two"))
+    fun `a key only one pack claims comes back alone`() {
+        val a = data(normalized = mapOf("k" to listOf("one")))
+        val b = data(normalized = mapOf("k" to listOf("one"), "j" to listOf("two")))
         val out = merge(a, b)!!
-        assertEquals("one", out.normalizedToId["k"])
-        assertEquals("two", out.normalizedToId["j"])
+        assertEquals(listOf("one"), out.normalizedToId["k"])
+        assertEquals(listOf("two"), out.normalizedToId["j"])
     }
 
     @Test

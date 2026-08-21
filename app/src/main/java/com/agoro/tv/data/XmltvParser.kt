@@ -30,10 +30,9 @@ class XmltvMerger {
     private val channelNames = HashMap<String, String>()
     private val nameToId = HashMap<String, String>()
     private val altNames = HashMap<String, List<String>>()
-    private val normalizedToId = HashMap<String, String>()
-    private val contested = HashSet<String>()
+    private val normalizedToId = HashMap<String, MutableList<String>>()
     private val programmes = HashMap<String, MutableList<EpgProgram>>()
-    private val programmeChannels = HashSet<String>()
+    private val programmeChannels = HashMap<String, Int>()
     private var count = 0
 
     val isEmpty: Boolean get() = count == 0
@@ -45,16 +44,17 @@ class XmltvMerger {
         data.channelNames.forEach { (k, v) -> channelNames.putIfAbsent(k, v) }
         data.nameToId.forEach { (k, v) -> nameToId.putIfAbsent(k, v) }
         data.altNames.forEach { (k, v) -> altNames.putIfAbsent(k, v) }
-        data.normalizedToId.forEach { (k, v) ->
-            val held = normalizedToId.putIfAbsent(k, v)
-            if (held != null && held != v) contested += k
+        data.normalizedToId.forEach { (k, ids) ->
+            val holders = normalizedToId.getOrPut(k) { mutableListOf() }
+            ids.forEach { if (it !in holders) holders += it }
         }
         // Schedules accumulate instead: two packs covering one channel are
         // two parts of its day, not a winner and a loser.
         data.programmes.forEach { (k, v) ->
             programmes.getOrPut(k) { ArrayList(v.size) }.addAll(v)
         }
-        programmeChannels += data.channelsWithProgrammes
+        // Counts add: two packs covering one channel are two parts of its day.
+        data.programmeCounts.forEach { (id, n) -> programmeChannels.merge(id, n, Int::plus) }
     }
 
     /**
@@ -65,7 +65,7 @@ class XmltvMerger {
      */
     fun build(): XmltvData? {
         if (count == 0) return null
-        val resolvable = HashMap(normalizedToId).apply { contested.forEach { remove(it) } }
+        val resolvable = normalizedToId.mapValues { it.value.toList() }
         val merged = HashMap<String, List<EpgProgram>>(programmes.size)
         programmes.forEach { (id, list) ->
             merged[id] = if (list.size <= 1) list.toList() else list
@@ -83,7 +83,7 @@ class XmltvMerger {
             nameToId = HashMap(nameToId),
             normalizedToId = resolvable,
             altNames = HashMap(altNames),
-            programmeChannels = HashSet(programmeChannels),
+            programmeChannels = HashMap(programmeChannels),
         )
     }
 }
@@ -104,24 +104,40 @@ data class XmltvData(
     /** lowercase display name (every alternate) → lowercase channel id. */
     val nameToId: Map<String, String>,
     /**
-     * [EpgMatcher.normalizeKey] of every display-name alternate → lowercase
-     * channel id. Keys claimed by two DIFFERENT channels are removed rather
-     * than arbitrated — the fuzzy stage must never cross-wire "Sky Sports 1"
-     * with "Sky Sports 1 HD" when the guide treats them as distinct.
+     * [EpgMatcher.normalizeKey] of every display-name alternate → every
+     * lowercase channel id claiming it, in pack order.
+     *
+     * A list, not a winner. Contested keys used to be dropped outright, on
+     * the reasoning that the fuzzy stage must never cross-wire "Sky Sports 1"
+     * with "Sky Sports 1 HD" — but two feeds carrying the SAME channel land
+     * here too, and dropping the key left a major network with an empty lane
+     * while its schedule sat in the table. Worse, packs publish progressively:
+     * a channel bound while one feed was loaded LOST the binding when a
+     * second arrived, so the guide got worse as it finished loading.
+     *
+     * The arbitration moved to [EpgMatcher] instead, where the playlist
+     * channel is in hand and its territory can break the tie.
      */
-    val normalizedToId: Map<String, String> = emptyMap(),
+    val normalizedToId: Map<String, List<String>> = emptyMap(),
     /** lowercase channel id → all display-name alternates. */
     val altNames: Map<String, List<String>> = emptyMap(),
     /**
-     * Guide ids that carry a schedule. The matcher refuses a channel whose
-     * lane would be empty, and with programmes in the store it cannot learn
-     * that by looking at [programmes]. Falls back to [programmes]' own keys
-     * for the in-memory path.
+     * Guide id → how many programmes it carries.
+     *
+     * The matcher refuses a channel whose lane would be empty, and with
+     * programmes in the store it cannot learn that by looking at
+     * [programmes]. The COUNT rather than a bare set because it is also the
+     * tie-break: when two feeds both carry a channel, the fuller schedule is
+     * the better answer. Falls back to [programmes] for the in-memory path.
      */
-    private val programmeChannels: Set<String> = emptySet(),
+    private val programmeChannels: Map<String, Int> = emptyMap(),
 ) {
+    val programmeCounts: Map<String, Int>
+        get() = if (programmeChannels.isNotEmpty()) programmeChannels
+        else programmes.mapValues { it.value.size }
+
     val channelsWithProgrammes: Set<String>
-        get() = if (programmeChannels.isNotEmpty()) programmeChannels else programmes.keys
+        get() = if (programmeChannels.isNotEmpty()) programmeChannels.keys else programmes.keys
 }
 
 /**
@@ -186,7 +202,7 @@ object XmltvParser {
         // them may be the one a playlist uses.
         val channelAlts = LinkedHashMap<String, MutableList<String>>()
         val programmes = HashMap<String, MutableList<EpgProgram>>()
-        val withProgrammes = HashSet<String>()
+        val withProgrammes = HashMap<String, Int>()
 
         val parser = XmlPullParserFactory.newInstance().newPullParser()
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
@@ -253,7 +269,7 @@ object XmltvParser {
                         programme?.let { p ->
                             val channelId = p.channel.lowercase()
                             if (sink != null) {
-                                withProgrammes += channelId
+                                withProgrammes.merge(channelId, 1, Int::plus)
                                 sink(
                                     ProgrammeRow(
                                         channelId = channelId,
@@ -286,8 +302,7 @@ object XmltvParser {
         val channelNames = HashMap<String, String>(channelAlts.size)
         val altNames = HashMap<String, List<String>>(channelAlts.size)
         val nameToId = HashMap<String, String>(channelAlts.size)
-        val normalizedToId = HashMap<String, String>(channelAlts.size)
-        val contested = HashSet<String>()
+        val normalizedToId = HashMap<String, MutableList<String>>(channelAlts.size)
         channelAlts.forEach { (id, names) ->
             val lowerId = id.lowercase()
             channelNames[id] = names.first()
@@ -295,11 +310,10 @@ object XmltvParser {
             names.forEach { name ->
                 nameToId.putIfAbsent(name.trim().lowercase(), lowerId)
                 val key = EpgMatcher.normalizeKey(name)
-                val holder = normalizedToId.putIfAbsent(key, lowerId)
-                if (holder != null && holder != lowerId) contested += key
+                val holders = normalizedToId.getOrPut(key) { mutableListOf() }
+                if (lowerId !in holders) holders += lowerId
             }
         }
-        contested.forEach { normalizedToId.remove(it) }
         return XmltvData(
             channelNames = channelNames,
             programmes = programmes,

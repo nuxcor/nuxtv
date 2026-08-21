@@ -68,9 +68,12 @@ object EpgMatcher {
      *  a) the channel's own epg id;
      *  b) exact display-name match, raw name then tvg-name;
      *  c) normalized-key match against every guide display-name alternate;
-     *  d) token tie-break: unique guide candidate sharing the first token
-     *     whose token set differs by at most one token. Zero or several
-     *     candidates → unmatched.
+     *  d) token tie-break: guide candidates sharing the first token whose
+     *     token set differs by at most one token.
+     *
+     * Stages c and d can turn up several candidates, and [pick] arbitrates:
+     * a candidate from the channel's own territory first, then the fuller
+     * schedule, and only a genuine dead heat stays unmatched.
      */
     fun resolve(channels: List<LiveChannel>, data: XmltvData): Resolution {
         // Token index for stage d, built once: first token → candidates.
@@ -89,11 +92,47 @@ object EpgMatcher {
             name?.trim()?.lowercase()?.let { data.nameToId[it] }
                 ?.takeIf { it in data.channelsWithProgrammes }
 
-        fun normalized(name: String?): String? =
-            name?.let { data.normalizedToId[normalizeKey(it)] }
-                ?.takeIf { it in data.channelsWithProgrammes }
+        val counts = data.programmeCounts
 
-        fun tieBreak(name: String): String? {
+        /**
+         * The guide id's territory: the last dot-segment with any feed
+         * number off it — "abcnewslive.us" and "abc.news.live.us2" are both
+         * US, "court.tv.uk" is not.
+         */
+        fun guideTerritory(id: String): String? =
+            id.substringAfterLast('.', "").trimEnd('0', '1', '2', '3', '4', '5', '6', '7', '8', '9')
+                .takeIf { it.length in 2..3 }
+
+        /**
+         * Chooses between guide channels that all answer to one name.
+         *
+         * Two feeds carrying the same channel used to be treated as
+         * ambiguity and refused, which left major networks with empty lanes
+         * while their schedules sat in the table. But refusing outright was
+         * never the point — the point was never to bind a US channel to a UK
+         * feed. So territory decides first, and only then the fuller
+         * schedule, because a feed with more programmes is more of the day.
+         *
+         * A dead heat — same territory, same number of programmes, nothing
+         * to separate them — still stays unmatched. There is no answer there,
+         * and guessing one would be the cross-wiring this guards against.
+         */
+        fun pick(candidates: List<String>?, channel: LiveChannel): String? {
+            val live = candidates?.filter { it in data.channelsWithProgrammes }.orEmpty()
+            if (live.size <= 1) return live.firstOrNull()
+            val home = channel.categoryId?.substringBefore('|')?.lowercase()
+            val local = live.filter { guideTerritory(it) == home }
+            val pool = local.ifEmpty { live }
+            if (pool.size == 1) return pool.first()
+            val ranked = pool.sortedByDescending { counts[it] ?: 0 }
+            if ((counts[ranked[0]] ?: 0) == (counts[ranked[1]] ?: 0)) return null
+            return ranked.first()
+        }
+
+        fun normalized(name: String?, channel: LiveChannel): String? =
+            name?.let { pick(data.normalizedToId[normalizeKey(it)], channel) }
+
+        fun tieBreak(name: String, channel: LiveChannel): String? {
             val tokens = normalizeTokens(name)
             val first = tokens.firstOrNull() ?: return null
             val set = tokens.toSet()
@@ -104,7 +143,7 @@ object EpgMatcher {
                 }
                 .map { it.second }
                 .distinct()
-            return hits.singleOrNull()
+            return pick(hits, channel)
         }
 
         val resolved = HashMap<String, String>()
@@ -112,8 +151,8 @@ object EpgMatcher {
             val id = channel.epgId?.lowercase()?.takeIf { it in data.channelsWithProgrammes }
                 ?: exactName(channel.name)
                 ?: exactName(channel.tvgName)
-                ?: normalized(channel.name)
-                ?: normalized(channel.tvgName)
+                ?: normalized(channel.name, channel)
+                ?: normalized(channel.tvgName, channel)
                 // The name a viewer actually reads. The raw name carries the
                 // provider's decoration — "PRIME: HBO COMEDY ᴿᴬᵂ" — and no
                 // guide on earth calls the channel that, so a whole block of
@@ -121,8 +160,8 @@ object EpgMatcher {
                 // sitting in the table under "hbocomedy.us". Tried after the
                 // raw and tvg names, so it can only bind a channel that
                 // nothing more precise has claimed.
-                ?: normalized(channel.displayName)
-                ?: tieBreak(channel.name)
+                ?: normalized(channel.displayName, channel)
+                ?: tieBreak(channel.name, channel)
             if (id != null) resolved[channel.id] = id
         }
         return Resolution(byChannelId = resolved, matched = resolved.size, total = channels.size)

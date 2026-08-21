@@ -57,8 +57,11 @@ class XmltvParserTest {
         assertEquals("espn.us", data.nameToId["espn"])
         assertEquals("espn.us", data.nameToId["espn hd"])
         assertEquals(listOf("ESPN", "ESPN HD"), data.altNames["espn.us"])
-        // Both alternates normalize onto the same channel, so the key stays.
-        assertEquals("espn.us", data.normalizedToId[com.agoro.tv.data.EpgMatcher.normalizeKey("ESPN HD")])
+        // Both alternates normalize onto the same channel, so it is named once.
+        assertEquals(
+            listOf("espn.us"),
+            data.normalizedToId[com.agoro.tv.data.EpgMatcher.normalizeKey("ESPN HD")],
+        )
         // channelNames keeps the first alternate, as before.
         assertEquals("ESPN", data.channelNames["ESPN.us"])
     }
