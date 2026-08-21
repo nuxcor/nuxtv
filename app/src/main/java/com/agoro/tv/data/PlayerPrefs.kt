@@ -67,6 +67,7 @@ class PlayerPrefs(private val context: Context) {
     private val favoritesKey = stringPreferencesKey("favorite_channels")
     private val schedulesKey = stringPreferencesKey("scheduled_recordings")
     private val hiddenKey = stringPreferencesKey("hidden_channels")
+    private val hiddenTitlesKey = stringPreferencesKey("hidden_titles")
     private val epgOverrideKey = stringPreferencesKey("epg_override_url")
     private val tmdbKeyKey = stringPreferencesKey("tmdb_api_key")
     private val pinKey = stringPreferencesKey("parental_pin")
@@ -383,6 +384,36 @@ class PlayerPrefs(private val context: Context) {
             val updated = if (channelUrl in current) current - channelUrl else current + channelUrl
             prefs[hiddenKey] = json.encodeToString(updated)
         }
+    }
+
+    // --- titles hidden from Home ----------------------------------------------
+    //
+    // Kept apart from [hidden], which is channels. That set is what the channel
+    // manager enumerates to offer an unhide, so a movie url dropped into it
+    // would be hidden with no screen able to list it again.
+    //
+    // Keyed "m:<id>" / "s:<id>" rather than by url: a movie's url carries the
+    // stream id and the provider re-issues those, and a title that came back
+    // under a new id would quietly un-hide itself.
+
+    val hiddenTitles: Flow<Set<String>> = context.playerDataStore.data.map { prefs ->
+        prefs[hiddenTitlesKey]?.let {
+            runCatching { json.decodeFromString<Set<String>>(it) }.getOrNull()
+        } ?: emptySet()
+    }.flowOn(Dispatchers.Default)
+
+    suspend fun toggleHiddenTitle(key: String) {
+        context.playerDataStore.edit { prefs ->
+            val current = prefs[hiddenTitlesKey]?.let {
+                runCatching { json.decodeFromString<Set<String>>(it) }.getOrNull()
+            } ?: emptySet()
+            prefs[hiddenTitlesKey] =
+                json.encodeToString(if (key in current) current - key else current + key)
+        }
+    }
+
+    suspend fun clearHiddenTitles() {
+        context.playerDataStore.edit { prefs -> prefs.remove(hiddenTitlesKey) }
     }
 
     // --- EPG override + TMDB key ----------------------------------------------

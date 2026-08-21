@@ -85,6 +85,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val hidden: StateFlow<Set<String>> = playerPrefs.hidden
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
+    /**
+     * Titles the viewer pushed off Home with "Not interested". Home's catalogue
+     * rows are the only thing that reads it — the title stays in Movies, Shows
+     * and search, because hiding a row is not the same as deleting a film.
+     */
+    val hiddenTitles: StateFlow<Set<String>> = playerPrefs.hiddenTitles
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
 
     /** Stream URLs of recently watched live channels, newest first. */
     val recentChannels: StateFlow<List<String>> = playerPrefs.recentChannels
@@ -521,6 +529,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleHidden(channel: LiveChannel) {
         viewModelScope.launch { playerPrefs.toggleHidden(channel.url) }
+    }
+
+    fun hideFromHome(key: String) {
+        viewModelScope.launch { playerPrefs.toggleHiddenTitle(key) }
+    }
+
+    fun showHiddenTitlesAgain() {
+        viewModelScope.launch { playerPrefs.clearHiddenTitles() }
     }
 
     // --- backup / restore -----------------------------------------------------

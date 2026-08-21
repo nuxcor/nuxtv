@@ -3,6 +3,7 @@
 package com.agoro.tv.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -103,6 +104,10 @@ private sealed interface HomeMenu {
 
     data class ResumedMovie(val movie: Movie, val progress: Float?) : HomeMenu
     data class ResumedSeries(val series: Series) : HomeMenu
+
+    /** A catalogue poster on Home — Movies, Shows, Recently added. */
+    data class CatalogMovie(val movie: Movie) : HomeMenu
+    data class CatalogSeries(val series: Series) : HomeMenu
 }
 
 /**
@@ -112,6 +117,16 @@ private sealed interface HomeMenu {
  * shelf added here without a branch is a compile error instead of a blank row
  * that still occupies a scroll position.
  */
+/**
+ * How a title is named in the hidden-from-Home set.
+ *
+ * The catalogue id, not the stream url: a url carries the provider's stream id
+ * and those get re-issued, so a title that came back under a new id would
+ * quietly reappear on Home after being dismissed.
+ */
+private fun movieHomeKey(movie: Movie) = "m:${movie.id}"
+private fun seriesHomeKey(series: Series) = "s:${series.id}"
+
 private enum class HomeRow {
     Continue, Favorites, Recents, StarterChannels, StarterMovies, StarterSeries, New
 }
@@ -164,9 +179,22 @@ fun HomeLoungeTab(
     }
     val (openMovies, openSeries) = openCatalog
 
+    // Titles pushed off Home with "Not interested". Applied here, to Home's
+    // catalogue rows only — the film is still in Movies, in Shows and in
+    // search, because "not on my home screen" is not "delete this".
+    val hiddenTitles by vm.hiddenTitles.collectAsState()
+
     // Not a day-one row: what a provider just added is the reason to open the
     // app on any day, so this one stays whatever else Home is showing.
-    val recentlyAdded = remember(openCatalog) { buildRecentlyAdded(openMovies, openSeries) }
+    val recentlyAdded = remember(openCatalog, hiddenTitles) {
+        buildRecentlyAdded(openMovies, openSeries)
+            .filterNot { card ->
+                when (card) {
+                    is CatalogCard.MovieCard -> movieHomeKey(card.movie) in hiddenTitles
+                    is CatalogCard.SeriesCard -> seriesHomeKey(card.series) in hiddenTitles
+                }
+            }
+    }
 
     // Day one has no history, and a launcher that greets a 20,000-item
     // playlist with an empty screen is the app's worst first impression. When
@@ -182,11 +210,15 @@ fun HomeLoungeTab(
     // by what someone watched on demand.
     val watchedCatalogue = continueRow.isNotEmpty()
     val watchedChannels = favoritesRow.isNotEmpty() || recentsRow.isNotEmpty()
-    val starterMovies = remember(openCatalog, watchedCatalogue) {
-        if (watchedCatalogue) emptyList() else openMovies.take(STARTER_ROW_LENGTH)
+    // Filtered before take(), or hiding a title would leave a gap in the row
+    // rather than pulling the next one up into it.
+    val starterMovies = remember(openCatalog, watchedCatalogue, hiddenTitles) {
+        if (watchedCatalogue) emptyList()
+        else openMovies.filterNot { movieHomeKey(it) in hiddenTitles }.take(STARTER_ROW_LENGTH)
     }
-    val starterSeries = remember(openCatalog, watchedCatalogue) {
-        if (watchedCatalogue) emptyList() else openSeries.take(STARTER_ROW_LENGTH)
+    val starterSeries = remember(openCatalog, watchedCatalogue, hiddenTitles) {
+        if (watchedCatalogue) emptyList()
+        else openSeries.filterNot { seriesHomeKey(it) in hiddenTitles }.take(STARTER_ROW_LENGTH)
     }
     val starterChannels = remember(displayChannels, watchedChannels) {
         if (watchedChannels) emptyList() else displayChannels.take(STARTER_ROW_LENGTH)
@@ -313,6 +345,13 @@ fun HomeLoungeTab(
     LaunchedEffect(rowKeys) {
         if (focusSignal == 0) columnState.scrollToItem(0)
     }
+    // Focus has to come back after the menu closes. A destructive action —
+    // "Not interested", "Remove from Continue watching" — deletes the very card
+    // that opened the menu, so the focused node is gone by the time the menu
+    // dismisses and focus falls to nothing: the d-pad goes dead until the
+    // viewer leaves the screen. This follows the focused row so the menu can
+    // hand focus back to it, and focusRestorer picks the card within.
+    val rowFocus = remember { FocusRequester() }
     val entrance = rememberListEntrance(Unit)
     val searchFocus = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
@@ -451,11 +490,14 @@ fun HomeLoungeTab(
         // which read as the page refusing to scroll past that shelf. One list
         // cannot disagree with itself.
         itemsIndexed(rowKeys, key = { _, row -> row.name }) { rowIndex, row ->
+            val shelf = Modifier
+                .focusGroup()
+                .then(if (rowIndex == focusedRow) Modifier.focusRequester(rowFocus) else Modifier)
             when (row) {
                 HomeRow.Continue -> Column {
                     SectionTitle("Continue watching")
                     LazyRow(
-                        modifier = Modifier.focusRestorer().shelfRingRoom(),
+                        modifier = shelf.focusRestorer().shelfRingRoom(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         contentPadding = PaddingValues(horizontal = ShelfRingRoom),
                     ) {
@@ -486,7 +528,7 @@ fun HomeLoungeTab(
                 HomeRow.Favorites -> Column {
                     SectionTitle("Favorites · on now")
                     LazyRow(
-                        modifier = Modifier.focusRestorer().shelfRingRoom(),
+                        modifier = shelf.focusRestorer().shelfRingRoom(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         contentPadding = PaddingValues(horizontal = ShelfRingRoom),
                     ) {
@@ -498,7 +540,7 @@ fun HomeLoungeTab(
                 HomeRow.Recents -> Column {
                     SectionTitle("Recent channels")
                     LazyRow(
-                        modifier = Modifier.focusRestorer().shelfRingRoom(),
+                        modifier = shelf.focusRestorer().shelfRingRoom(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         contentPadding = PaddingValues(horizontal = ShelfRingRoom),
                     ) {
@@ -510,7 +552,7 @@ fun HomeLoungeTab(
                 HomeRow.StarterChannels -> Column {
                     SectionTitle("Live channels")
                     LazyRow(
-                        modifier = Modifier.focusRestorer().shelfRingRoom(),
+                        modifier = shelf.focusRestorer().shelfRingRoom(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         contentPadding = PaddingValues(horizontal = ShelfRingRoom),
                     ) {
@@ -522,24 +564,30 @@ fun HomeLoungeTab(
                 HomeRow.StarterMovies -> Column {
                     SectionTitle("Movies")
                     LazyRow(
-                        modifier = Modifier.focusRestorer().shelfRingRoom(),
+                        modifier = shelf.focusRestorer().shelfRingRoom(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         contentPadding = PaddingValues(horizontal = ShelfRingRoom),
                     ) {
                         itemsIndexed(starterMovies, key = { _, m -> m.id }) { index, movie ->
-                            MoviePoster(movie, rowIndex, index)
+                            MoviePoster(
+                                movie, rowIndex, index,
+                                onLongClick = { menu = HomeMenu.CatalogMovie(movie) },
+                            )
                         }
                     }
                 }
                 HomeRow.StarterSeries -> Column {
                     SectionTitle("Shows")
                     LazyRow(
-                        modifier = Modifier.focusRestorer().shelfRingRoom(),
+                        modifier = shelf.focusRestorer().shelfRingRoom(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         contentPadding = PaddingValues(horizontal = ShelfRingRoom),
                     ) {
                         itemsIndexed(starterSeries, key = { _, x -> x.id }) { index, series ->
-                            SeriesPoster(series, rowIndex, index)
+                            SeriesPoster(
+                                series, rowIndex, index,
+                                onLongClick = { menu = HomeMenu.CatalogSeries(series) },
+                            )
                         }
                     }
                 }
@@ -550,7 +598,7 @@ fun HomeLoungeTab(
                     // costs an app its credibility.
                     SectionTitle("Recently added")
                     LazyRow(
-                        modifier = Modifier.focusRestorer().shelfRingRoom(),
+                        modifier = shelf.focusRestorer().shelfRingRoom(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         contentPadding = PaddingValues(horizontal = ShelfRingRoom),
                     ) {
@@ -564,10 +612,14 @@ fun HomeLoungeTab(
                             },
                         ) { index, card ->
                             when (card) {
-                                is CatalogCard.MovieCard ->
-                                    MoviePoster(card.movie, rowIndex, index)
-                                is CatalogCard.SeriesCard ->
-                                    SeriesPoster(card.series, rowIndex, index)
+                                is CatalogCard.MovieCard -> MoviePoster(
+                                    card.movie, rowIndex, index,
+                                    onLongClick = { menu = HomeMenu.CatalogMovie(card.movie) },
+                                )
+                                is CatalogCard.SeriesCard -> SeriesPoster(
+                                    card.series, rowIndex, index,
+                                    onLongClick = { menu = HomeMenu.CatalogSeries(card.series) },
+                                )
                             }
                         }
                     }
@@ -582,8 +634,33 @@ fun HomeLoungeTab(
             menu = open,
             favorites = favorites,
             onPlay = onPlay,
+            onOpenMovie = onOpenMovie,
             onOpenSeries = onOpenSeries,
-            onDismiss = { menu = null },
+            onDismiss = {
+                menu = null
+                // requestFocus REFUSES by returning false rather than throwing,
+                // and it refuses while the row is still recomposing around the
+                // card that just went away — so this retries rather than
+                // trusting the first attempt.
+                scope.launch {
+                    // After the delay, not before it. Removing the focused card
+                    // leaves Compose to reassign focus itself, and it picks the
+                    // nearest focusable — the Search pill, clear across the
+                    // screen. Requesting first simply loses to that reassignment;
+                    // this waits for it to happen and then takes focus back.
+                    //
+                    // requestFocus REFUSES by returning false rather than
+                    // throwing, and refuses while the row is still recomposing,
+                    // so it retries on the Boolean instead of trusting one call.
+                    kotlinx.coroutines.delay(120)
+                    repeat(10) {
+                        if (runCatching { rowFocus.requestFocus() }.getOrDefault(false)) {
+                            return@launch
+                        }
+                        kotlinx.coroutines.delay(60)
+                    }
+                }
+            },
         )
     }
 }
@@ -599,6 +676,7 @@ private fun HomeContextMenu(
     menu: HomeMenu,
     favorites: Set<String>,
     onPlay: () -> Unit,
+    onOpenMovie: (Movie) -> Unit,
     onOpenSeries: (Series) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -630,6 +708,33 @@ private fun HomeContextMenu(
                 // here; nothing is deleted but the bookmark.
                 MenuAction("Remove from Continue watching", destructive = true) {
                     vm.forgetResume(menu.movie.url)
+                },
+            ),
+            onDismiss = onDismiss,
+        )
+
+        is HomeMenu.CatalogMovie -> ContextMenu(
+            title = menu.movie.name,
+            actions = listOf(
+                MenuAction("Play") { vm.playMovie(menu.movie); onPlay() },
+                MenuAction("More info") { onOpenMovie(menu.movie) },
+                // Home only. The film keeps its place in Movies and in search,
+                // and Settings offers these back in one go.
+                MenuAction("Not interested", destructive = true) {
+                    vm.hideFromHome("m:${menu.movie.id}")
+                },
+            ),
+            onDismiss = onDismiss,
+        )
+
+        is HomeMenu.CatalogSeries -> ContextMenu(
+            title = menu.series.name,
+            actions = listOf(
+                // No "Play": which episode that means lives on the series
+                // screen, the same reason Continue watching does not offer it.
+                MenuAction("Open series") { onOpenSeries(menu.series) },
+                MenuAction("Not interested", destructive = true) {
+                    vm.hideFromHome("s:${menu.series.id}")
                 },
             ),
             onDismiss = onDismiss,
