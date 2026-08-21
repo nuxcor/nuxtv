@@ -266,6 +266,7 @@ fun HomeScreen(
                         )
                         HomeTab.Search -> SearchTab(vm, onOpenMovie, onOpenSeries, onPlay)
                         HomeTab.Live -> LiveTab(vm, state.bundle, onPlay, onOpenSettings = { tab = HomeTab.Settings })
+                        HomeTab.Sport -> SportTab(vm, state.bundle, onPlay)
                         HomeTab.Movies -> MoviesTab(vm, state.bundle, onOpenMovie, onOpenSettings = { tab = HomeTab.Settings })
                         HomeTab.Series -> SeriesTab(vm, state.bundle, onOpenSeries, onOpenSettings = { tab = HomeTab.Settings })
                         HomeTab.Recordings -> RecordingsTab(

@@ -170,6 +170,16 @@ data class ContentBundle(
     val seriesCategories: List<Category> = emptyList(),
     val series: List<Series> = emptyList(),
     /**
+     * PPV event slots, kept apart from [channels] on purpose.
+     *
+     * They are pipes rather than channels — the same stream id carries a
+     * different match tomorrow — and there are over six thousand of them, so
+     * putting them in [channels] would bury search and All channels under slots
+     * that are mostly empty. The Sport destination reads them; nothing else
+     * does.
+     */
+    val events: List<LiveChannel> = emptyList(),
+    /**
      * Set once [CategoryCleaner] (and any manifest curation) has run, so a
      * cache read does not run them a second time.
      *

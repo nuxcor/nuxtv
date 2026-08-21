@@ -90,6 +90,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * rows are the only thing that reads it — the title stays in Movies, Shows
      * and search, because hiding a row is not the same as deleting a film.
      */
+    /**
+     * The leagues the Sport destination carries. Read once — it is build-time
+     * curation, not something that changes while the app is open.
+     */
+    val sport: StateFlow<com.agoro.tv.data.Sport?> =
+        kotlinx.coroutines.flow.flow { emit(repo.manifest()?.sport) }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Plays a PPV slot by stream id — the Sport destination's only action. */
+    fun playEvent(streamId: Int) {
+        val slot = content.value.let { it as? ContentState.Ready }?.bundle?.events
+            ?.firstOrNull { it.xtreamId == streamId } ?: return
+        playChannels(listOf(slot), 0)
+    }
+
     val hiddenTitles: StateFlow<Set<String>> = playerPrefs.hiddenTitles
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
