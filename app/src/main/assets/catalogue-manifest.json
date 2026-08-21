@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-21T06:45:11+00:00",
+ "generated": "2026-08-21T07:02:03+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -16451,8 +16451,6 @@
   1853518,
   788078,
   325092,
-  1527641,
-  588045,
   324938,
   324937,
   1568576,
@@ -17466,11 +17464,12 @@
     1544244,
     1544239,
     1562537,
-    1527598,
+    1527625,
     1562534,
     1527595,
     1562532,
     1562531,
+    1527637,
     1562528,
     1562527,
     1527617,
@@ -17478,8 +17477,6 @@
     1562523,
     1562522,
     1562521,
-    1527637,
-    1527625,
     1527619
    ],
    "overflow": [
@@ -17489,10 +17486,7 @@
     1069751,
     1527599
    ],
-   "hidden_duplicates": [
-    1527641,
-    588045
-   ],
+   "hidden_duplicates": [],
    "overflow_destination": "PPV"
   }
  },
@@ -37245,13 +37239,24 @@
     ],
     "primary": 1544244
    },
-   "skysportmainevents|UK": {
+   "skysportmainevent|UK": {
     "section": "SPORTS",
     "region": "UK",
     "sources": [
      1544239,
+     1527598,
+     1290248,
      950402,
+     1562535,
+     1527639,
+     1290241,
+     1290220,
+     1290207,
+     588046,
      621634,
+     1527638,
+     1290315,
+     1290294,
      588072,
      621656
     ],
@@ -37274,11 +37279,13 @@
     "region": "UK",
     "sources": [
      1562537,
+     1527641,
      1290243,
      1290222,
      1290209,
      588037,
      621635,
+     1527640,
      1290317,
      1290296,
      588069,
@@ -37286,23 +37293,24 @@
     ],
     "primary": 1562537
    },
-   "skysportmainevent|UK": {
+   "skysportcricket|UK": {
     "section": "SPORTS",
     "region": "UK",
     "sources": [
-     1527598,
-     1290248,
-     1562535,
-     1527639,
-     1290241,
-     1290220,
-     1290207,
-     588046,
-     1527638,
-     1290315,
-     1290294
+     1527625,
+     1290236,
+     1290215,
+     1290202,
+     621628,
+     1562536,
+     1527624,
+     1290310,
+     1290288,
+     588066,
+     588041,
+     621652
     ],
-    "primary": 1527598
+    "primary": 1527625
    },
    "skysportaction|UK": {
     "section": "SPORTS",
@@ -37382,6 +37390,26 @@
      588064
     ],
     "primary": 1562531
+   },
+   "skysportpremierleague|UK": {
+    "section": "SPORTS",
+    "region": "UK",
+    "sources": [
+     1527637,
+     1290240,
+     1290219,
+     1290206,
+     588026,
+     588045,
+     621633,
+     1562529,
+     1527636,
+     1290314,
+     1290293,
+     588071,
+     621655
+    ],
+    "primary": 1527637
    },
    "skysportracing|UK": {
     "section": "SPORTS",
@@ -38772,50 +38800,6 @@
     ],
     "primary": 717684
    },
-   "skysportnewshq|UK": {
-    "section": "SPORTS",
-    "region": "UK",
-    "sources": [
-     1527641,
-     1527640
-    ],
-    "primary": 1527640
-   },
-   "skysportpremierleague|UK": {
-    "section": "SPORTS",
-    "region": "UK",
-    "sources": [
-     1527637,
-     1290240,
-     1290219,
-     1290206,
-     588026,
-     621633,
-     1527636,
-     1290314,
-     1290293,
-     621655
-    ],
-    "primary": 1527637
-   },
-   "skysportcricket|UK": {
-    "section": "SPORTS",
-    "region": "UK",
-    "sources": [
-     1527625,
-     1290236,
-     1290215,
-     1290202,
-     621628,
-     1527624,
-     1290310,
-     1290288,
-     588066,
-     588041,
-     621652
-    ],
-    "primary": 1527625
-   },
    "skysport|UK": {
     "section": "SPORTS",
     "region": "UK",
@@ -38911,30 +38895,25 @@
     ],
     "primary": 588047
    },
-   "skysportpl|UK": {
-    "section": "SPORTS",
-    "region": "UK",
-    "sources": [
-     588045,
-     588071
-    ],
-    "primary": 588071
-   },
-   "viaplaysport1|UK": {
+   "viaplay1|UK": {
     "section": "SPORTS",
     "region": "UK",
     "sources": [
      587990,
-     588051
+     621624,
+     588051,
+     621646
     ],
     "primary": 587990
    },
-   "viaplaysport2|UK": {
+   "viaplay2|UK": {
     "section": "SPORTS",
     "region": "UK",
     "sources": [
      587989,
-     588050
+     621623,
+     588050,
+     621645
     ],
     "primary": 587989
    },
@@ -38946,24 +38925,6 @@
      587987
     ],
     "primary": 587988
-   },
-   "viaplay2|UK": {
-    "section": "SPORTS",
-    "region": "UK",
-    "sources": [
-     621623,
-     621645
-    ],
-    "primary": 621623
-   },
-   "viaplay1|UK": {
-    "section": "SPORTS",
-    "region": "UK",
-    "sources": [
-     621624,
-     621646
-    ],
-    "primary": 621624
    },
    "premiersport1ireland|UK": {
     "section": "SPORTS",
@@ -61629,9 +61590,9 @@
   "movie_categories": 67,
   "unresolved_live_categories": 0,
   "movies_with_genre": 0,
-  "live_tiles_after_collapse": 7372,
-  "live_tiles_collapsed": 2486,
-  "collapse_groups": 181,
+  "live_tiles_after_collapse": 7365,
+  "live_tiles_collapsed": 2493,
+  "collapse_groups": 176,
   "collapse_needs_review": 0,
   "dropped_region_streams": 1387,
   "religion_streams": 41,
@@ -61698,7 +61659,7 @@
   "replay_feeds_dropped": 719,
   "section_canonicalised": 57,
   "brand_groups": 10,
-  "brand_dupes_dropped": 6,
+  "brand_dupes_dropped": 4,
   "rsn_dupes_dropped": 2,
   "alias_dupes_dropped": 6,
   "region_fixed": 118,

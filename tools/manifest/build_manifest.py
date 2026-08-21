@@ -248,11 +248,32 @@ SECTION_OVERRIDE = {"qvc": "ENTERTAINMENT", "abcnewslive": "NEWS", "foxweather":
 
 PLURALISE = [(r'\bSPORTS?\b', 'SPORT'), (r'\bNETWORKS?\b', 'NETWORK'),
              (r'\bCHANNELS?\b', 'CHANNEL')]
+# Channels the provider ships under two names. The collapse key is built from
+# the name, so a rename or a house style leaves one channel as two tiles —
+# each with its own sources, so each also picks its own best feed and neither
+# gets the other's. Written in POST-PLURALISE form ("skysport", not
+# "skysports"), which is what channel_key actually produces.
+#
+# Hand-curated on purpose. A general rule here folds channels that merely read
+# alike, and a wrong fold hides a channel behind another one for good.
+CHANNEL_ALIAS = {
+    # Sky renamed these; the panel still carries both names.
+    'skysportpl': 'skysportpremierleague',
+    'skysportprimelige': 'skysportpremierleague',
+    'skysportnewshq': 'skysportnews',          # "HQ" was dropped in 2019
+    'skysportmainevents': 'skysportmainevent',  # stray plural
+    'skysportckreckt': 'skysportcricket',       # provider typo
+    # One channel, two house styles.
+    'viaplaysport1': 'viaplay1',
+    'viaplaysport2': 'viaplay2',
+}
+
 def channel_key(n):
     n = QUAL.sub('', SPFX.sub('', asc(n)))
     for pat, base in PLURALISE:          # "Sky Sport 1" == "Sky Sports 1"
         n = re.sub(pat, base, n, flags=re.I)
-    return re.sub(r'[^a-z0-9]', '', n.lower())
+    k = re.sub(r'[^a-z0-9]', '', n.lower())
+    return CHANNEL_ALIAS.get(k, k)
 
 NAMEREG = re.compile(r'^([A-Z]{2,3})\s*:')
 NAME_REGION_ALIAS = {"GO":"US","RK":"US","SS":"AR","NOW":"UK","AF":"AFR","PPV":None}
