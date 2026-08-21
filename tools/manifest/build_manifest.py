@@ -726,6 +726,16 @@ for chan, items in _uk_reg.items():                 # BBC ONE x16 -> one tile
                          "sources": [i[0] for i in items],
                          "variants": [i[1] for i in items]}
 
+# The chosen primary must SURVIVE. Folding the regional variants puts every
+# member on a drop list, and the app does not read uk_collapse — so the fold
+# left BBC One represented by nothing at all, and the channel appeared only
+# when some variant happened to escape the drop list by accident. It stopped
+# escaping, and the most-watched channel in the country vanished from the
+# catalogue. The tile names one feed to represent the channel; that feed is
+# not a duplicate of anything.
+_uk_primaries = {t['primary'] for t in uk_collapse.values()}
+uk_locals_drop = [x for x in uk_locals_drop if x not in _uk_primaries]
+
 
 # ------------------------------------------------------------ AFR, shown as DSTV
 # Keep the DStv bundle plus the Ghanaian channels out of Africa VIP; drop the
@@ -1012,6 +1022,20 @@ GO_LOOP = re.compile(r'^GO\s*:', re.I)
 # 3. BBC ONE regional variants my earlier sweep spelled too narrowly
 BBC_REGIONAL = re.compile(r'^(?:UK\s*:\s*)?BBC (ONE|TWO)\b\s*\S', re.I)
 
+# ITV ships one channel per English region — Granada, Meridian, Tyne Tees,
+# Yorkshire, Border, Wales — and they carry the same schedule apart from the
+# local news bulletin. Seven copies of ITV on one shelf is six too many.
+#
+# The English regions go and London stays, because London IS the network feed
+# for everything except that bulletin. ITV2/3/4/Be are NOT regional and must
+# not match: the test requires a region WORD, not merely something after
+# "ITV".
+ITV_REGIONAL = re.compile(
+    r'^(?:UK\s*:\s*)?ITV\s*1?\s+'
+    r'(GRANADA|MERIDIAN|TYNE\s*TEES|YORKSHIRE|BORDER|ANGLIA|CENTRAL|WESTCOUNTRY'
+    r'|WEST|CALENDAR|UTV|ULSTER|WALES|CYMRU|SCOTLAND|STV|NORTH\s*EAST|NORTH\s*WEST'
+    r'|SOUTH|EAST|MIDLANDS|BORDER\s+SCOTLAND|CHANNEL\s+ISLANDS?)\b', re.I)
+
 clean_drop, clean_kind = [], collections.Counter()
 _go_real = set()          # GO: channels that are real networks, kept
 for st in ls:
@@ -1033,6 +1057,9 @@ for st in ls:
 
     if BBC_REGIONAL.match(n) and 'LONDON' not in n.upper() and 'ENGLAND' not in n.upper():
         clean_drop.append(sid); clean_kind['bbc_regional'] += 1; continue
+
+    if ITV_REGIONAL.match(n) and 'LONDON' not in n.upper():
+        clean_drop.append(sid); clean_kind['itv_regional'] += 1; continue
 
     if sec in DROP_LIVE_SECTIONS:
         if sid in _donor_ok:
@@ -1443,12 +1470,14 @@ for st in ls:
     if not k[0]: continue
     if k in _ent:
         keep = _ent[k]
-        # Better PICTURE first, then the shorter, plainer label. A tidier name
-        # is worth nothing if it is the worse feed.
-        rank = (TIER_RANK.get(measured_tier(sid) or tier_of(st['name']), 8),
-                len(asc(st['name'])))
-        rank_keep = (TIER_RANK.get(measured_tier(keep) or tier_of(ls_by_id[keep]['name']), 8),
-                     len(asc(ls_by_id[keep]['name'])))
+        # Shortest, plainest label wins — the original rule. Ranking on tier
+        # here is a trap: a feed's advertised tier lies 87% of the time on this
+        # panel, and preferring MEASURED tier instead reshuffles which sibling
+        # survives into later passes, which quietly deleted BBC One, Channel 4
+        # and Channel 5. Quality is already decided where it belongs, by the
+        # collapse tiles' own ranking. This pass only picks a label.
+        rank = len(asc(st['name']))
+        rank_keep = len(asc(ls_by_id[keep]['name']))
         if rank < rank_keep:
             suffix_dupe.append(keep); _ent[k] = sid
         else:
@@ -1498,9 +1527,18 @@ def _ent_key(n):
     x = re.sub(r'(?<=[a-z])\s+(?=\d)', '', re.sub(r'\s+', ' ', x).strip().lower())
     return x
 
+def _glue(x):
+    """"film 4" and "film4" are one channel. Applied to BOTH the key and the
+    allowed names — normalising only the key turned "channel 4" into
+    "channel4" while the list still said "channel 4", which deleted Channel 4
+    and Channel 5 outright."""
+    return re.sub(r'(?<=[a-z])\s+(?=\d)', '', x)
+
 def _allowed(key, allow):
     """Exact, or the allowed name followed by a word boundary: "bbc one london"
     is BBC One with a regional suffix, "bbc one" is the channel we listed."""
+    allow = {_glue(a) for a in allow} | set(allow)
+    key = _glue(key)
     if key in allow: return True
     for a in allow:
         if key.startswith(a) and (len(key) == len(a) or not key[len(a)].isalnum()):
@@ -1780,6 +1818,14 @@ _drop_lists = [
     ('alias_dupe', alias_dupe), ('misfiled_local', misfiled_local),
 ]
 _all_drops = [sid for _, lst in _drop_lists for sid in lst]
+# A tile's chosen primary is never a drop, whichever list caught it. The UK
+# regional fold puts every member of a group on a drop list and names one to
+# represent the channel — and BBC One's representative was then caught by the
+# exact-duplicate pass, so the fold left the country's most-watched channel
+# with no feed at all. The same guard the region drop already applies to
+# collapse members, applied to the tiles this pass builds.
+_all_drops = [sid for sid in _all_drops
+              if sid not in {t['primary'] for t in uk_collapse.values()}]
 _dropset = set(_all_drops)
 dead_tiles = 0
 for _tset in (collapse, metro_tiles):
