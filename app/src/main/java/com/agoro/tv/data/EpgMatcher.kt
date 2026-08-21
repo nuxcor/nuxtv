@@ -143,7 +143,17 @@ object EpgMatcher {
                 }
                 .map { it.second }
                 .distinct()
-            return pick(hits, channel)
+            // singleOrNull, NOT pick(). Arbitration is safe where the
+            // candidates answer to the SAME normalized name — two feeds of one
+            // channel — because the fuller schedule is then simply more of the
+            // same channel's day. It is not safe here: this stage matches on a
+            // token set differing by one, so "Fox" reaches both "Fox News" and
+            // "Fox Sports", which are different networks that share a
+            // territory. Ranking them by programme count does not choose the
+            // right one, it chooses the busier one, and a viewer gets another
+            // network's schedule all day. Several candidates here means the
+            // name does not identify a channel, which is a refusal.
+            return hits.singleOrNull()
         }
 
         val resolved = HashMap<String, String>()
