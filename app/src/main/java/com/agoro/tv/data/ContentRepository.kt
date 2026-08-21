@@ -122,56 +122,61 @@ class ContentRepository(context: Context) {
     }
 
     /**
-     * The merged guide, persisted so the next start publishes it instantly
-     * instead of holding a spinner through the multi-pack download. Gzipped:
-     * a merged guide serializes to tens of MB of JSON. Keyed by the guide URL
-     * inside the file so a swapped playlist never reads another's guide.
+     * The guide's programmes. On disk in a table, not on the heap and not in
+     * a JSON file — see [GuideStore] for why.
+     */
+    private val guide by lazy { GuideStore(appContext) }
+
+    /**
+     * Everything about a guide EXCEPT its programmes: the channel ids, their
+     * display names, and the alternates the matcher binds playlist channels
+     * against. A few thousand short strings, so it stays a small file and a
+     * warm start publishes it in milliseconds.
+     *
+     * The programmes used to be in here too. On a real playlist that made a
+     * 32 MB JSON document — and reading it meant inflating the whole guide
+     * into objects before the first row could draw, which is what "loading
+     * the guide" was actually waiting for even when nothing needed
+     * downloading. Keyed by guide URL so a swapped playlist never reads
+     * another's index.
      */
     @Serializable
-    private class EpgCacheFile(val url: String, val savedAtMs: Long, val data: XmltvData)
+    private class EpgIndexFile(val url: String, val savedAtMs: Long, val data: XmltvData)
 
-    private fun epgCacheFile() = java.io.File(appContext.filesDir, "epg-cache.json.gz")
+    private fun epgIndexFile() = java.io.File(appContext.filesDir, "epg-index.json.gz")
 
-    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     /**
-     * A guide cache this large is not worth reading — it is worth deleting.
-     *
-     * Before programmes were filtered to the channels a playlist can bind,
-     * this file reached 59 MB gzipped, which inflates to hundreds of
-     * megabytes of objects. A TV box does not have that, and the read did not
-     * fail politely: it took the app down, which a viewer sees as a freeze
-     * and then the launcher. The ceiling is generous next to the ~8 MB a
-     * filtered guide takes, so only a file from before the filter — or one
-     * that has grown pathological — trips it, and the guide simply
-     * re-downloads.
+     * The pre-table guide cache. Left behind by any version before this one
+     * and never read again, so it is deleted on sight rather than left to
+     * occupy tens of megabytes of a TV box's storage forever.
      */
-    private val EPG_CACHE_MAX_BYTES = 24L * 1024 * 1024
+    private fun deleteLegacyEpgCache() {
+        runCatching {
+            java.io.File(appContext.filesDir, "epg-cache.json.gz").takeIf { it.exists() }?.let {
+                android.util.Log.i("Agoro", "Removing ${it.length()} byte legacy guide cache")
+                it.delete()
+            }
+        }
+    }
 
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-    private fun readEpgCache(): EpgCacheFile? = runCatching {
-        val f = epgCacheFile().takeIf { it.exists() } ?: return null
-        if (f.length() > EPG_CACHE_MAX_BYTES) {
-            android.util.Log.w("Agoro", "Discarding ${f.length()} byte guide cache")
-            f.delete()
-            return null
-        }
+    private fun readEpgIndex(): EpgIndexFile? = runCatching {
+        val f = epgIndexFile().takeIf { it.exists() } ?: return null
         java.util.zip.GZIPInputStream(f.inputStream().buffered()).use { stream ->
-            bundleJson.decodeFromStream<EpgCacheFile>(stream)
+            bundleJson.decodeFromStream<EpgIndexFile>(stream)
         }
-        // OutOfMemoryError is an Error, not an Exception: runCatching sees it,
-        // but only because it catches Throwable — and a cache that OOMs once
-        // will OOM every start until it is gone.
     }.getOrElse { e ->
-        if (e is OutOfMemoryError) runCatching { epgCacheFile().delete() }
+        android.util.Log.w("Agoro", "Guide index unreadable: ${e.message}")
+        runCatching { epgIndexFile().delete() }
         null
     }
 
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-    private fun writeEpgCache(url: String, data: XmltvData) {
+    private fun writeEpgIndex(url: String, data: XmltvData) {
         runCatching {
-            atomicWrite(epgCacheFile()) { raw ->
+            atomicWrite(epgIndexFile()) { raw ->
                 java.util.zip.GZIPOutputStream(raw).use { stream ->
-                    bundleJson.encodeToStream(EpgCacheFile(url, System.currentTimeMillis(), data), stream)
+                    bundleJson.encodeToStream(EpgIndexFile(url, System.currentTimeMillis(), data), stream)
                 }
             }
         }
@@ -509,10 +514,18 @@ class ContentRepository(context: Context) {
     /**
      * The guide ids and name keys this playlist can bind to.
      *
-     * The manifest's own bindings come first and need no catalogue, so this
-     * answers even during login, when the guide download runs beside the
-     * first catalogue fetch. Empty means "keep everything" — the honest
-     * answer for a playlist no manifest describes.
+     * **Waits for the catalogue**, because a half-built filter is worse than
+     * no filter: the manifest's bindings alone answered for 672 of this
+     * playlist's 1,534 guide channels, and the other 862 were thrown away at
+     * parse time and could never be shown. That is what happened on every
+     * first sign-in, where the guide download runs beside the first catalogue
+     * fetch and the catalogue lands second — the viewer got half a guide and
+     * nothing said so.
+     *
+     * The wait costs nothing on the download: the packs are already in flight
+     * by the time this is asked (see [fetchAndMerge]). The timeout is there
+     * so a catalogue that never arrives leaves the guide filtered by the
+     * manifest rather than not loaded at all.
      */
     private suspend fun wantedGuideKeys(): Pair<Set<String>, Set<String>> {
         val ids = HashSet<String>()
@@ -520,19 +533,32 @@ class ContentRepository(context: Context) {
         manifests.load()?.epg?.channelMap?.values?.forEach { binding ->
             binding.id.takeIf { it.isNotBlank() }?.let { ids += it.lowercase() }
         }
-        (_content.value as? ContentState.Ready)?.bundle?.channels?.forEach { channel ->
+        val ready = _content.value as? ContentState.Ready
+            ?: kotlinx.coroutines.withTimeoutOrNull(90_000) {
+                content.first { it is ContentState.Ready } as ContentState.Ready
+            }
+        if (ready == null) android.util.Log.w("Agoro", "Guide filtered without a catalogue")
+        ready?.bundle?.channels?.forEach { channel ->
             channel.epgId?.takeIf { it.isNotBlank() }?.let { ids += it.lowercase() }
             names += EpgMatcher.normalizeKey(channel.name)
+            // Both names, because the matcher tries both: keeping only the
+            // raw name's key would filter away the very guide channels the
+            // display name is there to reach.
+            names += EpgMatcher.normalizeKey(channel.displayName)
         }
         return ids to names
     }
 
     private suspend fun fetchAndMerge(
         urls: List<String>,
-        wantedIds: Set<String> = emptySet(),
-        wantedNameKeys: Set<String> = emptySet(),
-        onPartial: (XmltvData) -> Unit = {},
+        /**
+         * Resolved AFTER the first pack is already downloading, so waiting
+         * for the catalogue costs the guide no wall-clock at all.
+         */
+        wantedKeys: suspend () -> Pair<Set<String>, Set<String>>,
+        onPartial: suspend (XmltvData) -> Unit = {},
     ): XmltvData = kotlinx.coroutines.coroutineScope {
+        guide.beginReplace()
         val now = System.currentTimeMillis()
         val merger = XmltvMerger()
         var latest: XmltvData? = null
@@ -562,6 +588,10 @@ class ContentRepository(context: Context) {
         }
 
         var pending = downloadAsync(urls.first())
+        // The bytes are moving; now it is safe to spend time working out what
+        // to keep from them.
+        val (wantedIds, wantedNameKeys) = wantedKeys()
+        var parsed: XmltvData? = null
         for (i in urls.indices) {
             val file = pending.await()
             if (i + 1 < urls.size) pending = downloadAsync(urls[i + 1])
@@ -569,15 +599,24 @@ class ContentRepository(context: Context) {
             val one = runCatching {
                 // The parser sniffs the gzip magic bytes itself, so the file
                 // needs no extension bookkeeping.
-                file.inputStream().buffered().use {
-                    XmltvParser.parse(
-                        it,
-                        windowStartMs = now - 30L * 3600 * 1000,
-                        windowEndMs = now + 48L * 3600 * 1000,
-                        wantedIds = wantedIds,
-                        wantedNameKeys = wantedNameKeys,
-                    )
+                //
+                // One transaction per pack, with the parser's programmes
+                // going straight to it: a pack's schedule is never a list in
+                // memory, not even briefly. Only the channel index the
+                // parser returns is kept.
+                guide.insertPack { sink ->
+                    file.inputStream().buffered().use {
+                        parsed = XmltvParser.parse(
+                            it,
+                            windowStartMs = now - 30L * 3600 * 1000,
+                            windowEndMs = now + 48L * 3600 * 1000,
+                            wantedIds = wantedIds,
+                            wantedNameKeys = wantedNameKeys,
+                            sink = sink::add,
+                        )
+                    }
                 }
+                parsed
             }.getOrElse { e ->
                 android.util.Log.w("Agoro", "EPG pack unreadable: ${e.message}")
                 null
@@ -589,11 +628,145 @@ class ContentRepository(context: Context) {
                 // bindings, so the grid fills within seconds of it landing
                 // instead of waiting out the whole queue.
                 latest = merger.build()
-                latest?.let(onPartial)
+                latest?.let {
+                    onPartial(it)
+                    // The pack is committed and published; without this the
+                    // grid would show its channels with empty rows until the
+                    // whole fold finished, which is the wait progressive
+                    // publishing exists to avoid.
+                    refreshNowWindow()
+                }
             }
         }
         latest ?: throw IOException("No guide pack could be loaded")
     }
+
+    // --- the resident guide window -------------------------------------------
+
+    /**
+     * The programmes currently in memory: one slice of the table, for the
+     * hours on screen. Descriptions are not in it (see [descriptionFor]).
+     */
+    private class GuideWindow(
+        val fromMs: Long,
+        val toMs: Long,
+        val byGuideId: Map<String, List<EpgProgram>>,
+    ) {
+        fun covers(from: Long, to: Long) = from >= fromMs && to <= toMs
+    }
+
+    /**
+     * Always loaded, always the hours around now: what Live TV's now/next,
+     * the mini guide, and search all read. Never evicted, because something
+     * on screen always wants "what's on".
+     */
+    @Volatile
+    private var nowWindow: GuideWindow? = null
+
+    /**
+     * The day the full guide has been paged to, when that is not today. One
+     * slot, replaced on the next page — paging back and forth costs a query,
+     * where holding every visited day is how the heap filled up in the first
+     * place.
+     */
+    @Volatile
+    private var pagedWindow: GuideWindow? = null
+
+    private val windowLock = Mutex()
+
+    /**
+     * Bumped whenever a window is loaded. Everything that caches a read of
+     * [programsFor] keys on it — the window fills after the guide publishes,
+     * so a cache keyed only on the guide would hold the empty answer it got
+     * while the query was still running.
+     */
+    private val _guideWindowRevision = MutableStateFlow(0)
+    val guideWindowRevision: StateFlow<Int> = _guideWindowRevision
+
+    /** How far either side of now the resident window reaches. */
+    private val NOW_WINDOW_BACK_MS = 2L * 3600 * 1000
+    private val NOW_WINDOW_AHEAD_MS = 32L * 3600 * 1000
+
+    /**
+     * Loads the programmes for [fromMs, toMs] if they are not already
+     * resident. Call from a coroutine; [programsFor] only reads what this
+     * leaves behind, because it is called per channel from composition.
+     */
+    suspend fun ensureGuideWindow(fromMs: Long, toMs: Long) {
+        if (nowWindow?.covers(fromMs, toMs) == true) return
+        if (pagedWindow?.covers(fromMs, toMs) == true) return
+        // The bound ids, not every id in the guide: a feed carries channels
+        // this playlist does not, and querying for them costs rows nothing
+        // will ever draw. Before the resolution is warm, everything with a
+        // schedule is the honest answer.
+        val ids = withContext(Dispatchers.Default) {
+            resolveEpg()?.byChannelId?.values?.toSet()
+                ?: (_epg.value as? EpgState.Ready)?.data?.channelsWithProgrammes
+        } ?: return
+        windowLock.withLock {
+            if (nowWindow?.covers(fromMs, toMs) == true) return
+            if (pagedWindow?.covers(fromMs, toMs) == true) return
+            val loaded = withContext(Dispatchers.IO) {
+                GuideWindow(fromMs, toMs, guide.programmes(ids, fromMs, toMs))
+            }
+            val now = System.currentTimeMillis()
+            if (loaded.covers(now, now)) nowWindow = loaded else pagedWindow = loaded
+            _guideWindowRevision.value++
+        }
+    }
+
+    /** Reloads the now-window — after an ingest, or when now has walked out of it. */
+    suspend fun refreshNowWindow() {
+        val now = System.currentTimeMillis()
+        windowLock.withLock { nowWindow = null }
+        ensureGuideWindow(now - NOW_WINDOW_BACK_MS, now + NOW_WINDOW_AHEAD_MS)
+    }
+
+    /**
+     * The synopsis for one programme, read when it is the one under the
+     * cursor. Descriptions are 70% of a guide's text and are shown one at a
+     * time, so they are the part that stays in the table.
+     */
+    suspend fun descriptionFor(programId: String): String? {
+        val channelId = programId.substringBeforeLast(':', "").ifEmpty { return null }
+        val startMs = programId.substringAfterLast(':').toLongOrNull() ?: return null
+        return withContext(Dispatchers.IO) { guide.description(channelId, startMs) }
+    }
+
+    /**
+     * The guide id this playlist channel binds to: the fuzzy resolution when
+     * it is warm, otherwise the exact lookups (tvg-id, then display name)
+     * that keep the guide working until it is. Never computes the resolution
+     * itself — it is reached from composition.
+     */
+    private fun guideIdFor(channel: LiveChannel): String? {
+        val data = (_epg.value as? EpgState.Ready)?.data ?: return null
+        val bundle = (_content.value as? ContentState.Ready)?.bundle
+        resolvedEpg?.let { cache ->
+            // A warm resolution is the whole answer, including its refusals:
+            // falling through to the exact lookups when it says "no match"
+            // would reinstate the bindings it deliberately rejected.
+            if (cache.bundle === bundle && cache.data === data) {
+                return cache.resolution.byChannelId[channel.id]
+            }
+        }
+        return channel.epgId?.lowercase()?.takeIf { it in data.channelsWithProgrammes }
+            ?: data.nameToId[channel.name.trim().lowercase()]
+    }
+
+    /**
+     * One channel's schedule with synopses, for the schedule sheet. Reads
+     * the table directly rather than the resident window, because the window
+     * deliberately carries no descriptions.
+     */
+    suspend fun scheduleFor(channel: LiveChannel, fromMs: Long, toMs: Long): List<EpgProgram> {
+        val guideId = guideIdFor(channel) ?: return emptyList()
+        return withContext(Dispatchers.IO) { guide.schedule(guideId, fromMs, toMs) }
+    }
+
+    /** When the stored guide runs out — how far the grid will page forward. */
+    suspend fun lastProgrammeEndMs(): Long =
+        withContext(Dispatchers.IO) { guide.lastProgrammeEndMs() }
 
 
     /**
@@ -646,13 +819,22 @@ class ContentRepository(context: Context) {
             // 48h ceiling is the guide window — beyond it the cache holds
             // nothing that is still on air.
             if (_epg.value !is EpgState.Ready) {
-                val cached = withContext(Dispatchers.IO) { readEpgCache() }
-                if (cached != null && cached.url == url) {
+                val cached = withContext(Dispatchers.IO) {
+                    deleteLegacyEpgCache()
+                    // Both halves have to agree: the index names the channels
+                    // and the table holds their schedule, and an index without
+                    // its table would publish a guide of empty rows.
+                    val index = readEpgIndex()?.takeIf { it.url == url }
+                    val stamp = guide.readStamp()?.takeIf { it.first == url }
+                    if (index != null && stamp != null) index else null
+                }
+                if (cached != null) {
                     val age = System.currentTimeMillis() - cached.savedAtMs
                     if (age < 48 * 3600_000L) {
                         _epg.value = EpgState.Ready(cached.data)
                         lastEpgUrl = url
                         lastEpgLoadedAt = cached.savedAtMs
+                        refreshNowWindow()
                         if (age < 6 * 3600_000L) return@withLock
                     }
                 }
@@ -662,7 +844,6 @@ class ContentRepository(context: Context) {
             // the grid before the fold catches back up.
             val publishPartials = _epg.value !is EpgState.Ready
             if (publishPartials) _epg.value = EpgState.Loading
-            val (wantedIds, wantedNameKeys) = wantedGuideKeys()
             withContext(Dispatchers.IO) {
                 runCatching {
                     // Several feeds merge into one guide: the manifest's ids are
@@ -671,13 +852,13 @@ class ContentRepository(context: Context) {
                     if (urls.size > 1) {
                         return@runCatching fetchAndMerge(
                             urls,
-                            wantedIds = wantedIds,
-                            wantedNameKeys = wantedNameKeys,
+                            wantedKeys = ::wantedGuideKeys,
                         ) { partial ->
                             if (publishPartials) _epg.value = EpgState.Ready(partial)
                         }
                     }
                     val request = Request.Builder().url(url).header("User-Agent", "Agoro/2.1").build()
+                    guide.beginReplace()
                     http.newCall(request).execute().use { resp ->
                         // Plain language for the viewer, the status for the
                         // bug report. The banner shows neither of these now
@@ -692,21 +873,35 @@ class ContentRepository(context: Context) {
                         )
                         val body = resp.body ?: throw IOException("Empty guide response")
                         val now = System.currentTimeMillis()
-                        XmltvParser.parse(
-                            body.byteStream(),
-                            windowStartMs = now - 30L * 3600 * 1000,
-                            windowEndMs = now + 48L * 3600 * 1000,
-                            wantedIds = wantedIds,
-                            wantedNameKeys = wantedNameKeys,
-                        )
+                        // Asked only once the response is open, for the same
+                        // reason the multi-pack path asks after the first
+                        // download starts.
+                        val (wantedIds, wantedNameKeys) = wantedGuideKeys()
+                        var parsed: XmltvData? = null
+                        guide.insertPack { sink ->
+                            parsed = XmltvParser.parse(
+                                body.byteStream(),
+                                windowStartMs = now - 30L * 3600 * 1000,
+                                windowEndMs = now + 48L * 3600 * 1000,
+                                wantedIds = wantedIds,
+                                wantedNameKeys = wantedNameKeys,
+                                sink = sink::add,
+                            )
+                        }
+                        parsed ?: throw IOException("Empty guide response")
                     }
                 }.onSuccess { data ->
                     _epg.value = EpgState.Ready(data)
                     lastEpgUrl = url
                     lastEpgLoadedAt = System.currentTimeMillis()
-                    // Written only on a real fetch — re-stamping the file when a
+                    // Stamped only on a complete ingest — a table stamped from
+                    // a half-finished download would be trusted on the next
+                    // start and never re-fetched. Same reason the index is
+                    // written only on a real fetch: re-stamping it when a
                     // refresh fails would disguise stale data as fresh.
-                    writeEpgCache(url, data)
+                    guide.stamp(url)
+                    writeEpgIndex(url, data)
+                    refreshNowWindow()
                 }.onFailure { e ->
                     android.util.Log.w("Agoro", "EPG load failed: ${e.message}")
                     // Keep an existing guide rather than replacing it with an error.
@@ -744,26 +939,38 @@ class ContentRepository(context: Context) {
     }
 
     /**
-     * Programmes for a channel from the loaded XMLTV data. Served from the
-     * fuzzy resolution when it is warm; before that, the original exact
-     * lookups (tvg-id, then display name) keep the guide working — this path
-     * must never compute the resolution itself.
+     * Programmes for a channel, from whichever window is resident. Called
+     * per channel from composition, so it never queries and never blocks —
+     * [ensureGuideWindow] is what puts the hours on screen in memory, and
+     * until it has, a row draws empty and fills on the next frame.
+     *
+     * Served through the fuzzy resolution when it is warm; before that, the
+     * exact lookups (tvg-id, then display name) keep the guide working. This
+     * path must never compute the resolution itself.
      */
     fun programsFor(channel: LiveChannel): List<EpgProgram> {
-        val data = (_epg.value as? EpgState.Ready)?.data ?: return emptyList()
-        val bundle = (_content.value as? ContentState.Ready)?.bundle
-        resolvedEpg?.let { cache ->
-            if (cache.bundle === bundle && cache.data === data) {
-                return cache.resolution.byChannelId[channel.id]
-                    ?.let { data.programmes[it] }
-                    ?: emptyList()
-            }
+        val guideId = guideIdFor(channel) ?: return emptyList()
+        return nowWindow?.byGuideId?.get(guideId) ?: emptyList()
+    }
+
+    /**
+     * Programmes for a channel over a stated span — the guide grid's read,
+     * because the grid is the only caller that can be looking at hours other
+     * than these.
+     *
+     * Separate from [programsFor] deliberately. A single lookup that
+     * preferred whichever window was most recently loaded would hand a guide
+     * paged to Thursday back to Live TV's now/next, which would then report
+     * Thursday's programme as what is on right now.
+     */
+    fun programsIn(channel: LiveChannel, fromMs: Long, toMs: Long): List<EpgProgram> {
+        val window = when {
+            nowWindow?.covers(fromMs, toMs) == true -> nowWindow
+            pagedWindow?.covers(fromMs, toMs) == true -> pagedWindow
+            else -> return emptyList()
         }
-        channel.epgId?.lowercase()?.let { id ->
-            data.programmes[id]?.let { return it }
-        }
-        val byNameId = data.nameToId[channel.name.trim().lowercase()]
-        return byNameId?.let { data.programmes[it] } ?: emptyList()
+        val guideId = guideIdFor(channel) ?: return emptyList()
+        return window?.byGuideId?.get(guideId) ?: emptyList()
     }
 
     /**

@@ -252,7 +252,17 @@ internal fun LiveTab(
         onOpenSettings = onOpenSettings,
     )
     scheduleChannel?.let { channel ->
-        val programs = remember(channel.id, epgState) { vm.programsFor(channel) }
+        // Read from the guide table rather than the resident window: this
+        // sheet puts a line of synopsis under every title, and the window
+        // deliberately carries none. One channel's worth, one query.
+        val programs by androidx.compose.runtime.produceState(
+            initialValue = emptyList<com.agoro.tv.data.EpgProgram>(),
+            channel.id,
+            epgState,
+        ) {
+            val from = System.currentTimeMillis() - 3600_000L
+            value = vm.scheduleFor(channel, from, from + 8L * 24 * 3600_000)
+        }
         ChannelSchedule(
             channel = channel,
             programs = programs,

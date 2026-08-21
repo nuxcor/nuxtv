@@ -45,6 +45,7 @@ import com.agoro.tv.data.ContentBundle
 import com.agoro.tv.data.ContentRepository
 import com.agoro.tv.data.ContentState
 import com.agoro.tv.data.EpgProgram
+import com.agoro.tv.ui.components.rememberProgramDescription
 import com.agoro.tv.data.LiveChannel
 import com.agoro.tv.ui.components.StatusPane
 import com.agoro.tv.ui.components.rememberClockFormat
@@ -132,6 +133,9 @@ internal fun PlayerGuideOverlay(
         now - now % (30 * 60_000L) - 60 * 60_000L
     }
     val windowEnd = windowStart + 30 * 3600_000L
+    // Today, which the repository keeps resident — no query, but the rows
+    // still have to rebuild when it lands during a cold start.
+    val guideWindow by vm.guideWindowRevision.collectAsState()
 
     val timelineScroll = rememberScrollState()
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
@@ -198,6 +202,7 @@ internal fun PlayerGuideOverlay(
                     .border(1.dp, NuxColors.Stroke, NuxShape.Track),
             )
             GuideDetails(
+                vm = vm,
                 // Lambdas, not values: read in this scope they would recompose
                 // the whole overlay — grid included — on every cell the cursor
                 // passes over.
@@ -245,8 +250,8 @@ internal fun PlayerGuideOverlay(
                 TimeRuler(windowStart, windowEnd, nowTick, nowTick, timelineScroll, dpPerMinute)
                 GuideGrid(
                     channels = channels,
-                    programsFor = { vm.programsFor(it) },
-                    programsKey = epgState,
+                    programsFor = { vm.programsIn(it, windowStart, windowEnd) },
+                    programsKey = epgState to guideWindow,
                     windowStart = windowStart,
                     windowEnd = windowEnd,
                     nowMs = nowTick,
@@ -301,6 +306,7 @@ internal fun PlayerGuideOverlay(
  */
 @Composable
 private fun GuideDetails(
+    vm: MainViewModel,
     channel: () -> LiveChannel?,
     program: () -> EpgProgram?,
     nowMs: Long,
@@ -310,6 +316,9 @@ private fun GuideDetails(
     val dateFmt = remember { SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault()) }
     val current = channel()
     val currentProgram = program()
+    // Read from the guide table for this one programme. The grid's cells
+    // arrive without synopses on purpose — see [rememberProgramDescription].
+    val synopsis = rememberProgramDescription(vm, currentProgram)
 
     Row(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.weight(1f)) {
@@ -374,10 +383,10 @@ private fun GuideDetails(
                 }
             }
 
-            if (!currentProgram?.description.isNullOrBlank()) {
+            if (!synopsis.isNullOrBlank()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = currentProgram?.description.orEmpty(),
+                    text = synopsis,
                     style = MaterialTheme.typography.bodyMedium,
                     color = NuxColors.OnSurfaceDim,
                     maxLines = 3,

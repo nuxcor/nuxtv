@@ -19,6 +19,7 @@ splashscreen = "1.0.1"
 profileinstaller = "1.4.1"
 coroutines = "1.10.2"
 junit = "4.13.2"
+robolectric = "4.16"
 benchmark = "1.4.1"
 uiautomator = "2.3.0"
 testJunit = "1.2.1"
@@ -55,6 +56,7 @@ androidx-splashscreen = { group = "androidx.core", name = "core-splashscreen", v
 androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 androidx-test-junit = { group = "androidx.test.ext", name = "junit", version.ref = "testJunit" }
 androidx-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
 androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmark" }

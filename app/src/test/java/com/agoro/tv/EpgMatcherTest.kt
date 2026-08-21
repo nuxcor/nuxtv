@@ -156,4 +156,45 @@ class EpgMatcherTest {
         val res = EpgMatcher.resolve(listOf(ch("c1", "UK| Sky Sports 1 FHD")), data)
         assertNull(res.byChannelId["c1"])
     }
+
+    /**
+     * The rows that read "No information" while their schedule sat in the
+     * table: the provider decorates its names, no guide does, and matching
+     * only the raw name meant a whole block of channels bound to nothing.
+     */
+    @Test
+    fun `a decorated provider name still finds its guide channel`() {
+        val data = guide(mapOf("hbocomedy.us" to listOf("HBO Comedy")))
+        val resolution = EpgMatcher.resolve(
+            listOf(ch("live:1", "PRIME: HBO COMEDY \u1d3f\u1d2c\u1d42")),
+            data,
+        )
+        assertEquals("hbocomedy.us", resolution.byChannelId["live:1"])
+    }
+
+    /** A precise name still wins; the display name is a fallback, not an override. */
+    @Test
+    fun `the raw name is preferred over the display name`() {
+        val data = guide(
+            mapOf(
+                "sky.sports.hd.uk" to listOf("Sky Sports HD"),
+                "sky.sports.uk" to listOf("Sky Sports"),
+            )
+        )
+        val resolution = EpgMatcher.resolve(listOf(ch("live:1", "Sky Sports HD")), data)
+        assertEquals("sky.sports.hd.uk", resolution.byChannelId["live:1"])
+    }
+
+    /** Falling back must not start guessing where the answer is ambiguous. */
+    @Test
+    fun `an ambiguous display name still resolves to nothing`() {
+        val data = guide(
+            mapOf(
+                "court.tv.uk" to listOf("Court TV"),
+                "courttv.us" to listOf("Court TV"),
+            )
+        )
+        val resolution = EpgMatcher.resolve(listOf(ch("live:1", "PRIME: COURT TV")), data)
+        assertNull(resolution.byChannelId["live:1"])
+    }
 }

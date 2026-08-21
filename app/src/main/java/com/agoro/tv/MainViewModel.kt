@@ -221,8 +221,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     resolution.matched * 5 >= resolution.total,
                 matched = resolution.matched,
                 total = resolution.total,
-                lastProgramEndMs = data.programmes.values
-                    .maxOfOrNull { list -> list.maxOfOrNull { it.endMs } ?: 0L } ?: 0L,
+                // One indexed aggregate over the stored guide. Walking every
+                // programme in memory to find the largest end was both the
+                // slowest part of this combine and, now that programmes live
+                // in the table, an answer of zero.
+                lastProgramEndMs = repo.lastProgrammeEndMs(),
             )
         }
             .flowOn(kotlinx.coroutines.Dispatchers.Default)
@@ -259,9 +262,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     @Volatile private var nowNextCache: Map<String, NowNext> = emptyMap()
     @Volatile private var nowNextCacheBundle: ContentBundle? = null
     @Volatile private var nowNextCacheEpg: Any? = null
+    @Volatile private var nowNextCacheRevision: Int = -1
 
     val nowNext: StateFlow<Map<String, NowNext>> =
-        kotlinx.coroutines.flow.combine(content, epgState, minuteTicker) { c, epg, now ->
+        kotlinx.coroutines.flow.combine(
+            content,
+            epgState,
+            minuteTicker,
+            repo.guideWindowRevision,
+        ) { c, epg, now, revision ->
             val bundle = (c as? ContentState.Ready)?.bundle ?: return@combine emptyMap()
             // Rescanning every channel's whole programme list once a minute is
             // a CPU and allocation spike that lands as micro-stutter during
@@ -270,7 +279,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // Reference identity, not hashes: a hash collision would silently
             // serve one playlist's guide data for another's.
             val previous =
-                if (nowNextCacheBundle === bundle && nowNextCacheEpg === epg) nowNextCache
+                if (nowNextCacheBundle === bundle && nowNextCacheEpg === epg &&
+                    nowNextCacheRevision == revision
+                ) nowNextCache
                 else emptyMap()
             var changed = previous.size != bundle.channels.size
             val refreshed = HashMap<String, NowNext>(bundle.channels.size)
@@ -291,6 +302,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             nowNextCacheBundle = bundle
             nowNextCacheEpg = epg
+            nowNextCacheRevision = revision
             // Returning the previous instance when nothing moved lets StateFlow
             // dedupe the emission, so an idle minute costs no recomposition.
             val result = if (changed) refreshed else previous
@@ -862,6 +874,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         repo.catchupUrl(channel, program)
 
     fun programsFor(channel: LiveChannel): List<EpgProgram> = repo.programsFor(channel)
+
+    /** The guide grid's read — see [ContentRepository.programsIn] for why it is separate. */
+    fun programsIn(channel: LiveChannel, fromMs: Long, toMs: Long): List<EpgProgram> =
+        repo.programsIn(channel, fromMs, toMs)
+
+    /**
+     * Puts the hours [fromMs, toMs] in memory. The guide grid calls this when
+     * the day it is showing changes; everything else rides the now-window the
+     * repository keeps loaded.
+     */
+    suspend fun ensureGuideWindow(fromMs: Long, toMs: Long) = repo.ensureGuideWindow(fromMs, toMs)
+
+    /** Bumped whenever the resident guide window changes; see [ensureGuideWindow]. */
+    val guideWindowRevision: StateFlow<Int> = repo.guideWindowRevision
+
+    /** The synopsis for one programme, read when it is the one on screen. */
+    suspend fun descriptionFor(programId: String): String? = repo.descriptionFor(programId)
+
+    /** One channel's schedule, synopses included — for the schedule sheet. */
+    suspend fun scheduleFor(channel: LiveChannel, fromMs: Long, toMs: Long): List<EpgProgram> =
+        repo.scheduleFor(channel, fromMs, toMs)
 
     /** Latest learned real tiers, for synchronous consumers (search). */
     private val knownQualitiesNow: StateFlow<Map<String, String>> =

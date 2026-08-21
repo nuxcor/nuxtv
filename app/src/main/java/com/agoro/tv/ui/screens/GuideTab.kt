@@ -50,6 +50,7 @@ import com.agoro.tv.data.Category
 import com.agoro.tv.data.ContentBundle
 import com.agoro.tv.data.ContentRepository
 import com.agoro.tv.data.EpgProgram
+import com.agoro.tv.ui.components.rememberProgramDescription
 import com.agoro.tv.data.LiveChannel
 import com.agoro.tv.ui.components.Artwork
 import com.agoro.tv.ui.components.rememberClockFormat
@@ -66,6 +67,7 @@ import com.agoro.tv.ui.components.StatusPane
 import com.agoro.tv.ui.components.requestFocusRetrying
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import com.agoro.tv.ui.theme.NuxColors
 import com.agoro.tv.ui.theme.NuxMotion
 import com.agoro.tv.ui.theme.NuxShape
@@ -219,6 +221,12 @@ fun GuideTab(
     }
     val windowStart = baseStart + dayOffset * 24 * 3600_000L
     val windowEnd = windowStart + 30 * 3600_000L
+    // Programmes live in a table; this is what puts the day being viewed in
+    // memory. Today is already resident, so paging is the only case that
+    // waits, and it waits on one indexed query rather than on a guide-sized
+    // object graph.
+    LaunchedEffect(windowStart, windowEnd) { vm.ensureGuideWindow(windowStart, windowEnd) }
+    val guideWindow by vm.guideWindowRevision.collectAsState()
     // Ticks every 30s so the clock, "Now" highlighting and click
     // behaviour stay live.
     var nowTick by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -380,7 +388,6 @@ fun GuideTab(
         // repeating four words nineteen times, where the eye is trying to find
         // a section. Named once per run, the chips carry only what differs.
         val strip = remember(categories) { groupByRegion(categories) }
-        val firstChipIndex = remember(strip) { strip.indexOfFirst { it is StripEntry.Chip } }
         androidx.compose.foundation.lazy.LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -390,6 +397,23 @@ fun GuideTab(
             // from the rest DOWN found nothing and bounced back to chip one.
             modifier = Modifier
                 .padding(bottom = 10.dp)
+                // The requester lives on the ROW, not on a chip.
+                //
+                // It used to be attached to the first chip, on the reasoning
+                // that the first chip is always composed. In a LazyRow it is
+                // not: scroll the strip a few chips right and that item is
+                // disposed, while `dayUp` and `upFromTopRow` still redirect
+                // UP to its requester — and resolving a redirect to a
+                // detached requester THROWS. That is the crash behind
+                // "the app froze and went back to the Google TV home
+                // screen": browse the strip sideways, then press UP.
+                //
+                // On the row it is always attached, and focusRestorer returns
+                // focus to the chip that had it rather than snapping back to
+                // chip one, which in a nineteen-chip strip lost your place
+                // every time you came up from the grid.
+                .focusRequester(chipsFocus)
+                .focusRestorer()
                 .then(
                     if (maxDayOffset > 0) {
                         Modifier.onPreviewKeyEvent { event ->
@@ -421,15 +445,6 @@ fun GuideTab(
                     // Locked categories still need the OK press (and
                     // its PIN prompt); dwell must not walk past a PIN.
                     onFocus = { if (!locked) focusedCategory = category.id },
-                    // UP from the grid's top row lands on the first
-                    // chip — always composed at the row's start, so
-                    // the target requester is always attached.
-                    // UP from the grid's top row lands on the first chip.
-                    // It is the first CHIP, not the first entry: a region
-                    // label leads the run and cannot take focus.
-                    modifier = if (index == firstChipIndex) {
-                        Modifier.focusRequester(chipsFocus)
-                    } else Modifier,
                     locked = locked,
                 )
             }
@@ -445,6 +460,7 @@ fun GuideTab(
             }
         }
         GuideHeader(
+            vm = vm,
             // Lambdas, not values: read in this scope these would
             // invalidate the whole guide — LazyColumn and every visible
             // row — on each cell the cursor passes over.
@@ -484,8 +500,15 @@ fun GuideTab(
             // Remembered, not rebuilt per composition: an unstable lambda
             // is a changed parameter, and a changed parameter recomposes
             // every row it reaches — on a guide that is hundreds of cells.
-            programsFor = remember(vm) { { channel: LiveChannel -> vm.programsFor(channel) } },
-            programsKey = epgState,
+            // Keyed on the window: the grid can be paged to a day the
+            // now/next path must never be served from.
+            programsFor = remember(vm, windowStart, windowEnd) {
+                { channel: LiveChannel -> vm.programsIn(channel, windowStart, windowEnd) }
+            },
+            // The window is filled asynchronously, so a row cache keyed only
+            // on the guide would hold the empty answer it got while the query
+            // was still running.
+            programsKey = epgState to guideWindow,
             onChannelLongPress = onChannelLongPress,
             windowStart = windowStart,
             windowEnd = windowEnd,
@@ -547,6 +570,7 @@ fun GuideTab(
  */
 @Composable
 private fun GuideHeader(
+    vm: MainViewModel,
     channel: () -> LiveChannel?,
     program: () -> EpgProgram?,
     nowMs: Long,
@@ -558,6 +582,9 @@ private fun GuideHeader(
     val dateFmt = remember { SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault()) }
     val current = channel()
     val currentProgram = program()
+    // Read from the guide table for this one programme. The grid's cells
+    // arrive without synopses on purpose — see [rememberProgramDescription].
+    val synopsis = rememberProgramDescription(vm, currentProgram)
 
     Row(
         // Fixed, deliberately. heightIn(min=) let the artwork's fillMaxSize
@@ -696,10 +723,10 @@ private fun GuideHeader(
                 }
             }
 
-            if (!currentProgram?.description.isNullOrBlank()) {
+            if (!synopsis.isNullOrBlank()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = currentProgram?.description.orEmpty(),
+                    text = synopsis,
                     style = MaterialTheme.typography.bodyMedium,
                     color = NuxColors.OnSurfaceDim,
                     maxLines = 2,

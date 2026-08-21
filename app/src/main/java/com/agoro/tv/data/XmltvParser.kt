@@ -33,6 +33,7 @@ class XmltvMerger {
     private val normalizedToId = HashMap<String, String>()
     private val contested = HashSet<String>()
     private val programmes = HashMap<String, MutableList<EpgProgram>>()
+    private val programmeChannels = HashSet<String>()
     private var count = 0
 
     val isEmpty: Boolean get() = count == 0
@@ -53,6 +54,7 @@ class XmltvMerger {
         data.programmes.forEach { (k, v) ->
             programmes.getOrPut(k) { ArrayList(v.size) }.addAll(v)
         }
+        programmeChannels += data.channelsWithProgrammes
     }
 
     /**
@@ -81,6 +83,7 @@ class XmltvMerger {
             nameToId = HashMap(nameToId),
             normalizedToId = resolvable,
             altNames = HashMap(altNames),
+            programmeChannels = HashSet(programmeChannels),
         )
     }
 }
@@ -89,7 +92,14 @@ class XmltvMerger {
 data class XmltvData(
     /** channel id → first display name (both trimmed). */
     val channelNames: Map<String, String>,
-    /** lowercase channel id → programmes sorted by start. */
+    /**
+     * lowercase channel id → programmes sorted by start.
+     *
+     * Empty when the guide is store-backed, which is the normal path — the
+     * schedule is the part that would not fit in memory, so it lives in
+     * [GuideStore] and [channelsWithProgrammes] carries what the matcher
+     * needs to know about it.
+     */
     val programmes: Map<String, List<EpgProgram>>,
     /** lowercase display name (every alternate) → lowercase channel id. */
     val nameToId: Map<String, String>,
@@ -102,7 +112,17 @@ data class XmltvData(
     val normalizedToId: Map<String, String> = emptyMap(),
     /** lowercase channel id → all display-name alternates. */
     val altNames: Map<String, List<String>> = emptyMap(),
-)
+    /**
+     * Guide ids that carry a schedule. The matcher refuses a channel whose
+     * lane would be empty, and with programmes in the store it cannot learn
+     * that by looking at [programmes]. Falls back to [programmes]' own keys
+     * for the in-memory path.
+     */
+    private val programmeChannels: Set<String> = emptySet(),
+) {
+    val channelsWithProgrammes: Set<String>
+        get() = if (programmeChannels.isNotEmpty()) programmeChannels else programmes.keys
+}
 
 /**
  * Streaming parser for XMLTV guides (plain or gzipped), as served by
@@ -134,6 +154,15 @@ object XmltvParser {
         wantedIds: Set<String> = emptySet(),
         /** [EpgMatcher.normalizeKey] of this playlist's channel names. */
         wantedNameKeys: Set<String> = emptySet(),
+        /**
+         * Where programmes go. Given a sink they are handed over one at a
+         * time and never accumulated, so a pack is bounded by its channel
+         * DECLARATIONS — kilobytes — instead of by its schedule. The returned
+         * [XmltvData.programmes] is then empty and
+         * [XmltvData.channelsWithProgrammes] carries what the matcher needs.
+         * Null keeps the old in-memory behaviour, which the tests use.
+         */
+        sink: ((ProgrammeRow) -> Unit)? = null,
     ): XmltvData {
         // SimpleDateFormat is not thread-safe; create per parse call.
         val zoned = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US)
@@ -157,6 +186,7 @@ object XmltvParser {
         // them may be the one a playlist uses.
         val channelAlts = LinkedHashMap<String, MutableList<String>>()
         val programmes = HashMap<String, MutableList<EpgProgram>>()
+        val withProgrammes = HashSet<String>()
 
         val parser = XmlPullParserFactory.newInstance().newPullParser()
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
@@ -221,14 +251,28 @@ object XmltvParser {
                     "display-name", "title", "desc" -> textTarget = TextTarget.NONE
                     "programme" -> {
                         programme?.let { p ->
-                            programmes.getOrPut(p.channel.lowercase()) { mutableListOf() } += EpgProgram(
-                                id = "${p.channel}:${p.startMs}",
-                                title = p.title ?: "Untitled",
-                                description = p.desc?.take(MAX_DESCRIPTION_LENGTH),
-                                startMs = p.startMs,
-                                endMs = p.stopMs,
-                                hasArchive = false,
-                            )
+                            val channelId = p.channel.lowercase()
+                            if (sink != null) {
+                                withProgrammes += channelId
+                                sink(
+                                    ProgrammeRow(
+                                        channelId = channelId,
+                                        startMs = p.startMs,
+                                        endMs = p.stopMs,
+                                        title = p.title ?: "Untitled",
+                                        description = p.desc?.take(MAX_DESCRIPTION_LENGTH),
+                                    )
+                                )
+                            } else {
+                                programmes.getOrPut(channelId) { mutableListOf() } += EpgProgram(
+                                    id = "${p.channel}:${p.startMs}",
+                                    title = p.title ?: "Untitled",
+                                    description = p.desc?.take(MAX_DESCRIPTION_LENGTH),
+                                    startMs = p.startMs,
+                                    endMs = p.stopMs,
+                                    hasArchive = false,
+                                )
+                            }
                         }
                         programme = null
                     }
@@ -262,6 +306,7 @@ object XmltvParser {
             nameToId = nameToId,
             normalizedToId = normalizedToId,
             altNames = altNames,
+            programmeChannels = withProgrammes,
         )
     }
 

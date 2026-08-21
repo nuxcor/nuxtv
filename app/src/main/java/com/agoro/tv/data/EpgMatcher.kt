@@ -76,7 +76,7 @@ object EpgMatcher {
         // Token index for stage d, built once: first token → candidates.
         val buckets = HashMap<String, MutableList<Pair<Set<String>, String>>>()
         data.altNames.forEach { (id, names) ->
-            if (id !in data.programmes) return@forEach
+            if (id !in data.channelsWithProgrammes) return@forEach
             names.forEach { alt ->
                 val tokens = normalizeTokens(alt)
                 tokens.firstOrNull()?.let { first ->
@@ -86,10 +86,12 @@ object EpgMatcher {
         }
 
         fun exactName(name: String?): String? =
-            name?.trim()?.lowercase()?.let { data.nameToId[it] }?.takeIf { it in data.programmes }
+            name?.trim()?.lowercase()?.let { data.nameToId[it] }
+                ?.takeIf { it in data.channelsWithProgrammes }
 
         fun normalized(name: String?): String? =
-            name?.let { data.normalizedToId[normalizeKey(it)] }?.takeIf { it in data.programmes }
+            name?.let { data.normalizedToId[normalizeKey(it)] }
+                ?.takeIf { it in data.channelsWithProgrammes }
 
         fun tieBreak(name: String): String? {
             val tokens = normalizeTokens(name)
@@ -107,11 +109,19 @@ object EpgMatcher {
 
         val resolved = HashMap<String, String>()
         for (channel in channels) {
-            val id = channel.epgId?.lowercase()?.takeIf { it in data.programmes }
+            val id = channel.epgId?.lowercase()?.takeIf { it in data.channelsWithProgrammes }
                 ?: exactName(channel.name)
                 ?: exactName(channel.tvgName)
                 ?: normalized(channel.name)
                 ?: normalized(channel.tvgName)
+                // The name a viewer actually reads. The raw name carries the
+                // provider's decoration — "PRIME: HBO COMEDY ᴿᴬᵂ" — and no
+                // guide on earth calls the channel that, so a whole block of
+                // rows sat on "No information" while their schedule was
+                // sitting in the table under "hbocomedy.us". Tried after the
+                // raw and tvg names, so it can only bind a channel that
+                // nothing more precise has claimed.
+                ?: normalized(channel.displayName)
                 ?: tieBreak(channel.name)
             if (id != null) resolved[channel.id] = id
         }

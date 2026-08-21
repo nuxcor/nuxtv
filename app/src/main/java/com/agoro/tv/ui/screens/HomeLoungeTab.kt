@@ -249,6 +249,15 @@ fun HomeLoungeTab(
         if (shownHero != null) kotlinx.coroutines.delay(NuxMotion.HeroDebounceMs.toLong())
         shownHero = activeHero
         onHeroChange(activeHero)
+        // One hero is on screen at a time, so this is the one guide synopsis
+        // worth reading — after the debounce, so travelling a row of channels
+        // costs no queries at all.
+        val key = activeHero?.plotKey ?: return@LaunchedEffect
+        if (!activeHero.plot.isNullOrBlank()) return@LaunchedEffect
+        val plot = vm.descriptionFor(key)?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        val filled = activeHero.copy(plot = plot)
+        shownHero = filled
+        onHeroChange(filled)
     }
 
     val columnState = rememberLazyListState()

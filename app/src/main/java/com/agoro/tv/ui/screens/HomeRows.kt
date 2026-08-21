@@ -123,5 +123,8 @@ internal fun channelHero(channel: LiveChannel, nowNext: MainViewModel.NowNext?):
         backdrop = null,
         chips = listOfNotNull("Live", channel.quality, now?.title),
         plot = now?.description,
+        // Synopses live in the guide table, so the hero names the programme
+        // it wants and the screen fills the text once it settles on one.
+        plotKey = now?.id,
     )
 }
