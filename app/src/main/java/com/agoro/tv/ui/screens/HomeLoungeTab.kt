@@ -105,6 +105,17 @@ private sealed interface HomeMenu {
     data class ResumedSeries(val series: Series) : HomeMenu
 }
 
+/**
+ * Home's shelves, in the order they appear.
+ *
+ * An enum rather than string keys so both `when`s over it are exhaustive: a
+ * shelf added here without a branch is a compile error instead of a blank row
+ * that still occupies a scroll position.
+ */
+private enum class HomeRow {
+    Continue, Favorites, Recents, StarterChannels, StarterMovies, StarterSeries, New
+}
+
 @Composable
 fun HomeLoungeTab(
     vm: MainViewModel,
@@ -195,15 +206,15 @@ fun HomeLoungeTab(
         // shelf order matches the rail order and the thing this app is
         // primarily for is the thing on screen when Home opens.
         buildList {
-            if (continueRow.isNotEmpty()) add("continue")
-            if (favoritesRow.isNotEmpty()) add("favorites")
-            if (recentsRow.isNotEmpty()) add("recents")
-            if (starterChannels.isNotEmpty()) add("starterChannels")
-            if (starterMovies.isNotEmpty()) add("starterMovies")
-            if (starterSeries.isNotEmpty()) add("starterSeries")
+            if (continueRow.isNotEmpty()) add(HomeRow.Continue)
+            if (favoritesRow.isNotEmpty()) add(HomeRow.Favorites)
+            if (recentsRow.isNotEmpty()) add(HomeRow.Recents)
+            if (starterChannels.isNotEmpty()) add(HomeRow.StarterChannels)
+            if (starterMovies.isNotEmpty()) add(HomeRow.StarterMovies)
+            if (starterSeries.isNotEmpty()) add(HomeRow.StarterSeries)
             // Recently added is a mixed catalogue row, so it trails the
             // typed ones rather than splitting them.
-            if (recentlyAdded.isNotEmpty()) add("new")
+            if (recentlyAdded.isNotEmpty()) add(HomeRow.New)
         }
     }
 
@@ -242,20 +253,21 @@ fun HomeLoungeTab(
         starterChannels, starterMovies, starterSeries, nowNext,
     ) {
         when (rowKeys.first()) {
-            "continue" -> when (val first = continueRow.first()) {
+            HomeRow.Continue -> when (val first = continueRow.first()) {
                 is ContinueCard.MovieCard -> first.movie.toHero()
                 is ContinueCard.SeriesCard -> first.series.toHero()
             }
-            "new" -> when (val first = recentlyAdded.first()) {
+            HomeRow.New -> when (val first = recentlyAdded.first()) {
                 is CatalogCard.MovieCard -> first.movie.toHero()
                 is CatalogCard.SeriesCard -> first.series.toHero()
             }
-            "favorites" -> channelHero(favoritesRow.first(), nowNext[favoritesRow.first().id])
-            "recents" -> channelHero(recentsRow.first(), nowNext[recentsRow.first().id])
-            "starterChannels" ->
+            HomeRow.Favorites ->
+                channelHero(favoritesRow.first(), nowNext[favoritesRow.first().id])
+            HomeRow.Recents -> channelHero(recentsRow.first(), nowNext[recentsRow.first().id])
+            HomeRow.StarterChannels ->
                 channelHero(starterChannels.first(), nowNext[starterChannels.first().id])
-            "starterMovies" -> starterMovies.first().toHero()
-            else -> starterSeries.first().toHero()
+            HomeRow.StarterMovies -> starterMovies.first().toHero()
+            HomeRow.StarterSeries -> starterSeries.first().toHero()
         }
     }
     val activeHero = hero ?: restingHero
@@ -289,6 +301,17 @@ fun HomeLoungeTab(
     // so row 0 is simply the top.
     LaunchedEffect(focusSignal) {
         columnState.animateScrollToItem(focusedRow.coerceAtLeast(0))
+    }
+    // Shelves arrive in waves: the catalogue lands first, and displayChannels
+    // folds a beat later to prepend "Live channels". The lane keeps its offset
+    // when a row is inserted above, so Home opened anchored on Movies with the
+    // live row hidden off the top — while the hero, which reads rowKeys.first(),
+    // was already describing a channel the viewer could not see.
+    //
+    // Only before the first focus. After that the position is the viewer's, and
+    // a late-arriving shelf must not move it under them.
+    LaunchedEffect(rowKeys) {
+        if (focusSignal == 0) columnState.scrollToItem(0)
     }
     val entrance = rememberListEntrance(Unit)
     val searchFocus = remember { FocusRequester() }
@@ -415,10 +438,21 @@ fun HomeLoungeTab(
                 } else false
             },
     ) {
-        if (continueRow.isNotEmpty()) {
-            item(key = "continue") {
-                val rowIndex = rowKeys.indexOf("continue")
-                Column {
+        // Emitted straight from rowKeys, so a shelf's position in this list IS
+        // its index in rowKeys.
+        //
+        // The two used to be written out separately, and they disagreed:
+        // rowKeys ran live -> movies -> shows with "Recently added" trailing,
+        // while the items below put "Recently added" third and "Recent
+        // channels" last. A card reported its row as rowKeys.indexOf(key) and
+        // the snap then scrolled to the item AT that position — so focusing
+        // Recently added (third on screen, seventh in rowKeys) scrolled the
+        // list to the last row and left focus somewhere above the viewport,
+        // which read as the page refusing to scroll past that shelf. One list
+        // cannot disagree with itself.
+        itemsIndexed(rowKeys, key = { _, row -> row.name }) { rowIndex, row ->
+            when (row) {
+                HomeRow.Continue -> Column {
                     SectionTitle("Continue watching")
                     LazyRow(
                         modifier = Modifier.focusRestorer().shelfRingRoom(),
@@ -449,12 +483,7 @@ fun HomeLoungeTab(
                         }
                     }
                 }
-            }
-        }
-        if (favoritesRow.isNotEmpty()) {
-            item(key = "favorites") {
-                val rowIndex = rowKeys.indexOf("favorites")
-                Column {
+                HomeRow.Favorites -> Column {
                     SectionTitle("Favorites · on now")
                     LazyRow(
                         modifier = Modifier.focusRestorer().shelfRingRoom(),
@@ -466,12 +495,55 @@ fun HomeLoungeTab(
                         }
                     }
                 }
-            }
-        }
-        if (recentlyAdded.isNotEmpty()) {
-            item(key = "new") {
-                val rowIndex = rowKeys.indexOf("new")
-                Column {
+                HomeRow.Recents -> Column {
+                    SectionTitle("Recent channels")
+                    LazyRow(
+                        modifier = Modifier.focusRestorer().shelfRingRoom(),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        contentPadding = PaddingValues(horizontal = ShelfRingRoom),
+                    ) {
+                        itemsIndexed(recentsRow, key = { _, c -> c.id }) { index, channel ->
+                            ChannelTile(recentsRow, rowIndex, index, channel)
+                        }
+                    }
+                }
+                HomeRow.StarterChannels -> Column {
+                    SectionTitle("Live channels")
+                    LazyRow(
+                        modifier = Modifier.focusRestorer().shelfRingRoom(),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        contentPadding = PaddingValues(horizontal = ShelfRingRoom),
+                    ) {
+                        itemsIndexed(starterChannels, key = { _, c -> c.id }) { index, channel ->
+                            ChannelTile(starterChannels, rowIndex, index, channel)
+                        }
+                    }
+                }
+                HomeRow.StarterMovies -> Column {
+                    SectionTitle("Movies")
+                    LazyRow(
+                        modifier = Modifier.focusRestorer().shelfRingRoom(),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        contentPadding = PaddingValues(horizontal = ShelfRingRoom),
+                    ) {
+                        itemsIndexed(starterMovies, key = { _, m -> m.id }) { index, movie ->
+                            MoviePoster(movie, rowIndex, index)
+                        }
+                    }
+                }
+                HomeRow.StarterSeries -> Column {
+                    SectionTitle("Shows")
+                    LazyRow(
+                        modifier = Modifier.focusRestorer().shelfRingRoom(),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        contentPadding = PaddingValues(horizontal = ShelfRingRoom),
+                    ) {
+                        itemsIndexed(starterSeries, key = { _, x -> x.id }) { index, series ->
+                            SeriesPoster(series, rowIndex, index)
+                        }
+                    }
+                }
+                HomeRow.New -> Column {
                     // What the provider added, not what the world released —
                     // `added` is an import date, and a shelf headed "New
                     // releases" over a 2011 film is the kind of small lie that
@@ -497,74 +569,6 @@ fun HomeLoungeTab(
                                 is CatalogCard.SeriesCard ->
                                     SeriesPoster(card.series, rowIndex, index)
                             }
-                        }
-                    }
-                }
-            }
-        }
-        if (starterChannels.isNotEmpty()) {
-            item(key = "starterChannels") {
-                val rowIndex = rowKeys.indexOf("starterChannels")
-                Column {
-                    SectionTitle("Live channels")
-                    LazyRow(
-                        modifier = Modifier.focusRestorer().shelfRingRoom(),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        contentPadding = PaddingValues(horizontal = ShelfRingRoom),
-                    ) {
-                        itemsIndexed(starterChannels, key = { _, c -> c.id }) { index, channel ->
-                            ChannelTile(starterChannels, rowIndex, index, channel)
-                        }
-                    }
-                }
-            }
-        }
-        if (starterMovies.isNotEmpty()) {
-            item(key = "starterMovies") {
-                val rowIndex = rowKeys.indexOf("starterMovies")
-                Column {
-                    SectionTitle("Movies")
-                    LazyRow(
-                        modifier = Modifier.focusRestorer().shelfRingRoom(),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        contentPadding = PaddingValues(horizontal = ShelfRingRoom),
-                    ) {
-                        itemsIndexed(starterMovies, key = { _, m -> m.id }) { index, movie ->
-                            MoviePoster(movie, rowIndex, index)
-                        }
-                    }
-                }
-            }
-        }
-        if (starterSeries.isNotEmpty()) {
-            item(key = "starterSeries") {
-                val rowIndex = rowKeys.indexOf("starterSeries")
-                Column {
-                    SectionTitle("Shows")
-                    LazyRow(
-                        modifier = Modifier.focusRestorer().shelfRingRoom(),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        contentPadding = PaddingValues(horizontal = ShelfRingRoom),
-                    ) {
-                        itemsIndexed(starterSeries, key = { _, x -> x.id }) { index, series ->
-                            SeriesPoster(series, rowIndex, index)
-                        }
-                    }
-                }
-            }
-        }
-        if (recentsRow.isNotEmpty()) {
-            item(key = "recents") {
-                val rowIndex = rowKeys.indexOf("recents")
-                Column {
-                    SectionTitle("Recent channels")
-                    LazyRow(
-                        modifier = Modifier.focusRestorer().shelfRingRoom(),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        contentPadding = PaddingValues(horizontal = ShelfRingRoom),
-                    ) {
-                        itemsIndexed(recentsRow, key = { _, c -> c.id }) { index, channel ->
-                            ChannelTile(recentsRow, rowIndex, index, channel)
                         }
                     }
                 }
