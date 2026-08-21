@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-21T05:50:18+00:00",
+ "generated": "2026-08-21T11:49:55+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -4845,7 +4845,7 @@
   1525580,
   1525579,
   1525578,
-  1525688,
+  497001,
   162166,
   162180,
   1525680,
@@ -4861,7 +4861,6 @@
   162190,
   162191,
   162223,
-  1107838,
   1525625,
   1525626,
   1855481,
@@ -5733,21 +5732,36 @@
   1562761,
   1562760,
   1562759,
+  325848,
+  325850,
+  325920,
+  668552,
+  668550,
+  668554,
+  718375,
+  718376,
   325800,
   325846,
+  436117,
+  434017,
+  324948,
   1601182,
   1601084,
   1600913,
   1600837,
   1600579,
   1600243,
+  7335,
   429429,
   1860577,
+  324992,
+  436112,
+  498814,
   412908,
   414125,
-  414124,
   414206,
   414209,
+  414161,
   1239045,
   1239032,
   1239020,
@@ -5757,18 +5771,21 @@
   1239001,
   1238988,
   1238986,
-  1238984,
-  1238980,
   1238959,
   1238955,
   162159,
   162258,
+  162259,
   162267,
   162275,
   162282,
+  162293,
   162307,
   162313,
+  162315,
+  646005,
   162141,
+  162156,
   262724,
   262725,
   1739583,
@@ -5851,15 +5868,25 @@
   707006,
   587963,
   1744757,
+  342017,
   1855479,
   1853654,
+  1853653,
+  1853647,
   1853523,
+  788012,
   788023,
   788022,
   788020,
+  788008,
+  788150,
+  788005,
+  788158,
+  788092,
   788080,
   788084,
   788083,
+  788082,
   788081,
   788000,
   1302151,
@@ -6372,7 +6399,236 @@
   654923,
   1853744,
   1853513,
+  1536599,
+  1536554,
+  325890,
+  325888,
+  325898,
+  437220,
   1476256,
+  1476224,
+  1820218,
+  1820199,
+  1820201,
+  1820258,
+  1819971,
+  1820217,
+  1820198,
+  1820216,
+  1820197,
+  1820215,
+  1820316,
+  1820317,
+  1820318,
+  1820196,
+  1820200,
+  429578,
+  429577,
+  429576,
+  429575,
+  429574,
+  429573,
+  429572,
+  429571,
+  429570,
+  429569,
+  429568,
+  429567,
+  429565,
+  429563,
+  429562,
+  429561,
+  429560,
+  429558,
+  429557,
+  429555,
+  429553,
+  429552,
+  429551,
+  429550,
+  429549,
+  429548,
+  429547,
+  429546,
+  429545,
+  429544,
+  325014,
+  325013,
+  325015,
+  325033,
+  325012,
+  325038,
+  325037,
+  325039,
+  325011,
+  325010,
+  325008,
+  325009,
+  325007,
+  325006,
+  325005,
+  325004,
+  325040,
+  325085,
+  325068,
+  1824605,
+  325045,
+  325069,
+  325071,
+  325065,
+  325063,
+  325064,
+  325066,
+  325062,
+  325070,
+  325034,
+  828142,
+  828139,
+  828141,
+  437221,
+  325036,
+  2044651,
+  2044652,
+  2044650,
+  2044644,
+  2044645,
+  2044646,
+  430368,
+  430367,
+  430366,
+  430365,
+  430364,
+  430363,
+  430362,
+  430361,
+  430359,
+  430360,
+  430358,
+  430357,
+  430356,
+  620070,
+  430355,
+  430354,
+  430353,
+  430352,
+  430351,
+  430350,
+  430349,
+  430348,
+  430347,
+  430346,
+  430345,
+  430344,
+  430343,
+  430342,
+  430341,
+  430340,
+  430339,
+  430338,
+  430337,
+  430336,
+  430335,
+  430334,
+  430333,
+  430332,
+  430331,
+  414069,
+  500453,
+  500449,
+  746363,
+  706429,
+  498629,
+  813889,
+  498729,
+  412845,
+  498329,
+  498328,
+  498327,
+  498325,
+  498326,
+  498324,
+  498323,
+  498321,
+  498320,
+  498319,
+  498317,
+  498318,
+  498316,
+  574201,
+  498314,
+  1683571,
+  498310,
+  498309,
+  498308,
+  498307,
+  498306,
+  498305,
+  498304,
+  498303,
+  414124,
+  414066,
+  414071,
+  500451,
+  500450,
+  996821,
+  996819,
+  996818,
+  996817,
+  996816,
+  996815,
+  996814,
+  996813,
+  996812,
+  996811,
+  996810,
+  996809,
+  996808,
+  996807,
+  996806,
+  996805,
+  996804,
+  996803,
+  996802,
+  996801,
+  996800,
+  996799,
+  996798,
+  996797,
+  996796,
+  996795,
+  996794,
+  996793,
+  996792,
+  996791,
+  996790,
+  996789,
+  996788,
+  996787,
+  996786,
+  996785,
+  996784,
+  996783,
+  996782,
+  996781,
+  1238999,
+  1238998,
+  1238997,
+  1238996,
+  1238993,
+  1238984,
+  1238983,
+  1238982,
+  1238981,
+  1238980,
+  1238976,
+  1238975,
+  1238974,
+  1238973,
+  1238970,
+  1238968,
+  1238967,
+  1238966,
+  1238964,
   1601211,
   1601206,
   1601178,
@@ -6489,9 +6745,7 @@
   162192,
   162194,
   162197,
-  1107838,
   1525690,
-  1525688,
   1525687,
   1525685,
   1525684,
@@ -8125,8 +8379,6 @@
   498737,
   1537339,
   414157,
-  1537337,
-  498729,
   1537336,
   1260958,
   1537327,
@@ -12092,7 +12344,13 @@
   1537351,
   1537343,
   1537338,
+  1537337,
   1537335,
+  1537334,
+  1537333,
+  1537332,
+  1537331,
+  1537330,
   1537325,
   1537324,
   1537323,
@@ -12164,6 +12422,7 @@
   1537463,
   1537462,
   1537461,
+  1537460,
   1537459,
   1537458,
   1537457,
@@ -12245,6 +12504,19 @@
   162223,
   162196,
   162197,
+  162205,
+  162209,
+  162210,
+  162211,
+  162212,
+  162215,
+  162216,
+  162217,
+  813351,
+  162218,
+  162225,
+  1173563,
+  1173049,
   1525692,
   1525691,
   1525690,
@@ -13368,8 +13640,6 @@
   1536557,
   1520115,
   1476225,
-  1536554,
-  1476224,
   1536551,
   1548312,
   1536549,
@@ -15104,12 +15374,6 @@
   1238966,
   1238964,
   1238948,
-  162209,
-  162210,
-  162211,
-  162212,
-  162215,
-  162216,
   162253,
   162257,
   162277,
@@ -15126,38 +15390,6 @@
   1476379,
   926228,
   926207,
-  429576,
-  429560,
-  325038,
-  429572,
-  429552,
-  325009,
-  429570,
-  429551,
-  325007,
-  429567,
-  429546,
-  325005,
-  1238999,
-  1238998,
-  1238997,
-  1238996,
-  1238993,
-  414069,
-  500453,
-  1238976,
-  1238975,
-  1238974,
-  1238973,
-  1238970,
-  414071,
-  500450,
-  746363,
-  1238968,
-  1238967,
-  1238966,
-  1238964,
-  500449,
   162253,
   639165,
   639185,
@@ -15891,7 +16123,6 @@
   325895,
   325900,
   1587186,
-  325800,
   716522,
   325796,
   325871,
@@ -15914,10 +16145,6 @@
   162113,
   162203,
   588744,
-  162268,
-  162267,
-  162258,
-  162322,
   717682,
   717681,
   717680,
@@ -15958,7 +16185,6 @@
   402197,
   380826,
   380831,
-  1855479,
   1855457,
   1855440,
   425871,
@@ -15974,12 +16200,10 @@
   1853452,
   1853379,
   1853395,
-  788045,
   788165,
   788157,
   788009,
   788021,
-  788020,
   788017,
   1536701,
   1536500,
@@ -16188,8 +16412,6 @@
   162122,
   162123,
   162133,
-  414041,
-  414042,
   162152,
   162159,
   162160,
@@ -16198,7 +16420,6 @@
   162174,
   162252,
   162264,
-  162266,
   162270,
   162271,
   162273,
@@ -16207,7 +16428,6 @@
   162289,
   162290,
   483645,
-  162293,
   162296,
   162297,
   162298,
@@ -16221,7 +16441,6 @@
   162312,
   162313,
   162314,
-  162315,
   162316,
   162318,
   162319,
@@ -16230,7 +16449,6 @@
   162323,
   162324,
   304722,
-  646005,
   751633,
   751621,
   2091373,
@@ -16294,7 +16512,6 @@
   402157,
   402180,
   1568860,
-  1568841,
   1568780,
   1568610,
   436543,
@@ -16329,26 +16546,13 @@
   430126,
   430125,
   430330,
+  430298,
   1853521,
   1853518,
   788078,
   325092,
-  325036,
-  437221,
-  1527641,
-  588045,
   324938,
   324937,
-  324939,
-  1820217,
-  324936,
-  1820317,
-  324933,
-  1820196,
-  324951,
-  324952,
-  1820318,
-  324934,
   1568576,
   1568790,
   828139,
@@ -17073,8 +17277,6 @@
   "717708": "ENTERTAINMENT",
   "788030": "ENTERTAINMENT",
   "325780": "ENTERTAINMENT",
-  "325848": "ENTERTAINMENT",
-  "325850": "ENTERTAINMENT",
   "325831": "ENTERTAINMENT",
   "325832": "ENTERTAINMENT",
   "325775": "ENTERTAINMENT",
@@ -17086,12 +17288,7 @@
   "325869": "ENTERTAINMENT",
   "325793": "ENTERTAINMENT",
   "325837": "ENTERTAINMENT",
-  "668552": "ENTERTAINMENT",
-  "668550": "ENTERTAINMENT",
   "668555": "ENTERTAINMENT",
-  "668554": "ENTERTAINMENT",
-  "718375": "ENTERTAINMENT",
-  "718376": "ENTERTAINMENT",
   "325786": "ENTERTAINMENT",
   "325792": "ENTERTAINMENT",
   "325785": "ENTERTAINMENT",
@@ -17199,7 +17396,6 @@
     788085,
     788087,
     788058,
-    788082,
     788075
    ],
    "overflow": [
@@ -17256,18 +17452,11 @@
    "region": "US",
    "section": "SPORTS",
    "label": "MSG",
-   "main": [
-    325890,
-    325888,
-    325898
-   ],
+   "main": [],
    "overflow": [
     2044647,
     2044648,
-    2044649,
-    2044644,
-    2044645,
-    2044646
+    2044649
    ],
    "hidden_duplicates": [],
    "overflow_destination": "PPV"
@@ -17326,30 +17515,19 @@
    "section": "SPORTS",
    "label": "YES Network",
    "main": [
-    325041,
-    2044651
+    325041
    ],
-   "overflow": [
-    2044652
-   ],
-   "hidden_duplicates": [
-    325036
-   ],
+   "overflow": [],
+   "hidden_duplicates": [],
    "overflow_destination": "PPV"
   },
   "NESN": {
    "region": "US",
    "section": "SPORTS",
    "label": "NESN",
-   "main": [
-    828142
-   ],
-   "overflow": [
-    828141
-   ],
-   "hidden_duplicates": [
-    437221
-   ],
+   "main": [],
+   "overflow": [],
+   "hidden_duplicates": [],
    "overflow_destination": "PPV"
   },
   "beIN Sports US": {
@@ -17378,11 +17556,12 @@
     1544244,
     1544239,
     1562537,
-    1527598,
+    1527625,
     1562534,
     1527595,
     1562532,
     1562531,
+    1527637,
     1562528,
     1562527,
     1527617,
@@ -17390,8 +17569,6 @@
     1562523,
     1562522,
     1562521,
-    1527637,
-    1527625,
     1527619
    ],
    "overflow": [
@@ -17401,10 +17578,7 @@
     1069751,
     1527599
    ],
-   "hidden_duplicates": [
-    1527641,
-    588045
-   ],
+   "hidden_duplicates": [],
    "overflow_destination": "PPV"
   }
  },
@@ -35484,9 +35658,6 @@
   "2044647": "PPV",
   "2044648": "PPV",
   "2044649": "PPV",
-  "2044644": "PPV",
-  "2044645": "PPV",
-  "2044646": "PPV",
   "325090": "PPV",
   "325089": "PPV",
   "325088": "PPV",
@@ -35500,8 +35671,6 @@
   "324996": "PPV",
   "324998": "PPV",
   "324995": "PPV",
-  "2044652": "PPV",
-  "828141": "PPV",
   "325031": "PPV",
   "325030": "PPV",
   "325029": "PPV",
@@ -35592,6 +35761,7 @@
    "primary": 1525688,
    "sources": [
     1525688,
+    1525688,
     497001,
     162166,
     162167,
@@ -35629,7 +35799,6 @@
     1525679,
     1525678,
     1525677,
-    497001,
     1525687,
     162194,
     162182,
@@ -35642,6 +35811,7 @@
     1525684
    ],
    "variants": [
+    "LONDON",
     "LONDON",
     "LONDON 4K",
     "NI HD",
@@ -35680,7 +35850,6 @@
     "WEST",
     "WEST MIDLANDS",
     "YORKSHIRE",
-    "LONDON 4K",
     "NI",
     "WALES 4K",
     "SCOT HD",
@@ -37162,13 +37331,24 @@
     ],
     "primary": 1544244
    },
-   "skysportmainevents|UK": {
+   "skysportmainevent|UK": {
     "section": "SPORTS",
     "region": "UK",
     "sources": [
      1544239,
+     1527598,
+     1290248,
      950402,
+     1562535,
+     1527639,
+     1290241,
+     1290220,
+     1290207,
+     588046,
      621634,
+     1527638,
+     1290315,
+     1290294,
      588072,
      621656
     ],
@@ -37191,11 +37371,13 @@
     "region": "UK",
     "sources": [
      1562537,
+     1527641,
      1290243,
      1290222,
      1290209,
      588037,
      621635,
+     1527640,
      1290317,
      1290296,
      588069,
@@ -37203,23 +37385,24 @@
     ],
     "primary": 1562537
    },
-   "skysportmainevent|UK": {
+   "skysportcricket|UK": {
     "section": "SPORTS",
     "region": "UK",
     "sources": [
-     1527598,
-     1290248,
-     1562535,
-     1527639,
-     1290241,
-     1290220,
-     1290207,
-     588046,
-     1527638,
-     1290315,
-     1290294
+     1527625,
+     1290236,
+     1290215,
+     1290202,
+     621628,
+     1562536,
+     1527624,
+     1290310,
+     1290288,
+     588066,
+     588041,
+     621652
     ],
-    "primary": 1527598
+    "primary": 1527625
    },
    "skysportaction|UK": {
     "section": "SPORTS",
@@ -37299,6 +37482,26 @@
      588064
     ],
     "primary": 1562531
+   },
+   "skysportpremierleague|UK": {
+    "section": "SPORTS",
+    "region": "UK",
+    "sources": [
+     1527637,
+     1290240,
+     1290219,
+     1290206,
+     588026,
+     588045,
+     621633,
+     1562529,
+     1527636,
+     1290314,
+     1290293,
+     588071,
+     621655
+    ],
+    "primary": 1527637
    },
    "skysportracing|UK": {
     "section": "SPORTS",
@@ -37465,8 +37668,8 @@
     "sources": [
      1562519,
      1537414,
-     1290229,
-     1290301
+     1290301,
+     1290229
     ],
     "primary": 1562519
    },
@@ -37709,15 +37912,6 @@
      1476052
     ],
     "primary": 325059
-   },
-   "euronews|US": {
-    "section": "NEWS",
-    "region": "US",
-    "sources": [
-     436117,
-     1548369
-    ],
-    "primary": 436117
    },
    "livenowfromfox|US": {
     "section": "NEWS",
@@ -37989,111 +38183,6 @@
     ],
     "primary": 325016
    },
-   "foxsportdetroit|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     325014,
-     429578
-    ],
-    "primary": 325014
-   },
-   "foxsportflorida|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429577,
-     429563,
-     325013
-    ],
-    "primary": 325013
-   },
-   "foxsportnorth|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429575,
-     429558,
-     325012
-    ],
-    "primary": 325012
-   },
-   "foxsportprimeticket|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429574,
-     325011
-    ],
-    "primary": 325011
-   },
-   "foxsportsandiego|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429573,
-     429555,
-     325010
-    ],
-    "primary": 325010
-   },
-   "foxsportsouth|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429571,
-     429553,
-     325008
-    ],
-    "primary": 325008
-   },
-   "foxsportsun|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429569,
-     429548,
-     325006
-    ],
-    "primary": 325006
-   },
-   "foxsporttennessee|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429568,
-     429547,
-     325040
-    ],
-    "primary": 325040
-   },
-   "foxsportarizona|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429565,
-     325015
-    ],
-    "primary": 325015
-   },
-   "foxsportohio|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429557,
-     325033
-    ],
-    "primary": 325033
-   },
-   "foxsportwisconsin|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     429545,
-     325004
-    ],
-    "primary": 325004
-   },
    "foxsoccerplus|US": {
     "section": "SPORTS",
     "region": "US",
@@ -38141,60 +38230,6 @@
     ],
     "primary": 325023
    },
-   "nesn|US": {
-    "section": "SPORTS",
-    "region": "US",
-    "sources": [
-     828142,
-     828139
-    ],
-    "primary": 828142
-   },
-   "globalmaritimes|CA": {
-    "section": "NEWS",
-    "region": "CA",
-    "sources": [
-     1537334,
-     498314
-    ],
-    "primary": 498314
-   },
-   "globalnewsbc|CA": {
-    "section": "NEWS",
-    "region": "CA",
-    "sources": [
-     1537333,
-     498329
-    ],
-    "primary": 498329
-   },
-   "globalnewscalgary|CA": {
-    "section": "NEWS",
-    "region": "CA",
-    "sources": [
-     1537332,
-     498328
-    ],
-    "primary": 498328
-   },
-   "globalnewsedmonton|CA": {
-    "section": "NEWS",
-    "region": "CA",
-    "sources": [
-     1537331,
-     498327
-    ],
-    "primary": 498327
-   },
-   "globalnewstoronto|CA": {
-    "section": "NEWS",
-    "region": "CA",
-    "sources": [
-     1537330,
-     498318
-    ],
-    "primary": 498318
-   },
    "bbcworldnews|US": {
     "section": "NEWS",
     "region": "US",
@@ -38204,6 +38239,25 @@
      162143
     ],
     "primary": 498790
+   },
+   "globalnewsnational|CA": {
+    "section": "NEWS",
+    "region": "CA",
+    "sources": [
+     1754412,
+     498322
+    ],
+    "primary": 1754412
+   },
+   "cbcnewsnetwork|CA": {
+    "section": "NEWS",
+    "region": "CA",
+    "sources": [
+     498779,
+     498315,
+     414118
+    ],
+    "primary": 498779
    },
    "cnbc|CA": {
     "section": "ENTERTAINMENT",
@@ -38223,6 +38277,16 @@
     ],
     "primary": 498815
    },
+   "ctvnewschannel|CA": {
+    "section": "NEWS",
+    "region": "CA",
+    "sources": [
+     498760,
+     498311,
+     414102
+    ],
+    "primary": 498760
+   },
    "foxnews|CA": {
     "section": "NEWS",
     "region": "CA",
@@ -38231,6 +38295,15 @@
      498302
     ],
     "primary": 498735
+   },
+   "golfchannel|CA": {
+    "section": "SPORTS",
+    "region": "CA",
+    "sources": [
+     498727,
+     414163
+    ],
+    "primary": 498727
    },
    "nbatv|CA": {
     "section": "SPORTS",
@@ -38241,6 +38314,15 @@
     ],
     "primary": 498698
    },
+   "weathernetwork|CA": {
+    "section": "ENTERTAINMENT",
+    "region": "CA",
+    "sources": [
+     498654,
+     414193
+    ],
+    "primary": 498654
+   },
    "tvasport|CA": {
     "section": "SPORTS",
     "region": "CA",
@@ -38250,64 +38332,17 @@
     ],
     "primary": 498806
    },
-   "rogerstvlondon|CA": {
-    "section": "SPORTS",
-    "region": "CA",
-    "sources": [
-     412845,
-     996821
-    ],
-    "primary": 996821
-   },
-   "cbcnewsnetwork|CA": {
-    "section": "NEWS",
-    "region": "CA",
-    "sources": [
-     498315,
-     414118
-    ],
-    "primary": 498315
-   },
-   "ctvnewschannel|CA": {
-    "section": "NEWS",
-    "region": "CA",
-    "sources": [
-     498311,
-     414102
-    ],
-    "primary": 498311
-   },
-   "ctvnewsliveevents1|CA": {
-    "section": "NEWS",
-    "region": "CA",
-    "sources": [
-     498310,
-     498309
-    ],
-    "primary": 498310
-   },
    "sportsnetone|CA": {
     "section": "SPORTS",
     "region": "CA",
     "sources": [
      500452,
+     996822,
      1238991,
      414070,
      1238990
     ],
     "primary": 500452
-   },
-   "sportsnetontario|CA": {
-    "section": "SPORTS",
-    "region": "CA",
-    "sources": [
-     414066,
-     1238983,
-     500451,
-     1238982,
-     1238981
-    ],
-    "primary": 414066
    },
    "sportsnetworld|CA": {
     "section": "SPORTS",
@@ -38374,15 +38409,6 @@
      1239012
     ],
     "primary": 414138
-   },
-   "euronews|UK": {
-    "section": "NEWS",
-    "region": "UK",
-    "sources": [
-     1537460,
-     162156
-    ],
-    "primary": 1537460
    },
    "laligatv|UK": {
     "section": "SPORTS",
@@ -38547,6 +38573,26 @@
      1527661
     ],
     "primary": 162260
+   },
+   "film4|UK": {
+    "section": "ENTERTAINMENT",
+    "region": "UK",
+    "sources": [
+     717657,
+     717671,
+     162266
+    ],
+    "primary": 162266
+   },
+   "more4|UK": {
+    "section": "ENTERTAINMENT",
+    "region": "UK",
+    "sources": [
+     717655,
+     717673,
+     162268
+    ],
+    "primary": 162268
    },
    "quest|UK": {
     "section": "ENTERTAINMENT",
@@ -38803,50 +38849,6 @@
     ],
     "primary": 717684
    },
-   "skysportnewshq|UK": {
-    "section": "SPORTS",
-    "region": "UK",
-    "sources": [
-     1527641,
-     1527640
-    ],
-    "primary": 1527640
-   },
-   "skysportpremierleague|UK": {
-    "section": "SPORTS",
-    "region": "UK",
-    "sources": [
-     1527637,
-     1290240,
-     1290219,
-     1290206,
-     588026,
-     621633,
-     1527636,
-     1290314,
-     1290293,
-     621655
-    ],
-    "primary": 1527637
-   },
-   "skysportcricket|UK": {
-    "section": "SPORTS",
-    "region": "UK",
-    "sources": [
-     1527625,
-     1290236,
-     1290215,
-     1290202,
-     621628,
-     1527624,
-     1290310,
-     1290288,
-     588066,
-     588041,
-     621652
-    ],
-    "primary": 1527625
-   },
    "skysport|UK": {
     "section": "SPORTS",
     "region": "UK",
@@ -38942,30 +38944,25 @@
     ],
     "primary": 588047
    },
-   "skysportpl|UK": {
-    "section": "SPORTS",
-    "region": "UK",
-    "sources": [
-     588045,
-     588071
-    ],
-    "primary": 588071
-   },
-   "viaplaysport1|UK": {
+   "viaplay1|UK": {
     "section": "SPORTS",
     "region": "UK",
     "sources": [
      587990,
-     588051
+     621624,
+     588051,
+     621646
     ],
     "primary": 587990
    },
-   "viaplaysport2|UK": {
+   "viaplay2|UK": {
     "section": "SPORTS",
     "region": "UK",
     "sources": [
      587989,
-     588050
+     621623,
+     588050,
+     621645
     ],
     "primary": 587989
    },
@@ -38977,24 +38974,6 @@
      587987
     ],
     "primary": 587988
-   },
-   "viaplay2|UK": {
-    "section": "SPORTS",
-    "region": "UK",
-    "sources": [
-     621623,
-     621645
-    ],
-    "primary": 621623
-   },
-   "viaplay1|UK": {
-    "section": "SPORTS",
-    "region": "UK",
-    "sources": [
-     621624,
-     621646
-    ],
-    "primary": 621624
    },
    "premiersport1ireland|UK": {
     "section": "SPORTS",
@@ -61660,26 +61639,28 @@
   "movie_categories": 67,
   "unresolved_live_categories": 0,
   "movies_with_genre": 0,
-  "live_tiles_after_collapse": 7439,
-  "live_tiles_collapsed": 2517,
-  "collapse_groups": 193,
+  "live_tiles_after_collapse": 7266,
+  "live_tiles_collapsed": 2471,
+  "collapse_groups": 171,
   "collapse_needs_review": 0,
   "dropped_region_streams": 1387,
   "religion_streams": 41,
   "telemundo_streams": 96,
+  "regional_sport_streams": 137,
+  "ca_clutter_streams": 93,
   "timeshift_demoted": 47,
   "us_locals_kept": 457,
   "us_locals_dropped": 945,
   "us_markets": 46,
   "metro_local_tiles": 64,
   "metro_locals_folded": 318,
-  "uk_locals_dropped": 108,
+  "uk_locals_dropped": 107,
   "uk_reassigned": 36,
   "uk_regional_collapsed": 70,
   "afr_kept": 190,
   "afr_dropped": 862,
   "afr_usuk_duplicates": 22,
-  "name_section_overrides": 1161,
+  "name_section_overrides": 1156,
   "entertainment_fixes": {
    "-> LOCALS": 227,
    "-> NEWS": 163,
@@ -61689,11 +61670,11 @@
    "-> MUSIC": 54,
    "junk": 2
   },
-  "entertainment_suffix_dupes": 91,
-  "entertainment_trimmed": 312,
+  "entertainment_suffix_dupes": 83,
+  "entertainment_trimmed": 306,
   "entertainment_kept": {
-   "US": 95,
-   "UK": 65
+   "US": 96,
+   "UK": 68
   },
   "news_fixes": {
    "trimmed": 36,
@@ -61708,41 +61689,42 @@
    "radio": 85,
    "dead": 2
   },
-  "region_section_dropped": 1520,
-  "clean_pass_dropped": 5621,
+  "region_section_dropped": 1518,
+  "clean_pass_dropped": 5639,
   "clean_pass_detail": {
-   "redundant_section": 4375,
+   "redundant_section": 4382,
    "city_locals_dropped": 173,
-   "streaming_donor_kept": 57,
+   "streaming_donor_kept": 50,
    "city_locals_folded": 101,
-   "bbc_regional": 43
+   "bbc_regional": 43,
+   "itv_regional": 13
   },
-  "pass2_dropped": 1250,
+  "pass2_dropped": 1212,
   "pass2_detail": {
    "overflow": 58,
    "stray_local_folded": 181,
-   "timezone": 101,
+   "timezone": 95,
    "stray_local_dropped": 1023,
    "show_channel": 18
   },
   "replay_feeds_dropped": 719,
   "section_canonicalised": 57,
   "brand_groups": 10,
-  "brand_dupes_dropped": 8,
-  "rsn_dupes_dropped": 12,
+  "brand_dupes_dropped": 4,
+  "rsn_dupes_dropped": 2,
   "alias_dupes_dropped": 6,
   "region_fixed": 118,
   "misfiled_us_locals": 1,
   "sections_merged": 6,
-  "tiles_resectioned": 119,
+  "tiles_resectioned": 112,
   "epg_bound": 919,
   "logo_bound": 4386,
   "live_event_channels": 7847,
   "live_event_groups": 14,
-  "sd_dropped": 197,
+  "sd_dropped": 225,
   "dgo_dropped": 312,
-  "tiers_measured": 1267,
-  "exact_duplicates_dropped": 231,
+  "tiers_measured": 2043,
+  "exact_duplicates_dropped": 230,
   "movie_genre_vocab": 0,
   "movies_with_genre_ids": 0,
   "vod_dupes_dropped": 5273,

@@ -248,11 +248,41 @@ SECTION_OVERRIDE = {"qvc": "ENTERTAINMENT", "abcnewslive": "NEWS", "foxweather":
 
 PLURALISE = [(r'\bSPORTS?\b', 'SPORT'), (r'\bNETWORKS?\b', 'NETWORK'),
              (r'\bCHANNELS?\b', 'CHANNEL')]
+# Channels the provider ships under two names. The collapse key is built from
+# the name, so a rename or a house style leaves one channel as two tiles —
+# each with its own sources, so each also picks its own best feed and neither
+# gets the other's. Written in POST-PLURALISE form ("skysport", not
+# "skysports"), which is what channel_key actually produces.
+#
+# Hand-curated on purpose. A general rule here folds channels that merely read
+# alike, and a wrong fold hides a channel behind another one for good.
+CHANNEL_ALIAS = {
+    # Sky renamed these; the panel still carries both names.
+    'skysportpl': 'skysportpremierleague',
+    'skysportprimelige': 'skysportpremierleague',
+    'skysportnewshq': 'skysportnews',          # "HQ" was dropped in 2019
+    'skysportmainevents': 'skysportmainevent',  # stray plural
+    'skysportckreckt': 'skysportcricket',       # provider typo
+    # One channel, two house styles.
+    'viaplaysport1': 'viaplay1',
+    'viaplaysport2': 'viaplay2',
+    # Canada carries each of these twice, under the short name and the full
+    # one. Folding points at the name the broadcaster actually uses, so the
+    # tile is labelled correctly and the better feed wins on measurement.
+    'cbcnews': 'cbcnewsnetwork',
+    'ctvnewsnetwork': 'ctvnewschannel',   # renamed in 2011; panel kept both
+    'globalnews': 'globalnewsnational',
+    'theweathernetwork': 'weathernetwork',
+    'rogerssportsnetone': 'sportsnetone',
+    'golf': 'golfchannel',
+}
+
 def channel_key(n):
     n = QUAL.sub('', SPFX.sub('', asc(n)))
     for pat, base in PLURALISE:          # "Sky Sport 1" == "Sky Sports 1"
         n = re.sub(pat, base, n, flags=re.I)
-    return re.sub(r'[^a-z0-9]', '', n.lower())
+    k = re.sub(r'[^a-z0-9]', '', n.lower())
+    return CHANNEL_ALIAS.get(k, k)
 
 NAMEREG = re.compile(r'^([A-Z]{2,3})\s*:')
 NAME_REGION_ALIAS = {"GO":"US","RK":"US","SS":"AR","NOW":"UK","AF":"AFR","PPV":None}
@@ -284,6 +314,10 @@ if os.path.exists('probed_tiers.json'):
 
 def measured_tier(sid):
     h = _probed.get(str(sid))
+    # A zero is a FAILED probe, not a dead channel: re-probing the fourteen
+    # streams recorded as zero brought ten of them back at 720p-1080p. So zero
+    # stays "no information" and the advertised token stands — dropping on it
+    # would have deleted ten working channels.
     if not h: return None
     return "4K" if h >= 2000 else "FHD" if h >= 1000 else "HD" if h >= 700 else "SD"
 
@@ -299,6 +333,74 @@ def measured_tier(sid):
 #    out entirely. A missed channel is a nuisance; a wrongly dropped one is a
 #    channel the viewer can never get back.
 TELEMUNDO = re.compile(r'\bTELEMUNDO\d*\b', re.I)
+
+# Brands that exist ONLY as regional sports networks — no national feed shares
+# the name, so the brand alone is enough to condemn them.
+RSN_BRAND = re.compile(r"""\b(
+    BALLY\s+SPORTS | AT&?T\s+SPORTSNET | ROOT\s+SPORTS | MARQUEE\s+SPORTS |
+    NESN | YES\s+NETWORK | ALTITUDE\s+SPORTS | SPECTRUM\s+SPORTSNET |
+    MSG\s*(SPORTSNET|2|\+)? | SNY | MASN | MIDCO\s+SPORTS | SWX
+)\b""", re.I | re.X)
+
+# Brands with a national feed AND regional ones. Condemned only when a market
+# name follows: "FOX SPORTS 1" is national and stays, "FOX SPORTS OHIO" does
+# not. The market list is deliberately explicit rather than "any word" —
+# guessing here deletes national sport.
+RSN_MARKET = re.compile(r"""\b(FOX\s+SPORTS|NBC\s+SPORTS|SPORTSNET)\b[^|]*?\b(
+    SOUTHEAST | SOUTHWEST | MIDWEST | NORTHWEST | NORTH | SOUTH | WEST | EAST |
+    OHIO | DETROIT | FLORIDA | ARIZONA | SUN | INDIANA | WISCONSIN | TENNESSEE |
+    KANSAS\s+CITY | OKLAHOMA | NEW\s+ORLEANS | SAN\s+DIEGO | CAROLINAS? |
+    CINCINNATI | GREAT\s+LAKES | PITTSBURGH | BOSTON | CHICAGO | PHILADELPHIA |
+    WASHINGTON | CALIFORNIA | BAY\s+AREA | NEW\s+ENGLAND | ROCKY\s+MOUNTAIN |
+    PRIME\s+TICKET | SOCAL | UTAH | NEW\s+YORK | MINNESOTA | MISSOURI | TEXAS
+)\b""", re.I | re.X)
+
+# Canada ships the same three kinds of clutter the other territories did:
+# a news channel per city, numbered event feeds, and regional sports networks.
+CA_REGIONAL_NEWS = re.compile(
+    r'\bGLOBAL NEWS\s+(?!NATIONAL\b)\w'      # Global News BC, Halifax, Regina...
+    r'|\b(CBC|CTV)\s+\w+\s+NEWS\b(?!\s*(NETWORK|CHANNEL))'
+    r'|\b(CBC|CTV)\s+NEWS\s+(?!NETWORK\b|CHANNEL\b)[A-Za-z]'
+    r'|\bCITY ?NEWS\s+\w+', re.I)
+CA_EVENT_FEED = re.compile(
+    r'\bCTV NEWS LIVE EVENTS?\s*\d+'
+    r'|\bROGERS SUPER SPORTS PACK\s*\d+', re.I)
+# Sportsnet ONE and 360 are national and stay; the compass points are regional.
+# Sportsnet's regional feeds carry the same schedule with different local
+# rights. "SPORTSN ET" is not a typo here — the panel really does split the
+# word on this one, and the unspaced pattern walked straight past it.
+CA_REGIONAL_SPORT = re.compile(
+    r'\bSPORTSN\s?ET\s+(ONTARIO|EAST|WEST|PACIFIC)\b', re.I)
+# Rogers TV is per-city community programming; Global's named stations are
+# regional affiliates of the national feed that survives above.
+CA_LOCAL_STATION = re.compile(
+    r'\bROGERS TV\s+\w'
+    r'|\bGLOBAL\s+(MARITIMES|BC|OKANAGAN|LETHBRIDGE|SASKATOON|REGINA'
+    r'|WINNIPEG|DURHAM|PETERBOROUGH|KINGSTON|BARRIE|HALIFAX)\b', re.I)
+
+def _ca_clutter(name):
+    """Canadian regional variants and numbered event feeds.
+
+    Gated on the CA prefix so nothing outside Canada can match: "CITY NEWS" and
+    "EAST"/"WEST" are common enough words that an unanchored rule would reach
+    into the other territories.
+    """
+    n = asc(name)
+    if not re.match(r'^\s*CA(\s+(EN|FR))?\s*:', n, re.I):
+        return False
+    return bool(CA_REGIONAL_NEWS.search(n) or CA_EVENT_FEED.search(n)
+                or CA_REGIONAL_SPORT.search(n) or CA_LOCAL_STATION.search(n))
+
+def _regional_sport(name):
+    """A US regional sports network, as opposed to a national sports channel.
+
+    Two tests, because the brands split two ways. Bally, NESN, YES and the
+    rest have no national feed, so the brand condemns them outright. FOX
+    SPORTS and NBC SPORTS do have one, so those are condemned only when a
+    named market follows — FOX SPORTS 1 stays, FOX SPORTS OHIO goes.
+    """
+    n = asc(name)
+    return bool(RSN_BRAND.search(n) or RSN_MARKET.search(n))
 
 RELIGIOUS_NETWORK = re.compile(r"""\b(
     EWTN | TBN | TRINITY\s+BROADCASTING | DAYSTAR | GOD\s?TV | CBN | INSP |
@@ -325,7 +427,7 @@ def _religious(name):
 live_rows = []
 junkset = set(junk)
 go_drop, sd_all_drop, religion_drop = [], [], []
-telemundo_drop = []
+telemundo_drop, rsn_drop, ca_drop = [], [], []
 for s in ls:
     if s['stream_id'] in junkset: continue
     c = cat_live.get(str(s.get('category_id')))
@@ -340,6 +442,14 @@ for s in ls:
     # is a tile that renders nothing.
     if TELEMUNDO.search(asc(s['name'])):
         telemundo_drop.append(s['stream_id']); continue
+    # Regional sports networks. Sixty of them survived into US Sports, one per
+    # metro, and a viewer in one market can watch none of the other
+    # fifty-nine — they are blackout-locked to a territory this package does
+    # not sell.
+    if _regional_sport(s['name']):
+        rsn_drop.append(s['stream_id']); continue
+    if _ca_clutter(s['name']):
+        ca_drop.append(s['stream_id']); continue
     # PPV event slots are not channels. "NCAAF 06: FOX" reduces to the key
     # "fox" once the prefix comes off, which put a college-football slot into
     # the FOX tile — and, once the real feeds were trimmed, at the FRONT of
@@ -663,6 +773,16 @@ for chan, items in _uk_reg.items():                 # BBC ONE x16 -> one tile
                          "sources": [i[0] for i in items],
                          "variants": [i[1] for i in items]}
 
+# The chosen primary must SURVIVE. Folding the regional variants puts every
+# member on a drop list, and the app does not read uk_collapse — so the fold
+# left BBC One represented by nothing at all, and the channel appeared only
+# when some variant happened to escape the drop list by accident. It stopped
+# escaping, and the most-watched channel in the country vanished from the
+# catalogue. The tile names one feed to represent the channel; that feed is
+# not a duplicate of anything.
+_uk_primaries = {t['primary'] for t in uk_collapse.values()}
+uk_locals_drop = [x for x in uk_locals_drop if x not in _uk_primaries]
+
 
 # ------------------------------------------------------------ AFR, shown as DSTV
 # Keep the DStv bundle plus the Ghanaian channels out of Africa VIP; drop the
@@ -818,7 +938,7 @@ _PN = re.compile(r'^[A-Z0-9]{2,5}\s*:\s*')
 # in panel order, first-wins kept it, the DGO drop then removed it, and the
 # good "US: A&E HD" stayed condemned as its duplicate.
 _gone = junkset | set(dropped_region) | set(go_drop) | set(sd_all_drop) \
-        | set(religion_drop) | set(telemundo_drop) \
+        | set(religion_drop) | set(telemundo_drop) | set(rsn_drop) | set(ca_drop) \
         | set(locals_dropped) | set(locals_extra_drop)
 for st in ls:
     sid = st['stream_id']
@@ -949,6 +1069,20 @@ GO_LOOP = re.compile(r'^GO\s*:', re.I)
 # 3. BBC ONE regional variants my earlier sweep spelled too narrowly
 BBC_REGIONAL = re.compile(r'^(?:UK\s*:\s*)?BBC (ONE|TWO)\b\s*\S', re.I)
 
+# ITV ships one channel per English region — Granada, Meridian, Tyne Tees,
+# Yorkshire, Border, Wales — and they carry the same schedule apart from the
+# local news bulletin. Seven copies of ITV on one shelf is six too many.
+#
+# The English regions go and London stays, because London IS the network feed
+# for everything except that bulletin. ITV2/3/4/Be are NOT regional and must
+# not match: the test requires a region WORD, not merely something after
+# "ITV".
+ITV_REGIONAL = re.compile(
+    r'^(?:UK\s*:\s*)?ITV\s*1?\s+'
+    r'(GRANADA|MERIDIAN|TYNE\s*TEES|YORKSHIRE|BORDER|ANGLIA|CENTRAL|WESTCOUNTRY'
+    r'|WEST|CALENDAR|UTV|ULSTER|WALES|CYMRU|SCOTLAND|STV|NORTH\s*EAST|NORTH\s*WEST'
+    r'|SOUTH|EAST|MIDLANDS|BORDER\s+SCOTLAND|CHANNEL\s+ISLANDS?)\b', re.I)
+
 clean_drop, clean_kind = [], collections.Counter()
 _go_real = set()          # GO: channels that are real networks, kept
 for st in ls:
@@ -970,6 +1104,9 @@ for st in ls:
 
     if BBC_REGIONAL.match(n) and 'LONDON' not in n.upper() and 'ENGLAND' not in n.upper():
         clean_drop.append(sid); clean_kind['bbc_regional'] += 1; continue
+
+    if ITV_REGIONAL.match(n) and 'LONDON' not in n.upper():
+        clean_drop.append(sid); clean_kind['itv_regional'] += 1; continue
 
     if sec in DROP_LIVE_SECTIONS:
         if sid in _donor_ok:
@@ -1243,7 +1380,7 @@ def _brand_key(n, match_rx, canon, alias):
 brands_out, brand_dupe = {}, []
 _dropped = set(junk) | set(dropped_region) | set(locals_dropped) | set(locals_extra_drop) \
            | set(uk_locals_drop) | set(afr_drop) | set(sd_all_drop) | set(go_drop) \
-           | set(religion_drop) | set(telemundo_drop) \
+           | set(religion_drop) | set(telemundo_drop) | set(rsn_drop) | set(ca_drop) \
            | set(exact_dupe_drop) \
            | set(junk_sweep) | set(region_section_drop) | set(clean_drop) | set(pass2_drop) \
            | set(replay_drop)
@@ -1368,12 +1505,27 @@ for st in ls:
     c = cat_live.get(str(st.get('category_id')))
     if not c: continue
     if _final_section(sid, c['section']) != 'ENTERTAINMENT': continue
+    # Already condemned elsewhere, so it must not win this contest. Choosing
+    # the shortest label made "MORE4" beat "MORE 4 4K" and "MORE 4 HEVC 4K",
+    # and MORE4 was then killed on its own as SD — so a mainstream channel
+    # lost every feed it had, to two rules neither of which knew about the
+    # other.
+    if sid in sd_all_drop or sid in go_drop or sid in religion_drop \
+       or sid in telemundo_drop or sid in rsn_drop:
+        continue
     k = (_bare(st['name']), c['region'])
     if not k[0]: continue
     if k in _ent:
         keep = _ent[k]
-        # keep the shorter, plainer label
-        if len(asc(st['name'])) < len(asc(ls_by_id[keep]['name'])):
+        # Shortest, plainest label wins — the original rule. Ranking on tier
+        # here is a trap: a feed's advertised tier lies 87% of the time on this
+        # panel, and preferring MEASURED tier instead reshuffles which sibling
+        # survives into later passes, which quietly deleted BBC One, Channel 4
+        # and Channel 5. Quality is already decided where it belongs, by the
+        # collapse tiles' own ranking. This pass only picks a label.
+        rank = len(asc(st['name']))
+        rank_keep = len(asc(ls_by_id[keep]['name']))
+        if rank < rank_keep:
             suffix_dupe.append(keep); _ent[k] = sid
         else:
             suffix_dupe.append(sid)
@@ -1399,7 +1551,11 @@ MAIN_ENTERTAINMENT = {
  'UK': {
   'bbc one','bbc two','bbc three','bbc four','bbc scotland','bbc alba','bbc news',
   'itv','itv 1','itv 2','itv 3','itv 4','itv be','itvx',
-  'channel 4','channel 5','4seven','e4','more4','more 4','film4','5 star','5 usa',
+  'channel 4','channel 5','4seven','e4','more4','film4','5 star','5 usa',
+  '5 action','5 select','5select','5action',
+  # Real broadcasters the list simply never named, each of which was being
+  # deleted for the crime of not appearing on it.
+  'bbc brit','bbc earth','pbs america','talking pictures','together tv',
   'sky atlantic','sky max',
   'sky showcase','sky witness','sky arts','sky comedy','sky crime','sky documentaries',
   'sky history','sky nature','sky replay','sky sci-fi','alibi','dave','drama','gold',
@@ -1412,11 +1568,24 @@ def _ent_key(n):
     x = QUALW.sub('', x)
     x = re.sub(r'\s*\([^)]*\)', '', x)                 # "(Awe)", "(WZME) (SP)"
     x = re.sub(r'\s+(TV|CHANNEL|NETWORK|ENTERTAINMENT)$', '', x, flags=re.I).strip()
-    return re.sub(r'\s+', ' ', x).strip().lower()
+    # A digit glued to the name or spaced off it is the same channel: the
+    # panel writes "FILM 4" and the list below writes "film4", and the two
+    # never met — so Film4 was trimmed off the shelf as an unlisted channel.
+    x = re.sub(r'(?<=[a-z])\s+(?=\d)', '', re.sub(r'\s+', ' ', x).strip().lower())
+    return x
+
+def _glue(x):
+    """"film 4" and "film4" are one channel. Applied to BOTH the key and the
+    allowed names — normalising only the key turned "channel 4" into
+    "channel4" while the list still said "channel 4", which deleted Channel 4
+    and Channel 5 outright."""
+    return re.sub(r'(?<=[a-z])\s+(?=\d)', '', x)
 
 def _allowed(key, allow):
     """Exact, or the allowed name followed by a word boundary: "bbc one london"
     is BBC One with a regional suffix, "bbc one" is the channel we listed."""
+    allow = {_glue(a) for a in allow} | set(allow)
+    key = _glue(key)
     if key in allow: return True
     for a in allow:
         if key.startswith(a) and (len(key) == len(a) or not key[len(a)].isalnum()):
@@ -1686,6 +1855,7 @@ _drop_lists = [
     ('uk_locals_drop', uk_locals_drop), ('afr_drop', afr_drop),
     ('sd_all_drop', sd_all_drop), ('go_drop', go_drop),
     ('religion_drop', religion_drop), ('telemundo_drop', telemundo_drop),
+    ('rsn_drop', rsn_drop), ('ca_drop', ca_drop),
     ('exact_dupe_drop', exact_dupe_drop), ('junk_sweep', junk_sweep),
     ('region_section_drop', region_section_drop), ('clean_drop', clean_drop),
     ('pass2_drop', pass2_drop), ('replay_drop', replay_drop),
@@ -1695,6 +1865,14 @@ _drop_lists = [
     ('alias_dupe', alias_dupe), ('misfiled_local', misfiled_local),
 ]
 _all_drops = [sid for _, lst in _drop_lists for sid in lst]
+# A tile's chosen primary is never a drop, whichever list caught it. The UK
+# regional fold puts every member of a group on a drop list and names one to
+# represent the channel — and BBC One's representative was then caught by the
+# exact-duplicate pass, so the fold left the country's most-watched channel
+# with no feed at all. The same guard the region drop already applies to
+# collapse members, applied to the tiles this pass builds.
+_all_drops = [sid for sid in _all_drops
+              if sid not in {t['primary'] for t in uk_collapse.values()}]
 _dropset = set(_all_drops)
 dead_tiles = 0
 for _tset in (collapse, metro_tiles):
@@ -1710,6 +1888,25 @@ for _tset in (collapse, metro_tiles):
 if os.environ.get('WHY'):
     print("WHY", os.environ['WHY'], "->",
           [nm for nm, lst in _drop_lists if int(os.environ['WHY']) in set(lst)])
+
+# The surviving line-up, written beside this script for probe_tiers.py.
+#
+# Nothing reads it at runtime — it exists because "which channels actually
+# survived?" used to be answered by hand, once per region, and every
+# hand-rolled version missed the loose channels that belong to no tile: 97 of
+# DSTV's 146 and 83 of Canada's 107 went unmeasured behind a region that had
+# already been called done. This is the one place that knows the answer, so
+# this is the place that writes it down.
+_folded = {s for _tset in (collapse, metro_tiles, uk_collapse)
+           for t in _tset.values() for s in t['sources'] if s != t['primary']}
+kept_live = [
+    {"id": s['stream_id'], "name": _cnm.get(s['stream_id'], s['name']),
+     "region": _eff_region(s)}
+    for s in ls
+    if s['stream_id'] not in _dropset and s['stream_id'] not in _folded
+]
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'kept_live.json'), 'w') as _fh:
+    json.dump(kept_live, _fh, indent=1)
 
 manifest = {
     "manifest_version": 1,
@@ -1812,6 +2009,8 @@ manifest = {
         "dropped_region_streams": len(dropped_region),
         "religion_streams": len(religion_drop),
         "telemundo_streams": len(telemundo_drop),
+        "regional_sport_streams": len(rsn_drop),
+        "ca_clutter_streams": len(ca_drop),
         "timeshift_demoted": len(timeshift),
         "us_locals_kept": len(locals_market),
         "us_locals_dropped": len(locals_dropped),

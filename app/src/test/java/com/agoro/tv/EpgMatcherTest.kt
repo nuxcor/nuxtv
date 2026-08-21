@@ -141,10 +141,21 @@ class EpgMatcherTest {
     fun `ambiguous candidates stay unmatched`() {
         // "Fox" could be Fox News or Fox Sports — guessing is worse than
         // showing no guide for the row.
+        //
+        // Counts and a territory are given ON PURPOSE. Without them this
+        // passed for the wrong reason: every id had exactly one programme, so
+        // the dead-heat check refused, and the test would have gone on
+        // passing after the fuzzy stage started arbitrating. Here Fox Sports
+        // is both same-territory and busier, so anything that ranks rather
+        // than refuses binds the wrong network.
         val data = guide(
-            mapOf("foxnews.us" to listOf("Fox News"), "foxsports.us" to listOf("Fox Sports")),
+            alts = mapOf("foxnews.us" to listOf("Fox News"), "foxsports.us" to listOf("Fox Sports")),
+            counts = mapOf("foxnews.us" to 130, "foxsports.us" to 145),
         )
-        val res = EpgMatcher.resolve(listOf(ch("c1", "Fox")), data)
+        val res = EpgMatcher.resolve(
+            listOf(ch("c1", "Fox", categoryId = "US|NEWS")),
+            data,
+        )
         assertNull(res.byChannelId["c1"])
         assertEquals(0, res.matched)
     }

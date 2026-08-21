@@ -140,15 +140,9 @@ object ManifestCuration {
             )
         }
 
-        // The Locals shelf groups by market.
-        //
-        // Channels otherwise keep the provider's fetch order, which interleaves
-        // markets — a New York ABC, a Houston FOX, a Boston CBS — and that is
-        // unreadable when what the viewer wants is "my city's stations". Only
-        // the metro locals move, and only among the slots they already
-        // occupy: every other channel keeps its position, so nothing else on
-        // any shelf renumbers.
-        groupLocalsByMetro(channels, manifest)
+        // Every shelf gets a readable order — alphabetical, with the metro
+        // locals grouped by market. See [orderChannels].
+        orderChannels(channels, manifest)
 
         // Sections render in the manifest's order, not discovery order. A
         // region-less shelf sorts by its section like any other rather than
@@ -253,21 +247,43 @@ object ManifestCuration {
  * manifest fetch or a provider: getting it wrong is invisible in review and
  * shows up as a Locals shelf that reads like a shuffled deck.
  */
-internal fun groupLocalsByMetro(channels: MutableList<LiveChannel>, manifest: CatalogueManifest) {
-    val slots = channels.indices.filter { manifest.metroOf[channels[it].xtreamId] != null }
-    if (slots.size < 2) return
-    val ordered = slots.map { channels[it] }.sortedWith(
-        compareBy(
-            { manifest.metroRank(manifest.metroOf[it.xtreamId]) },
-            { manifest.metroOf[it.xtreamId].orEmpty() },
-            // Within a market the networks keep one order everywhere, so the
-            // same station sits in the same place in every city's run.
-            { NETWORK_ORDER.indexOf(networkOf(it.name)).takeIf { i -> i >= 0 } ?: NETWORK_ORDER.size },
-            { it.displayName },
-        )
-    )
-    slots.forEachIndexed { i, slot -> channels[slot] = ordered[i] }
+internal fun orderChannels(channels: MutableList<LiveChannel>, manifest: CatalogueManifest) {
+    // Shelf by shelf, and only within a shelf. Channels never cross a category
+    // boundary, so a shelf's contents and the order the shelves appear in are
+    // both untouched — and since numbers are POSITIONAL, only the numbers
+    // inside a shelf move. Sorting the whole list at once would renumber the
+    // entire catalogue.
+    channels.indices.groupBy { channels[it].categoryId }.forEach { (_, slots) ->
+        if (slots.size < 2) return@forEach
+        val ordered = slots.map { channels[it] }.sortedWith(SHELF_ORDER(manifest))
+        slots.forEachIndexed { i, slot -> channels[slot] = ordered[i] }
+    }
 }
+
+/**
+ * How one shelf reads top to bottom.
+ *
+ * Alphabetical, with the metro locals grouped by market ahead of it. The
+ * provider's fetch order is arbitrary — it is neither the order the channels
+ * were added nor anything a viewer can predict — and with numbers assigned by
+ * position that arbitrariness became the channel numbers too. Alphabetical is
+ * learnable: a viewer finds a channel by scanning to where its name belongs,
+ * and its number stops moving between refreshes for no reason.
+ *
+ * Locals sort first by market, because "my city's stations" is the question
+ * that shelf answers; alphabetical across markets would interleave them.
+ */
+private fun SHELF_ORDER(manifest: CatalogueManifest): Comparator<LiveChannel> = compareBy(
+    { manifest.metroRank(manifest.metroOf[it.xtreamId]) },
+    { manifest.metroOf[it.xtreamId].orEmpty() },
+    // Within a market the networks keep one order everywhere, so the same
+    // station sits in the same place in every city's run.
+    { NETWORK_ORDER.indexOf(networkOf(it.name)).takeIf { i -> i >= 0 } ?: NETWORK_ORDER.size },
+    // Case- and accent-insensitive, so "beIN" files under B and "Á" under A
+    // rather than both being flung to one end by raw code-point order.
+    { EpgMatcher.fold(it.displayName) },
+    { it.displayName },
+)
 
 private val NETWORK_ORDER = listOf("ABC", "CBS", "NBC", "FOX", "CW", "PBS", "UNIVISION")
 

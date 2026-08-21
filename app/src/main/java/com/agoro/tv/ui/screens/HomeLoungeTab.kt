@@ -159,18 +159,26 @@ fun HomeLoungeTab(
 
     // Day one has no history, and a launcher that greets a 20,000-item
     // playlist with an empty screen is the app's worst first impression. When
-    // nothing personal exists yet, Home opens on the catalogue instead — the
-    // rows retire the moment the viewer has watched or starred anything.
-    val personal = continueRow.isNotEmpty() || favoritesRow.isNotEmpty() ||
-        recentsRow.isNotEmpty()
-    val starterMovies = remember(openCatalog, personal) {
-        if (personal) emptyList() else openMovies.take(STARTER_ROW_LENGTH)
+    // nothing personal exists yet, Home opens on the catalogue instead — and
+    // each starter row retires only when the viewer has history OF ITS OWN
+    // KIND.
+    //
+    // One flag for all three was wrong in a way that hid the app's main
+    // event: resuming a single film filled continueRow, which retired the
+    // starter CHANNELS row as well, so a viewer with no channel history at
+    // all lost Live TV from Home entirely and was left looking at Recently
+    // added — mostly series. Live earned its place back by not being governed
+    // by what someone watched on demand.
+    val watchedCatalogue = continueRow.isNotEmpty()
+    val watchedChannels = favoritesRow.isNotEmpty() || recentsRow.isNotEmpty()
+    val starterMovies = remember(openCatalog, watchedCatalogue) {
+        if (watchedCatalogue) emptyList() else openMovies.take(STARTER_ROW_LENGTH)
     }
-    val starterSeries = remember(openCatalog, personal) {
-        if (personal) emptyList() else openSeries.take(STARTER_ROW_LENGTH)
+    val starterSeries = remember(openCatalog, watchedCatalogue) {
+        if (watchedCatalogue) emptyList() else openSeries.take(STARTER_ROW_LENGTH)
     }
-    val starterChannels = remember(displayChannels, personal) {
-        if (personal) emptyList() else displayChannels.take(STARTER_ROW_LENGTH)
+    val starterChannels = remember(displayChannels, watchedChannels) {
+        if (watchedChannels) emptyList() else displayChannels.take(STARTER_ROW_LENGTH)
     }
 
     // Only rows with something in them compose — an empty shelf is a dead
@@ -179,14 +187,23 @@ fun HomeLoungeTab(
         continueRow, favoritesRow, recentsRow, recentlyAdded,
         starterChannels, starterMovies, starterSeries,
     ) {
+        // Live first, then films, then shows.
+        //
+        // Continue watching keeps the top: it is the one row that answers
+        // "what was I doing", and it is empty for anyone who has not started
+        // something. Everything after it runs live -> movies -> shows, so the
+        // shelf order matches the rail order and the thing this app is
+        // primarily for is the thing on screen when Home opens.
         buildList {
             if (continueRow.isNotEmpty()) add("continue")
             if (favoritesRow.isNotEmpty()) add("favorites")
-            if (recentlyAdded.isNotEmpty()) add("new")
             if (recentsRow.isNotEmpty()) add("recents")
             if (starterChannels.isNotEmpty()) add("starterChannels")
             if (starterMovies.isNotEmpty()) add("starterMovies")
             if (starterSeries.isNotEmpty()) add("starterSeries")
+            // Recently added is a mixed catalogue row, so it trails the
+            // typed ones rather than splitting them.
+            if (recentlyAdded.isNotEmpty()) add("new")
         }
     }
 

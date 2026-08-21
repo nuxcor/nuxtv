@@ -17,19 +17,6 @@
             </gradient>
         </aapt:attr>
     </path>
-    <path
-        android:pathData="M54,54m-46,0a46,46 0,1 1,92 0a46,46 0,1 1,-92 0">
-        <aapt:attr xmlns:aapt="http://schemas.android.com/aapt" name="android:fillColor">
-            <gradient
-                android:centerX="54"
-                android:centerY="50"
-                android:gradientRadius="52"
-                android:type="radial">
-                <item android:offset="0" android:color="#2ED99A2E" />
-                <item android:offset="1" android:color="#00D99A2E" />
-            </gradient>
-        </aapt:attr>
-    </path>
     <!-- Legacy launcher icon, for API 23-25 only: below 26 there are no adaptive
          icons, so this stays a full-bleed square carrying its own background.
          API 26+ resolves mipmap-anydpi-v26/ic_launcher.xml instead, which splits

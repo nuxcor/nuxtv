@@ -856,12 +856,22 @@ private fun dayLabel(baseStartMs: Long, offset: Int): String = when (offset) {
 }
 
 /** One entry in the category strip: a territory's name, or a shelf. */
-private sealed interface StripEntry {
+internal sealed interface StripEntry {
     val key: String
     val label: String
 
-    data class Group(override val label: String) : StripEntry {
-        override val key get() = "__group__$label"
+    /**
+     * [key] is passed separately and NEVER derived from [label].
+     *
+     * It used to be "__group__$label", which was unique only by accident:
+     * labels were full shelf names like "US News" and "US Sports". Once the
+     * heading became the bare territory code, two non-adjacent runs of the
+     * same region — ordinary in a provider that files section-major, e.g.
+     * US|NEWS, UK|NEWS, US|SPORTS — both produced "__group__us". A LazyRow
+     * measuring two items under one slot id throws IllegalArgumentException
+     * out of subcompose, which killed Live TV to the launcher on entry.
+     */
+    data class Group(override val label: String, override val key: String) : StripEntry {
     }
 
     data class Chip(val category: Category, override val label: String) : StripEntry {
@@ -878,13 +888,15 @@ private sealed interface StripEntry {
  * name. Entries with no territory (All channels, Recent, Favorites) pass
  * through untouched and start no group.
  */
-private fun groupByRegion(categories: List<Category>): List<StripEntry> = buildList {
+internal fun groupByRegion(categories: List<Category>): List<StripEntry> = buildList {
     var lastRegion: String? = null
     categories.forEach { category ->
         val region = category.id.substringBefore('|').takeIf { category.id.contains('|') }
         val shelf = if (region != null) category.name.substringBefore(SHELF_SEPARATOR) else category.name
         if (region != null && region != lastRegion) {
-            add(StripEntry.Group(regionHeading(region, category.name)))
+            // Keyed on the category that OPENS the run: unique by construction,
+            // and unlike the region it stays unique when a region recurs.
+            add(StripEntry.Group(regionHeading(region, category.name), "__group__${category.id}"))
         }
         lastRegion = region
         add(StripEntry.Chip(category, shelf.trim()))

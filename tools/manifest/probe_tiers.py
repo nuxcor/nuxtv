@@ -1,4 +1,4 @@
-"""Measure what collapse-tile sources actually decode at.
+"""Measure what the channels a viewer can actually reach decode at.
 
 The build ranks a tile's sources by the tier token in the stream name, and
 providers lie — "FHD" on a 720p feed is routine. This probes the real video
@@ -19,7 +19,8 @@ sharing.
     AGORO_HOST=... AGORO_USER=... AGORO_PASS=... \
         python3 probe_tiers.py manifest-new.json [--all] [--limit N]
 
---all probes every source of every tile rather than just each tile's primary.
+--all also probes a tile's non-primary sources — the backups behind whatever is
+currently on top — rather than only the line-up as it stands.
 """
 import json, os, subprocess, sys, time
 
@@ -36,12 +37,30 @@ done = json.load(open(OUT)) if os.path.exists(OUT) else {}
 
 m = json.load(open(manifest_path))
 tiles = list(m['collapse']['live'].values()) + list(m.get('metro_locals', {}).values())
+
+# The queue is every channel that survives the manifest — tile primaries AND
+# the loose channels that belong to no tile.
+#
+# It used to be tile primaries only, and that quietly excluded most of the
+# catalogue: a region could report "fully measured" while none of its loose
+# channels had ever been opened. It hid 97 of DSTV's 146 and 83 of Canada's
+# 107, each found by hand long after the region was called done. Deriving the
+# queue the way the app derives its own line-up is the only version of this
+# that cannot drift out of agreement with what a viewer sees.
+here = os.path.dirname(os.path.abspath(__file__))
+kept_path = os.path.join(here, 'kept_live.json')
+if not os.path.exists(kept_path):
+    sys.exit(f"{kept_path} not found — run build_manifest.py first; it writes the line-up")
+kept = json.load(open(kept_path))
+candidates = [str(c['id']) for c in kept]
+# --all reaches past the line-up into the backups a tile is holding in reserve.
+if probe_all:
+    candidates += [str(s) for t in tiles for s in t['sources']]
+
 queue, seen = [], set()
-for t in tiles:
-    for sid in (t['sources'] if probe_all else [t['primary']]):
-        s = str(sid)
-        if (reprobe or s not in done) and s not in seen:
-            seen.add(s); queue.append(s)
+for s in candidates:
+    if (reprobe or s not in done) and s not in seen:
+        seen.add(s); queue.append(s)
 if limit: queue = queue[:limit]
 print(f"{len(queue)} streams to probe ({len(done)} already recorded)", flush=True)
 

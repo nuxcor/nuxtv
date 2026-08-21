@@ -5,7 +5,11 @@
     android:viewportHeight="108">
     <!-- Adaptive-icon background layer: full 108 bleed, because the launcher
          mask can crop anywhere from a circle to a squircle and anything short
-         of the full canvas would show a corner of nothing. -->
+         of the full canvas would show a corner of nothing.
+
+         Flat, with no radial glow behind the mark: a soft gold disc under a
+         gold mark reads as a smudge at launcher size, and on the Google TV
+         row every neighbouring tile is flat. -->
     <path android:pathData="M0,0h108v108h-108z">
         <aapt:attr xmlns:aapt="http://schemas.android.com/aapt" name="android:fillColor">
             <gradient
@@ -16,18 +20,6 @@
                 android:type="linear">
                 <item android:offset="0" android:color="#FF241C10" />
                 <item android:offset="1" android:color="#FF0E0D0C" />
-            </gradient>
-        </aapt:attr>
-    </path>
-    <path android:pathData="M54,54m-46,0a46,46 0,1 1,92 0a46,46 0,1 1,-92 0">
-        <aapt:attr xmlns:aapt="http://schemas.android.com/aapt" name="android:fillColor">
-            <gradient
-                android:centerX="54"
-                android:centerY="50"
-                android:gradientRadius="52"
-                android:type="radial">
-                <item android:offset="0" android:color="#2ED99A2E" />
-                <item android:offset="1" android:color="#00D99A2E" />
             </gradient>
         </aapt:attr>
     </path>

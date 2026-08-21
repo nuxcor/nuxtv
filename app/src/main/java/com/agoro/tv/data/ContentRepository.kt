@@ -589,15 +589,24 @@ class ContentRepository(context: Context) {
         }
 
         var pending = downloadAsync(urls.first())
-        val ingest = guide.beginIngest()
         // The bytes are moving; now it is safe to spend time working out what
         // to keep from them.
         val (wantedIds, wantedNameKeys) = wantedKeys()
         var parsed: XmltvData? = null
+        // Claimed on the first pack that actually PARSES, not before the first
+        // download. beginIngest withdraws the stamp, and withdrawing it up
+        // front meant a fold where every pack failed — a box that woke up
+        // offline — threw away a complete cached guide's claim to be complete
+        // and forced a re-download it could not do.
+        var ingest: Long? = null
+        var packsFailed = 0
         for (i in urls.indices) {
             val file = pending.await()
             if (i + 1 < urls.size) pending = downloadAsync(urls[i + 1])
-            if (file == null) continue
+            if (file == null) {
+                packsFailed++
+                continue
+            }
             val one = runCatching {
                 // The parser sniffs the gzip magic bytes itself, so the file
                 // needs no extension bookkeeping.
@@ -606,7 +615,8 @@ class ContentRepository(context: Context) {
                 // going straight to it: a pack's schedule is never a list in
                 // memory, not even briefly. Only the channel index the
                 // parser returns is kept.
-                guide.insertPack(ingest) { sink ->
+                val gen = ingest ?: guide.beginIngest().also { ingest = it }
+                guide.insertPack(gen) { sink ->
                     file.inputStream().buffered().use {
                         parsed = XmltvParser.parse(
                             it,
@@ -624,6 +634,7 @@ class ContentRepository(context: Context) {
                 null
             }
             file.delete()
+            if (one == null) packsFailed++
             if (one != null) {
                 merger.add(one)
                 // Publish after every pack: the first one carries most of the
@@ -641,8 +652,19 @@ class ContentRepository(context: Context) {
             }
         }
         if (latest == null) throw IOException("No guide pack could be loaded")
-        // The old guide's leftovers go now, not before — see [GuideStore].
-        guide.finishIngest(ingest, stampUrl)
+        // The sweep only runs on a COMPLETE fold. finishIngest deletes every
+        // row of the previous generation, so running it after a partial fold
+        // deletes the channels whose pack failed — and then stamps what is
+        // left as a finished guide, so nothing ever re-fetches them. A
+        // partial fold instead keeps both generations (readable, if briefly
+        // mixed) and stays unstamped, which is exactly the state that makes
+        // the next start try again.
+        val gen = ingest
+        if (gen != null && packsFailed == 0) {
+            guide.finishIngest(gen, stampUrl)
+        } else {
+            android.util.Log.w("Agoro", "Guide fold incomplete ($packsFailed pack(s) lost); not stamping")
+        }
         latest
     }
 

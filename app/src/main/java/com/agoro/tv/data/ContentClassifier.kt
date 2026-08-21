@@ -260,12 +260,35 @@ object ContentClassifier {
      * and quality tokens alone — those are [QualityTag.baseName]'s job in the
      * matcher pipeline, and a channel called "Sky Cinema 2024" must survive.
      */
+    /**
+     * The region a UK network's feed happens to come from, which is not part
+     * of the channel's name.
+     *
+     * BBC One, BBC Two, ITV, Channel 4 and Channel 5 ship one feed per
+     * English region carrying the same schedule apart from the local news
+     * bulletin. The pipeline folds them to a single feed; this stops that
+     * feed announcing which region it came from, so the row reads "BBC One"
+     * rather than "BBC One London".
+     *
+     * Anchored to those five networks ON PURPOSE. A bare region word is a
+     * channel in its own right — BBC Scotland, ITV Wales as a service, S4C —
+     * and stripping region words generally would rename them to nothing.
+     */
+    private val ukRegionalFeed = Regex(
+        """(?i)^(BBC ONE|BBC TWO|BBC 1|BBC 2|ITV ?1|ITV|CHANNEL 4|CHANNEL 5|C4|C5)\s+""" +
+            """(LONDON|ENGLAND|GRANADA|MERIDIAN|TYNE ?TEES|YORKSHIRE|CALENDAR|ANGLIA|""" +
+            """CENTRAL|WESTCOUNTRY|BORDER|UTV|ULSTER|WALES|CYMRU|SCOTLAND|NI|""" +
+            """CHANNEL ISLANDS?|CAMBRIDGE|OXFORD|BRISTOL|""" +
+            """(?:NORTH|SOUTH|EAST|WEST)(?:\s+(?:EAST|WEST|MIDLANDS|YORKSHIRE))?)\b"""
+    )
+
     fun stripChannelTags(raw: String): String {
         var t = raw
         repeat(2) { t = t.replace(platformPrefix, "") }
         t = t.replace(countryTag, " ")
         t = t.replace(edgeDecoration, "")
-        return t.replace(multiSpace, " ").trim()
+        t = t.replace(multiSpace, " ").trim()
+        return ukRegionalFeed.find(t)?.groupValues?.get(1)?.trim() ?: t
     }
 
     /** Strips quality tags, provider prefixes ("EN -", "|NF|") and dangling separators. */
