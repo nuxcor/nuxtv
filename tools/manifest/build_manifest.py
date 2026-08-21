@@ -275,10 +275,21 @@ CHANNEL_ALIAS = {
     'theweathernetwork': 'weathernetwork',
     'rogerssportsnetone': 'sportsnetone',
     'golf': 'golfchannel',
+    # The same national feed under two house styles, which left two ABCs
+    # sitting beside each other on the US news shelf.
+    'abcnewslive': 'abcnews',
+    'foxnewschannel': 'foxnews',
 }
 
+# Provider source tags — "NBC NEWS NOW (A)", "(D)", "(H)", "(PC)" — which name
+# where the feed comes from, not what channel it is. Left in the key they made
+# a separate tile each, so NBC News Now stood on the US news shelf five times.
+# One or two letters only: a callsign like "(WABC)" is four and identifies a
+# genuinely different station.
+VARIANT_TAG = re.compile(r'\(\s*[A-Za-z]{1,2}\s*\)')
+
 def channel_key(n):
-    n = QUAL.sub('', SPFX.sub('', asc(n)))
+    n = VARIANT_TAG.sub('', QUAL.sub('', SPFX.sub('', asc(n))))
     for pat, base in PLURALISE:          # "Sky Sport 1" == "Sky Sports 1"
         n = re.sub(pat, base, n, flags=re.I)
     k = re.sub(r'[^a-z0-9]', '', n.lower())
@@ -427,7 +438,15 @@ def _religious(name):
 live_rows = []
 junkset = set(junk)
 go_drop, sd_all_drop, religion_drop = [], [], []
-telemundo_drop, rsn_drop, ca_drop = [], [], []
+# Regional US news: one-metro cable news that belongs nowhere near a national
+# news shelf. NY1 is matched with its Spectrum prefix only — bare "NY1" would
+# also catch sports and entertainment feeds that carry the market in their name.
+US_REGIONAL_NEWS = re.compile(
+    r'\bNECN\b|\bNEW ENGLAND CABLE NEWS\b'
+    r'|\bNEWS ?12\b'
+    r'|\bSPECTRUM NEWS\b|\bSPECTRUM BAY NEWS\b|\bBAY NEWS ?9\b', re.I)
+
+telemundo_drop, rsn_drop, ca_drop, us_news_drop = [], [], [], []
 for s in ls:
     if s['stream_id'] in junkset: continue
     c = cat_live.get(str(s.get('category_id')))
@@ -450,6 +469,13 @@ for s in ls:
         rsn_drop.append(s['stream_id']); continue
     if _ca_clutter(s['name']):
         ca_drop.append(s['stream_id']); continue
+    # The US equivalent of the regional sports networks: cable news that only
+    # covers one metro. Most Spectrum feeds name their city and were already
+    # going out with the locals, but the ones that don't — plain "Spectrum
+    # News 1", NY1, Bay News 9, NECN, and the five News 12 boroughs — landed on
+    # the national news shelf beside CNN and the networks.
+    if US_REGIONAL_NEWS.search(asc(s['name'])):
+        us_news_drop.append(s['stream_id']); continue
     # PPV event slots are not channels. "NCAAF 06: FOX" reduces to the key
     # "fox" once the prefix comes off, which put a college-football slot into
     # the FOX tile — and, once the real feeds were trimmed, at the FRONT of
@@ -612,12 +638,26 @@ def local_market(name):
         if re.search(rf'\b{re.escape(city)}\b', n.upper()): return city
     return None
 
+# The provider files the national news networks in a LOCALS category, and they
+# carry neither a city nor a callsign — so the market lookup found nothing and
+# they went out as unplaceable local junk. ABC News is not an ABC affiliate,
+# and dropping it cost the US news shelf its 1080p feed while a 720p copy
+# filed elsewhere survived to stand in for it.
+# The flagship feed only. "ABC News International" and "ABC News 2" are
+# separate services, and rescuing them too just puts a second ABC back on the
+# shelf beside the first — which is the clutter this is meant to remove.
+NATIONAL_NEWS = re.compile(
+    r'\b(?:ABC|CBS|NBC|FOX)\s+NEWS\b(?!\s*(?:INTERNATIONAL\b|\d))', re.I)
+
 locals_market, locals_dropped = {}, []
 for s in ls:
     c = cat_live.get(str(s.get('category_id')))
     if not c or c['section'] != 'LOCALS' or c['region'] != 'US': continue
     mk = local_market(s['name'])
     if mk: locals_market[str(s['stream_id'])] = mk
+    # Left alone rather than placed: NAME_SECTION's \bNEWS\b rule files it
+    # under NEWS further down, which is where it belonged all along.
+    elif NATIONAL_NEWS.search(asc(s['name'])): continue
     else:  locals_dropped.append(s['stream_id'])
 
 
@@ -939,6 +979,7 @@ _PN = re.compile(r'^[A-Z0-9]{2,5}\s*:\s*')
 # good "US: A&E HD" stayed condemned as its duplicate.
 _gone = junkset | set(dropped_region) | set(go_drop) | set(sd_all_drop) \
         | set(religion_drop) | set(telemundo_drop) | set(rsn_drop) | set(ca_drop) \
+           | set(us_news_drop) \
         | set(locals_dropped) | set(locals_extra_drop)
 for st in ls:
     sid = st['stream_id']
@@ -1381,6 +1422,7 @@ brands_out, brand_dupe = {}, []
 _dropped = set(junk) | set(dropped_region) | set(locals_dropped) | set(locals_extra_drop) \
            | set(uk_locals_drop) | set(afr_drop) | set(sd_all_drop) | set(go_drop) \
            | set(religion_drop) | set(telemundo_drop) | set(rsn_drop) | set(ca_drop) \
+           | set(us_news_drop) \
            | set(exact_dupe_drop) \
            | set(junk_sweep) | set(region_section_drop) | set(clean_drop) | set(pass2_drop) \
            | set(replay_drop)
@@ -1700,11 +1742,17 @@ for st in ls:
         _alias_best[k] = sid
 
 # ------------------------------------------------ fewer rows on a 10-foot UI
-# Seven top-level sections is a lot of d-pad travel. Documentary and Music are
-# entertainment by any viewer's reckoning; Kids stays its own row because people
-# navigate to it deliberately - but not in a region that has one channel in it.
-SECTION_MERGE = {'DOCUMENTARY': 'ENTERTAINMENT', 'MUSIC': 'ENTERTAINMENT'}
-KIDS_MIN = 5
+# Seven top-level sections is a lot of d-pad travel. Documentary, Music and
+# Kids are all entertainment by any viewer's reckoning, and each was a thin row
+# standing between the viewer and the next real one. Kids used to survive as
+# its own row wherever a region had five or more of them, on the theory that
+# people navigate to it deliberately — but a row that appears in some regions
+# and not others is worse than one that never appears at all.
+SECTION_MERGE = {
+    'DOCUMENTARY': 'ENTERTAINMENT',
+    'MUSIC': 'ENTERTAINMENT',
+    'KIDS': 'ENTERTAINMENT',
+}
 
 _pre = collections.Counter()
 for sid, reg, sec in _tile_ids():
@@ -1714,8 +1762,6 @@ section_merge_map = {}
 for (reg, sec), n in _pre.items():
     if sec in SECTION_MERGE:
         section_merge_map[f"{reg}|{sec}"] = SECTION_MERGE[sec]
-    elif sec == 'KIDS' and n < KIDS_MIN:
-        section_merge_map[f"{reg}|KIDS"] = 'ENTERTAINMENT'
 
 merged_section = {}
 for sid, reg, sec in _tile_ids():
@@ -1855,7 +1901,7 @@ _drop_lists = [
     ('uk_locals_drop', uk_locals_drop), ('afr_drop', afr_drop),
     ('sd_all_drop', sd_all_drop), ('go_drop', go_drop),
     ('religion_drop', religion_drop), ('telemundo_drop', telemundo_drop),
-    ('rsn_drop', rsn_drop), ('ca_drop', ca_drop),
+    ('rsn_drop', rsn_drop), ('ca_drop', ca_drop), ('us_news_drop', us_news_drop),
     ('exact_dupe_drop', exact_dupe_drop), ('junk_sweep', junk_sweep),
     ('region_section_drop', region_section_drop), ('clean_drop', clean_drop),
     ('pass2_drop', pass2_drop), ('replay_drop', replay_drop),
@@ -2010,6 +2056,7 @@ manifest = {
         "religion_streams": len(religion_drop),
         "telemundo_streams": len(telemundo_drop),
         "regional_sport_streams": len(rsn_drop),
+        "us_regional_news_streams": len(us_news_drop),
         "ca_clutter_streams": len(ca_drop),
         "timeshift_demoted": len(timeshift),
         "us_locals_kept": len(locals_market),
