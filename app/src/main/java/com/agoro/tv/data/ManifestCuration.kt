@@ -140,6 +140,16 @@ object ManifestCuration {
             )
         }
 
+        // The Locals shelf groups by market.
+        //
+        // Channels otherwise keep the provider's fetch order, which interleaves
+        // markets — a New York ABC, a Houston FOX, a Boston CBS — and that is
+        // unreadable when what the viewer wants is "my city's stations". Only
+        // the metro locals move, and only among the slots they already
+        // occupy: every other channel keeps its position, so nothing else on
+        // any shelf renumbers.
+        groupLocalsByMetro(channels, manifest)
+
         // Sections render in the manifest's order, not discovery order. A
         // region-less shelf sorts by its section like any other rather than
         // being flung to the end: "SPORTS" has no '|', so asking for the
@@ -233,4 +243,36 @@ object ManifestCuration {
             return t.replace(spaces, " ").trim(' ', '-', '_', '|').ifBlank { raw }
         }
     }
+
 }
+
+/**
+ * Reorders metro-local channels into market groups, in place.
+ *
+ * Internal and free-standing so the ordering can be tested without a
+ * manifest fetch or a provider: getting it wrong is invisible in review and
+ * shows up as a Locals shelf that reads like a shuffled deck.
+ */
+internal fun groupLocalsByMetro(channels: MutableList<LiveChannel>, manifest: CatalogueManifest) {
+    val slots = channels.indices.filter { manifest.metroOf[channels[it].xtreamId] != null }
+    if (slots.size < 2) return
+    val ordered = slots.map { channels[it] }.sortedWith(
+        compareBy(
+            { manifest.metroRank(manifest.metroOf[it.xtreamId]) },
+            { manifest.metroOf[it.xtreamId].orEmpty() },
+            // Within a market the networks keep one order everywhere, so the
+            // same station sits in the same place in every city's run.
+            { NETWORK_ORDER.indexOf(networkOf(it.name)).takeIf { i -> i >= 0 } ?: NETWORK_ORDER.size },
+            { it.displayName },
+        )
+    )
+    slots.forEachIndexed { i, slot -> channels[slot] = ordered[i] }
+}
+
+private val NETWORK_ORDER = listOf("ABC", "CBS", "NBC", "FOX", "CW", "PBS", "UNIVISION")
+
+private val NETWORK_RE =
+    Regex("""\b(ABC|CBS|NBC|FOX|CW|PBS|UNIVISION)\d*\b""", RegexOption.IGNORE_CASE)
+
+private fun networkOf(name: String): String? =
+    NETWORK_RE.find(name)?.groupValues?.get(1)?.uppercase()

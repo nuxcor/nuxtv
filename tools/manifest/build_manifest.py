@@ -71,7 +71,10 @@ MOVIE_MANUAL = {
 SECTIONS_LIVE = [
     ("NEWS",          "News",                False),
     ("SPORTS",        "Sports",              False),
-    ("LOCALS",        "Locals & Networks",   False),
+    # "Locals", not "Locals & Networks": the shelf is metro affiliate stations
+    # and nothing else, so the second half named a thing that is not there and
+    # cost width in a strip where width is the whole budget.
+    ("LOCALS",        "Locals",              False),
     ("ENTERTAINMENT", "Entertainment",       False),
     ("MOVIES",        "Movies 24/7",         False),
     ("KIDS",          "Kids",                False),
@@ -295,6 +298,8 @@ def measured_tier(sid):
 #    would need that judgement ("GOD", "ANGEL", "HOLY", "MIRACLE") are left
 #    out entirely. A missed channel is a nuisance; a wrongly dropped one is a
 #    channel the viewer can never get back.
+TELEMUNDO = re.compile(r'\bTELEMUNDO\d*\b', re.I)
+
 RELIGIOUS_NETWORK = re.compile(r"""\b(
     EWTN | TBN | TRINITY\s+BROADCASTING | DAYSTAR | GOD\s?TV | CBN | INSP |
     3ABN | HOPE\s+CHANNEL | JCTV | GAITHER | HILLSONG | LOVEWORLD |
@@ -320,6 +325,7 @@ def _religious(name):
 live_rows = []
 junkset = set(junk)
 go_drop, sd_all_drop, religion_drop = [], [], []
+telemundo_drop = []
 for s in ls:
     if s['stream_id'] in junkset: continue
     c = cat_live.get(str(s.get('category_id')))
@@ -328,6 +334,12 @@ for s in ls:
     # dropped outright, not demoted — the catalogue serves the originals.
     if re.match(r'^GO\s*:', asc(s['name']), re.I):
         go_drop.append(s['stream_id']); continue
+    # Telemundo's stations are Spanish-language and were filling eight of the
+    # metro shelves' tiles. Dropped at ingest so they never form a tile at
+    # all, rather than being hidden later — a tile whose every member is gone
+    # is a tile that renders nothing.
+    if TELEMUNDO.search(asc(s['name'])):
+        telemundo_drop.append(s['stream_id']); continue
     # PPV event slots are not channels. "NCAAF 06: FOX" reduces to the key
     # "fox" once the prefix comes off, which put a college-football slot into
     # the FOX tile — and, once the real feeds were trimmed, at the FRONT of
@@ -501,10 +513,14 @@ for s in ls:
 
 # --------------------------------------------------- one tile per network per metro
 # Telemundo/Univision first: "TELEMUNDO NBC (WNJU)" must not register as NBC.
+# Trailing digits are part of how affiliates name themselves — "ABC7 NEW
+# YORK", "FOX2", "CBS11" — and \bABC\b does not match "ABC7", so a New York
+# ABC affiliate resolved to no network at all and was dropped instead of
+# folded into the NEW YORK|ABC tile it belongs to.
 NETWORK_ORDER = [
-    ("TELEMUNDO", r"\bTELEMUNDO\b"), ("UNIVISION", r"\bUNIVISION\b"),
-    ("ABC", r"\bABC\b"), ("CBS", r"\bCBS\b"), ("NBC", r"\bNBC\b"),
-    ("FOX", r"\bFOX\b"), ("CW", r"\bCW\b"), ("PBS", r"\bPBS\b"),
+    ("TELEMUNDO", r"\bTELEMUNDO\d*\b"), ("UNIVISION", r"\bUNIVISION\d*\b"),
+    ("ABC", r"\bABC\d*\b"), ("CBS", r"\bCBS\d*\b"), ("NBC", r"\bNBC\d*\b"),
+    ("FOX", r"\bFOX\d*\b"), ("CW", r"\bCW\d*\b"), ("PBS", r"\bPBS\d*\b"),
 ]
 FLAGSHIP = {
  ("NEW YORK","ABC"):"WABC",("NEW YORK","CBS"):"WCBS",("NEW YORK","NBC"):"WNBC",
@@ -802,7 +818,8 @@ _PN = re.compile(r'^[A-Z0-9]{2,5}\s*:\s*')
 # in panel order, first-wins kept it, the DGO drop then removed it, and the
 # good "US: A&E HD" stayed condemned as its duplicate.
 _gone = junkset | set(dropped_region) | set(go_drop) | set(sd_all_drop) \
-        | set(religion_drop) | set(locals_dropped) | set(locals_extra_drop)
+        | set(religion_drop) | set(telemundo_drop) \
+        | set(locals_dropped) | set(locals_extra_drop)
 for st in ls:
     sid = st['stream_id']
     # collapse sources are deliberate fallbacks, not duplicate tiles
@@ -906,7 +923,27 @@ for _srcs in tiles.values():
                      and re.match(r'^PRIME\s*:', asc(_donor_nm.get(x['id'], '')), re.I))
 
 # 1. a second locals bundle hides under a CITY: prefix inside Entertainment
-CITY_LOCAL = re.compile(r'^CITY\s*:\s*(ABC|CBS|NBC|FOX|CW|PBS|MNT|TMO|MYTV)\b', re.I)
+LOCAL_PREFIX = re.compile(r'^\s*(?:CITY|PRIME)\s*:', re.I)
+
+def _is_local_affiliate(n):
+    """A local station, as opposed to a national channel under the same prefix.
+
+    The old test was `^CITY:` followed by a network word, which saw a third of
+    these at best: the same stations also arrive under PRIME:, lead with a
+    bare call sign ("CITY: KTXA MIAMI"), or carry a network this list never
+    had ("CITY: UNIVISION WXTV NEW YORK"). What escaped did not just clutter
+    the shelf — it never joined its metro tile, so it never inherited the
+    tile's call-sign logo and wore the provider's platform badge instead.
+
+    Identification is deliberately by MARKET or a parenthesised call sign,
+    never by a bare [WK]xxx token: the branch below DROPS what it does not
+    place, and a bare token would read "PRIME: WWE NETWORK" as a call sign
+    and delete it. A network word alone is no good either — "PRIME: ABC NEWS
+    LIVE" carries one and is not a local station.
+    """
+    if not LOCAL_PREFIX.match(n):
+        return False
+    return bool(local_market(n) or CALL_ONLY.search(asc(n)))
 # 2. the DirecTV bundle carries single-show FAST channels alongside real ones
 GO_LOOP = re.compile(r'^GO\s*:', re.I)
 # 3. BBC ONE regional variants my earlier sweep spelled too narrowly
@@ -921,7 +958,7 @@ for st in ls:
     sid = st['stream_id']
     sec = _final_section(sid, c['section'])
 
-    if CITY_LOCAL.match(n):
+    if _is_local_affiliate(n):
         mk = local_market(n)                       # reuse the metro matcher
         if mk and mk in TOP_METROS:
             net = network_of(n)
@@ -972,7 +1009,32 @@ SHOW_CHANNEL  = re.compile(
     r"AMERICA'?S GOT TALENT|BIG BROTHER|BIZARRE FOODS|ALWAYS FUNNY|AMERICAN CRIMES"
     r"|BOB ROSS|FAMILY HANDYMAN|50 CENT|DANCE MOMS|KEEPING UP|DECLASSIFIED|PRANKS"
     r"|COSMIC FRONTIERS|EARTH TOUCH|DROOL|E! KEEPING", re.I)
-STRAY_LOCAL   = re.compile(r'^(?:CITY\s*:\s*)?(ABC|CBS|NBC|FOX|CW|PBS|IND|MNT|TMO)\s+[WK][A-Z]{2,3}\b', re.I)
+_NET_THEN_CALL = re.compile(
+    r'^(?:CITY\s*:\s*)?(?:ABC|CBS|NBC|FOX|CW|PBS|IND|MNT|TMO)\d*\s+([WK][A-Z]{2,3})\b', re.I)
+_LEADING_CALL  = re.compile(r'^([WK][A-Z]{2,3})\b')
+
+def stray_local_call(body):
+    """The call sign of a US local affiliate that reached here without a metro.
+
+    A CALL SIGN is the evidence, never a network word on its own: this branch
+    DROPS what it cannot place, and "CBS SPORTS NETWORK" carries a network
+    word while being national. Three forms, all seen on this panel:
+
+        CBS 11 DALLAS TX (KTVT) HD     parenthesised — the common one
+        ABC WSB ATLANTA                network then call sign
+        KTLA LOS ANGELES HD            leads with the call sign, no network
+
+    The old test only recognised the middle form, so the affiliates that
+    define a market — KTVT Dallas, WMAQ Chicago, KTLA Los Angeles — never
+    reached the fold and sat loose beside the very tiles they belong in.
+    """
+    mm = CALL_ONLY.search(body)
+    if mm: return mm.group(1).split('-')[0].upper()
+    mm = _NET_THEN_CALL.match(body)
+    if mm: return mm.group(1).upper()
+    mm = _LEADING_CALL.match(asc(body).upper())
+    if mm and mm.group(1) in CALLSIGN_MARKET: return mm.group(1)
+    return None
 
 pass2_drop, pass2_kind = [], collections.Counter()
 for st in ls:
@@ -982,10 +1044,16 @@ for st in ls:
     if not c: continue
     n = asc(st['name'])
     body = re.sub(r'^[A-Z0-9]{2,5}(?:\s+[A-Z0-9]{2,3})?\s*:\s*', '', n)
-    if STRAY_LOCAL.match(body):
-        mk = local_market(body)
-        if mk and mk in TOP_METROS and network_of(body):
-            _by[(mk, network_of(body))].append((sid, n))
+    call = stray_local_call(body)
+    if call:
+        mk = local_market(body) or CALLSIGN_MARKET.get(call)
+        # A station with no network word still belongs to its market — KTLA
+        # is Los Angeles' CW whether or not the name says so. Keyed by its
+        # call sign, it gets a tile of its own in the right metro instead of
+        # being thrown away for failing to name a network.
+        net = network_of(body) or call
+        if mk and mk in TOP_METROS:
+            _by[(mk, net)].append((sid, n))
             pass2_kind['stray_local_folded'] += 1
         else:
             pass2_drop.append(sid); pass2_kind['stray_local_dropped'] += 1
@@ -1175,7 +1243,7 @@ def _brand_key(n, match_rx, canon, alias):
 brands_out, brand_dupe = {}, []
 _dropped = set(junk) | set(dropped_region) | set(locals_dropped) | set(locals_extra_drop) \
            | set(uk_locals_drop) | set(afr_drop) | set(sd_all_drop) | set(go_drop) \
-           | set(religion_drop) \
+           | set(religion_drop) | set(telemundo_drop) \
            | set(exact_dupe_drop) \
            | set(junk_sweep) | set(region_section_drop) | set(clean_drop) | set(pass2_drop) \
            | set(replay_drop)
@@ -1617,7 +1685,7 @@ _drop_lists = [
     ('locals_dropped', locals_dropped), ('locals_extra_drop', locals_extra_drop),
     ('uk_locals_drop', uk_locals_drop), ('afr_drop', afr_drop),
     ('sd_all_drop', sd_all_drop), ('go_drop', go_drop),
-    ('religion_drop', religion_drop),
+    ('religion_drop', religion_drop), ('telemundo_drop', telemundo_drop),
     ('exact_dupe_drop', exact_dupe_drop), ('junk_sweep', junk_sweep),
     ('region_section_drop', region_section_drop), ('clean_drop', clean_drop),
     ('pass2_drop', pass2_drop), ('replay_drop', replay_drop),
@@ -1743,6 +1811,7 @@ manifest = {
         "collapse_needs_review": len(needs_review),
         "dropped_region_streams": len(dropped_region),
         "religion_streams": len(religion_drop),
+        "telemundo_streams": len(telemundo_drop),
         "timeshift_demoted": len(timeshift),
         "us_locals_kept": len(locals_market),
         "us_locals_dropped": len(locals_dropped),

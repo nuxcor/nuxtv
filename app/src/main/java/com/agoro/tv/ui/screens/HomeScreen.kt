@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.key.nativeKeyCode
+import androidx.compose.ui.input.key.key
 import androidx.compose.ui.focus.onFocusChanged
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.LaunchedEffect
@@ -115,6 +118,12 @@ fun HomeScreen(
     // on focus changes that closely follow one, so system-driven focus moves
     // (the splash dismissal's default placement) can never switch tabs.
     var lastKeyDownMs by remember { mutableStateOf(0L) }
+    // WHICH key, not just when. The edge catcher below is a focus target, and
+    // a focus target can be reached by any direction the geometric search
+    // fancies — so "a key was pressed recently" was true of every press the
+    // viewer made while travelling, and an UP or DOWN that happened to land
+    // on the catcher opened the drawer.
+    var lastKeyCode by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
         // Park on the CONTENT, always — on launch that is the Live guide,
         // whose entry redirect lands focus on the current programme, so the
@@ -150,6 +159,7 @@ fun HomeScreen(
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
                     lastKeyDownMs = android.os.SystemClock.uptimeMillis()
+                    lastKeyCode = event.key.nativeKeyCode
                 }
                 false // observe only; never consume
             },
@@ -289,11 +299,27 @@ fun HomeScreen(
     // geometric search kept picking it over the next drawer item, whose
     // summons then bounced focus straight back: UP/DOWN inside the open
     // drawer looked dead on real hardware.
+    //
+    // Reachable ONLY by a LEFT press. It is full-height and focusable, so the
+    // geometric search could pick it from anywhere in the content — and it
+    // did, whenever the cell UP or DOWN was aiming for had not been composed
+    // yet, which in a windowed grid is often. The drawer then opened in the
+    // middle of travelling a row of channels.
+    //
+    // Refusing focus rather than bouncing back, because bouncing was its own
+    // bug: the recovery hands focus to the content ROOT, which lands on
+    // whatever the content focuses first, so an accidental arrival did not
+    // just open the drawer — it threw away the viewer's place in the grid.
+    // Refused, the search simply finds nothing that way and focus stays put,
+    // which is the right answer at the edge of a grid.
     if (!railVisible) Box(
         modifier = Modifier
             .align(Alignment.CenterStart)
             .width(2.dp)
             .fillMaxHeight()
+            .focusProperties {
+                canFocus = lastKeyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT
+            }
             .onFocusChanged {
                 if (!it.isFocused) return@onFocusChanged
                 // The system's default focus placement lands here on boot —
@@ -302,7 +328,9 @@ fun HomeScreen(
                 // real key press is a summons; anything else bounces back
                 // to the content.
                 val now = android.os.SystemClock.uptimeMillis()
-                if (now - lastKeyDownMs < 1_000 && now - railClosedAtMs > 700) {
+                if (lastKeyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT &&
+                    now - lastKeyDownMs < 1_000 && now - railClosedAtMs > 700
+                ) {
                     openRail()
                 } else {
                     railScope.launch { contentFocus.requestFocusRetrying() }
