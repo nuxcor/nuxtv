@@ -119,6 +119,8 @@ fun GuideTab(
     onChannelLongPress: (LiveChannel) -> Unit = {},
     /** Escape hatch offered when the playlist has no live channels at all. */
     onOpenSettings: () -> Unit = {},
+    /** Where entry focus lands when nothing is playing — see [GuideGrid]. */
+    lastPlayedChannelId: String? = null,
 ) {
     val epgState by vm.epgState.collectAsState()
     val coverage by vm.guideCoverage.collectAsState()
@@ -497,6 +499,7 @@ fun GuideTab(
 
         GuideGrid(
             entryFocusTick = entryFocusTick,
+            lastPlayedChannelId = lastPlayedChannelId,
             handle = gridHandle,
             digitState = digitState,
             // UP from the grid meets the day control first — it sits directly

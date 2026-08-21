@@ -242,7 +242,14 @@ internal fun LiveTab(
     // own, and every channel's schedule sits beside it instead of behind a
     // toggle. Two views of the same channels meant the same press did
     // different things depending on a switch set weeks ago.
+    // The channel last watched, so coming back from the player lands where the
+    // viewer left rather than at the top of the list. Recents are newest-first
+    // and keyed by url; the guide works in channel ids.
+    val lastPlayedId = remember(recents, allVisible) {
+        recents.firstOrNull()?.let { url -> allVisible.firstOrNull { it.url == url }?.id }
+    }
     GuideTab(
+        lastPlayedChannelId = lastPlayedId,
         entryFocusTick = entryFocusTick,
         vm = vm,
         bundle = bundle,

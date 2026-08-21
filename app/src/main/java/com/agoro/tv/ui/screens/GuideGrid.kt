@@ -350,6 +350,17 @@ internal fun GuideGrid(
     onSchedule: (LiveChannel, EpgProgram) -> Unit,
     modifier: Modifier = Modifier,
     playingChannelId: String? = null,
+    /**
+     * Where to land when nothing is playing: the channel last watched.
+     *
+     * Coming back from the player, the guide had no idea what had just been on
+     * — [playingChannelId] is only supplied by the in-player overlay — so entry
+     * fell to its `?: 0` and dropped the viewer at the top of the list, however
+     * far down the channel they left was. Kept separate from
+     * [playingChannelId] because that one also tints a row as playing, and
+     * nothing is playing by then.
+     */
+    lastPlayedChannelId: String? = null,
     initialFocusChannelId: String? = null,
     /**
      * Bumped by the host when focus enters the guide from outside (the nav
@@ -483,12 +494,13 @@ internal fun GuideGrid(
         }
     }
 
-    // Focus entry from the rail: land on the playing channel's row, or the
-    // first row. Same retry as every arrival focus — the row composes a
-    // frame after the scroll.
+    // Focus entry: land on the channel playing, else the one last watched,
+    // else the first row. Same retry as every arrival focus — the row composes
+    // a frame after the scroll.
     LaunchedEffect(entryFocusTick) {
         if (entryFocusTick == 0) return@LaunchedEffect
-        val index = channels.indexOfFirst { it.id == playingChannelId }
+        val target = playingChannelId ?: lastPlayedChannelId
+        val index = channels.indexOfFirst { it.id == target }
             .takeIf { it >= 0 } ?: 0
         landOnRow(index)
     }
