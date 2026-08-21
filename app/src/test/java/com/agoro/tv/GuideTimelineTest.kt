@@ -37,7 +37,12 @@ class GuideTimelineTest {
 
     @Test
     fun `five columns on a wider panel too`() {
-        assertEquals(5.0f, columnsVisible(1280.dp), 0.05f)
+        // Looser than the 1080p case on purpose: now that the guide spends
+        // most of the TV-safe gutter, a 1280dp panel's lane is wide enough to
+        // hit MAX_DP_PER_MINUTE, and a clamped scale lands a shade past five
+        // rather than exactly on it. Five columns is the contract; landing on
+        // 5.00 was an accident of the old lane width.
+        assertEquals(5.0f, columnsVisible(1280.dp), 0.1f)
     }
 
     @Test

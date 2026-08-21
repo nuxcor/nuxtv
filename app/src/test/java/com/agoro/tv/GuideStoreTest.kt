@@ -43,9 +43,16 @@ class GuideStoreTest {
             description = desc,
         )
 
+    /** One complete refresh: begin, one pack, finish. */
     private fun write(vararg rows: ProgrammeRow) {
-        store.beginReplace()
-        store.insertPack { sink -> rows.forEach(sink::add) }
+        val ingest = store.beginIngest()
+        store.insertPack(ingest) { sink -> rows.forEach(sink::add) }
+        store.finishIngest(ingest, "http://guide")
+    }
+
+    /** Rows only, with no sweep and no stamp — a refresh that died halfway. */
+    private fun writeUnfinished(vararg rows: ProgrammeRow) {
+        store.insertPack(store.beginIngest()) { sink -> rows.forEach(sink::add) }
     }
 
     @Test
@@ -122,26 +129,34 @@ class GuideStoreTest {
     /** Packs land one transaction at a time and must accumulate, not replace. */
     @Test
     fun `packs after the first add to the guide`() {
-        store.beginReplace()
-        store.insertPack { it.add(row("bbc", 0, "One")) }
-        store.insertPack { it.add(row("itv", 0, "Two")) }
+        val ingest = store.beginIngest()
+        store.insertPack(ingest) { it.add(row("bbc", 0, "One")) }
+        store.insertPack(ingest) { it.add(row("itv", 0, "Two")) }
         assertEquals(setOf("bbc", "itv"), store.channelsWithProgrammes())
     }
 
     /** An unstamped table is a half-finished download and must not be trusted. */
     @Test
-    fun `the stamp is only there once written`() {
-        write(row("bbc", 0, "One"))
+    fun `the stamp is only there once the refresh finishes`() {
+        writeUnfinished(row("bbc", 0, "One"))
         assertNull(store.readStamp())
-        store.stamp("http://guide")
+        write(row("bbc", 0, "One"))
         assertEquals("http://guide", store.readStamp()!!.first)
     }
 
     @Test
-    fun `a replace clears the previous stamp`() {
+    /**
+     * A half-finished refresh must not look complete: its rows are readable,
+     * but the stamp from the guide it is replacing has to be gone, so the
+     * next start re-fetches rather than trusting a mixture.
+     */
+    fun `an unfinished refresh leaves no stamp`() {
         write(row("bbc", 0, "One"))
-        store.stamp("http://old")
-        write(row("bbc", 0, "Two"))
+        assertEquals("http://guide", store.readStamp()!!.first)
+        writeUnfinished(row("bbc", 5, "Two"))
+        // Rows from both are readable...
+        assertEquals(2, store.programmes(listOf("bbc"), 0, 9 * hour)["bbc"]!!.size)
+        // ...but the sweep never ran, so nothing claims to be complete.
         assertNull(store.readStamp())
     }
 
@@ -162,9 +177,9 @@ class GuideStoreTest {
     /** Two packs carrying the same airing must not draw it twice. */
     @Test
     fun `the same airing from two packs collapses to one row`() {
-        store.beginReplace()
-        store.insertPack { it.add(row("bbc", 0, "First take")) }
-        store.insertPack { it.add(row("bbc", 0, "Second take")) }
+        val ingest = store.beginIngest()
+        store.insertPack(ingest) { it.add(row("bbc", 0, "First take")) }
+        store.insertPack(ingest) { it.add(row("bbc", 0, "Second take")) }
         val out = store.programmes(listOf("bbc"), 0, 5 * hour)["bbc"]!!
         assertEquals(listOf("Second take"), out.map { it.title })
     }
@@ -173,5 +188,37 @@ class GuideStoreTest {
     fun `asking for no channels asks the database nothing`() {
         write(row("bbc", 0, "One"))
         assertTrue(store.programmes(emptyList(), 0, 5 * hour).isEmpty())
+    }
+
+    /**
+     * A refresh must not blank the guide. The previous one has to stay
+     * readable right up until the replacement commits — otherwise every row
+     * says "No information" for the length of a thirteen-pack download.
+     */
+    /**
+     * The guide must never blank during a refresh. This is the whole reason
+     * rows carry a generation instead of the table being cleared up front:
+     * every row said "No information" for the length of the download, on a
+     * box that had a perfectly good schedule on disk.
+     */
+    @Test
+    fun `the previous guide stays readable for the whole refresh`() {
+        write(row("bbc", 0, "Yesterday"), row("itv", 0, "Gone tomorrow"))
+        val ingest = store.beginIngest()
+        // A refresh has started and a pack has landed...
+        store.insertPack(ingest) { it.add(row("bbc", 0, "Today")) }
+        // ...and the channel the new guide has not reached yet still answers.
+        assertEquals(
+            "Gone tomorrow",
+            store.programmes(listOf("itv"), 0, 5 * hour)["itv"]!!.single().title,
+        )
+        assertEquals(
+            "Today",
+            store.programmes(listOf("bbc"), 0, 5 * hour)["bbc"]!!.single().title,
+        )
+        // Only when it finishes does the row the new guide dropped go.
+        store.finishIngest(ingest, "http://guide")
+        assertTrue(store.programmes(listOf("itv"), 0, 5 * hour).isEmpty())
+        assertEquals(setOf("bbc"), store.channelsWithProgrammes())
     }
 }

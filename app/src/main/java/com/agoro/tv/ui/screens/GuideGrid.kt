@@ -125,12 +125,15 @@ private val ROW_HEIGHT = 52.dp
  *  960dp panel, more on a wider one since the scale grows with it. */
 internal const val MIN_CELL_MINUTES = 16f
 
-/** What the browse guide's timeline never gets: TV-safe gutters and the
- *  channel column. The rail is a summoned drawer now and reserves nothing.
- *  The player overlay pays different costs — its own padding — so
- *  [guideDpPerMinute] takes them as a parameter. */
+/** What the browse guide's timeline never gets: the channel column. The rail
+ *  is a summoned drawer now and reserves nothing, and the grid spends most
+ *  of the TV-safe gutter to reach the panel edge (see Modifier.spendGutter),
+ *  so only the narrow grid gutter is left to pay. The player overlay pays
+ *  different
+ *  costs — its own padding — so [guideDpPerMinute] takes them as a
+ *  parameter. */
 internal val GUIDE_BROWSE_FIXED_COSTS: Dp
-    get() = Space.gutter * 2 + CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP
+    get() = Space.gutterGrid * 2 + CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP
 
 /**
  * Timeline scale for a panel [screenWidth] dp wide: the lane left after

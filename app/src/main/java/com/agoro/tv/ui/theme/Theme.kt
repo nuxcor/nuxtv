@@ -79,6 +79,13 @@ object Space {
      * that crop at all, and modern panels crop nothing.
      */
     val gutter = 40.dp
+    /**
+     * What the guide keeps of [gutter]. A schedule grid is a data surface,
+     * not prose: stopping it 40dp short on each side threw away most of a
+     * programme column and left a dead strip the eye reads as the app not
+     * fitting the screen. Kept non-zero so nothing lands in a TV's overscan.
+     */
+    val gutterGrid = 16.dp
     val gutterVertical = 32.dp
 }
 
@@ -95,6 +102,14 @@ object NuxShape {
     val Card = RoundedCornerShape(16.dp)    // posters, wide rows, detail art
     val Dialog = RoundedCornerShape(20.dp)  // dialogs and sheets
     val Track = RoundedCornerShape(2.dp)    // progress bars, selection markers
+    /**
+     * Fully rounded ends, for the things that read as pills rather than
+     * boxes: the category strips above Live TV, the guide and the browse
+     * grids. An 8dp radius on a chip half as tall as it is wide leaves the
+     * focus ring looking square-cornered — the ring traces the shape, so the
+     * shape is what has to be round.
+     */
+    val Pill = RoundedCornerShape(percent = 50)
 }
 
 val NuxShapes = Shapes(
@@ -177,7 +192,10 @@ object NuxFocus {
     const val RowScale = 1.0f
     const val ButtonScale = 1.06f
 
-    private val Stroke = BorderStroke(3.dp, NuxColors.FocusBorder)
+    // 2dp, not 3: at three the ring stopped reading as an outline and started
+    // reading as a frame drawn around the chip, heavy enough to be the loudest
+    // thing on the strip. Focus should be unmistakable, not shouted.
+    private val Stroke = BorderStroke(2.dp, NuxColors.FocusBorder)
 
     // One ring per corner radius in use, allocated once.
     //
@@ -192,6 +210,7 @@ object NuxFocus {
     val ring16: Border = Border(Stroke, shape = NuxShape.Card)
     val ring20: Border = Border(Stroke, shape = NuxShape.Dialog)
     val ring22: Border = Border(Stroke, shape = RoundedCornerShape(22.dp)) // player pills
+    val ringPill: Border = Border(Stroke, shape = NuxShape.Pill)
     val ringCircle: Border = Border(Stroke, shape = CircleShape)
 
     /** The card/row default — [NuxShape.Card]. */

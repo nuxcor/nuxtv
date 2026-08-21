@@ -51,6 +51,8 @@ import com.agoro.tv.data.ContentBundle
 import com.agoro.tv.data.ContentRepository
 import com.agoro.tv.data.EpgProgram
 import com.agoro.tv.ui.components.rememberProgramDescription
+import com.agoro.tv.ui.components.spendGutter
+import com.agoro.tv.ui.theme.Space
 import com.agoro.tv.data.LiveChannel
 import com.agoro.tv.ui.components.Artwork
 import com.agoro.tv.ui.components.rememberClockFormat
@@ -340,6 +342,10 @@ fun GuideTab(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            // The guide runs wider than the rest of the app: it spends most
+            // of the screen's TV-safe gutter so the lane reaches the panel
+            // edge, the way the grid guides viewers compare this against do.
+            .spendGutter(Space.gutter - Space.gutterGrid)
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val code = event.key.nativeKeyCode

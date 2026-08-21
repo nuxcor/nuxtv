@@ -43,6 +43,8 @@ class GuideStore(context: Context) : SQLiteOpenHelper(
                 end_ms     INTEGER NOT NULL,
                 title      TEXT NOT NULL,
                 description TEXT,
+                -- Which refresh wrote this row; see [beginIngest].
+                ingest     INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (channel_id, start_ms)
             )
             """.trimIndent()
@@ -50,6 +52,9 @@ class GuideStore(context: Context) : SQLiteOpenHelper(
         // Every read is "this channel, this window", so the index carries both
         // and the query never scans.
         db.execSQL("CREATE INDEX idx_programme_window ON programme(channel_id, start_ms, end_ms)")
+        // The sweep that ends a refresh deletes by generation, and must not
+        // scan 116,000 rows to find the ones it wants.
+        db.execSQL("CREATE INDEX idx_programme_ingest ON programme(ingest)")
         db.execSQL("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
     }
 
@@ -63,15 +68,30 @@ class GuideStore(context: Context) : SQLiteOpenHelper(
     }
 
     /**
-     * Empties the table, ready for a fresh guide. Its own transaction: the
-     * packs that follow commit one at a time.
+     * Starts a refresh and returns its generation stamp.
+     *
+     * A refresh does NOT empty the table. Reads share this connection, so a
+     * delete is visible to them the instant it runs — clearing up front, or
+     * even inside the first pack's transaction, blanks the guide for as long
+     * as that pack takes, and every row reads "No information" while a
+     * perfectly good schedule is sitting on disk.
+     *
+     * So nothing is deleted until the new guide is complete. Every row
+     * written carries this generation, airings that still exist overwrite in
+     * place as they land, and [finishIngest] sweeps whatever the old guide
+     * had that the new one does not. The guide is never empty at any instant.
      */
-    fun beginReplace() {
-        runCatching {
-            writableDatabase.delete("programme", null, null)
-            writableDatabase.delete("meta", null, null)
-        }
-    }
+    fun beginIngest(): Long = runCatching {
+        val db = writableDatabase
+        // The stamp goes now, not with the sweep. From here the table holds a
+        // mixture of two guides, and a refresh killed halfway — force-stop,
+        // crash, the system reclaiming the app — must leave something the
+        // next start re-fetches rather than trusts. The rows stay readable
+        // throughout; only the claim that they are complete is withdrawn.
+        db.delete("meta", null, null)
+        db.rawQuery("SELECT COALESCE(MAX(ingest), 0) + 1 FROM programme", null)
+            .use { c -> if (c.moveToFirst()) c.getLong(0) else 1L }
+    }.getOrDefault(1L)
 
     /**
      * Writes one pack's programmes in a single transaction, with one reused
@@ -84,14 +104,15 @@ class GuideStore(context: Context) : SQLiteOpenHelper(
      * of a thirteen-pack download — the exact freeze this class exists to
      * end.
      */
-    fun insertPack(body: (Sink) -> Unit): Int {
+    fun insertPack(ingest: Long, body: (Sink) -> Unit): Int {
         val db = writableDatabase
         var count = 0
         db.beginTransaction()
         try {
             val statement = db.compileStatement(
                 "INSERT OR REPLACE INTO programme " +
-                    "(channel_id, start_ms, end_ms, title, description) VALUES (?, ?, ?, ?, ?)"
+                    "(channel_id, start_ms, end_ms, title, description, ingest) " +
+                    "VALUES (?, ?, ?, ?, ?, ?)"
             )
             body(
                 Sink { row ->
@@ -101,6 +122,7 @@ class GuideStore(context: Context) : SQLiteOpenHelper(
                     statement.bindLong(3, row.endMs)
                     statement.bindString(4, row.title)
                     row.description?.let { statement.bindString(5, it) } ?: statement.bindNull(5)
+                    statement.bindLong(6, ingest)
                     statement.executeInsert()
                     count++
                 }
@@ -113,23 +135,32 @@ class GuideStore(context: Context) : SQLiteOpenHelper(
     }
 
     /**
-     * Marks the table as holding [sourceUrl]'s guide, as of now.
+     * Ends a refresh: drops whatever the previous guide had and this one did
+     * not, and stamps the table as holding [sourceUrl] as of now.
      *
-     * Written last and only on a complete ingest, so a download that dies
-     * halfway leaves an unstamped table that the next start re-fetches
-     * rather than trusting — the rows are still readable in the meantime.
+     * Both in one transaction, and only on a complete ingest — a download
+     * that dies halfway leaves the old rows in place and no stamp, so the
+     * next start re-fetches rather than trusting a mixture, and the viewer
+     * keeps a working guide in the meantime.
      */
-    fun stamp(sourceUrl: String) {
+    fun finishIngest(ingest: Long, sourceUrl: String) {
         runCatching {
             val db = writableDatabase
-            db.replace("meta", null, ContentValues().apply {
-                put("key", KEY_SOURCE)
-                put("value", sourceUrl)
-            })
-            db.replace("meta", null, ContentValues().apply {
-                put("key", KEY_INGESTED_AT)
-                put("value", System.currentTimeMillis().toString())
-            })
+            db.beginTransaction()
+            try {
+                db.delete("programme", "ingest <> ?", arrayOf(ingest.toString()))
+                db.replace("meta", null, ContentValues().apply {
+                    put("key", KEY_SOURCE)
+                    put("value", sourceUrl)
+                })
+                db.replace("meta", null, ContentValues().apply {
+                    put("key", KEY_INGESTED_AT)
+                    put("value", System.currentTimeMillis().toString())
+                })
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
         }
     }
 
@@ -267,7 +298,7 @@ class GuideStore(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DATABASE_NAME = "guide.db"
-        private const val VERSION = 1
+        private const val VERSION = 2
         private const val KEY_SOURCE = "source_url"
         private const val KEY_INGESTED_AT = "ingested_at"
     }

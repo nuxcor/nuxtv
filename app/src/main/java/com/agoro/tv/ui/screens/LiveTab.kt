@@ -42,6 +42,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
@@ -352,25 +353,38 @@ fun CategoryItem(
     Surface(
         onClick = onClick,
         modifier = modifier.onFocusChanged { if (it.isFocused) onFocus() },
-        shape = ClickableSurfaceDefaults.shape(NuxShape.Chip),
+        // A pill, so the focus ring that traces it has rounded ends. These
+        // chips are wide and short, and the old 8dp corner made the ring read
+        // as a rectangle drawn around the word.
+        shape = ClickableSurfaceDefaults.shape(NuxShape.Pill),
+        // Focus is a FILL, not an outline. A 2dp ring is a desktop idiom read
+        // from 60cm; across a room the eye finds a solid shape long before it
+        // finds a hairline, and it is what every chip strip on this platform
+        // does. It also ends the argument about the ring's corners — there is
+        // no ring.
+        //
+        // Selection keeps gold and focus takes white, so the two never have to
+        // be told apart by brightness alone: a chip can be selected, focused,
+        // both, or neither, and all four read differently.
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) NuxColors.Primary.copy(alpha = 0.16f) else Color.Transparent,
-            focusedContainerColor = NuxColors.SurfaceRaised,
-            // Selected stays gold even while focused.
+            focusedContainerColor = NuxColors.FocusBorder,
             contentColor = if (selected) NuxColors.Primary else NuxColors.OnSurfaceDim,
-            focusedContentColor = if (selected) NuxColors.Primary else NuxColors.OnSurface,
+            // Dark ON the fill: white text on a white chip is a blank pill.
+            focusedContentColor = NuxColors.Background,
         ),
         scale = ClickableSurfaceDefaults.scale(
             focusedScale = NuxFocus.ButtonScale,
         ),
         border = ClickableSurfaceDefaults.border(
-            focusedBorder = NuxFocus.ring8,
+            focusedBorder = Border.None,
         ),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            // Wider than it is tall, which is what makes a pill read as one.
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         ) {
             Text(
                 text = name,

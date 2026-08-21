@@ -551,6 +551,8 @@ class ContentRepository(context: Context) {
 
     private suspend fun fetchAndMerge(
         urls: List<String>,
+        /** The key the stamp is written under — the same one [loadEpg] tests. */
+        stampUrl: String,
         /**
          * Resolved AFTER the first pack is already downloading, so waiting
          * for the catalogue costs the guide no wall-clock at all.
@@ -558,7 +560,6 @@ class ContentRepository(context: Context) {
         wantedKeys: suspend () -> Pair<Set<String>, Set<String>>,
         onPartial: suspend (XmltvData) -> Unit = {},
     ): XmltvData = kotlinx.coroutines.coroutineScope {
-        guide.beginReplace()
         val now = System.currentTimeMillis()
         val merger = XmltvMerger()
         var latest: XmltvData? = null
@@ -588,6 +589,7 @@ class ContentRepository(context: Context) {
         }
 
         var pending = downloadAsync(urls.first())
+        val ingest = guide.beginIngest()
         // The bytes are moving; now it is safe to spend time working out what
         // to keep from them.
         val (wantedIds, wantedNameKeys) = wantedKeys()
@@ -604,7 +606,7 @@ class ContentRepository(context: Context) {
                 // going straight to it: a pack's schedule is never a list in
                 // memory, not even briefly. Only the channel index the
                 // parser returns is kept.
-                guide.insertPack { sink ->
+                guide.insertPack(ingest) { sink ->
                     file.inputStream().buffered().use {
                         parsed = XmltvParser.parse(
                             it,
@@ -638,7 +640,10 @@ class ContentRepository(context: Context) {
                 }
             }
         }
-        latest ?: throw IOException("No guide pack could be loaded")
+        if (latest == null) throw IOException("No guide pack could be loaded")
+        // The old guide's leftovers go now, not before — see [GuideStore].
+        guide.finishIngest(ingest, stampUrl)
+        latest
     }
 
     // --- the resident guide window -------------------------------------------
@@ -852,13 +857,13 @@ class ContentRepository(context: Context) {
                     if (urls.size > 1) {
                         return@runCatching fetchAndMerge(
                             urls,
+                            stampUrl = url,
                             wantedKeys = ::wantedGuideKeys,
                         ) { partial ->
                             if (publishPartials) _epg.value = EpgState.Ready(partial)
                         }
                     }
                     val request = Request.Builder().url(url).header("User-Agent", "Agoro/2.1").build()
-                    guide.beginReplace()
                     http.newCall(request).execute().use { resp ->
                         // Plain language for the viewer, the status for the
                         // bug report. The banner shows neither of these now
@@ -878,7 +883,8 @@ class ContentRepository(context: Context) {
                         // download starts.
                         val (wantedIds, wantedNameKeys) = wantedGuideKeys()
                         var parsed: XmltvData? = null
-                        guide.insertPack { sink ->
+                        val ingest = guide.beginIngest()
+                        guide.insertPack(ingest) { sink ->
                             parsed = XmltvParser.parse(
                                 body.byteStream(),
                                 windowStartMs = now - 30L * 3600 * 1000,
@@ -888,6 +894,7 @@ class ContentRepository(context: Context) {
                                 sink = sink::add,
                             )
                         }
+                        guide.finishIngest(ingest, url)
                         parsed ?: throw IOException("Empty guide response")
                     }
                 }.onSuccess { data ->
@@ -899,7 +906,6 @@ class ContentRepository(context: Context) {
                     // start and never re-fetched. Same reason the index is
                     // written only on a real fetch: re-stamping it when a
                     // refresh fails would disguise stale data as fresh.
-                    guide.stamp(url)
                     writeEpgIndex(url, data)
                     refreshNowWindow()
                 }.onFailure { e ->
