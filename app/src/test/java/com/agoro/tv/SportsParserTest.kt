@@ -126,6 +126,56 @@ class SportsParserTest {
         )
     }
 
+    /**
+     * parseAll is the only path the app uses, and it runs a cheap sieve in
+     * front of the parser that parse() does not. Nothing here was covered
+     * until the sieve had a test: a slot it wrongly rejected would have cost
+     * a fixture on screen while the suite stayed green.
+     */
+    @Test
+    fun `the sieve keeps everything the parser would have kept`() {
+        val now = ms(2026, 8, 20, 15, 0, "UTC")
+        val roster = mapOf(
+            "Premier League" to listOf("Brighton", "Arsenal"),
+            "NBA" to listOf("Knicks", "Timberwolves"),
+        )
+        val kept = listOf(
+            "Live | Brighton vs. Arsenal | all | 20-08-2026 | 15:00 (GMT)",
+            "Next | Brighton v Arsenal | all | 20-08-2026 | 15:30 (GMT)",
+            // The separator only survives noise removal here — a space-bounded
+            // sieve would have dropped it before the parser saw it.
+            "NBA 02: Knicks (NYK)x Timberwolves (MIN) start:2026-08-20 15:10:00",
+        )
+        val slots = kept.mapIndexed { i, n -> i to n }
+        val viaAll = SportsParser.parseAll(slots, now, roster).map { it.title }.toSet()
+        val viaParse = slots.mapNotNull { (id, n) -> SportsParser.parse(id, n, now, roster) }
+            .map { it.title }.toSet()
+        assertEquals("the sieve must not reject what the parser accepts", viaParse, viaAll)
+        // Two of the three are the same fixture at different kick-offs, so the
+        // set of titles holds two, not three.
+        assertTrue(
+            "the separator that only noise removal reveals survived the sieve",
+            "Knicks v Timberwolves" in viaAll,
+        )
+        assertTrue("and the plain ones did too", "Brighton v Arsenal" in viaAll)
+    }
+
+    /** ...while still throwing out the nine in ten that are not fixtures. */
+    @Test
+    fun `the sieve rejects slots with no fixture and no club`() {
+        val now = ms(2026, 8, 20, 15, 0, "UTC")
+        val roster = mapOf("Premier League" to listOf("Brighton", "Arsenal"))
+        val junk = listOf(
+            "- NO EVENT STREAMING - | 8K EXCLUSIVE",
+            "US: 24/7 I LOVE LUCY",
+            "####### TNT SPORTS EVENT #######",
+            // a fixture, but between clubs we do not carry
+            "Live | Hartlepool vs Barnet | all | 20-08-2026 | 15:00 (GMT)",
+        )
+        val out = SportsParser.parseAll(junk.mapIndexed { i, n -> i to n }, now, roster)
+        assertEquals(0, out.size)
+    }
+
     /** 2,001 slots say this. None of them is a match. */
     @Test
     fun `an empty slot is not a fixture`() {

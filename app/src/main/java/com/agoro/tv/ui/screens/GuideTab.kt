@@ -175,6 +175,17 @@ fun GuideTab(
     val channels = remember(allChannels, categoryId, favorites, recents, allView) {
         channelsInCategory(categoryId, allChannels, favorites, recents, allChannels = allView)
     }
+    // The channel last watched, resolved against THIS list — the one the grid
+    // renders. Resolving it upstream from displayChannels was wrong: the All
+    // category renders allChannelsView, where duplicate variants are merged
+    // away, so the watched variant's id was frequently absent from the very
+    // list the grid searches and entry fell back to the top of the guide.
+    // Recents are newest-first and keyed by url, which is how every other
+    // channel table keys them.
+    val lastPlayedChannelId = remember(recents, channels) {
+        recents.firstOrNull()?.let { url -> channels.firstOrNull { it.url == url }?.id }
+    }
+
     // Same rest-before-select rule as every other category surface
     // (nav rail, Movies/Series columns): resting on a chip selects it,
     // debounced so travelling the row doesn't rebuild the grid on
@@ -497,6 +508,7 @@ fun GuideTab(
 
         GuideGrid(
             entryFocusTick = entryFocusTick,
+            lastPlayedChannelId = lastPlayedChannelId,
             handle = gridHandle,
             digitState = digitState,
             // UP from the grid meets the day control first — it sits directly
