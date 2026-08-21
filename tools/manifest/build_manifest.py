@@ -305,6 +305,10 @@ if os.path.exists('probed_tiers.json'):
 
 def measured_tier(sid):
     h = _probed.get(str(sid))
+    # A zero is a FAILED probe, not a dead channel: re-probing the fourteen
+    # streams recorded as zero brought ten of them back at 720p-1080p. So zero
+    # stays "no information" and the advertised token stands — dropping on it
+    # would have deleted ten working channels.
     if not h: return None
     return "4K" if h >= 2000 else "FHD" if h >= 1000 else "HD" if h >= 700 else "SD"
 
@@ -1427,12 +1431,25 @@ for st in ls:
     c = cat_live.get(str(st.get('category_id')))
     if not c: continue
     if _final_section(sid, c['section']) != 'ENTERTAINMENT': continue
+    # Already condemned elsewhere, so it must not win this contest. Choosing
+    # the shortest label made "MORE4" beat "MORE 4 4K" and "MORE 4 HEVC 4K",
+    # and MORE4 was then killed on its own as SD — so a mainstream channel
+    # lost every feed it had, to two rules neither of which knew about the
+    # other.
+    if sid in sd_all_drop or sid in go_drop or sid in religion_drop \
+       or sid in telemundo_drop or sid in rsn_drop:
+        continue
     k = (_bare(st['name']), c['region'])
     if not k[0]: continue
     if k in _ent:
         keep = _ent[k]
-        # keep the shorter, plainer label
-        if len(asc(st['name'])) < len(asc(ls_by_id[keep]['name'])):
+        # Better PICTURE first, then the shorter, plainer label. A tidier name
+        # is worth nothing if it is the worse feed.
+        rank = (TIER_RANK.get(measured_tier(sid) or tier_of(st['name']), 8),
+                len(asc(st['name'])))
+        rank_keep = (TIER_RANK.get(measured_tier(keep) or tier_of(ls_by_id[keep]['name']), 8),
+                     len(asc(ls_by_id[keep]['name'])))
+        if rank < rank_keep:
             suffix_dupe.append(keep); _ent[k] = sid
         else:
             suffix_dupe.append(sid)
@@ -1458,7 +1475,11 @@ MAIN_ENTERTAINMENT = {
  'UK': {
   'bbc one','bbc two','bbc three','bbc four','bbc scotland','bbc alba','bbc news',
   'itv','itv 1','itv 2','itv 3','itv 4','itv be','itvx',
-  'channel 4','channel 5','4seven','e4','more4','more 4','film4','5 star','5 usa',
+  'channel 4','channel 5','4seven','e4','more4','film4','5 star','5 usa',
+  '5 action','5 select','5select','5action',
+  # Real broadcasters the list simply never named, each of which was being
+  # deleted for the crime of not appearing on it.
+  'bbc brit','bbc earth','pbs america','talking pictures','together tv',
   'sky atlantic','sky max',
   'sky showcase','sky witness','sky arts','sky comedy','sky crime','sky documentaries',
   'sky history','sky nature','sky replay','sky sci-fi','alibi','dave','drama','gold',
@@ -1471,7 +1492,11 @@ def _ent_key(n):
     x = QUALW.sub('', x)
     x = re.sub(r'\s*\([^)]*\)', '', x)                 # "(Awe)", "(WZME) (SP)"
     x = re.sub(r'\s+(TV|CHANNEL|NETWORK|ENTERTAINMENT)$', '', x, flags=re.I).strip()
-    return re.sub(r'\s+', ' ', x).strip().lower()
+    # A digit glued to the name or spaced off it is the same channel: the
+    # panel writes "FILM 4" and the list below writes "film4", and the two
+    # never met — so Film4 was trimmed off the shelf as an unlisted channel.
+    x = re.sub(r'(?<=[a-z])\s+(?=\d)', '', re.sub(r'\s+', ' ', x).strip().lower())
+    return x
 
 def _allowed(key, allow):
     """Exact, or the allowed name followed by a word boundary: "bbc one london"
