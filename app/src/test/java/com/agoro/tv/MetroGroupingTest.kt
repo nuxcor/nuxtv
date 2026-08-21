@@ -2,7 +2,7 @@ package com.agoro.tv
 
 import com.agoro.tv.data.CatalogueManifest
 import com.agoro.tv.data.LiveChannel
-import com.agoro.tv.data.groupLocalsByMetro
+import com.agoro.tv.data.orderChannels
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -41,7 +41,7 @@ class MetroGroupingTest {
             ch(3, "US: FOX 11 LOS ANGELES"),
             ch(4, "US: ABC 7 NEW YORK"),
         )
-        groupLocalsByMetro(channels, m)
+        orderChannels(channels, m)
         assertEquals(
             listOf("US: ABC 7 NEW YORK", "US: CBS 2 NEW YORK",
                    "US: FOX 11 LOS ANGELES", "US: ABC 7 CHICAGO"),
@@ -62,16 +62,17 @@ class MetroGroupingTest {
             ch(2, "US: ABC 7 NEW YORK"),
             ch(3, "US: NBC 4 NEW YORK"),
         )
-        groupLocalsByMetro(channels, m)
+        orderChannels(channels, m)
         assertEquals(listOf("ABC", "NBC", "FOX"), channels.map { it.name.split(" ")[1] })
     }
 
     /**
-     * Only the locals move, and only among the slots they already hold — a
-     * sort that shuffled the whole list would renumber every other shelf.
+     * Channels never cross a shelf boundary. Everything shares one categoryId
+     * here, so the whole run sorts together; the point is that the run keeps
+     * the same slots and nothing escapes into another shelf.
      */
     @Test
-    fun `channels that are not metro locals never move`() {
+    fun `channels stay within their own shelf`() {
         val m = manifest(
             Triple("CHICAGO", "ABC", listOf(10)),
             Triple("NEW YORK", "ABC", listOf(20)),
@@ -83,9 +84,43 @@ class MetroGroupingTest {
             ch(20, "US: ABC 7 NEW YORK"),
             ch(97, "US: TNT"),
         )
-        groupLocalsByMetro(channels, m)
+        orderChannels(channels, m)
+        // Metro locals lead (market order), then the rest alphabetically.
         assertEquals(
-            listOf("US: CNN", "US: ABC 7 NEW YORK", "US: ESPN", "US: ABC 7 CHICAGO", "US: TNT"),
+            listOf("US: ABC 7 NEW YORK", "US: ABC 7 CHICAGO", "US: CNN", "US: ESPN", "US: TNT"),
+            channels.map { it.name },
+        )
+    }
+
+    /** Every other shelf reads alphabetically. */
+    @Test
+    fun `a shelf with no locals sorts by name`() {
+        val channels = mutableListOf(
+            ch(1, "US: TNT"), ch(2, "US: ESPN"), ch(3, "US: CNN"), ch(4, "US: beIN SPORTS"),
+        )
+        orderChannels(channels, manifest())
+        assertEquals(
+            listOf("US: beIN SPORTS", "US: CNN", "US: ESPN", "US: TNT"),
+            channels.map { it.name },
+        )
+    }
+
+    /** Shelves are ordered independently; one never bleeds into another. */
+    @Test
+    fun `each shelf sorts on its own`() {
+        fun c(id: Int, name: String, cat: String) = LiveChannel(
+            id = "live:$id", name = name, logo = null, url = "http://x/$id",
+            categoryId = cat, xtreamId = id,
+        )
+        val channels = mutableListOf(
+            c(1, "US: TNT", "US|SPORTS"),
+            c(2, "UK: SKY NEWS", "UK|NEWS"),
+            c(3, "US: ESPN", "US|SPORTS"),
+            c(4, "UK: BBC NEWS", "UK|NEWS"),
+        )
+        orderChannels(channels, manifest())
+        assertEquals(
+            listOf("US: ESPN", "UK: BBC NEWS", "US: TNT", "UK: SKY NEWS"),
             channels.map { it.name },
         )
     }
@@ -93,7 +128,7 @@ class MetroGroupingTest {
     @Test
     fun `a shelf with nothing to group is left alone`() {
         val channels = mutableListOf(ch(1, "US: CNN"), ch(2, "US: ESPN"))
-        groupLocalsByMetro(channels, manifest())
+        orderChannels(channels, manifest())
         assertEquals(listOf("US: CNN", "US: ESPN"), channels.map { it.name })
     }
 }

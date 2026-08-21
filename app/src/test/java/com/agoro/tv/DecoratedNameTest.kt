@@ -87,4 +87,43 @@ class DecoratedNameTest {
         assertEquals("WWE RAW", channel("WWE RAW").displayName)
         assertEquals("Maximum Security", ContentClassifier.cleanTitle("Maximum Security"))
     }
+
+    /**
+     * The codec never reaches the screen.
+     *
+     * These names all reduce to a channel, not to a codec: without the codec
+     * tokens in the strip list, "BBC NEWS HEVC 4K" lost its 4K and KEPT its
+     * HEVC, so the row called itself "BBC News HEVC" and grouped separately
+     * from the same channel's other feeds. Real names, taken from the
+     * surviving UK shelves.
+     */
+    @Test
+    fun `codec tokens never reach the display name`() {
+        val cases = mapOf(
+            "UK: BBC NEWS HEVC 4K" to "BBC NEWS",
+            "UK: BBC NEWS HEVC HD" to "BBC NEWS",
+            "UK: SKY NEWS HEVC HD" to "SKY NEWS",
+            "UK: CARTOON NETWORK HEVC 4K" to "CARTOON NETWORK",
+            "UK: CRIME INVESTIGATION HEVC HD" to "CRIME INVESTIGATION",
+            "US: NAT GEO WILD HEVC HD" to "NAT GEO WILD",
+        )
+        cases.forEach { (raw, want) ->
+            val channel = LiveChannel(
+                id = "x", name = raw, logo = null, url = "http://x",
+                categoryId = null,
+            )
+            assertEquals(raw, want, channel.displayName)
+        }
+    }
+
+    /** Every surviving feed of one channel must reduce to the same name. */
+    @Test
+    fun `codec variants of one channel collapse to one name`() {
+        fun display(n: String) = LiveChannel(
+            id = "x", name = n, logo = null, url = "http://x", categoryId = null,
+        ).displayName
+        val names = listOf("UK: BBC NEWS HEVC 4K", "UK: BBC NEWS HEVC HD", "UK: BBC NEWS")
+            .map(::display).toSet()
+        assertEquals("all feeds must read as one channel: $names", 1, names.size)
+    }
 }
