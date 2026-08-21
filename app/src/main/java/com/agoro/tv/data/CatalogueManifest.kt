@@ -39,6 +39,8 @@ data class Sport(
      */
     val leagues: Map<String, List<String>> = emptyMap(),
     @SerialName("cue_minutes") val cueMinutes: Int = 60,
+    /** Nicknames more than one sport answers to; these need both sides. */
+    val ambiguous: List<String> = emptyList(),
 )
 
 @Serializable

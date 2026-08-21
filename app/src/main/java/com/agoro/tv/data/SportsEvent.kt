@@ -28,8 +28,16 @@ data class SportsEvent(
     /** Kick-off, or null when the name carried no time we could trust. */
     val startMs: Long?,
     val live: Boolean,
+    /** What the slot advertises: 8K, 4K, UHD, FHD, HD. Lower sorts better. */
+    val tierRank: Int = TIER_UNKNOWN,
+    /** The same match on other slots, best first, for the player to fall back to. */
+    val alternates: List<Int> = emptyList(),
 ) {
     val title: String get() = "$home v $away"
+
+    companion object {
+        const val TIER_UNKNOWN = 9
+    }
 }
 
 object SportsParser {
@@ -78,14 +86,20 @@ object SportsParser {
      */
     private val americanZone: TimeZone = TimeZone.getTimeZone("America/New_York")
 
-    fun parse(streamId: Int, rawName: String, nowMs: Long, leagues: Map<String, List<String>>): SportsEvent? {
+    fun parse(
+        streamId: Int,
+        rawName: String,
+        nowMs: Long,
+        leagues: Map<String, List<String>>,
+        ambiguous: Set<String> = emptySet(),
+    ): SportsEvent? {
         val name = rawName.trim()
         if (name.isEmpty() || name.contains("NO EVENT", ignoreCase = true)) return null
         if (ended.containsMatchIn(name)) return null
         if (otherLeague.containsMatchIn(name)) return null
 
         val (home, away) = readFixture(name) ?: return null
-        val league = leagueOf(home, away, leagues) ?: return null
+        val league = leagueOf(home, away, leagues, ambiguous.map { norm(it) }.toSet()) ?: return null
         val start = readStart(name, nowMs)
 
         // A fixture with no readable kick-off is only shown when the pack has
@@ -93,13 +107,16 @@ object SportsParser {
         // fills with matches that finished hours ago.
         if (start == null) {
             return if (liveWord.containsMatchIn(name)) {
-                SportsEvent(streamId, league, home, away, null, live = true)
+                SportsEvent(streamId, league, home, away, null, true, tierOf(name))
             } else {
                 null
             }
         }
         if (kotlin.math.abs(start - nowMs) > SANE_WINDOW_MS) return null
-        return SportsEvent(streamId, league, home, away, start, live = start <= nowMs)
+        return SportsEvent(
+            streamId, league, home, away, start,
+            live = start <= nowMs, tierRank = tierOf(name),
+        )
     }
 
     /** The teams, taken from the busiest-looking field the name offers. */
@@ -144,25 +161,40 @@ object SportsParser {
      * Wolves inside Erie SeaWolves, and yes to Angers inside Dundee v Rangers.
      * Every one of those was a real match against the provider's own slots.
      */
-    internal fun leagueOf(home: String, away: String, leagues: Map<String, List<String>>): String? {
-        // BOTH sides, or neither. One recognised nickname is not enough: the
-        // NFL, the NHL and baseball all field a Cardinals, a Giants and a
-        // Rangers, so "Cardinals at Reds" — a baseball game — read as NFL off
-        // its first word. Requiring the opponent too settles it without a
-        // league marker in the name, because Reds is nobody we carry.
+    internal fun leagueOf(
+        home: String,
+        away: String,
+        leagues: Map<String, List<String>>,
+        ambiguous: Set<String> = emptySet(),
+    ): String? {
+        val h = matchFor(norm(home), leagues)
+        val a = matchFor(norm(away), leagues)
+        val hit = h ?: a ?: return null
+        // Both sides recognised: settled, and the home side names the league.
+        if (h != null && a != null) return h.league
+
+        // Only one side, which is the normal shape of a cup tie: a Pokal or FA
+        // Cup draw pairs a top-flight club with one three divisions down that
+        // no roster will ever carry. Allowed, but only on a FULL club name —
+        // two words or more.
         //
-        // The tie goes to the home side, which is right for a cup tie pairing
-        // clubs from two of our leagues.
-        val hl = leagueFor(norm(home), leagues)
-        val al = leagueFor(norm(away), leagues)
-        return if (hl != null && al != null) hl else null
+        // A single word is not enough to carry a fixture by itself. "The New
+        // Saints v Sabah" is Welsh football and landed under the NFL on
+        // "Saints"; "Chelsea v E. Grand Rapids" is a Michigan high-school game
+        // and landed in the Premier League on "Chelsea", which is also a town
+        // there. Both were real rows on screen. "Bayern Munich" and "Union
+        // Berlin" say who they are; "Saints" does not.
+        if (norm(hit.team) in ambiguous) return null
+        return if (hit.team.trim().contains(' ')) hit.league else null
     }
 
-    private fun leagueFor(side: String, leagues: Map<String, List<String>>): String? {
+    private data class Match(val league: String, val team: String)
+
+    private fun matchFor(side: String, leagues: Map<String, List<String>>): Match? {
         for ((league, teams) in leagues) {
             for (team in teams) {
                 val t = norm(team)
-                if (t.length >= 3 && hasWord(side, t)) return league
+                if (t.length >= 3 && hasWord(side, t)) return Match(league, team)
             }
         }
         return null
@@ -256,13 +288,42 @@ object SportsParser {
     }
 
     /**
+     * What the slot claims its picture is. The advertised token is all there
+     * is here — these slots are never probed, because a pipe's measurement
+     * belongs to whatever match happened to be running at the time.
+     */
+    internal fun tierOf(name: String): Int = when {
+        Regex("""(?i)\b8K\b""").containsMatchIn(name) -> 0
+        Regex("""(?i)\b(4K|UHD)\b""").containsMatchIn(name) -> 1
+        Regex("""(?i)\bFHD\b""").containsMatchIn(name) -> 2
+        Regex("""(?i)\bHD\b""").containsMatchIn(name) -> 3
+        else -> SportsEvent.TIER_UNKNOWN
+    }
+
+    /**
+     * One row per match, on the best slot carrying it.
+     *
+     * The same fixture is routinely on several slots at once — Motherwell v
+     * Freiburg was on four — and listing a match four times is worse than
+     * useless when three of them are the same picture at a lower tier. The
+     * losers become the winner's fallbacks, so a slot that fails to open still
+     * has somewhere to go.
+     */
+    internal fun bestPerFixture(events: List<SportsEvent>): List<SportsEvent> =
+        events.groupBy { norm(it.home) + "|" + norm(it.away) }
+            .map { (_, sameMatch) ->
+                val ranked = sameMatch.sortedBy { it.tierRank }
+                ranked.first().copy(alternates = ranked.drop(1).map { it.streamId })
+            }
+
+    /**
      * The fixtures worth putting on screen: on now, or starting within the cue.
      * Live first, then soonest — a match already running outranks one that has
      * not started however close its kick-off.
      */
     fun upcoming(events: List<SportsEvent>, nowMs: Long, cueMinutes: Int): List<SportsEvent> {
         val cue = cueMinutes * 60_000L
-        return events
+        return bestPerFixture(events)
             .filter { e ->
                 val s = e.startMs ?: return@filter e.live
                 s <= nowMs + cue && nowMs <= s + FIXTURE_LENGTH_MS

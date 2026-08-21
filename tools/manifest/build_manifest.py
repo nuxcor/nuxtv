@@ -2084,6 +2084,16 @@ SPORT_LEAGUES = {
    "Bodo/Glimt","Qarabag","Union Saint-Gilloise","Pafos","Kairat"],
 }
 
+# Nicknames more than one sport answers to. These, and only these, need both
+# sides recognised before a fixture counts — "Cardinals at Reds" is baseball
+# and read as NFL off its first word until this list existed.
+#
+# Everything else may stand alone, which is what lets a cup tie through: a
+# DFB-Pokal or FA Cup draw pairs a Bundesliga or Premier League side with a
+# club three divisions down that no roster will ever carry, and demanding both
+# sides threw the whole competition away.
+SPORT_AMBIGUOUS = ["Giants", "Cardinals", "Jets", "Panthers", "Kings", "Rangers"]
+
 # How early a fixture may appear, in minutes. An hour ahead of kick-off, which
 # also covers the catalogue refresh: slot names only change when the catalogue
 # is re-fetched, so a shorter cue would let a match start before it is listed.
@@ -2175,7 +2185,8 @@ manifest = {
     "kept_regions": list(KEEP_REGIONS),   # authored order — see KEEP_REGIONS
     # These share one shelf per genre; anything else keeps its own shelf.
     "merged_regions": list(MERGED_REGIONS),
-    "sport": {"leagues": SPORT_LEAGUES, "cue_minutes": SPORT_CUE_MINUTES},
+    "sport": {"leagues": SPORT_LEAGUES, "cue_minutes": SPORT_CUE_MINUTES,
+              "ambiguous": SPORT_AMBIGUOUS},
     # Section-level fold, applied to whatever section a channel resolves to.
     # The per-stream merged_section map cannot cover a channel that no pass
     # enumerated, and a handful of strays were enough to reopen a shelf.

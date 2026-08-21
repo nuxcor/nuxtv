@@ -98,11 +98,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         kotlinx.coroutines.flow.flow { emit(repo.manifest()?.sport) }
             .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    /** Plays a PPV slot by stream id — the Sport destination's only action. */
-    fun playEvent(streamId: Int) {
-        val slot = content.value.let { it as? ContentState.Ready }?.bundle?.events
-            ?.firstOrNull { it.xtreamId == streamId } ?: return
-        playChannels(listOf(slot), 0)
+    /**
+     * Plays a fixture on its best slot, with the lower-tier slots carrying the
+     * same match behind it — the same match is routinely on four at once, and
+     * the best one is not always the one that opens.
+     */
+    fun playEvent(streamId: Int, alternates: List<Int> = emptyList()) {
+        val slots = content.value.let { it as? ContentState.Ready }?.bundle?.events ?: return
+        val best = slots.firstOrNull { it.xtreamId == streamId } ?: return
+        val fallbacks = alternates.mapNotNull { alt ->
+            slots.firstOrNull { it.xtreamId == alt }?.url
+        }
+        playChannels(listOf(best.copy(fallbackUrls = fallbacks)), 0)
     }
 
     val hiddenTitles: StateFlow<Set<String>> = playerPrefs.hiddenTitles

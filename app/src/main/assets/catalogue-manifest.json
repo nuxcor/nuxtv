@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-21T16:50:45+00:00",
+ "generated": "2026-08-21T17:03:32+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -62505,7 +62505,15 @@
     "Kairat"
    ]
   },
-  "cue_minutes": 60
+  "cue_minutes": 60,
+  "ambiguous": [
+   "Giants",
+   "Cardinals",
+   "Jets",
+   "Panthers",
+   "Kings",
+   "Rangers"
+  ]
  },
  "section_fold": {
   "DOCUMENTARY": "ENTERTAINMENT",

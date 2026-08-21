@@ -179,28 +179,6 @@ class SportsParserTest {
         )
     }
 
-    /**
-     * One recognised nickname is not a fixture. "Cardinals at Reds" is
-     * baseball, and it read as NFL off its first word until both sides had to
-     * be teams we carry.
-     */
-    @Test
-    fun `one recognised side is not enough`() {
-        val now = ms(2026, 8, 20, 15, 0, "UTC")
-        val roster = mapOf("NFL" to listOf("Cardinals", "Raiders", "Texans"))
-        assertNull(
-            SportsParser.parse(
-                1, "Next | Cardinals at Reds | all | 20-08-2026 | 15:00 (GMT)", now, roster,
-            )
-        )
-        assertEquals(
-            "NFL",
-            SportsParser.parse(
-                2, "Next | Raiders at Texans | all | 20-08-2026 | 15:00 (GMT)", now, roster,
-            )!!.league,
-        )
-    }
-
     /** Baseball fields a Giants, a Cardinals and a Rangers of its own. */
     @Test
     fun `another league flying the same nickname is rejected`() {
@@ -220,6 +198,86 @@ class SportsParserTest {
                 5, "Next | Giants vs. Cardinals | all | 20-08-2026 | 15:00 (GMT)", now, roster,
             )!!.league,
         )
+    }
+
+    /**
+     * A cup tie is the normal case for one recognised side: a Pokal or FA Cup
+     * draw pairs a top-flight club with one three divisions down that no roster
+     * will ever carry.
+     */
+    @Test
+    fun `a cup tie against a club we do not carry still counts`() {
+        val now = ms(2026, 8, 20, 15, 0, "UTC")
+        val roster = mapOf("Bundesliga" to listOf("Bayern Munich", "Union Berlin"))
+        val e = SportsParser.parse(
+            1, "Next | SV Waldhof Mannheim vs. Bayern Munich | all | 20-08-2026 | 15:00 (GMT)",
+            now, roster, ambiguous = setOf("Giants", "Cardinals"),
+        )!!
+        assertEquals("Bundesliga", e.league)
+        assertEquals("SV Waldhof Mannheim", e.home)
+    }
+
+    /**
+     * Both were real rows on screen before the full-name rule: Welsh football
+     * under the NFL, and a Michigan high-school game in the Premier League.
+     */
+    @Test
+    fun `a single-word club cannot carry a fixture alone`() {
+        val now = ms(2026, 8, 20, 15, 0, "UTC")
+        val roster = mapOf(
+            "NFL" to listOf("Saints"),
+            "Premier League" to listOf("Chelsea"),
+            "Bundesliga" to listOf("Bayern Munich"),
+        )
+        assertNull(
+            SportsParser.parse(
+                1, "Live | The new saints v Sabah 6 | all | 20-08-2026 | 15:00 (GMT)", now, roster,
+            )
+        )
+        assertNull(
+            SportsParser.parse(
+                2, "LIVE | CHELSEA v E. GRAND RAPIDS | Thu 20 Aug 11:00 EDT (US)", now, roster,
+            )
+        )
+        // A full club name still carries its cup tie.
+        assertEquals(
+            "Bundesliga",
+            SportsParser.parse(
+                3, "Next | SV Waldhof Mannheim vs. Bayern Munich | all | 20-08-2026 | 15:00 (GMT)",
+                now, roster,
+            )!!.league,
+        )
+    }
+
+    /** ...but a shared nickname standing alone still is not a fixture. */
+    @Test
+    fun `an ambiguous nickname alone is still rejected`() {
+        val now = ms(2026, 8, 20, 15, 0, "UTC")
+        val roster = mapOf("NFL" to listOf("Cardinals", "Raiders"))
+        assertNull(
+            SportsParser.parse(
+                2, "Next | Cardinals at Reds | all | 20-08-2026 | 15:00 (GMT)",
+                now, roster, ambiguous = setOf("Cardinals"),
+            )
+        )
+    }
+
+    /** Motherwell v Freiburg was on four slots at once. */
+    @Test
+    fun `one row per match, on the best slot, the rest as fallbacks`() {
+        val now = ms(2026, 8, 20, 15, 0, "UTC")
+        val roster = mapOf("Bundesliga" to listOf("Union Berlin", "Bayern Munich"))
+        fun slot(id: Int, tier: String) = SportsParser.parse(
+            id, "Live | Union Berlin vs Bayern Munich | all | 20-08-2026 | 15:00 (GMT) | $tier",
+            now, roster,
+        )!!
+        val hd = slot(1, "HD")
+        val eightK = slot(2, "8K EXCLUSIVE")
+        val fourK = slot(3, "4K")
+        val rows = SportsParser.upcoming(listOf(hd, eightK, fourK), now, 60)
+        assertEquals("one row, not three", 1, rows.size)
+        assertEquals("the 8K slot leads", 2, rows[0].streamId)
+        assertEquals("the others fall behind it, best first", listOf(3, 1), rows[0].alternates)
     }
 
     @Test

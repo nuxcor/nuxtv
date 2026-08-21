@@ -55,6 +55,7 @@ fun SportTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
     val sport by vm.sport.collectAsState()
     val leagues = sport?.leagues.orEmpty()
     val cue = sport?.cueMinutes ?: 60
+    val ambiguous = sport?.ambiguous.orEmpty().toSet()
 
     // A fixture list is a clock face: a match kicks off, another ends, and the
     // screen is wrong until something recomposes it. Ticking every half minute
@@ -70,7 +71,7 @@ fun SportTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
     val fixtures = remember(bundle.events, leagues, now / 60_000) {
         val parsed = bundle.events.mapNotNull { channel ->
             val id = channel.xtreamId ?: return@mapNotNull null
-            SportsParser.parse(id, channel.name, now, leagues)
+            SportsParser.parse(id, channel.name, now, leagues, ambiguous)
         }
         SportsParser.upcoming(parsed, now, cue)
     }
@@ -112,7 +113,7 @@ fun SportTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     list.forEach { event ->
                         FixtureRow(event, now) {
-                            vm.playEvent(event.streamId)
+                            vm.playEvent(event.streamId, event.alternates)
                             onPlay()
                         }
                     }
