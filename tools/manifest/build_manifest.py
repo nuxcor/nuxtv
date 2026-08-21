@@ -284,9 +284,13 @@ CHANNEL_ALIAS = {
 # Provider source tags — "NBC NEWS NOW (A)", "(D)", "(H)", "(PC)" — which name
 # where the feed comes from, not what channel it is. Left in the key they made
 # a separate tile each, so NBC News Now stood on the US news shelf five times.
-# One or two letters only: a callsign like "(WABC)" is four and identifies a
-# genuinely different station.
-VARIANT_TAG = re.compile(r'\(\s*[A-Za-z]{1,2}\s*\)')
+#
+# Single letters and "PC", and nothing else. Two letters generally would also
+# strip "(NY)", "(PA)", "(TX)" and the rest of the state codes, which name a
+# genuinely different station — two locals differing only by state would have
+# folded into one tile. Nothing folds that way today; the narrower pattern is
+# so nothing starts to.
+VARIANT_TAG = re.compile(r'\(\s*(?:[A-Za-z]|PC)\s*\)')
 
 # The provider prefixes its NBC-family feeds with the parent network: "NBC
 # CNBC", "NBC MSNBC". The prefix is not part of the channel's name, and left in
