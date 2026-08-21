@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-21T13:38:03+00:00",
+ "generated": "2026-08-21T14:19:53+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -3557,7 +3557,6 @@
   1820570,
   1820466,
   1820193,
-  1820474,
   1820467,
   1820468,
   1820022,
@@ -5626,8 +5625,6 @@
   1853593,
   1853738,
   1853569,
-  1853731,
-  1853613,
   1853719,
   1853688,
   1853718,
@@ -5646,26 +5643,15 @@
   1853618,
   1853615,
   1853507,
-  1853609,
-  1853547,
   1853581,
   1853387,
   1991723,
   1853548,
   1853549,
-  1853539,
-  788173,
   1991695,
   1853532,
-  788013,
-  788108,
-  1853531,
   788014,
   1853530,
-  1991677,
-  788004,
-  1853526,
-  787994,
   788031,
   1853524,
   1991661,
@@ -5673,8 +5659,6 @@
   1236213,
   1236212,
   1236211,
-  1991711,
-  1236170,
   1236208,
   1236207,
   1853452,
@@ -5689,15 +5673,8 @@
   1853464,
   1853455,
   1853432,
-  1991721,
-  788039,
-  788121,
-  788021,
-  788112,
   1991705,
   788090,
-  1991658,
-  788127,
   1562729,
   1562728,
   1562727,
@@ -6682,29 +6659,38 @@
   610835,
   1476223,
   1820195,
-  1601211,
-  1601206,
+  1853731,
+  1853613,
+  1853609,
+  1853547,
+  1853539,
+  788173,
+  788013,
+  788108,
+  1853531,
+  1991677,
+  788004,
+  1853526,
+  787994,
+  1991711,
+  1236170,
+  1991721,
+  788039,
+  788121,
+  788021,
+  788112,
+  1991658,
+  788127,
   1601178,
-  1601135,
-  1601094,
-  1600888,
   1600878,
   1600862,
-  1600855,
-  1600847,
-  1600835,
-  1600781,
   1600529,
   1600394,
   1600346,
   1600345,
   1600314,
-  1600286,
-  1600130,
   1600074,
-  1599952,
   1599944,
-  1599931,
   1055643,
   1055642,
   1055641,
@@ -8404,15 +8390,8 @@
   1132381,
   1132380,
   1132379,
-  1537369,
-  414196,
   1537368,
   1537367,
-  1537364,
-  498785,
-  1537363,
-  414089,
-  498782,
   1537359,
   498635,
   1537357,
@@ -8421,28 +8400,11 @@
   1537356,
   414096,
   498769,
-  1537350,
-  414086,
-  498750,
   1537347,
   414207,
   498745,
-  1537342,
-  414199,
-  498737,
-  1537339,
-  414157,
   1537336,
   1260958,
-  1537327,
-  498720,
-  1537326,
-  414091,
-  498718,
-  1537320,
-  498734,
-  1537316,
-  414080,
   1537309,
   414110,
   1537308,
@@ -8467,17 +8429,11 @@
   412954,
   498796,
   412814,
-  414092,
-  498795,
-  414083,
-  498794,
   414213,
   498793,
   412813,
   414210,
   498791,
-  498788,
-  412812,
   412862,
   498784,
   414170,
@@ -8505,8 +8461,6 @@
   1709470,
   414127,
   498728,
-  414087,
-  498748,
   498743,
   412886,
   498742,
@@ -8515,14 +8469,10 @@
   414121,
   498628,
   412944,
-  414162,
-  498731,
   498726,
   414128,
   498722,
   414145,
-  498721,
-  414144,
   412863,
   498719,
   412943,
@@ -8533,22 +8483,16 @@
   412866,
   498710,
   412940,
-  498709,
-  414084,
   498707,
   412939,
   498704,
   414108,
-  414136,
-  498703,
   498701,
   414135,
   498692,
   414134,
   498691,
   414133,
-  414203,
-  498688,
   412901,
   498685,
   412934,
@@ -8570,8 +8514,6 @@
   498663,
   412882,
   412927,
-  498660,
-  414109,
   498661,
   412880,
   412881,
@@ -8597,8 +8539,6 @@
   498638,
   412867,
   414115,
-  412806,
-  414052,
   414049,
   412809,
   412883,
@@ -8610,8 +8550,6 @@
   412923,
   412805,
   414053,
-  412843,
-  412840,
   412892,
   412949,
   1537064,
@@ -8697,9 +8635,7 @@
   1536967,
   1536966,
   1536964,
-  1536963,
   1536962,
-  1536959,
   1536956,
   1536953,
   1536952,
@@ -8718,7 +8654,6 @@
   1536933,
   1536932,
   1536931,
-  1536929,
   1536928,
   1536922,
   1536921,
@@ -8870,7 +8805,6 @@
   1536729,
   1536727,
   1536726,
-  1536725,
   1536724,
   1536721,
   1536720,
@@ -8940,7 +8874,6 @@
   1536640,
   1536639,
   1536638,
-  1536637,
   1536636,
   1536635,
   1536634,
@@ -8957,7 +8890,6 @@
   1536621,
   1536620,
   1536619,
-  1536617,
   1536616,
   1536614,
   1536613,
@@ -9079,7 +9011,6 @@
   1536459,
   1536458,
   1536457,
-  1536456,
   1536455,
   1536454,
   1536451,
@@ -12398,7 +12329,6 @@
   1537370,
   1537368,
   1537367,
-  1537366,
   1537365,
   1537361,
   1537360,
@@ -12484,7 +12414,6 @@
   1537463,
   1537462,
   1537461,
-  1537460,
   1537459,
   1537458,
   1537457,
@@ -12517,7 +12446,6 @@
   1537417,
   1537416,
   1537412,
-  1537411,
   1537410,
   1537409,
   1537407,
@@ -13261,6 +13189,7 @@
   1548413,
   1476581,
   1536991,
+  1537488,
   1476579,
   1536989,
   1476578,
@@ -13276,6 +13205,7 @@
   1536980,
   1476571,
   1536977,
+  1537486,
   1548410,
   1476570,
   1536975,
@@ -13284,6 +13214,7 @@
   1548409,
   1476567,
   1536972,
+  1537485,
   1548408,
   1476565,
   1536970,
@@ -13293,12 +13224,10 @@
   1536968,
   1476559,
   1536966,
+  1537484,
   696281,
   1548407,
   1476557,
-  1536963,
-  1548406,
-  1476556,
   1536962,
   1476555,
   1536953,
@@ -13311,9 +13240,14 @@
   1536948,
   1476544,
   1536945,
+  1537480,
   1548403,
   1536944,
+  1537365,
+  1537479,
   1548402,
+  1536943,
+  1537478,
   1536942,
   696260,
   1834958,
@@ -13324,9 +13258,6 @@
   1476536,
   1536933,
   1476524,
-  1536929,
-  1548398,
-  1476522,
   1536916,
   1476521,
   1536915,
@@ -13358,6 +13289,7 @@
   1536893,
   1548397,
   1536892,
+  1537477,
   1548396,
   1476502,
   1536884,
@@ -13383,6 +13315,8 @@
   1536875,
   1548389,
   1476490,
+  1536874,
+  1537476,
   1536872,
   1476485,
   1536869,
@@ -13414,6 +13348,7 @@
   1548381,
   1476466,
   1536845,
+  1537473,
   1548380,
   1520134,
   1476464,
@@ -13432,12 +13367,17 @@
   1536837,
   1476457,
   1536835,
+  1537465,
   1548376,
   1476456,
+  1536832,
+  1537464,
   1536831,
+  1537463,
   1548375,
   1476454,
   1536828,
+  1537462,
   696208,
   1548374,
   1476451,
@@ -13470,6 +13410,8 @@
   1548365,
   1536796,
   1476430,
+  1536795,
+  1537457,
   1536794,
   1476426,
   1536793,
@@ -13523,6 +13465,7 @@
   1536745,
   1476375,
   1536744,
+  1537455,
   696175,
   1476373,
   1536743,
@@ -13544,8 +13487,6 @@
   1476362,
   1536726,
   325973,
-  1536725,
-  325976,
   1536724,
   1476360,
   1536721,
@@ -13591,10 +13532,12 @@
   1548338,
   1476324,
   1536690,
+  1537439,
   696142,
   1536688,
   1476323,
   1536682,
+  1537436,
   1476319,
   1536679,
   1548334,
@@ -13603,6 +13546,8 @@
   1476315,
   1536674,
   1476314,
+  1536673,
+  1537435,
   1536664,
   1476305,
   1536661,
@@ -13622,9 +13567,6 @@
   1548330,
   1536643,
   1476284,
-  1536637,
-  1548326,
-  1520125,
   1536635,
   1476276,
   1536634,
@@ -13634,9 +13576,6 @@
   1476274,
   1536621,
   1476271,
-  1536617,
-  1548324,
-  1476270,
   1536614,
   1476268,
   1536612,
@@ -13644,6 +13583,7 @@
   1536611,
   1475963,
   1536610,
+  1537431,
   1476264,
   1536609,
   1476263,
@@ -13662,6 +13602,7 @@
   1536595,
   1548320,
   1536594,
+  1537426,
   1476247,
   1536593,
   1476246,
@@ -13716,9 +13657,12 @@
   1536518,
   1476200,
   1536516,
+  1537417,
   1476198,
   1536515,
   1476196,
+  1536513,
+  1537416,
   1536511,
   1476195,
   1536507,
@@ -13736,6 +13680,7 @@
   1536485,
   1476172,
   1536484,
+  672782,
   1476170,
   1536475,
   1476164,
@@ -13768,9 +13713,6 @@
   1536458,
   1476150,
   325998,
-  1536456,
-  1520107,
-  1476148,
   1536455,
   1476147,
   1536454,
@@ -13800,7 +13742,10 @@
   1475961,
   1536422,
   1475962,
+  1536407,
+  1537403,
   1536404,
+  1537402,
   1548300,
   1536403,
   1548299,
@@ -13833,6 +13778,8 @@
   1476086,
   1536381,
   1476085,
+  1536377,
+  1537400,
   1536373,
   1476083,
   1536372,
@@ -13843,14 +13790,18 @@
   1548291,
   1536366,
   696041,
+  1536365,
+  1537291,
   1536364,
   1476077,
   1536361,
+  1537396,
   1520101,
   1476075,
   1536360,
   1476073,
   1536358,
+  1537395,
   1476071,
   1536356,
   1548289,
@@ -13890,8 +13841,10 @@
   1536323,
   1476047,
   1536322,
+  1537383,
   1476046,
   1536321,
+  1537382,
   1548279,
   1476045,
   1536320,
@@ -13920,6 +13873,8 @@
   1475993,
   1536293,
   1548267,
+  1536288,
+  1537379,
   1548405,
   1476552,
   1548394,
@@ -13930,6 +13885,7 @@
   1476435,
   1548363,
   1476417,
+  1537450,
   1548344,
   1476357,
   1548329,
@@ -13979,10 +13935,13 @@
   1597902,
   696043,
   1597861,
+  1537430,
   1520124,
   1476258,
   1520105,
   1476117,
+  672788,
+  325977,
   1476151,
   325965,
   436158,
@@ -13991,6 +13950,8 @@
   325947,
   1476132,
   325950,
+  696317,
+  1588428,
   696250,
   696020,
   696218,
@@ -14003,36 +13964,116 @@
   1835442,
   696163,
   1476365,
+  1537429,
+  696106,
   696071,
   1476115,
+  1537459,
+  1476436,
+  1537458,
+  1476429,
+  1537425,
+  1476250,
+  1537412,
+  1476178,
+  1537407,
+  1476143,
+  1537378,
+  1475973,
+  1013451,
   436540,
   1600337,
   436538,
   1600146,
+  1013501,
   1601213,
   1601212,
+  1013404,
+  1601211,
+  1013369,
+  1601206,
   1601164,
   1600997,
+  1013378,
+  1601135,
   1601130,
   1601129,
+  1013491,
+  1013386,
+  1601094,
   1601073,
   1601072,
+  1013568,
+  1601055,
+  1013464,
+  1601042,
+  1013462,
+  1601028,
   1601021,
   1601020,
   1601019,
   1601018,
   1601008,
   1601007,
+  1013564,
+  1600985,
+  1013440,
+  1600984,
+  1013447,
+  1600972,
+  1013450,
+  1600963,
   1600947,
   1600294,
   1600945,
   1600944,
+  1013458,
+  1600929,
+  1013497,
+  1600918,
+  1013596,
+  1600909,
+  1013435,
   1600897,
   1600528,
+  1013615,
+  1600896,
+  1013436,
+  1600893,
+  1013437,
+  1600892,
+  1013617,
+  1600888,
+  1013510,
+  1600886,
+  1013420,
   1600869,
   1600441,
+  1013363,
+  1600855,
+  1013449,
+  1013364,
+  1600847,
+  1013452,
+  1600845,
+  1013611,
+  1600836,
+  1013349,
+  1600835,
+  1013412,
+  1600833,
+  1013472,
+  1600831,
+  1013522,
+  1600827,
+  1013474,
+  1600823,
+  1013627,
+  1600821,
   1600807,
   1600806,
+  1600781,
+  1013355,
   1600765,
   1600494,
   1600748,
@@ -14047,6 +14088,12 @@
   1600716,
   1600675,
   1600674,
+  1013465,
+  1600632,
+  1013467,
+  1600607,
+  1013460,
+  1600585,
   1600516,
   1600515,
   1600489,
@@ -14055,36 +14102,85 @@
   1600481,
   1600474,
   1600473,
+  1013438,
+  1600465,
+  1013418,
+  1600447,
   1600438,
   1600437,
   1600409,
   1600408,
+  1013445,
+  1013419,
   1600406,
   1600405,
   1600360,
   1600359,
+  1013415,
+  1600354,
   1600328,
   1600021,
+  1013453,
+  1600290,
+  1013470,
+  1013416,
+  1600286,
+  1013433,
+  1600254,
+  1013456,
+  1600240,
+  1013457,
+  1600227,
   1600183,
   1600182,
   1600174,
   1600173,
   1600168,
   1600167,
+  1013424,
+  1600158,
+  1013439,
+  1600157,
+  1013441,
+  1600154,
+  1013413,
+  1600147,
   1600134,
   1600133,
+  1013580,
+  1013388,
+  1600130,
+  1013434,
+  1600101,
+  1013525,
+  1600096,
   1600089,
   1599995,
+  1013610,
+  1600061,
   1600041,
   1600040,
+  1013622,
+  1600037,
   1600031,
   1600030,
+  1013367,
   1600026,
   1600025,
+  1013601,
+  1600007,
   1599978,
   1599977,
   1599973,
   1599972,
+  1013368,
+  1599952,
+  1013443,
+  1599949,
+  1013362,
+  1599931,
+  1013521,
+  1599929,
   1599920,
   1599919,
   162330,
@@ -14187,14 +14283,10 @@
   1013380,
   1013582,
   1013383,
-  1013580,
-  1013388,
   1013573,
   1013393,
   1013500,
   1013423,
-  1013491,
-  1013386,
   1013489,
   1013382,
   1013486,
@@ -14206,12 +14298,6 @@
   1013360,
   1013471,
   1013354,
-  1013470,
-  1013416,
-  1013449,
-  1013364,
-  1013445,
-  1013419,
   1013396,
   1013361,
   1013395,
@@ -15441,17 +15527,18 @@
   1548353,
   1520131,
   1476379,
+  162257,
+  717656,
+  717672,
+  325781,
+  162277,
+  1527664,
+  1527663,
   162253,
   639165,
   639185,
   1527710,
   1527709,
-  162257,
-  717656,
-  717672,
-  162277,
-  1527664,
-  1527663,
   1562543,
   1562542,
   1562541,
@@ -16587,7 +16674,6 @@
   434018,
   1820226,
   1820225,
-  1820474,
   1820209,
   1820195,
   1820210,
@@ -17305,69 +17391,58 @@
   "788075": "AFR"
  },
  "section_merge": {
-  "US|MUSIC": "ENTERTAINMENT",
   "UK|DOCUMENTARY": "ENTERTAINMENT",
-  "UK|KIDS": "ENTERTAINMENT",
-  "UK|MUSIC": "ENTERTAINMENT",
-  "AFR|DOCUMENTARY": "ENTERTAINMENT",
   "US|DOCUMENTARY": "ENTERTAINMENT",
   "US|KIDS": "ENTERTAINMENT",
+  "US|MUSIC": "ENTERTAINMENT",
+  "UK|KIDS": "ENTERTAINMENT",
+  "AFR|DOCUMENTARY": "ENTERTAINMENT",
+  "UK|MUSIC": "ENTERTAINMENT",
   "AFR|MUSIC": "ENTERTAINMENT"
  },
  "merged_section": {
-  "325771": "ENTERTAINMENT",
-  "162376": "ENTERTAINMENT",
+  "162385": "ENTERTAINMENT",
+  "325780": "ENTERTAINMENT",
   "162377": "ENTERTAINMENT",
+  "325775": "ENTERTAINMENT",
+  "325774": "ENTERTAINMENT",
+  "325782": "ENTERTAINMENT",
+  "162378": "ENTERTAINMENT",
+  "325793": "ENTERTAINMENT",
+  "325837": "ENTERTAINMENT",
+  "325792": "ENTERTAINMENT",
+  "162381": "ENTERTAINMENT",
+  "325810": "ENTERTAINMENT",
+  "717704": "ENTERTAINMENT",
+  "325771": "ENTERTAINMENT",
+  "7236": "ENTERTAINMENT",
+  "1739582": "ENTERTAINMENT",
+  "162230": "ENTERTAINMENT",
+  "7334": "ENTERTAINMENT",
+  "7336": "ENTERTAINMENT",
+  "7234": "ENTERTAINMENT",
+  "324980": "ENTERTAINMENT",
+  "162229": "ENTERTAINMENT",
+  "717686": "ENTERTAINMENT",
   "162231": "ENTERTAINMENT",
   "162384": "ENTERTAINMENT",
-  "162401": "ENTERTAINMENT",
-  "162390": "ENTERTAINMENT",
   "162392": "ENTERTAINMENT",
-  "717704": "ENTERTAINMENT",
-  "162375": "ENTERTAINMENT",
-  "162378": "ENTERTAINMENT",
   "162379": "ENTERTAINMENT",
   "717716": "ENTERTAINMENT",
   "717708": "ENTERTAINMENT",
-  "162232": "ENTERTAINMENT",
-  "717685": "ENTERTAINMENT",
-  "162237": "ENTERTAINMENT",
-  "717686": "ENTERTAINMENT",
-  "717687": "ENTERTAINMENT",
-  "717684": "ENTERTAINMENT",
   "788030": "ENTERTAINMENT",
-  "325780": "ENTERTAINMENT",
   "325831": "ENTERTAINMENT",
-  "325832": "ENTERTAINMENT",
-  "325775": "ENTERTAINMENT",
   "325776": "ENTERTAINMENT",
   "326358": "ENTERTAINMENT",
-  "325774": "ENTERTAINMENT",
-  "325782": "ENTERTAINMENT",
-  "325777": "ENTERTAINMENT",
   "325865": "ENTERTAINMENT",
   "325869": "ENTERTAINMENT",
-  "325793": "ENTERTAINMENT",
-  "325837": "ENTERTAINMENT",
   "668555": "ENTERTAINMENT",
-  "325786": "ENTERTAINMENT",
-  "325792": "ENTERTAINMENT",
-  "325785": "ENTERTAINMENT",
   "325897": "ENTERTAINMENT",
   "325929": "ENTERTAINMENT",
   "325877": "ENTERTAINMENT",
   "325879": "ENTERTAINMENT",
-  "325801": "ENTERTAINMENT",
-  "7236": "ENTERTAINMENT",
-  "7258": "ENTERTAINMENT",
-  "7259": "ENTERTAINMENT",
-  "7260": "ENTERTAINMENT",
   "1015278": "ENTERTAINMENT",
-  "7334": "ENTERTAINMENT",
-  "7336": "ENTERTAINMENT",
-  "7234": "ENTERTAINMENT",
   "324979": "ENTERTAINMENT",
-  "324980": "ENTERTAINMENT",
   "1910073": "ENTERTAINMENT",
   "325053": "ENTERTAINMENT",
   "325058": "ENTERTAINMENT",
@@ -17396,7 +17471,6 @@
   "162403": "ENTERTAINMENT",
   "162406": "ENTERTAINMENT",
   "162407": "ENTERTAINMENT",
-  "162402": "ENTERTAINMENT",
   "162410": "ENTERTAINMENT",
   "162412": "ENTERTAINMENT",
   "162413": "ENTERTAINMENT",
@@ -17407,8 +17481,6 @@
   "162420": "ENTERTAINMENT",
   "739288": "ENTERTAINMENT",
   "739287": "ENTERTAINMENT",
-  "162421": "ENTERTAINMENT",
-  "162422": "ENTERTAINMENT",
   "381946": "ENTERTAINMENT",
   "381945": "ENTERTAINMENT",
   "381944": "ENTERTAINMENT",
@@ -17442,17 +17514,9 @@
   "1290973": "ENTERTAINMENT",
   "1290972": "ENTERTAINMENT",
   "162388": "ENTERTAINMENT",
-  "162396": "ENTERTAINMENT",
-  "162380": "ENTERTAINMENT",
-  "162381": "ENTERTAINMENT",
-  "162385": "ENTERTAINMENT",
-  "162228": "ENTERTAINMENT",
-  "162229": "ENTERTAINMENT",
-  "162230": "ENTERTAINMENT",
   "162242": "ENTERTAINMENT",
   "162240": "ENTERTAINMENT",
   "162238": "ENTERTAINMENT",
-  "162244": "ENTERTAINMENT",
   "162246": "ENTERTAINMENT",
   "162248": "ENTERTAINMENT",
   "1599751": "ENTERTAINMENT",
@@ -17466,7 +17530,6 @@
   "231811": "ENTERTAINMENT",
   "231812": "ENTERTAINMENT",
   "231813": "ENTERTAINMENT",
-  "1739582": "ENTERTAINMENT",
   "2114818": "ENTERTAINMENT",
   "405517": "ENTERTAINMENT",
   "788044": "ENTERTAINMENT",
@@ -17635,9 +17698,7 @@
    "region": "US",
    "section": "SPORTS",
    "label": "beIN Sports US",
-   "main": [
-    325025
-   ],
+   "main": [],
    "overflow": [
     325031,
     325030,
@@ -37796,13 +37857,17 @@
     ],
     "primary": 1537019
    },
-   "amc|US": {
+   "amc|CA": {
     "section": "ENTERTAINMENT",
-    "region": "US",
+    "region": "CA",
     "sources": [
+     414092,
+     162273,
      325778,
      1536997,
      1536996,
+     498795,
+     672791,
      1476586,
      1476582
     ],
@@ -37816,6 +37881,29 @@
      1536965
     ],
     "primary": 325827
+   },
+   "bbcearth|UK": {
+    "section": "ENTERTAINMENT",
+    "region": "UK",
+    "sources": [
+     414042,
+     1536963,
+     1537366,
+     1548406,
+     1476556
+    ],
+    "primary": 414042
+   },
+   "bbcnews|UK": {
+    "section": "NEWS",
+    "region": "UK",
+    "sources": [
+     717698,
+     1536959,
+     1525693,
+     717702
+    ],
+    "primary": 717698
    },
    "billiardtv|US": {
     "section": "SPORTS",
@@ -37848,12 +37936,26 @@
     ],
     "primary": 1536934
    },
+   "cbcnewsnetwork|US": {
+    "section": "NEWS",
+    "region": "US",
+    "sources": [
+     1536929,
+     498779,
+     498315,
+     414118,
+     1548398,
+     1476522
+    ],
+    "primary": 1536929
+   },
    "courttv|US": {
     "section": "ENTERTAINMENT",
     "region": "US",
     "sources": [
      1536858,
      325916,
+     342033,
      1548385,
      1520136,
      1476477
@@ -37891,6 +37993,17 @@
     ],
     "primary": 1536759
    },
+   "hbo2|US": {
+    "section": "ENTERTAINMENT",
+    "region": "US",
+    "sources": [
+     1536725,
+     498721,
+     414144,
+     325976
+    ],
+    "primary": 1536725
+   },
    "hbocomedy|US": {
     "section": "ENTERTAINMENT",
     "region": "US",
@@ -37905,7 +38018,8 @@
     "region": "US",
     "sources": [
      1536695,
-     325817
+     325817,
+     498713
     ],
     "primary": 1536695
    },
@@ -37954,6 +38068,17 @@
     ],
     "primary": 1536659
    },
+   "lovenature|UK": {
+    "section": "DOCUMENTARY",
+    "region": "UK",
+    "sources": [
+     162385,
+     1536637,
+     1548326,
+     1520125
+    ],
+    "primary": 162385
+   },
    "mgm|US": {
     "section": "ENTERTAINMENT",
     "region": "US",
@@ -37963,6 +38088,17 @@
      1476272
     ],
     "primary": 1536623
+   },
+   "midsomermurders|US": {
+    "section": "LOCALS",
+    "region": "US",
+    "sources": [
+     1536617,
+     1536220,
+     1548324,
+     1476270
+    ],
+    "primary": 1536617
    },
    "nbclxhome|US": {
     "section": "LOCALS",
@@ -38015,6 +38151,19 @@
     ],
     "primary": 1536512
    },
+   "skynews|UK": {
+    "section": "NEWS",
+    "region": "UK",
+    "sources": [
+     717697,
+     1536456,
+     162155,
+     717701,
+     1520107,
+     1476148
+    ],
+    "primary": 717697
+   },
    "stadium|US": {
     "section": "SPORTS",
     "region": "US",
@@ -38040,10 +38189,21 @@
     "sources": [
      325059,
      1536333,
+     587961,
      1548281,
      1476052
     ],
     "primary": 325059
+   },
+   "euronews|CA": {
+    "section": "ENTERTAINMENT",
+    "region": "CA",
+    "sources": [
+     412887,
+     1537460,
+     1548369
+    ],
+    "primary": 412887
    },
    "livenowfromfox|US": {
     "section": "NEWS",
@@ -38060,7 +38220,10 @@
     "region": "US",
     "sources": [
      325826,
-     1597958
+     498788,
+     672790,
+     1597958,
+     412812
     ],
     "primary": 325826
    },
@@ -38172,6 +38335,123 @@
     ],
     "primary": 1586986
    },
+   "ae|US": {
+    "section": "ENTERTAINMENT",
+    "region": "US",
+    "sources": [
+     325830,
+     498798
+    ],
+    "primary": 325830
+   },
+   "animalplanet|US": {
+    "section": "DOCUMENTARY",
+    "region": "US",
+    "sources": [
+     325780,
+     162376,
+     414083,
+     498794,
+     262729
+    ],
+    "primary": 325780
+   },
+   "bravo|CA": {
+    "section": "ENTERTAINMENT",
+    "region": "CA",
+    "sources": [
+     1537364,
+     325779,
+     498785
+    ],
+    "primary": 325779
+   },
+   "cookingchannel|US": {
+    "section": "ENTERTAINMENT",
+    "region": "US",
+    "sources": [
+     325825,
+     498767
+    ],
+    "primary": 325825
+   },
+   "crimeinvestigation|UK": {
+    "section": "DOCUMENTARY",
+    "region": "UK",
+    "sources": [
+     162377,
+     717710,
+     325832,
+     717719,
+     498763
+    ],
+    "primary": 162377
+   },
+   "discovery|US": {
+    "section": "DOCUMENTARY",
+    "region": "US",
+    "sources": [
+     325775,
+     162375,
+     162387,
+     717711,
+     717720,
+     414076
+    ],
+    "primary": 325775
+   },
+   "discoveryscience|US": {
+    "section": "DOCUMENTARY",
+    "region": "US",
+    "sources": [
+     325774,
+     162390,
+     414077,
+     262726
+    ],
+    "primary": 325774
+   },
+   "eentertainment|US": {
+    "section": "ENTERTAINMENT",
+    "region": "US",
+    "sources": [
+     325822,
+     498744,
+     162287
+    ],
+    "primary": 325822
+   },
+   "foodnetwork|US": {
+    "section": "ENTERTAINMENT",
+    "region": "US",
+    "sources": [
+     325821,
+     1537342,
+     414199,
+     498737,
+     262722
+    ],
+    "primary": 325821
+   },
+   "fx|CA": {
+    "section": "ENTERTAINMENT",
+    "region": "CA",
+    "sources": [
+     1537339,
+     325784,
+     414157
+    ],
+    "primary": 325784
+   },
+   "fxx|US": {
+    "section": "KIDS",
+    "region": "US",
+    "sources": [
+     325782,
+     414158
+    ],
+    "primary": 325782
+   },
    "gettv|US": {
     "section": "ENTERTAINMENT",
     "region": "US",
@@ -38180,6 +38460,70 @@
      1476374
     ],
     "primary": 325917
+   },
+   "gsn|US": {
+    "section": "ENTERTAINMENT",
+    "region": "US",
+    "sources": [
+     325819,
+     498725
+    ],
+    "primary": 325819
+   },
+   "hgtv|CA": {
+    "section": "ENTERTAINMENT",
+    "region": "CA",
+    "sources": [
+     1537327,
+     325791,
+     162162,
+     498720,
+     262721
+    ],
+    "primary": 325791
+   },
+   "history|UK": {
+    "section": "DOCUMENTARY",
+    "region": "UK",
+    "sources": [
+     162378,
+     717707,
+     1537326,
+     325777,
+     717718,
+     414091,
+     498718
+    ],
+    "primary": 162378
+   },
+   "hln|US": {
+    "section": "ENTERTAINMENT",
+    "region": "US",
+    "sources": [
+     325864,
+     498717
+    ],
+    "primary": 325864
+   },
+   "lifetime|US": {
+    "section": "ENTERTAINMENT",
+    "region": "US",
+    "sources": [
+     325815,
+     498709,
+     672785,
+     414084
+    ],
+    "primary": 325815
+   },
+   "mavtv|CA": {
+    "section": "ENTERTAINMENT",
+    "region": "CA",
+    "sources": [
+     414159,
+     325887
+    ],
+    "primary": 414159
    },
    "motortrend|US": {
     "section": "ENTERTAINMENT",
@@ -38190,6 +38534,95 @@
     ],
     "primary": 325836
    },
+   "mtv|US": {
+    "section": "MUSIC",
+    "region": "US",
+    "sources": [
+     325793,
+     162401,
+     414136,
+     498703,
+     1527660,
+     1527659
+    ],
+    "primary": 325793
+   },
+   "mtv2|US": {
+    "section": "ENTERTAINMENT",
+    "region": "US",
+    "sources": [
+     325837,
+     498702
+    ],
+    "primary": 325837
+   },
+   "nationalgeographic|CA": {
+    "section": "DOCUMENTARY",
+    "region": "CA",
+    "sources": [
+     1537316,
+     325786,
+     162380,
+     414080
+    ],
+    "primary": 325786
+   },
+   "mtvlive|US": {
+    "section": "MUSIC",
+    "region": "US",
+    "sources": [
+     325792,
+     162402
+    ],
+    "primary": 325792
+   },
+   "nationalgeographicwild|UK": {
+    "section": "DOCUMENTARY",
+    "region": "UK",
+    "sources": [
+     162381,
+     325785,
+     414081
+    ],
+    "primary": 162381
+   },
+   "own|US": {
+    "section": "ENTERTAINMENT",
+    "region": "US",
+    "sources": [
+     325813,
+     414203,
+     498688
+    ],
+    "primary": 325813
+   },
+   "paramount|US": {
+    "section": "ENTERTAINMENT",
+    "region": "US",
+    "sources": [
+     325806,
+     162274
+    ],
+    "primary": 325806
+   },
+   "pop|US": {
+    "section": "KIDS",
+    "region": "US",
+    "sources": [
+     325810,
+     162244
+    ],
+    "primary": 325810
+   },
+   "redbulltv|UK": {
+    "section": "ENTERTAINMENT",
+    "region": "UK",
+    "sources": [
+     1537411,
+     325921
+    ],
+    "primary": 1537411
+   },
    "secnetwork|US": {
     "section": "SPORTS",
     "region": "US",
@@ -38199,6 +38632,40 @@
     ],
     "primary": 325807
    },
+   "syfy|US": {
+    "section": "ENTERTAINMENT",
+    "region": "US",
+    "sources": [
+     325804,
+     162262,
+     412806,
+     414052
+    ],
+    "primary": 325804
+   },
+   "tcm|UK": {
+    "section": "ENTERTAINMENT",
+    "region": "UK",
+    "sources": [
+     162264,
+     325841,
+     498660,
+     414109
+    ],
+    "primary": 325841
+   },
+   "tlc|UK": {
+    "section": "DOCUMENTARY",
+    "region": "UK",
+    "sources": [
+     717704,
+     325801,
+     717713,
+     414111,
+     262717
+    ],
+    "primary": 717704
+   },
    "tnt|US": {
     "section": "ENTERTAINMENT",
     "region": "US",
@@ -38207,6 +38674,15 @@
      716522
     ],
     "primary": 325799
+   },
+   "travelchannel|US": {
+    "section": "ENTERTAINMENT",
+    "region": "US",
+    "sources": [
+     325772,
+     162395
+    ],
+    "primary": 325772
    },
    "usanetwork|US": {
     "section": "ENTERTAINMENT",
@@ -38218,22 +38694,56 @@
     "primary": 610437
    },
    "vh1|US": {
-    "section": "ENTERTAINMENT",
+    "section": "MUSIC",
     "region": "US",
     "sources": [
      325771,
-     718277
+     718277,
+     162422
     ],
     "primary": 325771
+   },
+   "bloomberg|US": {
+    "section": "NEWS",
+    "region": "US",
+    "sources": [
+     325904,
+     162144,
+     717714,
+     717705,
+     162145
+    ],
+    "primary": 325904
    },
    "cnn|US": {
     "section": "NEWS",
     "region": "US",
     "sources": [
      324963,
-     324928
+     162147,
+     324928,
+     498815,
+     414165
     ],
     "primary": 324963
+   },
+   "rtnews|US": {
+    "section": "NEWS",
+    "region": "US",
+    "sources": [
+     325903,
+     162153
+    ],
+    "primary": 325903
+   },
+   "trtworld|US": {
+    "section": "NEWS",
+    "region": "US",
+    "sources": [
+     434021,
+     162157
+    ],
+    "primary": 434021
    },
    "foxnews|US": {
     "section": "NEWS",
@@ -38243,7 +38753,9 @@
      429593,
      429594,
      429592,
-     429591
+     429591,
+     498735,
+     498302
     ],
     "primary": 324923
    },
@@ -38256,6 +38768,15 @@
     ],
     "primary": 324925
    },
+   "msnbc|US": {
+    "section": "NEWS",
+    "region": "US",
+    "sources": [
+     324922,
+     414167
+    ],
+    "primary": 324922
+   },
    "boston25news|US": {
     "section": "NEWS",
     "region": "US",
@@ -38265,6 +38786,18 @@
     ],
     "primary": 796528
    },
+   "cnbc|US": {
+    "section": "NEWS",
+    "region": "US",
+    "sources": [
+     1820474,
+     498813,
+     414166,
+     162149,
+     324929
+    ],
+    "primary": 1820474
+   },
    "fubosportnetwork|US": {
     "section": "SPORTS",
     "region": "US",
@@ -38273,6 +38806,111 @@
      1476381
     ],
     "primary": 325046
+   },
+   "cartoonnetwork|US": {
+    "section": "KIDS",
+    "region": "US",
+    "sources": [
+     7236,
+     717685,
+     1537363,
+     162233,
+     717691,
+     414089,
+     498782,
+     1527666,
+     1527665
+    ],
+    "primary": 7236
+   },
+   "disneychannel|CA": {
+    "section": "KIDS",
+    "region": "CA",
+    "sources": [
+     1537350,
+     7258,
+     162228,
+     414086,
+     498750
+    ],
+    "primary": 7258
+   },
+   "disneyjr|UK": {
+    "section": "KIDS",
+    "region": "UK",
+    "sources": [
+     1739582,
+     7259
+    ],
+    "primary": 1739582
+   },
+   "disneyxd|UK": {
+    "section": "KIDS",
+    "region": "UK",
+    "sources": [
+     162230,
+     7260,
+     414088
+    ],
+    "primary": 162230
+   },
+   "nickjr|US": {
+    "section": "KIDS",
+    "region": "US",
+    "sources": [
+     7334,
+     717687,
+     717693,
+     1527658,
+     1527657
+    ],
+    "primary": 7334
+   },
+   "nickelodeon|US": {
+    "section": "KIDS",
+    "region": "US",
+    "sources": [
+     7336,
+     162232,
+     162235,
+     414085,
+     1527656,
+     1527655
+    ],
+    "primary": 7336
+   },
+   "boomerang|US": {
+    "section": "KIDS",
+    "region": "US",
+    "sources": [
+     7234,
+     717684,
+     717690,
+     1527668,
+     1527667
+    ],
+    "primary": 7234
+   },
+   "babytv|US": {
+    "section": "KIDS",
+    "region": "US",
+    "sources": [
+     324980,
+     162237,
+     2114822,
+     412852
+    ],
+    "primary": 324980
+   },
+   "adultswim|CA": {
+    "section": "KIDS",
+    "region": "CA",
+    "sources": [
+     1537369,
+     325915,
+     414196
+    ],
+    "primary": 325915
    },
    "nbcgolf|US": {
     "section": "SPORTS",
@@ -38408,6 +39046,53 @@
     ],
     "primary": 325023
    },
+   "beinsport|CA": {
+    "section": "SPORTS",
+    "region": "CA",
+    "sources": [
+     414148,
+     325025
+    ],
+    "primary": 414148
+   },
+   "fightnetwork|US": {
+    "section": "SPORTS",
+    "region": "US",
+    "sources": [
+     325048,
+     498738
+    ],
+    "primary": 325048
+   },
+   "goltv|US": {
+    "section": "SPORTS",
+    "region": "US",
+    "sources": [
+     325047,
+     1199316
+    ],
+    "primary": 325047
+   },
+   "golfchannel|US": {
+    "section": "SPORTS",
+    "region": "US",
+    "sources": [
+     325003,
+     498727,
+     414163
+    ],
+    "primary": 325003
+   },
+   "investigationdiscovery|CA": {
+    "section": "DOCUMENTARY",
+    "region": "CA",
+    "sources": [
+     1537320,
+     498734,
+     162396
+    ],
+    "primary": 162396
+   },
    "bbcworldnews|US": {
     "section": "NEWS",
     "region": "US",
@@ -38427,34 +39112,6 @@
     ],
     "primary": 1754412
    },
-   "cbcnewsnetwork|CA": {
-    "section": "NEWS",
-    "region": "CA",
-    "sources": [
-     498779,
-     498315,
-     414118
-    ],
-    "primary": 498779
-   },
-   "cnbc|CA": {
-    "section": "ENTERTAINMENT",
-    "region": "CA",
-    "sources": [
-     498813,
-     414166
-    ],
-    "primary": 498813
-   },
-   "cnn|CA": {
-    "section": "ENTERTAINMENT",
-    "region": "CA",
-    "sources": [
-     498815,
-     414165
-    ],
-    "primary": 498815
-   },
    "ctvnewschannel|CA": {
     "section": "NEWS",
     "region": "CA",
@@ -38465,23 +39122,15 @@
     ],
     "primary": 498760
    },
-   "foxnews|CA": {
-    "section": "NEWS",
-    "region": "CA",
+   "disneyjunior|UK": {
+    "section": "KIDS",
+    "region": "UK",
     "sources": [
-     498735,
-     498302
+     162229,
+     414087,
+     498748
     ],
-    "primary": 498735
-   },
-   "golfchannel|CA": {
-    "section": "SPORTS",
-    "region": "CA",
-    "sources": [
-     498727,
-     414163
-    ],
-    "primary": 498727
+    "primary": 162229
    },
    "nbatv|CA": {
     "section": "SPORTS",
@@ -38491,6 +39140,16 @@
      414160
     ],
     "primary": 498698
+   },
+   "nick|UK": {
+    "section": "KIDS",
+    "region": "UK",
+    "sources": [
+     717686,
+     717692,
+     498695
+    ],
+    "primary": 717686
    },
    "weathernetwork|CA": {
     "section": "ENTERTAINMENT",
@@ -38509,6 +39168,25 @@
      412907
     ],
     "primary": 498806
+   },
+   "france24|CA": {
+    "section": "NEWS",
+    "region": "CA",
+    "sources": [
+     412885,
+     162150
+    ],
+    "primary": 162150
+   },
+   "traceurban|CA": {
+    "section": "MUSIC",
+    "region": "CA",
+    "sources": [
+     412843,
+     412840,
+     162421
+    ],
+    "primary": 162421
    },
    "sportsnetone|CA": {
     "section": "SPORTS",
@@ -38781,26 +39459,6 @@
     ],
     "primary": 162272
    },
-   "bbcnews|UK": {
-    "section": "NEWS",
-    "region": "UK",
-    "sources": [
-     717698,
-     1525693,
-     717702
-    ],
-    "primary": 717698
-   },
-   "skynews|UK": {
-    "section": "NEWS",
-    "region": "UK",
-    "sources": [
-     717697,
-     162155,
-     717701
-    ],
-    "primary": 717697
-   },
    "gbnews|UK": {
     "section": "NEWS",
     "region": "UK",
@@ -38811,26 +39469,6 @@
     ],
     "primary": 272243
    },
-   "bloomberg|UK": {
-    "section": "NEWS",
-    "region": "UK",
-    "sources": [
-     162144,
-     717714,
-     717705,
-     162145
-    ],
-    "primary": 162144
-   },
-   "animalplanet|UK": {
-    "section": "ENTERTAINMENT",
-    "region": "UK",
-    "sources": [
-     162376,
-     262729
-    ],
-    "primary": 162376
-   },
    "skydocumentaries|UK": {
     "section": "ENTERTAINMENT",
     "region": "UK",
@@ -38840,16 +39478,6 @@
      1527699
     ],
     "primary": 162382
-   },
-   "crimeinvestigation|UK": {
-    "section": "DOCUMENTARY",
-    "region": "UK",
-    "sources": [
-     162377,
-     717710,
-     717719
-    ],
-    "primary": 162377
    },
    "skykids|UK": {
     "section": "KIDS",
@@ -38877,25 +39505,6 @@
     ],
     "primary": 162384
    },
-   "mtv|UK": {
-    "section": "MUSIC",
-    "region": "UK",
-    "sources": [
-     162401,
-     1527660,
-     1527659
-    ],
-    "primary": 162401
-   },
-   "discoveryscience|UK": {
-    "section": "DOCUMENTARY",
-    "region": "UK",
-    "sources": [
-     162390,
-     262726
-    ],
-    "primary": 162390
-   },
    "discoveryturbo|UK": {
     "section": "DOCUMENTARY",
     "region": "UK",
@@ -38904,37 +39513,6 @@
      262727
     ],
     "primary": 162392
-   },
-   "tlc|UK": {
-    "section": "DOCUMENTARY",
-    "region": "UK",
-    "sources": [
-     717704,
-     717713,
-     262717
-    ],
-    "primary": 717704
-   },
-   "discovery|UK": {
-    "section": "DOCUMENTARY",
-    "region": "UK",
-    "sources": [
-     162375,
-     162387,
-     717711,
-     717720
-    ],
-    "primary": 162375
-   },
-   "history|UK": {
-    "section": "DOCUMENTARY",
-    "region": "UK",
-    "sources": [
-     162378,
-     717707,
-     717718
-    ],
-    "primary": 162378
    },
    "history2|UK": {
     "section": "DOCUMENTARY",
@@ -38963,69 +39541,6 @@
      717715
     ],
     "primary": 717708
-   },
-   "nickelodeon|UK": {
-    "section": "KIDS",
-    "region": "UK",
-    "sources": [
-     162232,
-     162235,
-     1527656,
-     1527655
-    ],
-    "primary": 162232
-   },
-   "cartoonnetwork|UK": {
-    "section": "KIDS",
-    "region": "UK",
-    "sources": [
-     717685,
-     162233,
-     717691,
-     1527666,
-     1527665
-    ],
-    "primary": 717685
-   },
-   "babytv|UK": {
-    "section": "KIDS",
-    "region": "UK",
-    "sources": [
-     162237,
-     2114822
-    ],
-    "primary": 162237
-   },
-   "nick|UK": {
-    "section": "KIDS",
-    "region": "UK",
-    "sources": [
-     717686,
-     717692
-    ],
-    "primary": 717686
-   },
-   "nickjr|UK": {
-    "section": "KIDS",
-    "region": "UK",
-    "sources": [
-     717687,
-     717693,
-     1527658,
-     1527657
-    ],
-    "primary": 717687
-   },
-   "boomerang|UK": {
-    "section": "KIDS",
-    "region": "UK",
-    "sources": [
-     717684,
-     717690,
-     1527668,
-     1527667
-    ],
-    "primary": 717684
    },
    "skysport|UK": {
     "section": "SPORTS",
@@ -61737,6 +62252,16 @@
   "CA",
   "AFR"
  ],
+ "merged_regions": [
+  "US",
+  "UK",
+  "CA"
+ ],
+ "section_fold": {
+  "DOCUMENTARY": "ENTERTAINMENT",
+  "MUSIC": "ENTERTAINMENT",
+  "KIDS": "ENTERTAINMENT"
+ },
  "region_sections": {
   "CA": [
    "NEWS",
@@ -61817,19 +62342,20 @@
   "movie_categories": 67,
   "unresolved_live_categories": 0,
   "movies_with_genre": 0,
-  "live_tiles_after_collapse": 7065,
-  "live_tiles_collapsed": 2608,
-  "collapse_groups": 178,
-  "collapse_needs_review": 0,
+  "live_tiles_after_collapse": 6858,
+  "live_tiles_collapsed": 2815,
+  "collapse_groups": 218,
+  "collapse_needs_review": 1,
   "dropped_region_streams": 1387,
   "religion_streams": 41,
   "telemundo_streams": 96,
   "regional_sport_streams": 137,
   "us_regional_news_streams": 64,
+  "dstv_duplicates_dropped": 22,
   "ca_clutter_streams": 93,
   "timeshift_demoted": 47,
   "us_locals_kept": 457,
-  "us_locals_dropped": 933,
+  "us_locals_dropped": 932,
   "us_markets": 46,
   "metro_local_tiles": 64,
   "metro_locals_folded": 318,
@@ -61837,7 +62363,7 @@
   "uk_reassigned": 36,
   "uk_regional_collapsed": 70,
   "afr_kept": 190,
-  "afr_dropped": 863,
+  "afr_dropped": 841,
   "afr_usuk_duplicates": 22,
   "name_section_overrides": 1154,
   "entertainment_fixes": {
@@ -61856,7 +62382,7 @@
    "UK": 68
   },
   "news_fixes": {
-   "trimmed": 36,
+   "trimmed": 35,
    "-> LOCALS": 66,
    "-> SPORTS": 11
   },
@@ -61868,17 +62394,17 @@
    "radio": 85,
    "dead": 2
   },
-  "region_section_dropped": 1529,
-  "clean_pass_dropped": 5628,
+  "region_section_dropped": 1481,
+  "clean_pass_dropped": 5776,
   "clean_pass_detail": {
-   "redundant_section": 4380,
+   "redundant_section": 4370,
    "city_locals_dropped": 173,
-   "streaming_donor_kept": 52,
+   "streaming_donor_kept": 62,
    "city_locals_folded": 101,
    "bbc_regional": 43,
    "itv_regional": 13
   },
-  "pass2_dropped": 1210,
+  "pass2_dropped": 1211,
   "pass2_detail": {
    "overflow": 58,
    "stray_local_folded": 181,
@@ -61895,15 +62421,15 @@
   "region_fixed": 118,
   "misfiled_us_locals": 1,
   "sections_merged": 8,
-  "tiles_resectioned": 160,
+  "tiles_resectioned": 137,
   "epg_bound": 919,
   "logo_bound": 4386,
   "live_event_channels": 7847,
   "live_event_groups": 14,
   "sd_dropped": 225,
   "dgo_dropped": 312,
-  "tiers_measured": 2044,
-  "exact_duplicates_dropped": 230,
+  "tiers_measured": 2049,
+  "exact_duplicates_dropped": 217,
   "movie_genre_vocab": 0,
   "movies_with_genre_ids": 0,
   "vod_dupes_dropped": 5273,
