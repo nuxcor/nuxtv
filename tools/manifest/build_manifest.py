@@ -1006,7 +1006,32 @@ SHOW_CHANNEL  = re.compile(
     r"AMERICA'?S GOT TALENT|BIG BROTHER|BIZARRE FOODS|ALWAYS FUNNY|AMERICAN CRIMES"
     r"|BOB ROSS|FAMILY HANDYMAN|50 CENT|DANCE MOMS|KEEPING UP|DECLASSIFIED|PRANKS"
     r"|COSMIC FRONTIERS|EARTH TOUCH|DROOL|E! KEEPING", re.I)
-STRAY_LOCAL   = re.compile(r'^(?:CITY\s*:\s*)?(ABC|CBS|NBC|FOX|CW|PBS|IND|MNT|TMO)\s+[WK][A-Z]{2,3}\b', re.I)
+_NET_THEN_CALL = re.compile(
+    r'^(?:CITY\s*:\s*)?(?:ABC|CBS|NBC|FOX|CW|PBS|IND|MNT|TMO)\d*\s+([WK][A-Z]{2,3})\b', re.I)
+_LEADING_CALL  = re.compile(r'^([WK][A-Z]{2,3})\b')
+
+def stray_local_call(body):
+    """The call sign of a US local affiliate that reached here without a metro.
+
+    A CALL SIGN is the evidence, never a network word on its own: this branch
+    DROPS what it cannot place, and "CBS SPORTS NETWORK" carries a network
+    word while being national. Three forms, all seen on this panel:
+
+        CBS 11 DALLAS TX (KTVT) HD     parenthesised — the common one
+        ABC WSB ATLANTA                network then call sign
+        KTLA LOS ANGELES HD            leads with the call sign, no network
+
+    The old test only recognised the middle form, so the affiliates that
+    define a market — KTVT Dallas, WMAQ Chicago, KTLA Los Angeles — never
+    reached the fold and sat loose beside the very tiles they belong in.
+    """
+    mm = CALL_ONLY.search(body)
+    if mm: return mm.group(1).split('-')[0].upper()
+    mm = _NET_THEN_CALL.match(body)
+    if mm: return mm.group(1).upper()
+    mm = _LEADING_CALL.match(asc(body).upper())
+    if mm and mm.group(1) in CALLSIGN_MARKET: return mm.group(1)
+    return None
 
 pass2_drop, pass2_kind = [], collections.Counter()
 for st in ls:
@@ -1016,10 +1041,16 @@ for st in ls:
     if not c: continue
     n = asc(st['name'])
     body = re.sub(r'^[A-Z0-9]{2,5}(?:\s+[A-Z0-9]{2,3})?\s*:\s*', '', n)
-    if STRAY_LOCAL.match(body):
-        mk = local_market(body)
-        if mk and mk in TOP_METROS and network_of(body):
-            _by[(mk, network_of(body))].append((sid, n))
+    call = stray_local_call(body)
+    if call:
+        mk = local_market(body) or CALLSIGN_MARKET.get(call)
+        # A station with no network word still belongs to its market — KTLA
+        # is Los Angeles' CW whether or not the name says so. Keyed by its
+        # call sign, it gets a tile of its own in the right metro instead of
+        # being thrown away for failing to name a network.
+        net = network_of(body) or call
+        if mk and mk in TOP_METROS:
+            _by[(mk, net)].append((sid, n))
             pass2_kind['stray_local_folded'] += 1
         else:
             pass2_drop.append(sid); pass2_kind['stray_local_dropped'] += 1
