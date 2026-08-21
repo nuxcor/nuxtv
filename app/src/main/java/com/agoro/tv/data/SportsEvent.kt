@@ -30,6 +30,8 @@ data class SportsEvent(
     val live: Boolean,
     /** What the slot advertises: 8K, 4K, UHD, FHD, HD. Lower sorts better. */
     val tierRank: Int = TIER_UNKNOWN,
+    /** A studio or tactical-camera companion feed rather than the match itself. */
+    val sideFeed: Boolean = false,
     /** The same match on other slots, best first, for the player to fall back to. */
     val alternates: List<Int> = emptyList(),
 ) {
@@ -64,6 +66,14 @@ object SportsParser {
     /** MLS: "@ Aug 19 7:30 PM". */
     private val monthDay =
         Regex("""(?i)@?\s*([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{1,2})(?::(\d{2}))?\s*(AM|PM)""")
+
+    /**
+     * The listings packs: "(2026-08-22 04:50:29)" — a bare timestamp in
+     * brackets with no zone on it, in the zone of whoever compiled the pack.
+     * See [zoneOf].
+     */
+    private val bracketIso =
+        Regex("""\((\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::\d{2})?\)""")
 
     /** NFL: "8/20 8pm" — no year, no zone. */
     private val slashDay = Regex("""(?i)\b(\d{1,2})/(\d{1,2})\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)""")
@@ -107,7 +117,9 @@ object SportsParser {
         // fills with matches that finished hours ago.
         if (start == null) {
             return if (liveWord.containsMatchIn(name)) {
-                SportsEvent(streamId, league, home, away, null, true, tierOf(name))
+                SportsEvent(
+                    streamId, league, home, away, null, true, tierOf(name), isSideFeed(name),
+                )
             } else {
                 null
             }
@@ -115,7 +127,7 @@ object SportsParser {
         if (kotlin.math.abs(start - nowMs) > SANE_WINDOW_MS) return null
         return SportsEvent(
             streamId, league, home, away, start,
-            live = start <= nowMs, tierRank = tierOf(name),
+            live = start <= nowMs, tierRank = tierOf(name), sideFeed = isSideFeed(name),
         )
     }
 
@@ -141,6 +153,17 @@ object SportsParser {
         // word too — no team is called "start".
         .replace(Regex("""(?i)\b(start|stop)\b:?\S*"""), " ")
         .replace(Regex("""(?i)\b\d{2}-\d{2}-\d{4}\b|\(\w{3}\)"""), " ")
+        // "(2026-08-22 04:50:29)" and the season trailing it, neither of which
+        // is part of a club's name.
+        // The closing bracket is optional: readFixture splits on ':' too, which
+        // cuts "(2026-08-22 04:50:29)" in half and leaves the opening half
+        // glued to the away side.
+        .replace(Regex("""\(\d{4}-\d{2}-\d{2}[^)]*\)?|\b\d{4}/\d{4}\b"""), " ")
+        // The competition, which these packs bill right after the fixture.
+        .replace(Regex("""(?i)\bMatchweek\s*\d+|\bPremier League\b|\bLaLiga\b"""), " ")
+        // "Studio Coverage: Arsenal v ..." — the label is the feed's, not the
+        // club's, and left on it the studio slot keys as a different fixture.
+        .replace(sideFeedWords, " ")
         .replace(Regex("""(?i)\b(8K|4K|UHD|HD|SD|EXCLUSIVE|ᴴᴰ|ᴿᴬᵂ)\b"""), " ")
         .replace(Regex("""^\s*\d{1,3}\s*[-–]\s*"""), " ")
         .replace(Regex("""\s+"""), " ")
@@ -151,7 +174,9 @@ object SportsParser {
         .replace(Regex("""\((\w{2,4})\)"""), "")
         .replace(Regex("""\s+"""), " ")
         .trim()
-        .trim('-', '–', ':', '.', ',')
+        // The listings packs prefix a camera angle with a bullet.
+        .trim('-', '–', ':', '.', ',', '\u2022', '*')
+        .trim()
 
     /**
      * Which league claims either side. Null means neither is one we carry.
@@ -237,6 +262,10 @@ object SportsParser {
             val (y, mo, d, h, mi) = m.destructured
             return at(y.toInt(), mo.toInt() - 1, d.toInt(), h.toInt(), mi.toInt(), utc())
         }
+        bracketIso.find(name)?.let { m ->
+            val (y, mo, d, h, mi) = m.destructured
+            return at(y.toInt(), mo.toInt() - 1, d.toInt(), h.toInt(), mi.toInt(), zoneOf(name))
+        }
         dmyGmt.find(name)?.let { m ->
             val (d, mo, y, h, mi) = m.destructured
             return at(y.toInt(), mo.toInt() - 1, d.toInt(), h.toInt(), mi.toInt(), utc())
@@ -268,6 +297,23 @@ object SportsParser {
 
     private fun utc(): TimeZone = TimeZone.getTimeZone("UTC")
 
+    /**
+     * Whose clock a zoneless timestamp is on: the pack's own.
+     *
+     * "AU (STAN 13) | Arsenal v Coventry City ... (2026-08-22 04:50:29)" is a
+     * Stan Sport listing, and 04:50 is Sydney's — 18:50 UTC, an evening
+     * kick-off in England. Read as UTC it lands ten hours late, which for a
+     * cue that exists to fire an hour before kick-off is the whole feature
+     * missed. The prefix is the only zone these packs give, so it is the one
+     * to believe; anything unprefixed stays UTC.
+     */
+    private fun zoneOf(name: String): TimeZone = when {
+        Regex("""^\s*AU\b""").containsMatchIn(name) -> TimeZone.getTimeZone("Australia/Sydney")
+        Regex("""^\s*UK\b""").containsMatchIn(name) -> TimeZone.getTimeZone("Europe/London")
+        Regex("""^\s*(US|CA)\b""").containsMatchIn(name) -> americanZone
+        else -> utc()
+    }
+
     private fun at(year: Int, month: Int, day: Int, hour: Int, minute: Int, zone: TimeZone): Long =
         Calendar.getInstance(zone).apply {
             clear()
@@ -286,6 +332,13 @@ object SportsParser {
             .map { at(it, month, day, hour, minute, americanZone) }
             .minByOrNull { kotlin.math.abs(it - nowMs) }!!
     }
+
+    /** Studio coverage and tactical cameras — a companion feed, not the match. */
+    private val sideFeedWords = Regex(
+        """(?i)\b(Studio Coverage|Player Camera|Multi ?Camera|Match Centre|Tactical|Fan ?Zone)\b"""
+    )
+
+    internal fun isSideFeed(name: String) = sideFeedWords.containsMatchIn(name)
 
     /**
      * What the slot claims its picture is. The advertised token is all there
@@ -312,7 +365,15 @@ object SportsParser {
     internal fun bestPerFixture(events: List<SportsEvent>): List<SportsEvent> =
         events.groupBy { norm(it.home) + "|" + norm(it.away) }
             .map { (_, sameMatch) ->
-                val ranked = sameMatch.sortedBy { it.tierRank }
+                // Tier first, then the match over a side camera. Arsenal v
+                // Coventry arrived on four slots at the same tier — studio
+                // coverage, a player camera, a multi camera and the match —
+                // so the tie broke on whichever landed first, and the
+                // pre-match studio show took the row, bringing its own
+                // earlier start time along as the kick-off.
+                val ranked = sameMatch.sortedWith(
+                    compareBy({ it.tierRank }, { if (it.sideFeed) 1 else 0 })
+                )
                 ranked.first().copy(alternates = ranked.drop(1).map { it.streamId })
             }
 
@@ -323,12 +384,16 @@ object SportsParser {
      */
     fun upcoming(events: List<SportsEvent>, nowMs: Long, cueMinutes: Int): List<SportsEvent> {
         val cue = cueMinutes * 60_000L
-        return bestPerFixture(events)
-            .filter { e ->
+        // Window first, then one row per fixture. Collapsing first would pick a
+        // slot before knowing whether it is the one still relevant — three
+        // slots for the same match, one finished and one yet to start, and the
+        // fold could hand back the finished one and drop the match entirely.
+        return bestPerFixture(
+            events.filter { e ->
                 val s = e.startMs ?: return@filter e.live
                 s <= nowMs + cue && nowMs <= s + FIXTURE_LENGTH_MS
             }
-            .sortedWith(compareByDescending<SportsEvent> { it.live }.thenBy { it.startMs ?: 0L })
+        ).sortedWith(compareByDescending<SportsEvent> { it.live }.thenBy { it.startMs ?: 0L })
     }
 
     /**
