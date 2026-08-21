@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-21T07:35:35+00:00",
+ "generated": "2026-08-21T07:44:26+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -5866,6 +5866,7 @@
   788080,
   788084,
   788083,
+  788082,
   788081,
   788000,
   1302151,
@@ -17301,7 +17302,6 @@
     788085,
     788087,
     788058,
-    788082,
     788075
    ],
    "overflow": [
@@ -61590,7 +61590,7 @@
   "movie_categories": 67,
   "unresolved_live_categories": 0,
   "movies_with_genre": 0,
-  "live_tiles_after_collapse": 7361,
+  "live_tiles_after_collapse": 7360,
   "live_tiles_collapsed": 2490,
   "collapse_groups": 176,
   "collapse_needs_review": 0,
@@ -61671,9 +61671,9 @@
   "logo_bound": 4386,
   "live_event_channels": 7847,
   "live_event_groups": 14,
-  "sd_dropped": 204,
+  "sd_dropped": 205,
   "dgo_dropped": 312,
-  "tiers_measured": 1414,
+  "tiers_measured": 1444,
   "exact_duplicates_dropped": 230,
   "movie_genre_vocab": 0,
   "movies_with_genre_ids": 0,
