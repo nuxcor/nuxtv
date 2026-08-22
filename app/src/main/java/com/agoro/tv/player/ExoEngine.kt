@@ -3,7 +3,6 @@ package com.agoro.tv.player
 import android.content.Context
 import android.view.View
 import androidx.annotation.OptIn
-import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -12,12 +11,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -40,6 +34,17 @@ private fun mimeHintFor(url: String): String? {
 }
 
 /**
+ * ExoPlayer backend over a player borrowed from [PlayerPool] for as long as
+ * the engine lives — built once per process, never released on the way out.
+ *
+ * Like [VlcEngine], it hands the player ONE item at a time and keeps the
+ * playlist itself. It used to give ExoPlayer the whole category as a playlist
+ * — thousands of MediaItems for "All" — and every failure-ladder step rebuilt
+ * and re-set all of them; worse, the media session's legacy bridge answers
+ * every timeline change by walking every window into a queue and shipping it
+ * over Binder, and a live HLS stream changes its timeline on every playlist
+ * refresh. A one-window timeline makes both a non-event.
+ *
  * @param requestAudioFocus Whether this player takes audio focus (ducking
  * music apps and pausing for other media, the way every TV player should).
  * The guide's muted preview passes false — a silent preview must never yank
@@ -53,8 +58,21 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
     override var onTransportPlay: (() -> Unit)? = null
     override var onTransportPause: (() -> Unit)? = null
 
-    private val trackSelector = DefaultTrackSelector(context).apply {
-        parameters = buildUponParameters()
+    private val lease = PlayerPool.borrow(context, main = requestAudioFocus)
+    private val player: ExoPlayer get() = lease.player
+    private val trackSelector: DefaultTrackSelector get() = lease.trackSelector
+
+    private var items: List<PlayableItem> = emptyList()
+    private var index: Int = 0
+    private var live = false
+    private var released = false
+
+    init {
+        // From the DEFAULTS, not buildUponParameters(): the selector came back
+        // from the pool carrying the last visit's overrides — a pinned rung,
+        // subtitles switched off — and those meant something on that stream,
+        // not on this one.
+        trackSelector.parameters = DefaultTrackSelector.Parameters.getDefaults(context).buildUpon()
             // The default caps adaptive selection to the *reported* display
             // size. TV boxes routinely under-report (1080p surface on a 4K
             // panel, or 720p before the first frame), which silently pins an
@@ -80,115 +98,39 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
             .build()
     }
 
-    private val player: ExoPlayer = run {
-        val httpFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent(USER_AGENT)
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(10_000)
-            // A live feed that stops sending is dead NOW, not in fifteen
-            // seconds: the recovery ladder can't run until this fires, and
-            // every second here is a second of frozen picture first.
-            .setReadTimeoutMs(8_000)
-        val renderers = DefaultRenderersFactory(context)
-            // ON, not PREFER: hardware decoders first, software only as a
-            // fallback. PREFER puts software ahead of MediaCodec, which drops
-            // frames on TV silicon the moment a decoder extension is present.
-            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
-            // A stream whose hardware decoder refuses to initialise retries on
-            // another decoder instead of failing the whole item.
-            .setEnableDecoderFallback(true)
-        // Wraps the HTTP factory so file:// (recordings) resolves, and picks up
-        // the RTMP data source reflectively now that the module is on the
-        // classpath. DefaultMediaSourceFactory does the same for the HLS, DASH,
-        // SmoothStreaming and RTSP media sources.
-        val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
-        ExoPlayer.Builder(context, renderers)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
-            .setTrackSelector(trackSelector)
-            .setLoadControl(
-                DefaultLoadControl.Builder()
-                    // IPTV feeds are bursty. A deeper buffer rides out the
-                    // provider hiccups that otherwise read as "bad quality".
-                    .setBufferDurationsMs(
-                        // 25s of headroom, not 15: this is what a hiccup is
-                        // spent from, and a line that jitters for three
-                        // seconds should cost the viewer nothing rather than
-                        // a visible hole. Memory is the trade, and a TV box
-                        // can hold 25s of one stream.
-                        /* minBufferMs = */ 25_000,
-                        /* maxBufferMs = */ 60_000,
-                        // Stock 2.5s to start. 1.5s made channel changes feel
-                        // quicker but began playback on a thinner buffer, so a
-                        // marginal connection re-stalled seconds later — a
-                        // stall costs far more than the second it saved.
-                        /* bufferForPlaybackMs = */ 2_500,
-                        // Deeper after a stall than at start — coming back on
-                        // the same thin buffer that just failed invites a
-                        // rebuffer loop.
-                        //
-                        // This was 3s, on the reasoning that a live panel
-                        // feeds in real time so the buffer refills in real
-                        // time, making a deeper threshold a proportionally
-                        // longer hole. Measured against the panel, that is
-                        // simply not true: Sky Sports Main Event is an 11
-                        // Mbit/s stream delivered at three to three and a half
-                        // times real time.
-                        //
-                        // The threshold is a depth of buffered MEDIA, not a
-                        // wall-clock wait: six seconds means six seconds of
-                        // playback held back, twice what three did. What the
-                        // 3x delivery changes is the price — reaching six
-                        // seconds of media takes about two seconds of real
-                        // time, so the deeper cushion costs roughly one second
-                        // more than the shallower one did, not three.
-                        //
-                        // Which matters more than it sounds: the alternative
-                        // to cushion is hopping to another source, and that
-                        // costs a black screen mid-match. Riding the dip out
-                        // invisibly beats recovering from it visibly.
-                        /* bufferForPlaybackAfterRebufferMs = */ 6_000,
-                    )
-                    .setPrioritizeTimeOverSizeThresholds(true)
-                    .build()
+    private val playerListener = object : Player.Listener {
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            listener?.onPlayingChanged(
+                playing = player.isPlaying,
+                buffering = playbackState == Player.STATE_BUFFERING,
             )
-            // Proper audio-focus citizenship: request focus as media playback
-            // and pause when headphones unplug, instead of talking over
-            // whatever was already playing.
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                    .build(),
-                /* handleAudioFocus = */ requestAudioFocus,
+            if (playbackState != Player.STATE_ENDED) return
+            // The playlist is ours now, so so is what happens at the end of
+            // an item: the next episode in a box set, or — on live, where
+            // nothing legitimately ends — the failure ladder. A raw TS feed
+            // whose provider closed the connection reads to ExoPlayer as a
+            // clean end of stream, and with the category as its playlist it
+            // used to answer that by quietly advancing to the next channel.
+            when {
+                live -> listener?.onError("The stream ended unexpectedly")
+                index < items.size - 1 -> playAt(index + 1)
+            }
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            listener?.onPlayingChanged(
+                playing = isPlaying,
+                buffering = player.playbackState == Player.STATE_BUFFERING,
             )
-            .setHandleAudioBecomingNoisy(requestAudioFocus)
-            .build()
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            listener?.onError(humanError(error.errorCodeName))
+        }
     }
 
     init {
-        player.addListener(object : Player.Listener {
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                listener?.onItemChanged(player.currentMediaItemIndex)
-            }
-
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                listener?.onPlayingChanged(
-                    playing = player.isPlaying,
-                    buffering = playbackState == Player.STATE_BUFFERING,
-                )
-            }
-
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                listener?.onPlayingChanged(
-                    playing = isPlaying,
-                    buffering = player.playbackState == Player.STATE_BUFFERING,
-                )
-            }
-
-            override fun onPlayerError(error: PlaybackException) {
-                listener?.onError(humanError(error.errorCodeName))
-            }
-        })
+        player.addListener(playerListener)
     }
 
     // Only the real player gets a media session: the muted guide preview
@@ -211,6 +153,20 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
                         val handler = onTransportPause
                         if (handler != null) handler() else super.pause()
                     }
+
+                    // No timeline for the session: this is media3's documented
+                    // opt-out of legacy queue publishing. With it, the bridge
+                    // stops rebuilding and re-sending a MediaSessionCompat
+                    // queue on every timeline change — which for a live HLS
+                    // stream is every playlist refresh, on the main thread,
+                    // over Binder. Nothing on a TV reads that queue.
+                    override fun getAvailableCommands(): Player.Commands =
+                        super.getAvailableCommands().buildUpon()
+                            .remove(Player.COMMAND_GET_TIMELINE)
+                            .build()
+
+                    override fun isCommandAvailable(command: Int): Boolean =
+                        command != Player.COMMAND_GET_TIMELINE && super.isCommandAvailable(command)
                 },
             )
         } else null
@@ -234,7 +190,7 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
     }
 
     override fun setSpeed(speed: Float) {
-        player.setPlaybackSpeed(speed)
+        if (!released) player.setPlaybackSpeed(speed)
     }
 
     override fun prepare(
@@ -243,71 +199,100 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
         startPositionMs: Long,
         isLive: Boolean,
     ) {
-        // isLive is unused here: ExoPlayer reports live end-of-stream through
-        // onPlayerError, so the session's ladder already sees it.
-        player.setMediaItems(
-            items.map { item ->
-                MediaItem.Builder()
-                    .setUri(item.url)
-                    .apply { mimeHintFor(item.url)?.let { setMimeType(it) } }
-                    .setMediaMetadata(
-                        MediaMetadata.Builder().setTitle(item.title).setArtist(item.subtitle).build()
-                    )
-                    .build()
-            },
-            startIndex,
+        this.items = items
+        this.live = isLive
+        playAt(startIndex, startPositionMs)
+    }
+
+    override fun playPause() {
+        if (released) return
+        if (player.isPlaying) player.pause() else player.play()
+    }
+
+    override fun seekTo(positionMs: Long) {
+        if (!released) player.seekTo(positionMs.coerceAtLeast(0))
+    }
+
+    override fun next() = playAt((index + 1).coerceAtMost(items.size - 1))
+
+    override fun previous() = playAt((index - 1).coerceAtLeast(0))
+
+    override fun playAt(index: Int) = playAt(index, 0L)
+
+    /**
+     * Opens `items[index]` as the player's only item. Setting the item and
+     * preparing is what makes a repeat of the same index a retry: a
+     * PlaybackException leaves the player in STATE_IDLE, where seek and
+     * playWhenReady are both inert — so without the prepare the session's
+     * failure ladder fired into a dead player: no load was reattempted, no
+     * second onError ever arrived, the retry budget never ran out and the
+     * error card was unreachable. The viewer sat on "Tuning…" forever.
+     */
+    private fun playAt(index: Int, startPositionMs: Long) {
+        if (released || index !in items.indices) return
+        this.index = index
+        val item = items[index]
+        player.setMediaItem(
+            MediaItem.Builder()
+                .setUri(item.url)
+                .apply { mimeHintFor(item.url)?.let { setMimeType(it) } }
+                .setMediaMetadata(
+                    MediaMetadata.Builder().setTitle(item.title).setArtist(item.subtitle).build()
+                )
+                .build(),
             if (startPositionMs > 0) startPositionMs else C.TIME_UNSET,
         )
         player.playWhenReady = true
         player.prepare()
-    }
-
-    override fun playPause() {
-        if (player.isPlaying) player.pause() else player.play()
-    }
-
-    override fun seekTo(positionMs: Long) = player.seekTo(positionMs.coerceAtLeast(0))
-
-    override fun next() = player.seekToNextMediaItem()
-
-    override fun previous() = player.seekToPreviousMediaItem()
-
-    override fun playAt(index: Int) {
-        player.seekToDefaultPosition(index)
-        player.playWhenReady = true
-        // prepare() is what makes this a retry. A PlaybackException leaves the
-        // player in STATE_IDLE, where seek and playWhenReady are both inert —
-        // so without this the session's failure ladder fired into a dead
-        // player: no load was reattempted, no second onError ever arrived, the
-        // retry budget never ran out and the error card was unreachable. The
-        // viewer sat on "Tuning…" forever. Harmless when the player is healthy.
-        player.prepare()
+        // Announced from here, the way VlcEngine does, rather than from
+        // onMediaItemTransition: the session treats a repeat of the same
+        // index as a reconnect and a new one as a new ladder, and it wants
+        // that verdict before the banner draws, not a frame after.
+        listener?.onItemChanged(index)
     }
 
     override fun setMuted(muted: Boolean) {
-        player.volume = if (muted) 0f else 1f
+        if (!released) player.volume = if (muted) 0f else 1f
     }
 
+    /**
+     * Gives the player back to the pool rather than releasing it — release
+     * is the call that blocked the main thread on the decoders. Everything
+     * this engine hung on the player comes off first, so the next borrower
+     * inherits nothing: the session (which must go before the player it
+     * wraps), our listener, and the view's surface.
+     */
     override fun release() {
+        if (released) return
+        released = true
         listener = null
-        mediaSession?.release() // must go before the player it wraps
-        player.release()
+        mediaSession?.release()
+        player.removeListener(playerListener)
+        playerView?.player = null
+        playerView = null
+        PlayerPool.giveBack(lease)
     }
 
-    override val isPlaying: Boolean get() = player.isPlaying
-    override val currentIndex: Int get() = player.currentMediaItemIndex
-    override val positionMs: Long get() = player.currentPosition
+    // Guarded on released throughout: the pooled player may already belong
+    // to the next engine, and a poll still in flight from this one must not
+    // read that engine's stream as its own.
+    override val isPlaying: Boolean get() = !released && player.isPlaying
+    override val currentIndex: Int get() = index
+    override val positionMs: Long get() = if (released) 0L else player.currentPosition
     override val durationMs: Long
-        get() = player.duration.takeIf { it != C.TIME_UNSET && !player.isCurrentMediaItemLive } ?: 0L
+        get() = if (released) 0L
+        else player.duration.takeIf { it != C.TIME_UNSET && !player.isCurrentMediaItemLive } ?: 0L
 
     override val videoResolution: Pair<Int, Int>?
-        get() = player.videoFormat?.let { f -> (f.width to f.height).takeIf { f.height > 0 } }
+        get() = if (released) null
+        else player.videoFormat?.let { f -> (f.width to f.height).takeIf { f.height > 0 } }
 
     override val videoFrameRate: Float?
-        get() = player.videoFormat?.frameRate?.takeIf { it > 0f }
+        get() = if (released) null else player.videoFormat?.frameRate?.takeIf { it > 0f }
 
     override val hdrFormat: String?
         get() {
+            if (released) return null
             val format = player.videoFormat ?: return null
             if (format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION) return "Dolby Vision"
             return when (format.colorInfo?.colorTransfer) {
@@ -319,6 +304,7 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
 
     override val audioFormatLabel: String?
         get() {
+            if (released) return null
             val format = player.audioFormat ?: return null
             // Codec first where it means something to a viewer: "Dolby Atmos"
             // is the badge people look for, and it outranks a channel count.
@@ -345,7 +331,8 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
     // --- track selection ------------------------------------------------------
 
     private fun tracksOf(trackType: Int): List<Track> =
-        player.currentTracks.groups
+        if (released) emptyList()
+        else player.currentTracks.groups
             .withIndex()
             .filter { (_, group) -> group.type == trackType }
             .flatMap { (groupIndex, group) ->
@@ -380,6 +367,7 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
         get() = trackSelector.parameters.forceHighestSupportedBitrate
 
     override fun videoTracks(): List<Track> {
+        if (released) return emptyList()
         val pinned = trackSelector.parameters.overrides.values
             .any { it.type == C.TRACK_TYPE_VIDEO }
         val rungs = player.currentTracks.groups
@@ -411,6 +399,7 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
     }
 
     override fun selectVideoTrack(id: String?) {
+        if (released) return
         trackSelector.parameters = trackSelector.buildUponParameters().apply {
             // Any explicit choice — a pinned rung or Auto — hands bitrate
             // control back to the selector, so the forced-highest default
@@ -434,6 +423,7 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
     }
 
     private fun applyOverride(trackType: Int, id: String) {
+        if (released) return
         val (groupIndex, trackIndex) = id.split(":").map { it.toInt() }
         val group = player.currentTracks.groups.getOrNull(groupIndex) ?: return
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
@@ -445,6 +435,7 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
     override fun selectAudioTrack(id: String) = applyOverride(C.TRACK_TYPE_AUDIO, id)
 
     override fun selectTextTrack(id: String?) {
+        if (released) return
         if (id == null) {
             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)

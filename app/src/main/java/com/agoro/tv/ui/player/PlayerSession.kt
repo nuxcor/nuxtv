@@ -50,6 +50,25 @@ private fun normalizeLanguage(raw: String?): String? {
 }
 
 /**
+ * [base] with one entry swapped, without copying it. The failure ladder
+ * rewrites the current item's url a step at a time, and `toMutableList()` on
+ * a category of thousands — which the player receives as a lazily mapped
+ * view — would materialise the lot on every hop of every dead channel.
+ * Patches on the same index collapse rather than stack, so a deep ladder
+ * never nests more than one level.
+ */
+private class PatchedList<T>(
+    base: List<T>,
+    private val index: Int,
+    private val value: T,
+) : AbstractList<T>() {
+    private val base: List<T> =
+        if (base is PatchedList<T> && base.index == index) base.base else base
+    override val size: Int get() = base.size
+    override fun get(index: Int): T = if (index == this.index) value else base[index]
+}
+
+/**
  * Player state and engine lifecycle, held outside the composition the way
  * GuidePreviewController holds the guide preview's: Compose-observable fields,
  * explicit teardown, and the composable reduced to layout plus effects.
@@ -375,9 +394,7 @@ class PlayerSession internal constructor(
         }
         liveFormatStage++
         statusMessage = "Trying a different stream format…"
-        val items = request.items.toMutableList()
-        items[idx] = items[idx].copy(url = next)
-        request = request.copy(items = items)
+        request = request.copy(items = PatchedList(request.items, idx, request.items[idx].copy(url = next)))
         return true
     }
 
@@ -397,9 +414,7 @@ class PlayerSession internal constructor(
         sourceStage++
         liveFormatStage = 0
         statusMessage = "Trying another source…"
-        val items = request.items.toMutableList()
-        items[idx] = items[idx].copy(url = next)
-        request = request.copy(items = items)
+        request = request.copy(items = PatchedList(request.items, idx, item.copy(url = next)))
         return true
     }
 
