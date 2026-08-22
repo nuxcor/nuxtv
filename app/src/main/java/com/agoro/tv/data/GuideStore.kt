@@ -34,6 +34,18 @@ class GuideStore(context: Context) : SQLiteOpenHelper(
     VERSION,
 ) {
 
+    init {
+        // Write-ahead logging, so a read does not wait for a write. The
+        // fold writes a pack at a time in a transaction that can hold the
+        // connection for seconds, and in rollback-journal mode every
+        // now-window query during a refresh queued behind it — which the
+        // screen felt as the guide freezing for the length of the insert.
+        // In WAL mode readers see the last committed pack and never block
+        // on the one in progress. Set here rather than in onConfigure so it
+        // applies from the first open, before any connection is handed out.
+        setWriteAheadLoggingEnabled(true)
+    }
+
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """

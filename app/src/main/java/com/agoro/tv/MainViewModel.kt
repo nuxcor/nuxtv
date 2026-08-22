@@ -444,7 +444,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         // Before anything reads URL-keyed prefs: live URLs changed .m3u8 → .ts
         // and favorites/hidden/learned-quality keys must follow them.
         viewModelScope.launch { playerPrefs.migrateLiveUrlsToTs() }
-        viewModelScope.launch { repo.ensureLoaded() }
+        // The same age rule the hourly loop applies, so a launch is never a
+        // refresh the loop would have refused a minute later.
+        viewModelScope.launch { repo.ensureLoaded(PLAYLIST_MAX_AGE_MS) }
         // Periodic quiet playlist refresh, mirroring the EPG's 6h cycle at a
         // gentler cadence — catalogs change daily, guides hourly. Checked
         // hourly against the persisted cache age rather than delaying a full
@@ -457,13 +459,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         refreshRecordings()
-        // Reload the guide when a playlist loads or the EPG override changes,
-        // fill in missing channel logos, and keep schedules' alarms registered.
+        // Load the guide when a playlist becomes readable and whenever the
+        // playlist it belongs to changes — NOT on every publish of content.
+        // A cold start publishes the catalogue at least twice (the cache,
+        // then the refresh behind it), and each publish used to be a guide
+        // request; the repository's debounce was meant to fold those into
+        // one and, for reasons written on planGuideRefresh, did not. Keyed
+        // on the source id, the second publish of the same playlist is not
+        // a request at all. The override has its own collector below.
         viewModelScope.launch {
-            repo.content.collect {
-                if (it is ContentState.Ready) {
+            guideSourceKey().collect { sourceId ->
+                if (sourceId != null) {
+                    // Beside the guide, not after it: a cold fold holds
+                    // loadEpg for minutes, and a cache from before logos
+                    // were part of the fetch would have sat bare that long.
+                    launch { repo.enrichLogos() }
                     repo.loadEpg(playerPrefs.epgOverrideUrl.first())
-                    repo.enrichLogos()
                 }
             }
         }
@@ -498,6 +509,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    /**
+     * The id of the playlist whose catalogue is on screen, null while there
+     * is none. Distinct, so the catalogue republishing — a refresh behind
+     * the cache, a logo fill — is not a new value; only a different playlist
+     * becoming readable is.
+     */
+    private fun guideSourceKey(): kotlinx.coroutines.flow.Flow<String?> =
+        combine(repo.content, repo.activeSource) { c, source ->
+            if (c is ContentState.Ready) source?.id else null
+        }.distinctUntilChanged()
 
     fun checkForUpdates() {
         viewModelScope.launch {
@@ -1169,20 +1191,52 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun playChannels(channels: List<LiveChannel>, startIndex: Int) {
         playback = PlaybackRequest(
-            items = channels.map {
-                PlayableItem(
-                    url = it.url,
-                    title = it.displayName,
-                    subtitle = "Live",
-                    artwork = it.logo,
-                    channelId = it.id,
-                    recordUrl = it.recordUrl,
-                    fallbackUrls = it.fallbackUrls,
-                )
-            },
+            items = LiveItems(channels),
             startIndex = startIndex.coerceIn(0, (channels.size - 1).coerceAtLeast(0)),
             isLive = true,
         )
+    }
+
+    /**
+     * A channel list seen as playable items, mapped on read.
+     *
+     * OK on a channel used to map the whole list it came from into items
+     * before anything navigated — and from "All channels" that list is every
+     * channel the playlist has, thousands of them, each read through
+     * [LiveChannel.displayName], which is six regex passes the first time.
+     * A pause of most of a second between the press and the picture, spent
+     * building a playlist the player reads one entry of. The player asks by
+     * index, so that is when an entry is built; the rest never are unless
+     * the viewer actually walks to them. An entry once built is kept, so a
+     * walk that does happen — a digit tune searching the list for a channel
+     * — costs what the old eager map did, once, and nothing after.
+     *
+     * Equality is the underlying channels', never an element walk: the
+     * request lives in a Compose state that compares old and new on every
+     * assignment, and a structural compare of two lazy views would be the
+     * full map twice over — the exact cost this exists to avoid.
+     */
+    private class LiveItems(private val channels: List<LiveChannel>) : AbstractList<PlayableItem>() {
+        private val built = arrayOfNulls<PlayableItem>(channels.size)
+
+        override val size: Int get() = channels.size
+
+        override fun get(index: Int): PlayableItem = built[index] ?: channels[index].let {
+            PlayableItem(
+                url = it.url,
+                title = it.displayName,
+                subtitle = "Live",
+                artwork = it.logo,
+                channelId = it.id,
+                recordUrl = it.recordUrl,
+                fallbackUrls = it.fallbackUrls,
+            )
+        }.also { built[index] = it }
+
+        override fun equals(other: Any?): Boolean =
+            if (other is LiveItems) channels == other.channels else super.equals(other)
+
+        override fun hashCode(): Int = channels.hashCode()
     }
 
     fun playMovie(movie: Movie, startOver: Boolean = false) {
