@@ -348,7 +348,16 @@ internal class GuideGridFocus(anchorMs: Long) {
 class GuideGridHandle {
     internal var focusAnchorImpl: (suspend () -> Boolean)? = null
     internal var focusAtImpl: (suspend (Long) -> Boolean)? = null
+    internal var holdsFocusImpl: (() -> Boolean)? = null
     internal var beforePlayImpl: (() -> Unit)? = null
+
+    /**
+     * Whether a cell or channel in the grid holds focus RIGHT NOW. Read it
+     * before scrolling the timeline: a scroll that carries the focused cell
+     * out of the composed window disposes it, focus falls to the strip, and
+     * the answer afterwards is always no.
+     */
+    fun holdsFocus(): Boolean = holdsFocusImpl?.invoke() ?: false
 
     /** Land focus on the anchored cell of the last-focused row (else the first
      *  row), verified — not merely requested. False when the grid is empty or
@@ -723,21 +732,19 @@ internal fun GuideGrid(
         onDispose {
             handle?.focusAnchorImpl = null
             handle?.focusAtImpl = null
+            handle?.holdsFocusImpl = null
         }
     }
     handle?.focusAnchorImpl = {
         landOnRow(gridFocus.focusedRow.takeIf { it in channels.indices } ?: 0)
     }
+    handle?.holdsFocusImpl = { gridFocus.holdsFocus }
     handle?.focusAtImpl = { timeMs ->
-        // Only while the grid holds focus. A viewer on the strip who presses
-        // BACK to come home from tomorrow gets the timeline back, not a
-        // ring yanked down into the grid.
-        if (!gridFocus.holdsFocus) {
-            false
-        } else {
-            gridFocus.anchorMs = timeMs.coerceIn(windowStart, windowEnd - 1)
-            landOnRow(gridFocus.focusedRow.takeIf { it in channels.indices } ?: 0)
-        }
+        // The host decides whether the grid should take focus (it asks
+        // holdsFocus() BEFORE it scrolls — by the time the timeline has
+        // moved, the cell that had it may be gone). This only lands.
+        gridFocus.anchorMs = timeMs.coerceIn(windowStart, windowEnd - 1)
+        landOnRow(gridFocus.focusedRow.takeIf { it in channels.indices } ?: 0)
     }
 
     // Land on the playing channel's current programme when the overlay opens.

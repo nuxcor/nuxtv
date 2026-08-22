@@ -343,12 +343,18 @@ fun GuideTab(
 
     fun jumpToNow() {
         dayOffset = 0
+        // Decided BEFORE the scroll: the ring's cell is hours away, so the
+        // scroll carries it out of the composed window and disposes it —
+        // focus then falls to the strip, and asking afterwards would always
+        // say the grid had nothing. A viewer who pressed BACK from the strip
+        // gets the timeline back and keeps their chip.
+        val fromGrid = gridHandle.holdsFocus()
         scope.launch {
             timelineScroll.animateScrollTo(nowScrollPx())
             // Focus comes too. The timeline used to return to the present
             // with the ring still on a cell hours away, so the header went
             // on describing it and the next RIGHT scrolled straight back out.
-            gridHandle.focusAt(System.currentTimeMillis())
+            if (fromGrid) gridHandle.focusAt(System.currentTimeMillis())
         }
     }
 
