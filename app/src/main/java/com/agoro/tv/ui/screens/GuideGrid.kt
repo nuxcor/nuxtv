@@ -1,4 +1,7 @@
-@file:OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
+@file:OptIn(
+    androidx.tv.material3.ExperimentalTvMaterial3Api::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+)
 
 package com.agoro.tv.ui.screens
 
@@ -10,6 +13,11 @@ import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyListLayoutInfo
+import androidx.compose.foundation.lazy.LazyListPrefetchScope
+import androidx.compose.foundation.lazy.LazyListPrefetchStrategy
+import androidx.compose.foundation.lazy.layout.LazyLayoutPrefetchState
+import androidx.compose.foundation.lazy.layout.NestedPrefetchScope
 import androidx.compose.runtime.key
 import androidx.compose.ui.platform.LocalConfiguration
 import com.agoro.tv.ui.theme.NuxTypography
@@ -284,6 +292,9 @@ internal class GuideGridFocus(anchorMs: Long) {
     /** False while focus is in the channel column, where default (index-wise)
      *  vertical movement is already the right thing. */
     var focusedIsCell = false
+    /** Whether anything in the grid has focus right now — the registry
+     *  otherwise only knows where focus last WAS. */
+    var holdsFocus = false
     var anchorMs = anchorMs
 
     /** Set when a vertical move had to fall back to the geometric focus search
@@ -336,12 +347,21 @@ internal class GuideGridFocus(anchorMs: Long) {
 @Stable
 class GuideGridHandle {
     internal var focusAnchorImpl: (suspend () -> Boolean)? = null
+    internal var focusAtImpl: (suspend (Long) -> Boolean)? = null
     internal var beforePlayImpl: (() -> Unit)? = null
 
     /** Land focus on the anchored cell of the last-focused row (else the first
      *  row), verified — not merely requested. False when the grid is empty or
      *  never composed. */
     suspend fun focusAnchor(): Boolean = focusAnchorImpl?.invoke() ?: false
+
+    /**
+     * Move the anchor to [timeMs] and land on the cell covering it in the
+     * row focus last held. The host's jump-to-now scrolls the timeline back
+     * to the present; without this the ring stayed on a cell hours away and
+     * the next RIGHT press scrolled straight back out to it.
+     */
+    suspend fun focusAt(timeMs: Long): Boolean = focusAtImpl?.invoke(timeMs) ?: false
 
     /**
      * Hand the guide's muted preview connection back before the player asks
@@ -352,6 +372,57 @@ class GuideGridHandle {
      */
     fun beforePlay() {
         beforePlayImpl?.invoke()
+    }
+}
+
+/**
+ * Keeps the row just past each edge of the viewport composed before anything
+ * asks for it.
+ *
+ * A LazyColumn composes what fits. DOWN from the last row that fits targets
+ * one that does not exist yet, and the only thing that could produce it was
+ * Compose's own beyond-bounds focus search — which composes the row
+ * SYNCHRONOUSLY inside the key event, a dozen TV Surfaces and a logo request
+ * on the main thread between one frame and the next. On a quad-core A53 box
+ * that is the stutter a held DOWN makes at every viewport edge.
+ *
+ * This foundation version has no public `beyondBoundsItemCount`, so the
+ * look-ahead is done through the prefetch API instead: whenever the visible
+ * set changes, the neighbour above and the neighbour below are precomposed
+ * and premeasured in what is left of the frame. The default strategy only
+ * prefetches in the direction of the last SCROLL, so a fresh grid — or a
+ * held key whose scrolls come faster than idle time — had nothing ready.
+ *
+ * A prefetched row is composed but not placed; [GuideGrid]'s own vertical
+ * move scrolls it into the viewport before asking it to take focus, because
+ * a focus request on an unplaced node cannot bring itself into view.
+ */
+private class GuideRowPrefetchStrategy : LazyListPrefetchStrategy {
+    private val handles = HashMap<Int, LazyLayoutPrefetchState.PrefetchHandle>(2)
+
+    override fun LazyListPrefetchScope.onScroll(delta: Float, layoutInfo: LazyListLayoutInfo) =
+        keepNeighbours(layoutInfo)
+
+    override fun LazyListPrefetchScope.onVisibleItemsUpdated(layoutInfo: LazyListLayoutInfo) =
+        keepNeighbours(layoutInfo)
+
+    // The rows are plain Rows with a horizontal scroll, not nested lazy
+    // layouts: nothing inside them to prefetch.
+    override fun NestedPrefetchScope.onNestedPrefetch(firstVisibleItemIndex: Int) = Unit
+
+    private fun LazyListPrefetchScope.keepNeighbours(layoutInfo: LazyListLayoutInfo) {
+        val visible = layoutInfo.visibleItemsInfo
+        if (visible.isEmpty()) return
+        val wanted = listOf(visible.first().index - 1, visible.last().index + 1)
+            .filter { it in 0 until layoutInfo.totalItemsCount }
+        // Cancelling a handle whose row has since scrolled into view is a
+        // no-op — the precomposed slot was already taken by the real item —
+        // so this never disposes something on screen.
+        val stale = handles.keys.filter { it !in wanted }
+        stale.forEach { handles.remove(it)?.cancel() }
+        wanted.forEach { index ->
+            if (index !in handles) handles[index] = schedulePrefetch(index)
+        }
     }
 }
 
@@ -428,7 +499,9 @@ internal fun GuideGrid(
      */
     upFromTopRow: FocusRequester? = null,
     onChannelLongPress: (LiveChannel) -> Unit = {},
-    listState: LazyListState = rememberLazyListState(),
+    listState: LazyListState = rememberLazyListState(
+        prefetchStrategy = remember { GuideRowPrefetchStrategy() },
+    ),
     /**
      * The programme lane's width before it has been measured — see
      * [guideLaneWidth]. The browse host's figure is the default so the
@@ -477,6 +550,13 @@ internal fun GuideGrid(
     fun focusRow(rowIndex: Int): Boolean {
         val cells = gridFocus.rows[rowIndex] ?: return false
         if (cells.isEmpty()) return false
+        // Registered is not the same as on screen. The look-ahead prefetch
+        // (see GuideRowPrefetchStrategy) composes the row past each edge —
+        // and its registration with it — without placing it, and a focus
+        // request on an unplaced node is granted but cannot scroll itself
+        // into view: the ring would vanish off the bottom of the grid.
+        // Callers scroll first; this only confirms they did.
+        if (listState.layoutInfo.visibleItemsInfo.none { it.index == rowIndex }) return false
         val cell = cells[cellIndexFor(cells, gridFocus.anchorMs)]
         // The Boolean is the truth — a clean return with `false` means the
         // focus system declined, and treating that as success is what made
@@ -523,10 +603,36 @@ internal fun GuideGrid(
         val target = gridFocus.focusedRow + delta
         if (target !in channels.indices) return false
         if (focusRow(target)) return true
-        // Row not composed yet (fast scroll outran the LazyColumn): fall back
-        // to the default search, which scrolls and lands geometrically — but
-        // flag it, so the landing keeps the anchor instead of adopting the
-        // geometric cell's time.
+        // The target row is past the viewport's edge. Left to the default
+        // focus search this scrolled and landed GEOMETRICALLY — on whatever
+        // cell sat under the old one's centre, corrected to the anchored
+        // cell only by the next press — and composed the row inside the key
+        // event to do it. Rows are one height, so where the target will sit
+        // is known from the row focus is on: scroll by exactly what brings
+        // it fully into view, synchronously, and land on the anchored cell
+        // in the same press. When the look-ahead prefetch has done its job
+        // the scroll only measures and places a row that already exists.
+        val info = listState.layoutInfo
+        val from = info.visibleItemsInfo.firstOrNull { it.index == gridFocus.focusedRow }
+        if (from != null) {
+            val step = from.size + info.mainAxisItemSpacing
+            // Positive scrolls forward (down the list), like scrollBy. Past
+            // the bottom edge the target's bottom overhangs the viewport's
+            // end; past the top edge its top sits above the viewport's start.
+            val overshoot = if (delta > 0) {
+                from.offset + delta * step + from.size - info.viewportEndOffset
+            } else {
+                from.offset + delta * step - info.viewportStartOffset
+            }
+            if ((delta > 0 && overshoot > 0) || (delta < 0 && overshoot < 0)) {
+                listState.dispatchRawDelta(overshoot.toFloat())
+            }
+            if (focusRow(target)) return true
+        }
+        // Still nothing (a fast scroll outran the LazyColumn, or focus is on a
+        // row the list no longer shows): fall back to the default search —
+        // but flag it, so the landing keeps the anchor instead of adopting
+        // the geometric cell's time.
         gridFocus.verticalFallback = true
         return false
     }
@@ -614,11 +720,26 @@ internal fun GuideGrid(
     // never captures a stale channel list; cleared on dispose so a dead grid
     // can't be asked to take focus.
     DisposableEffect(handle) {
-        onDispose { handle?.focusAnchorImpl = null }
+        onDispose {
+            handle?.focusAnchorImpl = null
+            handle?.focusAtImpl = null
+        }
     }
     handle?.focusAnchorImpl = {
         landOnRow(gridFocus.focusedRow.takeIf { it in channels.indices } ?: 0)
     }
+    handle?.focusAtImpl = { timeMs ->
+        // Only while the grid holds focus. A viewer on the strip who presses
+        // BACK to come home from tomorrow gets the timeline back, not a
+        // ring yanked down into the grid.
+        if (!gridFocus.holdsFocus) {
+            false
+        } else {
+            gridFocus.anchorMs = timeMs.coerceIn(windowStart, windowEnd - 1)
+            landOnRow(gridFocus.focusedRow.takeIf { it in channels.indices } ?: 0)
+        }
+    }
+
     // Land on the playing channel's current programme when the overlay opens.
     LaunchedEffect(initialFocusChannelId) {
         val id = initialFocusChannelId ?: return@LaunchedEffect
@@ -634,6 +755,11 @@ internal fun GuideGrid(
     Box(
         modifier = modifier
             .fillMaxSize()
+            // Aggregated over every cell below: hasFocus is true while any
+            // descendant holds it, which is the one thing the per-cell
+            // callbacks cannot tell the registry — they only ever say who
+            // arrived, never that everyone has left.
+            .onFocusChanged { gridFocus.holdsFocus = it.hasFocus }
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key.nativeKeyCode) {

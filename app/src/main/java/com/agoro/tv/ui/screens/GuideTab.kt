@@ -341,7 +341,13 @@ fun GuideTab(
 
     fun jumpToNow() {
         dayOffset = 0
-        scope.launch { timelineScroll.animateScrollTo(nowScrollPx()) }
+        scope.launch {
+            timelineScroll.animateScrollTo(nowScrollPx())
+            // Focus comes too. The timeline used to return to the present
+            // with the ring still on a cell hours away, so the header went
+            // on describing it and the next RIGHT scrolled straight back out.
+            gridHandle.focusAt(System.currentTimeMillis())
+        }
     }
 
     // Start the timeline near "now".
