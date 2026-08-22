@@ -275,7 +275,31 @@ fun GuideTab(
             nowTick = System.currentTimeMillis()
         }
     }
-    val timelineScroll = rememberScrollState()
+    // Sized against the screen rather than the width this composable is
+    // handed, deliberately: the rail animates its width on focus, and a
+    // scale read from the live measurement would resize every cell in
+    // the grid on each frame of that animation and leave the scroll
+    // offset pointing at a different time than before.
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val dpPerMinute = remember(screenWidth) { guideDpPerMinute(screenWidth) }
+    // The same arithmetic, handed to the grid and the ruler so their first
+    // frame can window cells before the lane has been measured.
+    val laneWidth = remember(screenWidth) { guideLaneWidth(screenWidth) }
+
+    val density = LocalDensity.current
+    // Where "now minus 15 minutes" sits on the timeline, in scroll px.
+    fun nowScrollPx(): Int {
+        val nowOffsetMin = ((System.currentTimeMillis() - baseStart) / 60_000L - 15)
+            .coerceAtLeast(0)
+        return with(density) { (dpPerMinute * nowOffsetMin.toInt()).roundToPx() }
+    }
+
+    // Born at "now", not scrolled there after the first frame. Starting at
+    // zero composed every row's cells around the window's start — an hour
+    // before anything the viewer wanted — and then, one frame later, threw
+    // them away for the cells at now. The scroll below still runs for the
+    // case the saved state restores an old position.
+    val timelineScroll = rememberScrollState(initial = nowScrollPx())
     var statusMessage by remember { mutableStateOf<String?>(null) }
     // What the header describes. Focus drives it, so moving across the
     // grid reads out each programme without having to select it.
@@ -313,22 +337,6 @@ fun GuideTab(
             delay(4_000)
             statusMessage = null
         }
-    }
-
-    // Sized against the screen rather than the width this composable is
-    // handed, deliberately: the rail animates its width on focus, and a
-    // scale read from the live measurement would resize every cell in
-    // the grid on each frame of that animation and leave the scroll
-    // offset pointing at a different time than before.
-    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-    val dpPerMinute = remember(screenWidth) { guideDpPerMinute(screenWidth) }
-
-    val density = LocalDensity.current
-    // Where "now minus 15 minutes" sits on the timeline, in scroll px.
-    fun nowScrollPx(): Int {
-        val nowOffsetMin = ((System.currentTimeMillis() - baseStart) / 60_000L - 15)
-            .coerceAtLeast(0)
-        return with(density) { (dpPerMinute * nowOffsetMin.toInt()).roundToPx() }
     }
 
     fun jumpToNow() {
@@ -530,6 +538,7 @@ fun GuideTab(
         TimeRuler(
             windowStart, windowEnd, nowTick,
             nowTick + dayOffset * 24 * 3600_000L, timelineScroll, dpPerMinute,
+            laneWidth = laneWidth,
             dayLabel = if (maxDayOffset > 0) dayLabel(baseStart, dayOffset) else null,
             // Cycles rather than clamping: one control, and the way back from
             // the last day is never a hunt for a second one that has quietly
@@ -569,6 +578,7 @@ fun GuideTab(
             nowMs = nowTick,
             timelineScroll = timelineScroll,
             dpPerMinute = dpPerMinute,
+            laneWidth = laneWidth,
             onFocus = remember {
                 { channel: LiveChannel, program: EpgProgram? ->
                     focusedChannel = channel

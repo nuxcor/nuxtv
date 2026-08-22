@@ -10,6 +10,9 @@ import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.runtime.key
+import androidx.compose.ui.platform.LocalConfiguration
+import com.agoro.tv.ui.theme.NuxTypography
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,7 +41,6 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -148,9 +150,32 @@ internal fun guideDpPerMinute(
     screenWidth: Dp,
     fixedCosts: Dp = GUIDE_BROWSE_FIXED_COSTS,
 ): Dp {
-    val lane = screenWidth - fixedCosts
+    val lane = guideLaneWidth(screenWidth, fixedCosts)
     return (lane / (TARGET_COLUMNS * 30)).coerceIn(MIN_DP_PER_MINUTE, MAX_DP_PER_MINUTE)
 }
+
+/**
+ * How wide the programme lane will be once it is laid out — the same
+ * arithmetic [guideDpPerMinute] scales the timeline by, exposed so the grid
+ * can be told BEFORE its first frame.
+ *
+ * The rows window their cells on the lane's measured viewport, and that
+ * measurement is zero on every fresh composition: the first Live entry, every
+ * return from the player (Home leaves composition while it is up), every
+ * opening of the player overlay with its fresh ScrollState. With nothing to
+ * window by, frame one used to compose every cell of every visible row —
+ * five rows of thirty to a hundred TV Surfaces — and frame two threw most of
+ * them away. Seeded from the geometry the host already knows, the first
+ * frame composes the same handful the second one keeps.
+ *
+ * The floor is a safety net, not a layout: a seed can only ever be wrong by
+ * the width of a gutter, and a seed of zero would be read as "unknown" and
+ * fall back to composing everything.
+ */
+internal fun guideLaneWidth(
+    screenWidth: Dp,
+    fixedCosts: Dp = GUIDE_BROWSE_FIXED_COSTS,
+): Dp = (screenWidth - fixedCosts).coerceAtLeast(MIN_DP_PER_MINUTE * 30 * TARGET_COLUMNS)
 
 /**
  * One rendered cell of a guide row: which programme, how wide, and any gap
@@ -270,8 +295,15 @@ internal class GuideGridFocus(anchorMs: Long) {
 
     /** The anchor moves only when the focused cell doesn't cover it — entering
      *  a cell to the right drags the anchor along, but crossing a long
-     *  programme vertically doesn't reset it to the programme's start. */
-    fun noteCellFocus(rowIndex: Int, channelId: String, startMs: Long, endMs: Long, nowMs: Long) {
+     *  programme vertically doesn't reset it to the programme's start.
+     *
+     *  The wall clock is read here, not handed in. Every composed cell's
+     *  focus lambda used to capture the grid's 30-second tick, so each tick
+     *  minted a new lambda for every cell and every cell recomposed to receive
+     *  it — sixty to eighty Surfaces rebuilt to move an anchor nobody had
+     *  touched. A clock read at the moment of focus is also the more honest
+     *  value: the tick can be half a minute stale. */
+    fun noteCellFocus(rowIndex: Int, channelId: String, startMs: Long, endMs: Long) {
         arrivals++
         focusedRow = rowIndex
         focusedChannelId = channelId
@@ -279,6 +311,7 @@ internal class GuideGridFocus(anchorMs: Long) {
         val fromFallback = verticalFallback
         verticalFallback = false
         if (!fromFallback && anchorMs !in startMs until endMs) {
+            val nowMs = System.currentTimeMillis()
             anchorMs = if (nowMs in startMs until endMs) nowMs else startMs
         }
     }
@@ -345,9 +378,11 @@ internal fun cellIndexFor(cells: List<GuideCellFocus>, anchorMs: Long): Int {
  * scroll, and the NOW marker. Hosts provide everything around it and decide
  * what playing/catch-up/scheduling mean.
  *
- * [programsKey] invalidates the per-row programme cache — pass the EPG state so
- * rows refresh when the guide reloads. [playingChannelId] tints the channel the
- * player is currently tuned to (the overlay's "you are here").
+ * [programsKey] invalidates the per-row programme cache — pass what changes
+ * when the guide's answer does (the window revision), not the EPG state's
+ * identity, which changes more often than the rows' contents do.
+ * [playingChannelId] tints the channel the player is currently tuned to (the
+ * overlay's "you are here").
  * [initialFocusChannelId] lands focus on that channel's current programme once,
  * on entry — the overlay opens on what you're watching, not on row zero.
  */
@@ -394,6 +429,14 @@ internal fun GuideGrid(
     upFromTopRow: FocusRequester? = null,
     onChannelLongPress: (LiveChannel) -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
+    /**
+     * The programme lane's width before it has been measured — see
+     * [guideLaneWidth]. The browse host's figure is the default so the
+     * player overlay, which pays different fixed costs, still gets a seed
+     * within a gutter of the truth; the measured viewport replaces it from
+     * the second frame either way.
+     */
+    laneWidth: Dp = guideLaneWidth(LocalConfiguration.current.screenWidthDp.dp),
     /** Host-facing focus entry — see [GuideGridHandle]. */
     handle: GuideGridHandle? = null,
     /**
@@ -576,7 +619,6 @@ internal fun GuideGrid(
     handle?.focusAnchorImpl = {
         landOnRow(gridFocus.focusedRow.takeIf { it in channels.indices } ?: 0)
     }
-
     // Land on the playing channel's current programme when the overlay opens.
     LaunchedEffect(initialFocusChannelId) {
         val id = initialFocusChannelId ?: return@LaunchedEffect
@@ -622,6 +664,9 @@ internal fun GuideGrid(
             state = listState,
             verticalArrangement = Arrangement.spacedBy(6.dp),
             contentPadding = PaddingValues(bottom = 28.dp),
+            // No edge glow: nothing on a TV flings this list, and the effect
+            // is a RenderNode and an EdgeEffect pair allocated for nothing.
+            overscrollEffect = null,
             modifier = Modifier.fillMaxSize(),
         ) {
             itemsIndexed(channels, key = { _, channel -> channel.id }) { index, channel ->
@@ -636,6 +681,7 @@ internal fun GuideGrid(
                     nowMs = nowMs,
                     timelineScroll = timelineScroll,
                     dpPerMinute = dpPerMinute,
+                    laneWidth = laneWidth,
                     gridFocus = gridFocus,
                     playing = channel.id == playingChannelId,
                     onFocus = { program -> onFocus(channel, program) },
@@ -707,6 +753,8 @@ internal fun TimeRuler(
     dayMs: Long,
     timelineScroll: ScrollState,
     dpPerMinute: Dp,
+    /** The lane's width before it is measured — see [guideLaneWidth]. */
+    laneWidth: Dp = guideLaneWidth(LocalConfiguration.current.screenWidthDp.dp),
     /**
      * The day control, when the guide has more than today to show. It lives
      * here rather than in the category strip because a day is a position on
@@ -797,7 +845,15 @@ internal fun TimeRuler(
                 )
             }
         }
-        Row(modifier = Modifier.horizontalScroll(timelineScroll, enabled = false)) {
+        Row(
+            modifier = Modifier.horizontalScroll(
+                timelineScroll,
+                // No glow and no EdgeEffect: this scroll is driven, never
+                // flung — see the rows, which say the same.
+                overscrollEffect = null,
+                enabled = false,
+            ),
+        ) {
             // Windowed like the rows below it. The ruler spans the same 30
             // hours — sixty labels, each with its own text layout, offset
             // lambda and RenderNode — and the row windowing never reached it,
@@ -809,7 +865,10 @@ internal fun TimeRuler(
             val slotCount = ((windowEnd - windowStart) / slotMillis).toInt()
             val density = LocalDensity.current
             val slotPx = with(density) { (dpPerMinute * 30).toPx() }
-            val viewportPx = timelineScroll.viewportSize.takeIf { it > 0 }?.toFloat() ?: 0f
+            // Seeded before the first measurement, like the rows — all sixty
+            // labels used to be composed on every fresh frame one.
+            val viewportPx = timelineScroll.viewportSize.takeIf { it > 0 }?.toFloat()
+                ?: with(density) { laneWidth.toPx() }
             val bucket by remember(slotPx, viewportPx) {
                 androidx.compose.runtime.derivedStateOf {
                     if (viewportPx <= 0f) 0
@@ -832,57 +891,69 @@ internal fun TimeRuler(
                 // labelled with a time you'd have to compare against a clock.
                 val isNow = nowMs >= t && nowMs < t + 30 * 60_000L
                 val slotStart = t
-                // Measured, not guessed. The pin limit used to reserve a fixed
-                // 72dp for the label, which is both too little for "ON NOW"
-                // and — at MIN_DP_PER_MINUTE, where a half-hour slot is 78dp —
-                // only 6dp of travel. Past the limit the label slid under the
-                // lane's clip edge and rendered as a fragment: the guide's most
-                // important marker read "N NOW" for most of every hour.
-                var labelWidthPx by remember { mutableIntStateOf(0) }
-                fun pinLimit(density: Density): Float = with(density) {
-                    // Minus a gap, so a pinned label never butts against the
-                    // next slot's.
-                    (30f * dpPerMinute.toPx() - labelWidthPx - 12.dp.toPx())
-                        .coerceAtLeast(0f)
-                }
-                fun scrolledPast(density: Density): Float = with(density) {
-                    val perMinPx = dpPerMinute.toPx()
-                    timelineScroll.value - ((slotStart - windowStart) / 60_000f) * perMinPx
-                }
-                Text(
-                    text = if (isNow) "ON NOW" else fmt.format(Date(t)),
-                    style = MaterialTheme.typography.labelMedium,
-                    // Gold, like every other "now" signal on this screen —
-                    // the header chip, the marker line, the cell bar. Red is
-                    // the app's error and REC colour and said neither here.
-                    color = if (isNow) NuxColors.Primary else NuxColors.OnSurfaceDim,
-                    // getLineWidth, not size.width: the Text is stretched to
-                    // the full slot, so its layout size is the slot — which
-                    // made the pin limit zero and hid every label the moment
-                    // its slot began to scroll.
-                    onTextLayout = { result ->
-                        labelWidthPx = if (result.lineCount > 0) {
-                            kotlin.math.ceil(result.getLineRight(0) - result.getLineLeft(0)).toInt()
-                        } else 0
-                    },
-                    modifier = Modifier
-                        .width(dpPerMinute * 30)
-                        .offset {
-                            IntOffset(
-                                scrolledPast(this).coerceIn(0f, pinLimit(this)).toInt(),
-                                0,
-                            )
-                        }
-                        .graphicsLayer {
-                            // Once the whole label no longer fits inside its own
-                            // slot, the NEXT slot's label has already reached the
-                            // lane edge and takes over. Drop this one rather than
-                            // let it clip mid-glyph.
-                            alpha = if (labelWidthPx > 0 &&
-                                scrolledPast(this) > pinLimit(this)
-                            ) 0f else 1f
+                // Keyed on the slot, so a label keeps its node when the
+                // window's first slot moves. Matched by position, every
+                // label re-bound to the next slot's time each time the
+                // bucket advanced, and each re-laid its text to say so.
+                key(slotStart) {
+                    // Measured, not guessed. The pin limit used to reserve a fixed
+                    // 72dp for the label, which is both too little for "ON NOW"
+                    // and — at MIN_DP_PER_MINUTE, where a half-hour slot is 78dp —
+                    // only 6dp of travel. Past the limit the label slid under the
+                    // lane's clip edge and rendered as a fragment: the guide's most
+                    // important marker read "N NOW" for most of every hour.
+                    var labelWidthPx by remember { mutableIntStateOf(0) }
+                    fun pinLimit(density: Density): Float = with(density) {
+                        // Minus a gap, so a pinned label never butts against the
+                        // next slot's.
+                        (30f * dpPerMinute.toPx() - labelWidthPx - 12.dp.toPx())
+                            .coerceAtLeast(0f)
+                    }
+                    fun scrolledPast(density: Density): Float = with(density) {
+                        val perMinPx = dpPerMinute.toPx()
+                        timelineScroll.value - ((slotStart - windowStart) / 60_000f) * perMinPx
+                    }
+                    Text(
+                        text = if (isNow) "ON NOW" else fmt.format(Date(slotStart)),
+                        style = MaterialTheme.typography.labelMedium,
+                        // Gold, like every other "now" signal on this screen —
+                        // the header chip, the marker line, the cell bar. Red is
+                        // the app's error and REC colour and said neither here.
+                        color = if (isNow) NuxColors.Primary else NuxColors.OnSurfaceDim,
+                        // getLineWidth, not size.width: the Text is stretched to
+                        // the full slot, so its layout size is the slot — which
+                        // made the pin limit zero and hid every label the moment
+                        // its slot began to scroll.
+                        onTextLayout = { result ->
+                            labelWidthPx = if (result.lineCount > 0) {
+                                kotlin.math.ceil(result.getLineRight(0) - result.getLineLeft(0)).toInt()
+                            } else 0
                         },
-                )
+                        modifier = Modifier
+                            .width(dpPerMinute * 30)
+                            .offset {
+                                IntOffset(
+                                    scrolledPast(this).coerceIn(0f, pinLimit(this)).toInt(),
+                                    0,
+                                )
+                            }
+                            .drawWithContent {
+                                // Once the whole label no longer fits inside its own
+                                // slot, the NEXT slot's label has already reached the
+                                // lane edge and takes over. Drop this one rather than
+                                // let it clip mid-glyph.
+                                //
+                                // A draw-phase skip, not a graphicsLayer alpha: the
+                                // layer was a RenderNode per label purely to hold a
+                                // value that is almost always 1, and the scroll read
+                                // here invalidates only this label's draw, the way
+                                // the NOW marker's does.
+                                if (labelWidthPx <= 0 || scrolledPast(this) <= pinLimit(this)) {
+                                    drawContent()
+                                }
+                            },
+                    )
+                }
                 t += 30 * 60_000L
             }
             val after = slotCount - 1 - range.last
@@ -904,6 +975,7 @@ private fun GuideRow(
     nowMs: Long,
     timelineScroll: ScrollState,
     dpPerMinute: Dp,
+    laneWidth: Dp,
     gridFocus: GuideGridFocus,
     playing: Boolean,
     onFocus: (EpgProgram?) -> Unit,
@@ -917,6 +989,11 @@ private fun GuideRow(
     // zero width in the layout loop, so the lane drew empty — and because the
     // list was non-empty the "No information" placeholder was suppressed too,
     // leaving channel names beside a blank row.
+    //
+    // GuideRowLayout is a data class on purpose: a guide refresh that hands
+    // back the same programmes yields an EQUAL layout, so every remember
+    // keyed on it below — the requesters, the registration, the window —
+    // holds, and the focused cell is never disposed to be rebuilt identical.
     val layout = remember(channel.id, programsKey, windowStart, windowEnd) {
         layoutGuideRow(
             programsFor(channel).filter { it.endMs > windowStart && it.startMs < windowEnd },
@@ -926,6 +1003,14 @@ private fun GuideRow(
     }
     val cellRequesters = remember(layout) { List(layout.cells.size) { FocusRequester() } }
     val placeholderRequester = remember { FocusRequester() }
+    // Formatted once per layout, not once per cell per composition: a
+    // SimpleDateFormat pass and a Date allocation for every composed cell
+    // every time its row recomposed — which, with the clock ticking through
+    // the row, was twice a minute.
+    val fmt = rememberClockFormat()
+    val startLabels = remember(layout, fmt) {
+        layout.cells.map { fmt.format(Date(it.program.startMs)) }
+    }
 
     // Register this row's cells for time-anchored UP/DOWN and CH paging. The
     // rendering pass and this list both come from `layout`, so they can't
@@ -962,9 +1047,13 @@ private fun GuideRow(
                 .onFocusChanged {
                     if (it.isFocused) {
                         gridFocus.noteChannelFocus(rowIndex, channel.id)
+                        // The wall clock, not the tick: captured, the tick
+                        // would remint this lambda — and recompose the
+                        // Surface — twice a minute per row.
+                        val now = System.currentTimeMillis()
                         onFocus(
                             layout.cells.firstOrNull { spec ->
-                                nowMs in spec.program.startMs until spec.program.endMs
+                                now in spec.program.startMs until spec.program.endMs
                             }?.program
                         )
                     }
@@ -1064,7 +1153,12 @@ private fun GuideRow(
         Spacer(Modifier.width(CHANNEL_COLUMN_GAP))
 
         // Programme lane sharing the timeline scroll.
-        Row(modifier = Modifier.horizontalScroll(timelineScroll)) {
+        //
+        // overscrollEffect = null: the default conjures an
+        // AndroidEdgeEffectOverscrollEffect — two EdgeEffects and a
+        // RenderNode — for every row on screen, to draw a glow at an edge a
+        // D-pad-driven scroll never reaches.
+        Row(modifier = Modifier.horizontalScroll(timelineScroll, overscrollEffect = null)) {
             if (layout.cells.isEmpty()) {
                 // Focusable and playable, not just an annotation: a channel
                 // with no guide data used to have a lane you could neither
@@ -1078,7 +1172,7 @@ private fun GuideRow(
                         .onFocusChanged {
                             if (it.isFocused) {
                                 gridFocus.noteCellFocus(
-                                    rowIndex, channel.id, windowStart, windowEnd, nowMs,
+                                    rowIndex, channel.id, windowStart, windowEnd,
                                 )
                                 onFocus(null)
                             }
@@ -1138,42 +1232,61 @@ private fun GuideRow(
                 // measures the full window and the shared ScrollState clamps
                 // identically. The window is bucketed so scrolling recomposes
                 // when it crosses a bucket, not on every pixel.
-                val visible = rememberVisibleCellRange(layout, dpPerMinute, timelineScroll)
+                val visible = rememberVisibleCellRange(layout, dpPerMinute, timelineScroll, laneWidth)
                 if (visible.leadMinutes > 0f) {
                     Spacer(Modifier.width(dpPerMinute * visible.leadMinutes))
                 }
                 layout.cells.forEachIndexed { i, spec ->
                     if (i !in visible.range) return@forEachIndexed
-                    if (spec.gapMinutesBefore > 0f && i != visible.range.first) {
-                        Spacer(Modifier.width(dpPerMinute * spec.gapMinutesBefore))
+                    // Keyed, because the window's first cell moves. Matched by
+                    // position, a bucket crossing that shifted the range by
+                    // two cells handed every composed node the programme two
+                    // along: each re-ran with a new programme, requester and
+                    // lambdas, and the FOCUSED node re-bound too — the ring
+                    // sat on one programme while the registry, the header
+                    // and the next RIGHT press believed another. The clamped
+                    // start is unique within a row by construction
+                    // (layoutGuideRow's cursor only moves forward), so it is
+                    // the key rather than a provider's programme id, which
+                    // nothing guarantees. The lead spacer stays outside the
+                    // keys: it is the one node that is SUPPOSED to change
+                    // width when the window moves.
+                    key(spec.clampedStartMs) {
+                        if (spec.gapMinutesBefore > 0f && i != visible.range.first) {
+                            Spacer(Modifier.width(dpPerMinute * spec.gapMinutesBefore))
+                        }
+                        ProgramCell(
+                            program = spec.program,
+                            startLabel = startLabels[i],
+                            upFocus = upFromRow,
+                            widthMinutes = spec.widthMinutes,
+                            startMinutesFromWindow = (spec.clampedStartMs - windowStart) / 60_000f,
+                            timelineScroll = timelineScroll,
+                            dpPerMinute = dpPerMinute,
+                            airingNow = nowMs in spec.program.startMs until spec.program.endMs,
+                            isPast = spec.program.endMs <= nowMs,
+                            progress = if (nowMs in spec.program.startMs until spec.program.endMs) {
+                                ((nowMs - spec.program.startMs).toFloat() /
+                                    (spec.program.endMs - spec.program.startMs).coerceAtLeast(1))
+                                    .coerceIn(0f, 1f)
+                            } else 0f,
+                            focusRequester = cellRequesters[i],
+                            // Captures nothing the clock changes — see
+                            // noteCellFocus — so the tick leaves this
+                            // lambda, and the cell, alone.
+                            onFocus = {
+                                gridFocus.noteCellFocus(
+                                    rowIndex, channel.id, spec.clampedStartMs, spec.clampedEndMs,
+                                )
+                                onFocus(spec.program)
+                            },
+                            hasArchive = channel.archiveDays > 0,
+                            canRecord = channel.recordUrl != null,
+                            onPlayLive = onPlayChannel,
+                            onCatchup = { onCatchup(spec.program) },
+                            onSchedule = { onSchedule(spec.program) },
+                        )
                     }
-                    ProgramCell(
-                        program = spec.program,
-                        upFocus = upFromRow,
-                        widthMinutes = spec.widthMinutes,
-                        startMinutesFromWindow = (spec.clampedStartMs - windowStart) / 60_000f,
-                        timelineScroll = timelineScroll,
-                        dpPerMinute = dpPerMinute,
-                        airingNow = nowMs in spec.program.startMs until spec.program.endMs,
-                        isPast = spec.program.endMs <= nowMs,
-                        progress = if (nowMs in spec.program.startMs until spec.program.endMs) {
-                            ((nowMs - spec.program.startMs).toFloat() /
-                                (spec.program.endMs - spec.program.startMs).coerceAtLeast(1))
-                                .coerceIn(0f, 1f)
-                        } else 0f,
-                        focusRequester = cellRequesters[i],
-                        onFocus = {
-                            gridFocus.noteCellFocus(
-                                rowIndex, channel.id, spec.clampedStartMs, spec.clampedEndMs, nowMs,
-                            )
-                            onFocus(spec.program)
-                        },
-                        hasArchive = channel.archiveDays > 0,
-                        canRecord = channel.recordUrl != null,
-                        onPlayLive = onPlayChannel,
-                        onCatchup = { onCatchup(spec.program) },
-                        onSchedule = { onSchedule(spec.program) },
-                    )
                 }
                 if (visible.trailMinutes + layout.tailMinutes > 0f) {
                     Spacer(Modifier.width(dpPerMinute * (visible.trailMinutes + layout.tailMinutes)))
@@ -1206,17 +1319,24 @@ internal class VisibleCells(
  * Invariant the tests hold it to: lead + composed spans + trail always equals
  * the row's full width, so every row still measures the same and the shared
  * ScrollState clamps identically.
+ *
+ * [seedViewportPx] stands in for [viewportPx] while that is still zero — the
+ * lane's width as the host predicts it, see [guideLaneWidth]. Only with
+ * neither does the row fall back to composing every cell, which is the
+ * correct answer to "unknown" and the expensive one.
  */
 internal fun visibleCellsFor(
     layout: GuideRowLayout,
     perMinutePx: Float,
     scrollPx: Int,
     viewportPx: Float,
+    seedViewportPx: Float = 0f,
 ): VisibleCells {
-    if (viewportPx <= 0f) return VisibleCells(layout.cells.indices, 0f, 0f)
-    val marginPx = viewportPx
+    val viewport = if (viewportPx > 0f) viewportPx else seedViewportPx
+    if (viewport <= 0f) return VisibleCells(layout.cells.indices, 0f, 0f)
+    val marginPx = viewport
     val fromPx = scrollPx - marginPx
-    val toPx = scrollPx + viewportPx + marginPx
+    val toPx = scrollPx + viewport + marginPx
     var cursor = 0f
     var first = -1
     var last = -1
@@ -1260,12 +1380,16 @@ private fun rememberVisibleCellRange(
     layout: GuideRowLayout,
     dpPerMinute: Dp,
     timelineScroll: ScrollState,
+    laneWidth: Dp,
 ): VisibleCells {
     val density = LocalDensity.current
     val perMinutePx = with(density) { dpPerMinute.toPx() }
-    // viewportSize is 0 until the row has been laid out once; a full window
-    // then, so the first frame is correct and the second is cheap.
-    val viewportPx = timelineScroll.viewportSize.takeIf { it > 0 }?.toFloat() ?: 0f
+    // viewportSize is 0 until the row has been laid out once. The host's
+    // prediction of the lane stands in until then — see guideLaneWidth —
+    // so the first frame composes the cells the second one keeps, instead
+    // of the whole window.
+    val viewportPx = timelineScroll.viewportSize.takeIf { it > 0 }?.toFloat()
+        ?: with(density) { laneWidth.toPx() }
     val bucketPx = (viewportPx / 2f).coerceAtLeast(1f)
     val bucket by remember(layout, perMinutePx, viewportPx) {
         androidx.compose.runtime.derivedStateOf { (timelineScroll.value / bucketPx).toInt() }
@@ -1275,9 +1399,20 @@ private fun rememberVisibleCellRange(
     }
 }
 
+// Built once, not once per cell per composition. `typography.titleSmall.copy(
+// lineHeight = …)` in the cell body allocated two TextStyles for every
+// composed cell on every pass, and a changed style instance is a changed
+// parameter for Text — so it also re-measured text that had not changed.
+// NuxTypography is the theme's own object, so these are the same styles
+// MaterialTheme.typography would have handed back.
+private val CELL_TITLE_STYLE = NuxTypography.titleSmall.copy(lineHeight = 22.sp)
+private val CELL_TIME_STYLE = NuxTypography.labelMedium.copy(lineHeight = 16.sp)
+
 @Composable
 private fun ProgramCell(
     program: EpgProgram,
+    /** The start time, already formatted — the row does it once per layout. */
+    startLabel: String,
     upFocus: FocusRequester?,
     widthMinutes: Float,
     startMinutesFromWindow: Float,
@@ -1300,8 +1435,6 @@ private fun ProgramCell(
     onCatchup: () -> Unit,
     onSchedule: () -> Unit,
 ) {
-    val fmt = rememberClockFormat()
-
     Surface(
         onClick = {
             // Decided on the wall clock, not the 30s tick the styling uses:
@@ -1374,16 +1507,23 @@ private fun ProgramCell(
                             0,
                         )
                     }
-                    .graphicsLayer {
+                    .drawWithContent {
                         // Once the pin is exhausted the text slides under the
                         // lane's clip edge and renders as a mid-glyph fragment
                         // ("oom" out of "News Room"). Drop it whole instead —
                         // the same rule the ruler labels follow.
+                        //
+                        // Skipped in the draw phase rather than faded by a
+                        // graphicsLayer: the layer cost a RenderNode per cell
+                        // — sixty to eighty of them on screen — to hold an
+                        // alpha that is 1 for all but the one cell being
+                        // scrolled off. The scroll read here invalidates
+                        // only this cell's draw, as the NOW marker's does.
                         val perMinPx = dpPerMinute.toPx()
                         val startPx = startMinutesFromWindow * perMinPx
                         val maxPin =
                             (widthMinutes * perMinPx - 120.dp.toPx()).coerceAtLeast(0f)
-                        alpha = if (timelineScroll.value - startPx > maxPin) 0f else 1f
+                        if (timelineScroll.value - startPx <= maxPin) drawContent()
                     }
                     // 2dp above, 4dp below: the progress bar draws inside
                     // the bottom inset instead of across the time line.
@@ -1391,7 +1531,7 @@ private fun ProgramCell(
             ) {
                 Text(
                     text = program.title,
-                    style = MaterialTheme.typography.titleSmall.copy(lineHeight = 22.sp),
+                    style = CELL_TITLE_STYLE,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1399,9 +1539,8 @@ private fun ProgramCell(
                     // Time only. "OK to record" repeated on every future
                     // cell was the same sentence dozens of times per screen;
                     // the header teaches it once, for the focused cell.
-                    text = fmt.format(Date(program.startMs)) +
-                        (if (airingNow) " • Now" else ""),
-                    style = MaterialTheme.typography.labelMedium.copy(lineHeight = 16.sp),
+                    text = if (airingNow) "$startLabel • Now" else startLabel,
+                    style = CELL_TIME_STYLE,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
