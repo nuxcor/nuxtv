@@ -444,7 +444,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         // Before anything reads URL-keyed prefs: live URLs changed .m3u8 → .ts
         // and favorites/hidden/learned-quality keys must follow them.
         viewModelScope.launch { playerPrefs.migrateLiveUrlsToTs() }
-        viewModelScope.launch { repo.ensureLoaded() }
+        // The same age rule the hourly loop applies, so a launch is never a
+        // refresh the loop would have refused a minute later.
+        viewModelScope.launch { repo.ensureLoaded(PLAYLIST_MAX_AGE_MS) }
         // Periodic quiet playlist refresh, mirroring the EPG's 6h cycle at a
         // gentler cadence — catalogs change daily, guides hourly. Checked
         // hourly against the persisted cache age rather than delaying a full
@@ -457,13 +459,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         refreshRecordings()
-        // Reload the guide when a playlist loads or the EPG override changes,
-        // fill in missing channel logos, and keep schedules' alarms registered.
+        // Load the guide when a playlist becomes readable and whenever the
+        // playlist it belongs to changes — NOT on every publish of content.
+        // A cold start publishes the catalogue at least twice (the cache,
+        // then the refresh behind it), and each publish used to be a guide
+        // request; the repository's debounce was meant to fold those into
+        // one and, for reasons written on planGuideRefresh, did not. Keyed
+        // on the source id, the second publish of the same playlist is not
+        // a request at all. The override has its own collector below.
         viewModelScope.launch {
-            repo.content.collect {
-                if (it is ContentState.Ready) {
+            guideSourceKey().collect { sourceId ->
+                if (sourceId != null) {
+                    // Beside the guide, not after it: a cold fold holds
+                    // loadEpg for minutes, and a cache from before logos
+                    // were part of the fetch would have sat bare that long.
+                    launch { repo.enrichLogos() }
                     repo.loadEpg(playerPrefs.epgOverrideUrl.first())
-                    repo.enrichLogos()
                 }
             }
         }
@@ -498,6 +509,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    /**
+     * The id of the playlist whose catalogue is on screen, null while there
+     * is none. Distinct, so the catalogue republishing — a refresh behind
+     * the cache, a logo fill — is not a new value; only a different playlist
+     * becoming readable is.
+     */
+    private fun guideSourceKey(): kotlinx.coroutines.flow.Flow<String?> =
+        combine(repo.content, repo.activeSource) { c, source ->
+            if (c is ContentState.Ready) source?.id else null
+        }.distinctUntilChanged()
 
     fun checkForUpdates() {
         viewModelScope.launch {
