@@ -27,25 +27,30 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -72,11 +77,12 @@ import com.agoro.tv.ui.components.itemEntrance
 import com.agoro.tv.ui.components.LocalArrivalFocusAllowed
 import com.agoro.tv.ui.components.requestFocusRetrying
 import androidx.compose.runtime.saveable.rememberSaveable
-import com.agoro.tv.ui.components.rememberListEntrance
 import com.agoro.tv.ui.theme.NuxColors
 import com.agoro.tv.ui.theme.NuxFocus
 import com.agoro.tv.ui.theme.NuxMotion
 import com.agoro.tv.ui.theme.NuxShape
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
@@ -123,6 +129,56 @@ private sealed interface HomeMenu {
  */
 private enum class HomeRow {
     Continue, Favorites, Recents, StarterChannels, StarterMovies, StarterSeries, New
+}
+
+/**
+ * Everything the hero can describe, in one holder so the hero effect reads
+ * one state for the rows and re-derives when any of them change — the guide
+ * filling in, a favorite starred — without a composition read in between.
+ */
+private class HomeShelves(
+    val rowKeys: List<HomeRow>,
+    val continueRow: List<ContinueCard>,
+    val favoritesRow: List<LiveChannel>,
+    val recentsRow: List<LiveChannel>,
+    val recentlyAdded: List<CatalogCard>,
+    val starterChannels: List<LiveChannel>,
+    val starterMovies: List<Movie>,
+    val starterSeries: List<Series>,
+    val nowNext: Map<String, MainViewModel.NowNext>,
+) {
+    fun sizeOf(row: HomeRow): Int = when (row) {
+        HomeRow.Continue -> continueRow.size
+        HomeRow.Favorites -> favoritesRow.size
+        HomeRow.Recents -> recentsRow.size
+        HomeRow.StarterChannels -> starterChannels.size
+        HomeRow.StarterMovies -> starterMovies.size
+        HomeRow.StarterSeries -> starterSeries.size
+        HomeRow.New -> recentlyAdded.size
+    }
+
+    /** The hero for the card at [index] in row [rowIndex], clamped to what exists. */
+    fun heroAt(rowIndex: Int, index: Int): HeroInfo? {
+        val row = rowKeys.getOrNull(rowIndex) ?: rowKeys.firstOrNull() ?: return null
+        fun <T> List<T>.at(): T? = getOrNull(index) ?: firstOrNull()
+        return when (row) {
+            HomeRow.Continue -> when (val card = continueRow.at()) {
+                is ContinueCard.MovieCard -> card.movie.toHero()
+                is ContinueCard.SeriesCard -> card.series.toHero()
+                null -> null
+            }
+            HomeRow.New -> when (val card = recentlyAdded.at()) {
+                is CatalogCard.MovieCard -> card.movie.toHero()
+                is CatalogCard.SeriesCard -> card.series.toHero()
+                null -> null
+            }
+            HomeRow.Favorites -> favoritesRow.at()?.let { channelHero(it, nowNext[it.id]) }
+            HomeRow.Recents -> recentsRow.at()?.let { channelHero(it, nowNext[it.id]) }
+            HomeRow.StarterChannels -> starterChannels.at()?.let { channelHero(it, nowNext[it.id]) }
+            HomeRow.StarterMovies -> starterMovies.at()?.toHero()
+            HomeRow.StarterSeries -> starterSeries.at()?.toHero()
+        }
+    }
 }
 
 @Composable
@@ -243,10 +299,21 @@ fun HomeLoungeTab(
         return
     }
 
-    // Saveable, all three: Home leaves composition for every detail page and
-    // every channel, and coming back is a return, not a launch. The row and
-    // the card within it are what "where I was" means here; the signal is
-    // saved too so the first-arrival scroll-to-top below stays spent.
+    // Saveable, all of them: Home leaves composition for every detail page
+    // and every channel, and coming back is a return, not a launch. The row
+    // and the card within it are what "where I was" means here; whether a
+    // card has ever taken focus is saved too so the first-arrival
+    // scroll-to-top below stays spent.
+    //
+    // NOTHING in this scope reads them. A D-pad press writes the three and
+    // that is the whole of its cost in composition: the hero and the row
+    // snap are driven off them by snapshotFlow in effects, the arrival
+    // requester rides on a card chosen once, and each shelf carries a
+    // requester of its own. The first cut derived the hero from them in this
+    // body and compared them in every card's modifier, so every press
+    // re-executed the tab — seven flow reads, a dozen remembers, a new
+    // LazyColumn content lambda — and invalidated every composed card to
+    // find out that one of them had gained a requester.
     var focusedRow by rememberSaveable { mutableStateOf(0) }
     var focusedIndex by rememberSaveable { mutableStateOf(0) }
     // The focused row by NAME as well as by index: a shelf appearing above
@@ -254,54 +321,81 @@ fun HomeLoungeTab(
     // below, and the viewer's row must follow itself rather than hand its
     // slot to the newcomer.
     var focusedRowKey by rememberSaveable { mutableStateOf(HomeRow.Continue.name) }
-    // Bumped on every card focus, not just row changes: the LazyColumn's own
-    // bring-into-view nudges the list on focus, and without a counter-snap
-    // per focus event the correction only fired when the row index changed.
-    var focusSignal by rememberSaveable { mutableStateOf(0) }
+    var hasFocused by rememberSaveable { mutableStateOf(false) }
+    val rowKeysState = rememberUpdatedState(rowKeys)
+    /** The viewer's row, by name first, else by index — read in effects only. */
+    fun currentRow(): HomeRow {
+        val keys = rowKeysState.value
+        return keys.firstOrNull { it.name == focusedRowKey }
+            ?: keys.getOrNull(focusedRow)
+            ?: keys.first()
+    }
+    // Set by the context menu, consumed by the effects below in the frame
+    // the menu leaves composition. Plain holders: nothing in composition
+    // reads them, and arming one must not invalidate anything.
+    val returnFocusPending = remember { booleanArrayOf(false) }
+    // The action taken removes the card the menu was opened on.
+    val removalPending = remember { booleanArrayOf(false) }
+    // ...and that card was the last in its row, so the row goes with it.
+    val rowGonePending = remember { booleanArrayOf(false) }
+    // One requester per shelf, attached unconditionally, so no shelf has to
+    // watch which row is focused. Focus has to come back after the menu
+    // closes: a destructive action — "Not interested", "Remove from Continue
+    // watching" — deletes the very card that opened the menu, so the focused
+    // node is gone by the time the menu dismisses and focus falls to
+    // nothing: the d-pad goes dead until the viewer leaves the screen. The
+    // menu hands focus back to the viewer's row, and focusRestorer picks the
+    // card within.
+    val rowRequesters = remember { HomeRow.entries.associateWith { FocusRequester() } }
 
     // The hero describes the focused card — the remembered one on a return,
     // the first one on a fresh visit — so the screen never opens on an empty
-    // header. DERIVED from the focus position, never snapshotted by the focus
-    // callback: a snapshot taken before the guide had loaded described the
-    // channel as "Live" with no programme and stayed that way until focus
-    // moved, while the card under it had long since filled in.
-    val activeHero = remember(
-        rowKeys, continueRow, favoritesRow, recentsRow, recentlyAdded,
-        starterChannels, starterMovies, starterSeries, nowNext, focusedRow, focusedIndex,
-    ) {
-        fun <T> List<T>.at() = getOrElse(focusedIndex) { first() }
-        when (rowKeys.getOrElse(focusedRow) { rowKeys.first() }) {
-            HomeRow.Continue -> when (val card = continueRow.at()) {
-                is ContinueCard.MovieCard -> card.movie.toHero()
-                is ContinueCard.SeriesCard -> card.series.toHero()
-            }
-            HomeRow.New -> when (val card = recentlyAdded.at()) {
-                is CatalogCard.MovieCard -> card.movie.toHero()
-                is CatalogCard.SeriesCard -> card.series.toHero()
-            }
-            HomeRow.Favorites -> favoritesRow.at().let { channelHero(it, nowNext[it.id]) }
-            HomeRow.Recents -> recentsRow.at().let { channelHero(it, nowNext[it.id]) }
-            HomeRow.StarterChannels -> starterChannels.at().let { channelHero(it, nowNext[it.id]) }
-            HomeRow.StarterMovies -> starterMovies.at().toHero()
-            HomeRow.StarterSeries -> starterSeries.at().toHero()
-        }
+    // header. DERIVED from the focus position and the rows' current data,
+    // never snapshotted by the focus callback: a snapshot taken before the
+    // guide had loaded described the channel as "Live" with no programme and
+    // stayed that way until focus moved, while the card under it had long
+    // since filled in. The rows ride in one updated state so the flow
+    // re-derives when they change, and the first value is read here exactly
+    // once — without observation, or this scope would follow every press —
+    // so a return opens on its hero rather than on a blank header.
+    val shelvesState = rememberUpdatedState(
+        remember(
+            rowKeys, continueRow, favoritesRow, recentsRow, recentlyAdded,
+            starterChannels, starterMovies, starterSeries, nowNext,
+        ) {
+            HomeShelves(
+                rowKeys, continueRow, favoritesRow, recentsRow, recentlyAdded,
+                starterChannels, starterMovies, starterSeries, nowNext,
+            )
+        },
+    )
+    val shownHero = remember {
+        mutableStateOf(Snapshot.withoutReadObservation { shelvesState.value.heroAt(focusedRow, focusedIndex) })
     }
-    // Debounced so travelling a row doesn't hard-cut the hero (and the
-    // shell's backdrop with it) 5x/second.
-    var shownHero by remember { mutableStateOf<HeroInfo?>(null) }
-    LaunchedEffect(activeHero) {
-        if (shownHero != null) kotlinx.coroutines.delay(NuxMotion.HeroDebounceMs.toLong())
-        shownHero = activeHero
-        onHeroChange(activeHero)
-        // One hero is on screen at a time, so this is the one guide synopsis
-        // worth reading — after the debounce, so travelling a row of channels
-        // costs no queries at all.
-        val key = activeHero?.plotKey ?: return@LaunchedEffect
-        if (!activeHero.plot.isNullOrBlank()) return@LaunchedEffect
-        val plot = vm.descriptionFor(key)?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
-        val filled = activeHero.copy(plot = plot)
-        shownHero = filled
-        onHeroChange(filled)
+    val heroSink = rememberUpdatedState(onHeroChange)
+    LaunchedEffect(Unit) {
+        snapshotFlow { shelvesState.value.heroAt(focusedRow, focusedIndex) }
+            .distinctUntilChanged()
+            .collectLatest { hero ->
+                // Debounced so travelling a row doesn't hard-cut the hero
+                // (and the shell's backdrop with it) 5x/second. The first
+                // value is the one composed above, so it passes straight
+                // through to the shell.
+                if (hero != shownHero.value) {
+                    kotlinx.coroutines.delay(NuxMotion.HeroDebounceMs.toLong())
+                    shownHero.value = hero
+                }
+                heroSink.value(hero)
+                // One hero is on screen at a time, so this is the one guide
+                // synopsis worth reading — after the debounce, so travelling
+                // a row of channels costs no queries at all.
+                val key = hero?.plotKey ?: return@collectLatest
+                if (!hero.plot.isNullOrBlank()) return@collectLatest
+                val plot = vm.descriptionFor(key)?.takeIf { it.isNotBlank() } ?: return@collectLatest
+                val filled = hero.copy(plot = plot)
+                shownHero.value = filled
+                heroSink.value(filled)
+            }
     }
 
     val columnState = rememberLazyListState()
@@ -309,8 +403,21 @@ fun HomeLoungeTab(
     // top of the scrolling lane so the rows above scroll fully away instead
     // of leaving clipped caption slivers. The hero is pinned above the lane,
     // so row 0 is simply the top.
-    LaunchedEffect(focusSignal) {
-        columnState.animateScrollToItem(focusedRow.coerceAtLeast(0))
+    //
+    // Keyed on the ROW. This used to re-run on every card focus as a
+    // "counter-snap" against the LazyColumn's own bring-into-view, which
+    // meant a LEFT or RIGHT started a vertical animation to the row the
+    // viewer was already on, and the two fought for the scroll mutex on
+    // every horizontal move. A row snapped to the top leaves bring-into-view
+    // nothing to do — it checks visibility before it scrolls — and the one
+    // case where it does interrupt, a sideways press mid-snap, is what
+    // snapRetrying is for.
+    LaunchedEffect(Unit) {
+        snapshotFlow { focusedRow }
+            .distinctUntilChanged()
+            .collectLatest { row ->
+                snapRetrying { columnState.animateScrollToItem(row.coerceAtLeast(0)) }
+            }
     }
     // Shelves arrive in waves: the catalogue lands first, and displayChannels
     // folds a beat later to prepend "Live channels". The lane keeps its offset
@@ -321,7 +428,7 @@ fun HomeLoungeTab(
     // Only before the first focus. After that the position is the viewer's, and
     // a late-arriving shelf must not move it under them.
     LaunchedEffect(rowKeys) {
-        if (focusSignal == 0) {
+        if (!hasFocused) {
             columnState.scrollToItem(0)
             return@LaunchedEffect
         }
@@ -330,15 +437,18 @@ fun HomeLoungeTab(
             focusedRow = index
             columnState.scrollToItem(index)
         }
+        // A menu action just removed the last card of the viewer's row, and
+        // the row with it: focus fell to nothing when it went. Seat it on
+        // whatever row now holds that slot — see the menu effect below.
+        if (rowGonePending[0] && index < 0) {
+            rowGonePending[0] = false
+            rowRequesters.getValue(currentRow()).requestFocusRetrying()
+        }
     }
-    // Focus has to come back after the menu closes. A destructive action —
-    // "Not interested", "Remove from Continue watching" — deletes the very card
-    // that opened the menu, so the focused node is gone by the time the menu
-    // dismisses and focus falls to nothing: the d-pad goes dead until the
-    // viewer leaves the screen. This follows the focused row so the menu can
-    // hand focus back to it, and focusRestorer picks the card within.
-    val rowFocus = remember { FocusRequester() }
-    val entrance = rememberListEntrance(Unit)
+    // Saveable, so a return from a channel or a film does not stagger every
+    // card in again: Home leaves composition for both, and the stamp was
+    // re-taken on each return. Only a fresh launch animates.
+    val entrance = rememberSaveable { android.os.SystemClock.uptimeMillis() }
     val searchFocus = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
 
@@ -349,7 +459,21 @@ fun HomeLoungeTab(
     // opened (and every return from a detail page landed) on Search rather
     // than on anything to watch. Rides on the card itself; the shelf's
     // restorer is the fallback when that card has scrolled out of composition.
+    //
+    // The target is read ONCE, at composition, and without observation: the
+    // requester rides on exactly one card for the whole visit, and a read
+    // the composition tracked would bring every press back into this scope.
+    // By row NAME, so a shelf that arrives above it in the meantime cannot
+    // move the requester onto the wrong row's card.
     val cardFocus = remember { FocusRequester() }
+    val arrival = remember {
+        Snapshot.withoutReadObservation {
+            val row = rowKeys.firstOrNull { it.name == focusedRowKey }
+                ?: rowKeys.getOrNull(focusedRow)
+                ?: rowKeys.first()
+            row to focusedIndex
+        }
+    }
     // Once per visit (the rememberInitialFocus rule): the allowed flag flips
     // on every drawer round trip, and firing on that edge would drag focus
     // off wherever the viewer had since moved to.
@@ -361,37 +485,85 @@ fun HomeLoungeTab(
         // The rows compose a frame after the column does; give the card a
         // moment before settling for its shelf.
         if (!cardFocus.requestFocusRetrying(retries = 6, intervalMs = 50)) {
-            rowFocus.requestFocusRetrying()
+            rowRequesters.getValue(currentRow()).requestFocusRetrying()
         }
     }
 
     var menu by remember { mutableStateOf<HomeMenu?>(null) }
+    val focusManager = LocalFocusManager.current
+    // Focus comes back in the SAME FRAME the menu unmounts, not after a wall-
+    // clock wait. This used to delay 120ms and then retry for up to 600ms
+    // more, and in that window Compose had already reseated focus on the
+    // nearest node — the Search pill, clear across the screen — so a quick
+    // press after closing acted on it. The request cannot be made before the
+    // menu is gone: the dialog scaffold cancels any focus exit while it
+    // stands, so a request made inside onDismiss is refused. Keyed on the
+    // menu state, this runs once the frame that removed it has applied,
+    // before the next key event can arrive.
+    LaunchedEffect(menu) {
+        if (menu != null || !returnFocusPending[0]) return@LaunchedEffect
+        returnFocusPending[0] = false
+        val row = currentRow()
+        val doomedIndex = focusedIndex
+        val sizeBefore = shelvesState.value.sizeOf(row)
+        // First attempt immediately; the rest are the bounded fallback for a
+        // row still recomposing — requestFocus REFUSES by returning false
+        // rather than throwing.
+        val landed = rowRequesters.getValue(row).requestFocusRetrying(retries = 5, intervalMs = 60)
+        if (!landed || !removalPending[0]) return@LaunchedEffect
+        removalPending[0] = false
+        // The destructive case lands late: the write reaches the prefs, the
+        // catalogue re-joins off the main thread, and only then does the row
+        // drop the card — and focus with it, to nothing. The restorer has
+        // just put focus back on that very card, so step off it NOW, to the
+        // neighbour that survives, rather than wait for the loss and guess
+        // whether the viewer had meanwhile moved somewhere on purpose. Only
+        // when the card is still there: if the removal beat this effect the
+        // restorer fell to the first card, which is already the answer.
+        val stillThere = focusedIndex == doomedIndex && shelvesState.value.sizeOf(row) == sizeBefore
+        if (!stillThere) return@LaunchedEffect
+        if (!focusManager.moveFocus(FocusDirection.Right) &&
+            !focusManager.moveFocus(FocusDirection.Left)
+        ) {
+            // The only card in its row: the row disappears with it, and the
+            // rowKeys effect seats focus on whatever takes its place.
+            rowGonePending[0] = true
+        }
+    }
 
     /** The arrival requester rides on exactly one card: the remembered one. */
-    fun cardFocusModifier(rowIndex: Int, index: Int): Modifier =
-        if (rowIndex == focusedRow && index == focusedIndex) {
+    fun cardFocusModifier(row: HomeRow, index: Int): Modifier =
+        if (row == arrival.first && index == arrival.second) {
             Modifier.focusRequester(cardFocus)
         } else Modifier
 
+    fun noteFocus(row: HomeRow, rowIndex: Int, index: Int) {
+        focusedRow = rowIndex
+        focusedIndex = index
+        focusedRowKey = row.name
+        hasFocused = true
+    }
+
     @Composable
-    fun ChannelTile(row: List<LiveChannel>, rowIndex: Int, index: Int, channel: LiveChannel) {
+    fun ChannelTile(
+        channels: List<LiveChannel>,
+        row: HomeRow,
+        rowIndex: Int,
+        index: Int,
+        channel: LiveChannel,
+    ) {
         val nn = nowNext[channel.id]
         Box(modifier = Modifier.itemEntrance(index, entrance)) {
             ChannelShelfCard(
                 channel = channel,
                 now = nn?.now,
-                modifier = cardFocusModifier(rowIndex, index),
+                modifier = cardFocusModifier(row, index),
                 onClick = {
-                    vm.playChannels(row, index)
+                    vm.playChannels(channels, index)
                     onPlay()
                 },
-                onLongClick = { menu = HomeMenu.Channel(channel, row, index) },
-                onFocus = {
-                    focusedRow = rowIndex
-                    focusedIndex = index
-                    focusedRowKey = rowKeys[rowIndex].name
-                    focusSignal++
-                },
+                onLongClick = { menu = HomeMenu.Channel(channel, channels, index) },
+                onFocus = { noteFocus(row, rowIndex, index) },
             )
         }
     }
@@ -400,6 +572,7 @@ fun HomeLoungeTab(
     @Composable
     fun MoviePoster(
         movie: Movie,
+        row: HomeRow,
         rowIndex: Int,
         index: Int,
         progress: Float? = null,
@@ -411,15 +584,10 @@ fun HomeLoungeTab(
                 imageUrl = borrowedArt(vm, movie.artRef(), movie.poster),
                 year = movie.year,
                 progress = progress,
-                modifier = cardFocusModifier(rowIndex, index),
+                modifier = cardFocusModifier(row, index),
                 onClick = { onOpenMovie(movie) },
                 onLongClick = onLongClick,
-                onFocus = {
-                    focusedRow = rowIndex
-                    focusedIndex = index
-                    focusedRowKey = rowKeys[rowIndex].name
-                    focusSignal++
-                },
+                onFocus = { noteFocus(row, rowIndex, index) },
             )
         }
     }
@@ -427,6 +595,7 @@ fun HomeLoungeTab(
     @Composable
     fun SeriesPoster(
         series: Series,
+        row: HomeRow,
         rowIndex: Int,
         index: Int,
         progress: Float? = null,
@@ -438,16 +607,13 @@ fun HomeLoungeTab(
                 imageUrl = borrowedArt(vm, series.artRef(), series.poster),
                 year = series.year,
                 progress = progress,
-                modifier = cardFocusModifier(rowIndex, index),
+                modifier = cardFocusModifier(row, index),
                 // The detail screen lands on the part-watched episode's
                 // resume action.
                 onClick = { onOpenSeries(series) },
                 onLongClick = onLongClick,
                 onFocus = {
-                    focusedRow = rowIndex
-                    focusedIndex = index
-                    focusedRowKey = rowKeys[rowIndex].name
-                    focusSignal++
+                    noteFocus(row, rowIndex, index)
                     vm.prefetchEpisodes(series)
                 },
             )
@@ -464,7 +630,7 @@ fun HomeLoungeTab(
                 .fillMaxWidth()
                 .height(170.dp),
         ) {
-            HeroHeader(shownHero)
+            HomeHeroSlot(shownHero)
             SearchPill(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -511,7 +677,7 @@ fun HomeLoungeTab(
         itemsIndexed(rowKeys, key = { _, row -> row.name }) { rowIndex, row ->
             val shelf = Modifier
                 .focusGroup()
-                .then(if (rowIndex == focusedRow) Modifier.focusRequester(rowFocus) else Modifier)
+                .focusRequester(rowRequesters.getValue(row))
             when (row) {
                 HomeRow.Continue -> Column {
                     SectionTitle("Continue watching")
@@ -531,13 +697,13 @@ fun HomeLoungeTab(
                         ) { index, card ->
                             when (card) {
                                 is ContinueCard.MovieCard -> MoviePoster(
-                                    card.movie, rowIndex, index, card.progress,
+                                    card.movie, row, rowIndex, index, card.progress,
                                     onLongClick = {
                                         menu = HomeMenu.ResumedMovie(card.movie, card.progress)
                                     },
                                 )
                                 is ContinueCard.SeriesCard -> SeriesPoster(
-                                    card.series, rowIndex, index, card.progress,
+                                    card.series, row, rowIndex, index, card.progress,
                                     onLongClick = { menu = HomeMenu.ResumedSeries(card.series) },
                                 )
                             }
@@ -552,7 +718,7 @@ fun HomeLoungeTab(
                         contentPadding = PaddingValues(horizontal = ShelfRingRoom),
                     ) {
                         itemsIndexed(favoritesRow, key = { _, c -> c.id }) { index, channel ->
-                            ChannelTile(favoritesRow, rowIndex, index, channel)
+                            ChannelTile(favoritesRow, row, rowIndex, index, channel)
                         }
                     }
                 }
@@ -564,7 +730,7 @@ fun HomeLoungeTab(
                         contentPadding = PaddingValues(horizontal = ShelfRingRoom),
                     ) {
                         itemsIndexed(recentsRow, key = { _, c -> c.id }) { index, channel ->
-                            ChannelTile(recentsRow, rowIndex, index, channel)
+                            ChannelTile(recentsRow, row, rowIndex, index, channel)
                         }
                     }
                 }
@@ -576,7 +742,7 @@ fun HomeLoungeTab(
                         contentPadding = PaddingValues(horizontal = ShelfRingRoom),
                     ) {
                         itemsIndexed(starterChannels, key = { _, c -> c.id }) { index, channel ->
-                            ChannelTile(starterChannels, rowIndex, index, channel)
+                            ChannelTile(starterChannels, row, rowIndex, index, channel)
                         }
                     }
                 }
@@ -589,7 +755,7 @@ fun HomeLoungeTab(
                     ) {
                         itemsIndexed(starterMovies, key = { _, m -> m.id }) { index, movie ->
                             MoviePoster(
-                                movie, rowIndex, index,
+                                movie, row, rowIndex, index,
                                 onLongClick = { menu = HomeMenu.CatalogMovie(movie) },
                             )
                         }
@@ -604,7 +770,7 @@ fun HomeLoungeTab(
                     ) {
                         itemsIndexed(starterSeries, key = { _, x -> x.id }) { index, series ->
                             SeriesPoster(
-                                series, rowIndex, index,
+                                series, row, rowIndex, index,
                                 onLongClick = { menu = HomeMenu.CatalogSeries(series) },
                             )
                         }
@@ -632,11 +798,11 @@ fun HomeLoungeTab(
                         ) { index, card ->
                             when (card) {
                                 is CatalogCard.MovieCard -> MoviePoster(
-                                    card.movie, rowIndex, index,
+                                    card.movie, row, rowIndex, index,
                                     onLongClick = { menu = HomeMenu.CatalogMovie(card.movie) },
                                 )
                                 is CatalogCard.SeriesCard -> SeriesPoster(
-                                    card.series, rowIndex, index,
+                                    card.series, row, rowIndex, index,
                                     onLongClick = { menu = HomeMenu.CatalogSeries(card.series) },
                                 )
                             }
@@ -655,35 +821,27 @@ fun HomeLoungeTab(
             onPlay = onPlay,
             onOpenMovie = onOpenMovie,
             onOpenSeries = onOpenSeries,
+            favoritesRow = favoritesRow,
+            onRemove = { removalPending[0] = true },
             onDismiss = {
+                // Arm the return first, then unmount: the effect above runs
+                // in the frame the menu leaves and finds the flag set.
+                returnFocusPending[0] = true
                 menu = null
-                // requestFocus REFUSES by returning false rather than throwing,
-                // and it refuses while the row is still recomposing around the
-                // card that just went away — so this retries rather than
-                // trusting the first attempt.
-                scope.launch {
-                    // After the delay, not before it. Removing the focused card
-                    // leaves Compose to reassign focus itself, and it picks the
-                    // nearest focusable — the Search pill, clear across the
-                    // screen. Requesting first simply loses to that reassignment;
-                    // this waits for it to happen and then takes focus back.
-                    //
-                    // requestFocus REFUSES by returning false rather than
-                    // throwing, and refuses while the row is still recomposing,
-                    // so it retries on the Boolean instead of trusting one call.
-                    kotlinx.coroutines.delay(120)
-                    repeat(10) {
-                        if (runCatching { rowFocus.requestFocus() }.getOrDefault(false)) {
-                            return@launch
-                        }
-                        kotlinx.coroutines.delay(60)
-                    }
-                }
             },
         )
     }
 }
 
+/**
+ * The header reads the hero in a scope of its own, so a debounced hero swap
+ * recomposes the header and nothing else — not the tab, its rows or the
+ * cards in them.
+ */
+@Composable
+private fun HomeHeroSlot(hero: State<HeroInfo?>) {
+    HeroHeader(hero.value)
+}
 /**
  * The actions a Home card carries beyond OK. Channels borrow Live TV's
  * vocabulary word for word — the same channel must not offer "Add to
@@ -697,6 +855,14 @@ private fun HomeContextMenu(
     onPlay: () -> Unit,
     onOpenMovie: (Movie) -> Unit,
     onOpenSeries: (Series) -> Unit,
+    /** The Favorites shelf's list, so a channel menu can tell whether un-starring empties its card's slot. */
+    favoritesRow: List<LiveChannel>,
+    /**
+     * The action chosen takes the card the menu was opened on off its shelf.
+     * Called before [onDismiss], so the return of focus can step off the
+     * card before the shelf drops it.
+     */
+    onRemove: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     when (menu) {
@@ -710,9 +876,16 @@ private fun HomeContextMenu(
                         onPlay()
                     },
                     MenuAction(if (isFav) "Remove from favorites" else "Add to favorites") {
+                        // Un-starring removes the card only from the
+                        // Favorites shelf; on Recents or Live channels it
+                        // stays where it is.
+                        if (isFav && menu.row === favoritesRow) onRemove()
                         vm.toggleFavorite(menu.channel)
                     },
-                    MenuAction("Hide this channel") { vm.toggleHidden(menu.channel) },
+                    MenuAction("Hide this channel") {
+                        onRemove()
+                        vm.toggleHidden(menu.channel)
+                    },
                 ),
                 onDismiss = onDismiss,
             )
@@ -726,6 +899,7 @@ private fun HomeContextMenu(
                 // Destructive only in the sense that it cannot be undone from
                 // here; nothing is deleted but the bookmark.
                 MenuAction("Remove from Continue watching", destructive = true) {
+                    onRemove()
                     vm.forgetResume(menu.movie.url)
                 },
             ),
@@ -740,6 +914,7 @@ private fun HomeContextMenu(
                 // Home only. The film keeps its place in Movies and in search,
                 // and Settings offers these back in one go.
                 MenuAction("Not interested", destructive = true) {
+                    onRemove()
                     vm.hideFromHome("m:${menu.movie.id}")
                 },
             ),
@@ -753,6 +928,7 @@ private fun HomeContextMenu(
                 // screen, the same reason Continue watching does not offer it.
                 MenuAction("Open series") { onOpenSeries(menu.series) },
                 MenuAction("Not interested", destructive = true) {
+                    onRemove()
                     vm.hideFromHome("s:${menu.series.id}")
                 },
             ),
@@ -767,6 +943,7 @@ private fun HomeContextMenu(
                 // to ask. Sending the viewer there is the honest answer.
                 MenuAction("Open series") { onOpenSeries(menu.series) },
                 MenuAction("Remove from Continue watching", destructive = true) {
+                    onRemove()
                     vm.forgetSeriesResume(menu.series)
                 },
             ),

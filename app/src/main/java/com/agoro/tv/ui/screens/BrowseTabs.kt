@@ -24,14 +24,23 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import com.agoro.tv.ui.components.LocalArrivalFocusAllowed
@@ -64,7 +73,6 @@ import com.agoro.tv.ui.components.PosterCard
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
 import com.agoro.tv.ui.components.itemEntrance
-import com.agoro.tv.ui.components.rememberListEntrance
 import com.agoro.tv.ui.components.SectionTitle
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.focus.FocusRequester
@@ -165,6 +173,34 @@ internal class VodPage(
         fun of(entries: List<VodEntry>) =
             VodPage(entries.size, { entries[it].id }, { entries[it] })
     }
+
+    /** The hero for the cell at [index], clamped; null on an empty page. */
+    fun heroAt(index: Int): HeroInfo? =
+        if (size > 0) entryAt(index.coerceIn(0, size - 1)).hero else null
+}
+
+/**
+ * A snap scroll that survives the list's own bring-into-view.
+ *
+ * Focusing a card asks its lazy list to bring it into view, and that request
+ * takes the list's scroll mutex at the same priority as an animateScrollToItem
+ * in flight — so a RIGHT pressed while a row was still sliding to the top
+ * cancelled the slide and left the row wherever the card became visible.
+ * Home used to paper over this by re-snapping on EVERY focus event, which is
+ * the "two animations fight per horizontal move" it was meant to cure. The
+ * interruption arrives as the mutex's CancellationException with this
+ * coroutine still alive; a real cancellation — a newer snap, the screen
+ * leaving — is rethrown by ensureActive.
+ */
+internal suspend fun snapRetrying(attempts: Int = 3, scroll: suspend () -> Unit) {
+    repeat(attempts) {
+        try {
+            scroll()
+            return
+        } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+        }
+    }
 }
 
 /** One poster, flattened out of Movie or Series so the browser can be shared. */
@@ -249,10 +285,20 @@ fun HeroHeader(hero: HeroInfo?) {
 /**
  * Poster browsing with a category strip along the top — shared by Movies and
  * Shows, which differ only in what a card says and where it goes. The strip is
- * the same grammar as Live TV's: chips in a row, dwell selects, UP from the
- * first poster row comes back to it, and the grid keeps the full pane width.
+ * the same grammar as Live TV's: chips in a row, UP from the first poster row
+ * comes back to it, and the grid keeps the full pane width. OK selects a
+ * chip; there is no dwell here — see the strip below for why.
  *
  * The hero is pinned above the grid, one line tall — see [BrowseHero].
+ *
+ * Nothing in this body reads the focus position. A D-pad press writes
+ * [focusedEntryIndex] and that is all it does in composition: the hero and
+ * the row snap are driven off it by snapshotFlow in effects, the arrival
+ * requester sits on a cell chosen once, and each cell remembers its own
+ * entry. The first cut read the index in every cell's modifier and in this
+ * scope's snap, so every composed poster — and the browser around them —
+ * recomposed on every press, rebuilding a VodEntry, a HeroInfo and two
+ * lambdas per cell to find out that nothing about the cell had changed.
  */
 @Composable
 private fun VodBrowser(
@@ -277,14 +323,6 @@ private fun VodBrowser(
     val activeCategory = remember(selectedCategory, shown) {
         if (shown.any { it.id == selectedCategory }) selectedCategory else VOD_ALL
     }
-    // Same rest-before-select rule as the nav rail and Live TV: travelling the
-    // column would otherwise rebuild the whole grid on every step.
-    var focusedCategory by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(focusedCategory) {
-        val id = focusedCategory ?: return@LaunchedEffect
-        kotlinx.coroutines.delay(NuxMotion.FocusDwellMs.toLong())
-        selectedCategory = id
-    }
 
     val page = remember(activeCategory, continueWatching, entriesFor) {
         if (activeCategory == VOD_CONTINUE) VodPage.of(continueWatching)
@@ -301,28 +339,35 @@ private fun VodBrowser(
     // the first composition after a return is not, and treating it as one
     // threw away the viewer's place in the grid.
     var laidOutCategory by rememberSaveable { mutableStateOf(activeCategory) }
-
-    fun heroAt(index: Int): HeroInfo? =
-        if (page.size > 0) page.entryAt(index.coerceIn(0, page.size - 1)).hero else null
-    var hero by remember(initialHero) {
-        mutableStateOf(heroAt(if (browsingGrid) focusedEntryIndex else 0) ?: initialHero)
-    }
     // The grid is replaced wholesale on a category switch without focus moving
-    // inside it, so nothing else would clear the header of the item it was
-    // describing in a category that is no longer shown.
+    // inside it; resetting the index is what moves the hero to the first
+    // poster of the new category, since the hero follows the index.
     LaunchedEffect(activeCategory) {
         if (activeCategory == laidOutCategory) return@LaunchedEffect
         laidOutCategory = activeCategory
         focusedEntryIndex = 0
-        hero = heroAt(0) ?: initialHero
     }
 
-    // Debounced so travelling a poster row doesn't hard-cut the hero (text and
-    // backdrop together) 5x/second.
-    var shownHero by remember { mutableStateOf(hero) }
-    LaunchedEffect(hero) {
-        kotlinx.coroutines.delay(NuxMotion.HeroDebounceMs.toLong())
-        shownHero = hero
+    // The hero follows the focused poster — the remembered one on a return,
+    // the first one on a fresh visit — and is DERIVED from the index rather
+    // than snapshotted by the focus callback, so it is read here exactly once
+    // (without observation: a read the composition tracked would bring every
+    // press back into this scope) and from then on only inside the effect.
+    // Debounced there, so travelling a poster row doesn't hard-cut the hero
+    // (text and backdrop together) 5x/second.
+    val pageState = rememberUpdatedState(page)
+    val initialHeroState = rememberUpdatedState(initialHero)
+    val shownHero = remember {
+        mutableStateOf(Snapshot.withoutReadObservation { page.heroAt(focusedEntryIndex) ?: initialHero })
+    }
+    LaunchedEffect(Unit) {
+        snapshotFlow { pageState.value.heroAt(focusedEntryIndex) ?: initialHeroState.value }
+            .distinctUntilChanged()
+            .collectLatest { hero ->
+                if (hero == shownHero.value) return@collectLatest
+                kotlinx.coroutines.delay(NuxMotion.HeroDebounceMs.toLong())
+                shownHero.value = hero
+            }
     }
 
     // On the strip itself, with a restorer: UP from the grid lands on the chip
@@ -342,13 +387,17 @@ private fun VodBrowser(
     // on the first thing it finds — a chip, since the strip composes before
     // the grid — and that chip's focus callback rewrites browsingGrid before
     // this effect gets to run. Read late, the return always "remembered"
-    // being on the strip.
-    val returnIndex = remember { if (browsingGrid) focusedEntryIndex else -1 }
+    // being on the strip. Read without observation, or this scope would
+    // recompose on every press for a value it only ever wanted once.
+    val returnIndex = remember {
+        Snapshot.withoutReadObservation { if (browsingGrid) focusedEntryIndex else -1 }
+    }
     // True until the arrival has settled. A chip focused in passing during
-    // that window must not dwell-select: the shell's parking put focus on
-    // whichever chip was nearest, and a quarter-second later the category
-    // the viewer had chosen was replaced by it.
-    var arriving by remember { mutableStateOf(true) }
+    // that window must not count as the viewer leaving the grid: the shell's
+    // parking put focus on whichever chip was nearest, and the return then
+    // "remembered" being on the strip. A plain holder — nothing in
+    // composition reads it, so flipping it must not invalidate anything.
+    val arriving = remember { booleanArrayOf(true) }
     val arrivalAllowed = LocalArrivalFocusAllowed.current
     val arrivalPending = remember { booleanArrayOf(true) }
     LaunchedEffect(arrivalAllowed) {
@@ -366,7 +415,7 @@ private fun VodBrowser(
             }
             categoriesFocus.requestFocusRetrying()
         } finally {
-            arriving = false
+            arriving[0] = false
         }
     }
 
@@ -375,11 +424,15 @@ private fun VodBrowser(
     // poster is the stand-in, not the request: asking for the 16:9 art even
     // when a poster exists is what turns a wall of stretched portrait crops
     // into something that looks composed.
-    BackdropLayer(
-        borrowedArt(vm, shownHero?.art, shownHero?.backdrop, wide = true)
-            ?: shownHero?.poster
-    )
+    BrowseBackdrop(vm, shownHero)
     Column(modifier = Modifier.fillMaxSize()) {
+        // OK selects, nothing else does. Live TV's chips dwell-select because
+        // the guide beneath them is the whole screen and a rest on a chip is
+        // a real choice; here the grid beneath the strip is rebuilt from
+        // scratch on every switch — scrolled to the top, re-staggered, the
+        // hero reset — and a dwell turned travelling the strip into a series
+        // of those. A viewer moving along the chips to reach "Thriller" does
+        // not want "Action", "Comedy" and "Drama" laid out on the way.
         androidx.compose.foundation.lazy.LazyRow(
             modifier = Modifier
                 .padding(bottom = 10.dp)
@@ -394,11 +447,9 @@ private fun VodBrowser(
                     selected = category.id == activeCategory,
                     onClick = { selectedCategory = category.id },
                     onFocus = {
-                        if (arriving) return@CategoryItem
+                        if (arriving[0]) return@CategoryItem
                         browsingGrid = false
-                        focusedCategory = category.id
                     },
-                    onBlur = { if (focusedCategory == category.id) focusedCategory = null },
                 )
             }
         }
@@ -408,7 +459,7 @@ private fun VodBrowser(
         // grid's first item, leaving every poster past row one nameless.
         // One line, so it costs the grid less than a third of a row.
         Box(modifier = Modifier.fillMaxWidth().height(BROWSE_HERO_HEIGHT)) {
-            BrowseHero(shownHero)
+            BrowseHeroSlot(shownHero)
         }
         if (page.size == 0) {
             StatusPane(
@@ -418,7 +469,10 @@ private fun VodBrowser(
             )
             return@Column
         }
-        val gridEntrance = rememberListEntrance(activeCategory)
+        // Saveable, so a return from a film does not stagger the grid in
+        // again. Only a category switch — a real change of content — or a
+        // fresh launch animates.
+        val gridEntrance = rememberSaveable(activeCategory) { android.os.SystemClock.uptimeMillis() }
         val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
         // A category switch starts at the top. The state is shared across
         // categories, and without this "Comedy" opened wherever "All" had
@@ -442,16 +496,22 @@ private fun VodBrowser(
         // scales about its centre and the grid clips, so the row that snapping
         // exists to show you was the one row guaranteed to be cut.
         val overhangPx = with(LocalDensity.current) { FOCUS_OVERHANG.roundToPx() }
-        val focusedRow = focusedEntryIndex / gridColumns
-        // Keyed on the ROW: focusedEntryIndex changes on LEFT/RIGHT too, so
-        // travelling sideways cancelled and restarted a full smooth-scroll
-        // animation to the row it was already on, once per keypress.
-        LaunchedEffect(focusedRow, browsingGrid, overhangPx) {
-            if (!browsingGrid) return@LaunchedEffect
-            val row = focusedRow
-            // A negative offset seats the row below the viewport start rather
-            // than on it.
-            gridState.animateScrollToItem(row * gridColumns, scrollOffset = -overhangPx)
+        // Keyed on the ROW, via snapshotFlow rather than a read in this
+        // scope: focusedEntryIndex changes on LEFT/RIGHT too, and a read here
+        // rebuilt the grid's whole modifier chain — re-measuring it through
+        // shelfRingRoom — once per keypress, while the row it derives stayed
+        // the same. distinctUntilChanged is what makes sideways travel free.
+        LaunchedEffect(gridColumns, overhangPx) {
+            snapshotFlow { if (browsingGrid) focusedEntryIndex / gridColumns else -1 }
+                .distinctUntilChanged()
+                .collectLatest { row ->
+                    if (row < 0) return@collectLatest
+                    // A negative offset seats the row below the viewport
+                    // start rather than on it.
+                    snapRetrying {
+                        gridState.animateScrollToItem(row * gridColumns, scrollOffset = -overhangPx)
+                    }
+                }
         }
         LazyVerticalGrid(
             state = gridState,
@@ -494,8 +554,10 @@ private fun VodBrowser(
             ),
         ) {
             items(count = page.size, key = { page.keyAt(it) }) { index ->
-                // Built here, for this cell only — see [VodPage].
-                val entry = page.entryAt(index)
+                // Built here, for this cell only — see [VodPage] — and
+                // remembered, so the cell's lambdas keep their identity and
+                // the poster beneath can skip.
+                val entry = remember(page, index) { page.entryAt(index) }
                 Box(modifier = Modifier.itemEntrance(index, gridEntrance)) {
                     PosterCard(
                         title = entry.title,
@@ -503,14 +565,16 @@ private fun VodBrowser(
                         width = null,
                         year = entry.year,
                         progress = entry.progress,
-                        modifier = if (index == focusedEntryIndex) {
+                        // The arrival requester rides on exactly one cell —
+                        // the one chosen at composition — and is never asked
+                        // for again, so no cell needs to watch the index.
+                        modifier = if (index == returnIndex) {
                             Modifier.focusRequester(posterFocus)
                         } else Modifier,
                         onClick = entry.onOpen,
                         onFocus = {
                             browsingGrid = true
                             focusedEntryIndex = index
-                            hero = entry.hero
                             entry.onFocus()
                         },
                     )
@@ -520,6 +584,28 @@ private fun VodBrowser(
         }
     }
     }
+}
+
+/**
+ * The backdrop and the header each read the hero in a scope of their own, so
+ * a debounced hero swap recomposes the two of them and not the browser — the
+ * strip, the grid and every composed cell — around them.
+ */
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.BrowseBackdrop(
+    vm: MainViewModel,
+    hero: State<HeroInfo?>,
+) {
+    val current = hero.value
+    BackdropLayer(
+        borrowedArt(vm, current?.art, current?.backdrop, wide = true)
+            ?: current?.poster
+    )
+}
+
+@Composable
+private fun BrowseHeroSlot(hero: State<HeroInfo?>) {
+    BrowseHero(hero.value)
 }
 
 /** The pinned hero's slot — one line of title and chips. */
