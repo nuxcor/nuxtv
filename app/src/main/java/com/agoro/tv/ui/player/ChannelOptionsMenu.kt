@@ -111,7 +111,7 @@ internal fun ChannelOptionsMenu(
                         item(key = "favorite") {
                             OptionRow(
                                 icon = if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
-                                label = if (isFavorite) "Favorited" else "Favorite",
+                                label = if (isFavorite) "Remove favorite" else "Favorite",
                                 iconTint = if (isFavorite) NuxColors.Primary else NuxColors.OnSurface,
                                 onClick = onFavoriteToggle,
                                 modifier = Modifier.focusRequester(firstFocus),
@@ -140,7 +140,7 @@ internal fun ChannelOptionsMenu(
                     item(key = "tracks") {
                         OptionRow(
                             icon = Icons.Default.Subtitles,
-                            label = "Audio & subtitles",
+                            label = "Playback options",
                             onClick = onTracks,
                             modifier = if (isFavoritable) Modifier else Modifier.focusRequester(firstFocus),
                         )

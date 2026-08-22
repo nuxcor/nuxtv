@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.agoro.tv.data.userMessage
 import com.agoro.tv.data.ArtEntry
 import com.agoro.tv.data.Category
 import com.agoro.tv.data.ContentBundle
@@ -505,14 +506,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private companion object {
+        const val INSTALL_BLOCKED =
+            "Couldn't start the installer — allow \"install unknown apps\" for Agoro, then press Install"
+    }
+
     fun downloadAndInstallUpdate() {
         when (val current = _updateState.value) {
             is com.agoro.tv.data.UpdateManager.State.Downloading -> return // already running
             is com.agoro.tv.data.UpdateManager.State.Ready -> {
                 if (!updateManager.install(current.file)) {
-                    _updateState.value = com.agoro.tv.data.UpdateManager.State.Error(
-                        "Couldn't start the installer — allow \"install unknown apps\" for Agoro, then check again"
-                    )
+                    _updateState.value = current.copy(note = INSTALL_BLOCKED)
                 }
                 return
             }
@@ -526,16 +530,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val file = updateManager.download(available.apkUrl) { pct ->
                     _updateState.value = com.agoro.tv.data.UpdateManager.State.Downloading(pct)
                 }
-                _updateState.value =
-                    com.agoro.tv.data.UpdateManager.State.Ready(available.version, file)
+                val ready = com.agoro.tv.data.UpdateManager.State.Ready(available.version, file)
+                _updateState.value = ready
+                // Still Ready on a refused install: the APK is on disk, and
+                // the viewer who now enables "install unknown apps" should
+                // press Install, not download it all again.
                 if (!updateManager.install(file)) {
-                    _updateState.value = com.agoro.tv.data.UpdateManager.State.Error(
-                        "Couldn't start the installer — allow \"install unknown apps\" for Agoro, then check again"
-                    )
+                    _updateState.value = ready.copy(note = INSTALL_BLOCKED)
                 }
             }.onFailure { e ->
-                _updateState.value =
-                    com.agoro.tv.data.UpdateManager.State.Error(e.message ?: "Download failed")
+                _updateState.value = com.agoro.tv.data.UpdateManager.State.Error(
+                    "Download failed — ${e.userMessage()}"
+                )
             }
         }
     }
@@ -710,7 +716,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     // A login that failed must not keep downloading a guide
                     // for it.
                     epgJob.cancel()
-                    addState = AddState.Error(e.message ?: "Could not load the playlist")
+                    addState = AddState.Error(e.userMessage("Could not load the playlist"))
                 },
             )
         }
@@ -959,6 +965,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { playerPrefs.recordChannelVisit(url) }
     }
 
+    /**
+     * The channel the player most recently tuned, set the moment it tunes —
+     * no dwell. Recents wait eight seconds so a zap past twenty channels does
+     * not record all twenty, but the guide's return landing needs the channel
+     * the viewer actually left, including the one they backed out of after
+     * two seconds because it was dead. Session-only by design.
+     */
+    private val _lastTunedUrl = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val lastTunedUrl: StateFlow<String?> = _lastTunedUrl
+    fun noteTuned(url: String) {
+        _lastTunedUrl.value = url
+    }
+
     fun clearRecentChannels() {
         viewModelScope.launch { playerPrefs.clearRecentChannels() }
     }
@@ -1051,19 +1070,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         // Programme titles, the guide's other half: what is ON, not just what
         // the channel is called. Current and upcoming only — a finished
         // programme isn't something search can offer to watch.
+        //
+        // One row per title per channel — its next airing. A rolling news
+        // channel repeats "News Live Weekends" every half hour, and listing
+        // each airing filled all twenty slots with one programme on one
+        // channel before the search had reached the second channel.
         val now = System.currentTimeMillis()
         val programs = ArrayList<ProgramHit>()
         outer@ for (channel in b.channels) {
             if (channel.categoryId in lockedLive) continue
+            val seenTitles = HashSet<String>()
             for (program in repo.programsFor(channel)) {
                 if (program.endMs <= now) continue
+                if (!seenTitles.add(program.title.lowercase())) continue
                 if (searchRank(program.title, q, tokens) != null) {
                     programs.add(ProgramHit(channel, program))
-                    if (programs.size >= 20) break@outer
+                    if (programs.size >= 60) break@outer
                 }
             }
         }
         programs.sortBy { it.program.startMs }
+        if (programs.size > 20) programs.subList(20, programs.size).clear()
 
         return SearchResults(
             channels = channels,

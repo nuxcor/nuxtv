@@ -386,7 +386,7 @@ class ContentRepository(context: Context) {
                 android.util.Log.w("Agoro", "Playlist load failed: ${e.message}")
                 // Never clobber a working library with an error screen.
                 if (!quiet && _content.value !is ContentState.Ready) {
-                    _content.value = ContentState.Error(e.message ?: "Failed to load playlist")
+                    _content.value = ContentState.Error(e.userMessage("Failed to load playlist"))
                 }
             }
     }

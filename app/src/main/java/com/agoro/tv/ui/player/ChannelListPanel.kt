@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -110,9 +111,25 @@ internal fun ChannelListPanel(
     }
     val browsingCategory = categoryId != null
 
+    // The row focus last rested on, so walking out to the categories and back
+    // lands where the viewer was — not on the playing channel, which after
+    // fifteen DOWN presses has been recycled out of the list, leaving a
+    // single-shot requestFocus with no node and the remote dead.
+    var focusedListRow by remember { mutableStateOf(-1) }
+    // Bumped by every route back into the list; the effect below scrolls the
+    // target row into composition FIRST, then asks, retrying on the Boolean.
+    var returnTick by remember { mutableStateOf(0) }
     LaunchedEffect(categoryId) {
+        focusedListRow = -1
         listState.scrollToItem(if (browsingCategory) 0 else currentIndex.coerceAtLeast(0))
         // The target row composes a frame after the scroll; retry briefly.
+        firstFocus.requestFocusRetrying()
+    }
+    LaunchedEffect(returnTick) {
+        if (returnTick == 0) return@LaunchedEffect
+        val target = focusedListRow.takeIf { it >= 0 }
+            ?: if (browsingCategory) 0 else currentIndex.coerceAtLeast(0)
+        listState.scrollToItem(target)
         firstFocus.requestFocusRetrying()
     }
     LaunchedEffect(categoriesOpen) {
@@ -125,7 +142,7 @@ internal fun ChannelListPanel(
     // the player's handler, so it wins while the category column is open.
     BackHandler(enabled = categoriesOpen) {
         categoriesOpen = false
-        runCatching { firstFocus.requestFocus() }
+        returnTick++
     }
 
     Row(modifier = Modifier.fillMaxSize()) {
@@ -147,7 +164,7 @@ internal fun ChannelListPanel(
                             // RIGHT walks back in towards the video.
                             AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> {
                                 categoriesOpen = false
-                                runCatching { firstFocus.requestFocus() }
+                                returnTick++
                                 true
                             }
                             // Categories is the last panel, so LEFT completes the
@@ -318,11 +335,14 @@ internal fun ChannelListPanel(
                                 if (browsingCategory) onSelectChannels(categoryChannels, index)
                                 else onSelect(index)
                             },
-                            modifier = if (index == if (browsingCategory) 0 else currentIndex) {
-                                Modifier.fillMaxWidth().focusRequester(firstFocus)
-                            } else {
-                                Modifier.fillMaxWidth()
-                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(
+                                    if (index == focusedListRow.takeIf { it >= 0 }
+                                        ?: if (browsingCategory) 0 else currentIndex
+                                    ) Modifier.focusRequester(firstFocus) else Modifier
+                                )
+                                .onFocusChanged { if (it.isFocused) focusedListRow = index },
                             shape = ClickableSurfaceDefaults.shape(PlayerTheme.ChipShape),
                             colors = ClickableSurfaceDefaults.colors(
                                 containerColor = if (isCurrent) {

@@ -202,15 +202,18 @@ fun MovieDetailScreen(
  * "2h 1m", the way every streaming service says it. Anything unparseable
  * passes through untouched.
  */
-private fun prettyDuration(raw: String): String {
-    val parts = raw.trim().split(':').map { it.toIntOrNull() ?: return raw }
+private fun prettyDuration(raw: String): String? {
+    // Null, not the raw text, for anything that isn't a length: panels send
+    // "00:00:00" for "unknown", and a chip reading 00:00:00 is a chip that
+    // says the app doesn't know what it is showing.
+    val parts = raw.trim().split(':').map { it.toIntOrNull() ?: return null }
     val minutes = when (parts.size) {
         3 -> parts[0] * 60 + parts[1] + if (parts[2] >= 30) 1 else 0
         2 -> parts[0] + if (parts[1] >= 30) 1 else 0
         1 -> parts[0]
-        else -> return raw
+        else -> return null
     }
-    if (minutes <= 0) return raw
+    if (minutes <= 0) return null
     val h = minutes / 60
     val m = minutes % 60
     return when {
@@ -385,6 +388,7 @@ fun SeriesDetailScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = NuxColors.OnSurfaceDim,
                         maxLines = 3,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     )
                 }
                 // The header is compact, so credits get one line, not two.
@@ -434,7 +438,7 @@ fun SeriesDetailScreen(
                                     startOver = true,
                                 )
                                 onPlay()
-                            }) { Text("Start over") }
+                            }) { Text("Start episode over") }
                         }
                         // See the movie screen: BACK is a hardware key.
                     }
@@ -506,14 +510,22 @@ fun SeriesDetailScreen(
                     itemsIndexed(seasonEpisodes, key = { _, e -> e.id }) { index, episode ->
                         val watchedTo = resumePositions[episode.url] ?: 0L
                         WideItem(
-                            title = "${episode.episodeNum}. ${episode.title}",
+                            // No "0." — a panel that numbers nothing gets a
+                            // plain title, not a numbering it didn't supply.
+                            title = if (episode.episodeNum > 0) {
+                                "${episode.episodeNum}. ${episode.title}"
+                            } else episode.title,
                             subtitle = if (watchedTo > 0) {
                                 "Resume from ${formatOffset(watchedTo)}"
                             } else {
+                                // The season is the strip above; repeating it
+                                // under every row said nothing.
                                 episode.durationText?.let(::prettyDuration)
-                                    ?: "Season ${episode.season}"
                             },
-                            body = episode.plot ?: series.plot,
+                            // The series synopsis on every episode row is the
+                            // same paragraph N times; rows without their own
+                            // keep the line for the layout and leave it blank.
+                            body = episode.plot ?: series.plot?.let { "" },
                             imageUrl = episode.poster ?: series.backdrop ?: series.poster,
                             progress = resumeProgress[episode.url],
                             onClick = {

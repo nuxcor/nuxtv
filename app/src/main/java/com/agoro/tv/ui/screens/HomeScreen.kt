@@ -102,6 +102,21 @@ fun HomeScreen(
         }
     }
     val contentFocus = remember { FocusRequester() }
+    // Whether anything in the content lane holds focus right now. The
+    // parking loops below check it before every attempt: a tab that has
+    // already seated focus on the card the viewer left (each tab's own
+    // arrival logic) must not have it yanked to the pane's first focusable
+    // by a shell retry that fires a frame later — which is exactly what
+    // happened on every return from a detail page.
+    var contentHasFocus by remember { mutableStateOf(false) }
+    suspend fun parkInContent(retries: Int, intervalMs: Long): Boolean {
+        repeat(retries) { attempt ->
+            if (contentHasFocus) return true
+            if (runCatching { contentFocus.requestFocus() }.getOrDefault(false)) return true
+            if (attempt < retries - 1) delay(intervalMs)
+        }
+        return contentHasFocus
+    }
     // Survives this screen leaving composition, which is what going to the
     // player does: coming back is a return, not a launch.
     var hasLaunched by rememberSaveable { mutableStateOf(false) }
@@ -132,14 +147,14 @@ fun HomeScreen(
         // window's default focus placement and could leave nothing focused
         // at all. A long retry window, deliberately: this races a COLD
         // start, where content composes many frames in — not one.
-        if (!contentFocus.requestFocusRetrying(retries = 25, intervalMs = 80)) {
+        if (!parkInContent(retries = 25, intervalMs = 80)) {
             // The loading pane has nothing to take focus, so a cold start
             // slower than the first window used to fall through here. When
             // the rail was a fixed strip that fallback was invisible; as a
             // drawer it OPENED on boot. Stay patient while the library
             // lands — the drawer is the landing only when content never
             // produces anything focusable at all.
-            if (!contentFocus.requestFocusRetrying(retries = 100, intervalMs = 120)) {
+            if (!parkInContent(retries = 100, intervalMs = 120)) {
                 openRail()
             }
         }
@@ -183,6 +198,7 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(start = Space.gutter, end = Space.gutter, top = Space.gutterVertical, bottom = Space.gutterVertical)
                 .focusRequester(contentFocus)
+                .onFocusChanged { contentHasFocus = it.hasFocus }
                 .focusRestorer()
         ) {
             // No Crossfade: it keeps both tab trees composed and drawn into
@@ -264,9 +280,12 @@ fun HomeScreen(
                             onHeroChange = { homeHero = it },
                             onBrowse = { tab = it },
                         )
-                        HomeTab.Search -> SearchTab(vm, onOpenMovie, onOpenSeries, onPlay)
+                        HomeTab.Search -> SearchTab(
+                            vm, onOpenMovie, onOpenSeries, onPlay,
+                            onBack = { tab = HomeTab.Home },
+                        )
                         HomeTab.Live -> LiveTab(vm, state.bundle, onPlay, onOpenSettings = { tab = HomeTab.Settings })
-                        HomeTab.Sport -> SportTab(vm, state.bundle, onPlay)
+                        HomeTab.Sport -> SportTab(vm, state.bundle, onPlay, onBrowse = { tab = it })
                         HomeTab.Movies -> MoviesTab(vm, state.bundle, onOpenMovie, onOpenSettings = { tab = HomeTab.Settings })
                         HomeTab.Series -> SeriesTab(vm, state.bundle, onOpenSeries, onOpenSettings = { tab = HomeTab.Settings })
                         HomeTab.Recordings -> RecordingsTab(
@@ -385,7 +404,7 @@ fun HomeScreen(
                 // the drawer it had just closed.
                 railFocused = false
                 railScope.launch {
-                    contentFocus.requestFocusRetrying(retries = 25, intervalMs = 80)
+                    parkInContent(retries = 25, intervalMs = 80)
                     railClosedAtMs = android.os.SystemClock.uptimeMillis()
                     railVisible = false
                 }

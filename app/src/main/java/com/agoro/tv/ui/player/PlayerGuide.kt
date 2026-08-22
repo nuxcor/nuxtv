@@ -2,7 +2,9 @@
 
 package com.agoro.tv.ui.player
 
-import androidx.activity.compose.BackHandler
+import com.agoro.tv.ui.components.requestFocusRetrying
+import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
@@ -92,7 +94,10 @@ internal fun PlayerGuideOverlay(
     onDismiss: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    BackHandler { onDismiss() }
+    // No BackHandler of its own: the player scaffold already routes BACK for
+    // the Guide layer, and this one stayed enabled through the overlay's
+    // exit animation — a quick BACK-BACK to leave the player lost its second
+    // press to a guide that was already closing.
 
     val epgState by vm.epgState.collectAsState()
     val allChannels by vm.displayChannels.collectAsState()
@@ -214,10 +219,22 @@ internal fun PlayerGuideOverlay(
         }
         Spacer(Modifier.height(14.dp))
 
+        // Fallback focus for the states below with no grid: the guide opened
+        // from the transport bar's button, whose focus left with the bar, and
+        // a "Guide not available" pane with nothing focusable left the remote
+        // dead until BACK.
+        val chipsFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+        val gridShown = epgState is ContentRepository.EpgState.Ready && channels.isNotEmpty()
+        LaunchedEffect(gridShown) {
+            if (!gridShown) chipsFocus.requestFocusRetrying()
+        }
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(bottom = 10.dp),
+            modifier = Modifier
+                .padding(bottom = 10.dp)
+                .focusRequester(chipsFocus)
+                .focusRestorer(),
         ) {
             items(categories, key = { it.id }) { category ->
                 CategoryItem(

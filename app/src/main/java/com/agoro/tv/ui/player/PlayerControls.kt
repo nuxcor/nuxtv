@@ -136,7 +136,18 @@ internal fun PlayerControls(
             val labelled = isLive
             // No pause on live: pausing a broadcast only ever resumed at the
             // live edge anyway, and remotes that alias the centre button to
-            // PLAY_PAUSE made OK's behaviour look random.
+            // PLAY_PAUSE made OK's behaviour look random. But a live stream
+            // that IS paused — the sleep timer, a CEC pause — needs a way
+            // back, so the bar leads with Play exactly then.
+            if (isLive && !playing) {
+                ControlButton(
+                    icon = Icons.Default.PlayArrow,
+                    label = "Play",
+                    onClick = onPlayPause,
+                    prominent = true,
+                    showLabel = true,
+                )
+            }
             if (hasPlaylist) {
                 ControlButton(
                     Icons.AutoMirrored.Filled.List,

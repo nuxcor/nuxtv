@@ -45,6 +45,10 @@ import com.agoro.tv.data.SportsEvent
 import com.agoro.tv.data.SportsParser
 import com.agoro.tv.ui.components.SectionTitle
 import com.agoro.tv.ui.components.StatusPane
+import com.agoro.tv.ui.components.StatusAction
+import com.agoro.tv.ui.components.rememberClockFormat
+import com.agoro.tv.ui.components.rememberInitialFocus
+import androidx.compose.ui.focus.focusRequester
 import com.agoro.tv.ui.theme.NuxColors
 import com.agoro.tv.ui.theme.NuxFocus
 import com.agoro.tv.ui.theme.NuxShape
@@ -64,7 +68,13 @@ import java.util.Locale
  * nothing on. A destination can say what is coming instead of vanishing.
  */
 @Composable
-fun SportTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
+fun SportTab(
+    vm: MainViewModel,
+    bundle: ContentBundle,
+    onPlay: () -> Unit,
+    /** Where the empty states send the viewer instead of leaving them stranded. */
+    onBrowse: (HomeTab) -> Unit = {},
+) {
     val sport by vm.sport.collectAsState()
     val leagues = sport?.leagues.orEmpty()
     val cue = sport?.cueMinutes ?: 60
@@ -77,10 +87,14 @@ fun SportTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
     // for, and walking eight thousand slots to discover that is work spent to
     // render a status pane.
     if (leagues.isEmpty()) {
+        // With an action: the pane owns the whole screen now that the rail
+        // is a drawer, and a pane with nothing focusable leaves the remote
+        // dead until BACK.
         StatusPane(
             title = "Sport isn't set up",
-            message = "This playlist's manifest carries no leagues.",
+            message = "This playlist carries no fixture listings.",
             icon = Icons.Default.SportsSoccer,
+            primaryAction = StatusAction("Browse Live TV") { onBrowse(HomeTab.Live) },
         )
         return
     }
@@ -116,7 +130,7 @@ fun SportTab(vm: MainViewModel, bundle: ContentBundle, onPlay: () -> Unit) {
     // collect, the produceState scope and every key it compares — so that a
     // label could say "in 5 min". Only the part that reads the clock should
     // answer to it.
-    Fixtures(parsed.orEmpty(), leagueOrder, cue, onPlay, vm)
+    Fixtures(parsed.orEmpty(), leagueOrder, cue, onPlay, onBrowse, vm)
 }
 
 @Composable
@@ -125,6 +139,7 @@ private fun Fixtures(
     leagueOrder: List<String>,
     cue: Int,
     onPlay: () -> Unit,
+    onBrowse: (HomeTab) -> Unit,
     vm: MainViewModel,
 ) {
     // A fixture list is a clock face: a match kicks off, another ends, and the
@@ -144,8 +159,13 @@ private fun Fixtures(
     if (fixtures.isEmpty()) {
         StatusPane(
             title = "Nothing on right now",
-            message = "Fixtures appear here an hour before kick-off.",
+            message = when {
+                cue % 60 == 0 && cue / 60 == 1 -> "Fixtures appear here an hour before kick-off."
+                cue % 60 == 0 -> "Fixtures appear here ${cue / 60} hours before kick-off."
+                else -> "Fixtures appear here $cue minutes before kick-off."
+            },
             icon = Icons.Default.SportsSoccer,
+            primaryAction = StatusAction("Browse Live TV") { onBrowse(HomeTab.Live) },
         )
         return
     }
@@ -158,6 +178,17 @@ private fun Fixtures(
             fixtures.filter { it.league == league }.takeIf { it.isNotEmpty() }?.let { league to it }
         }
     }
+
+    // The list lands seconds after the tab opens — the parse runs behind the
+    // catalogue — which is after the shell has given up trying to park focus
+    // here. Claim it ourselves when there is something to claim, or the tab
+    // opened with no focus anywhere and the first press was spent finding it.
+    // Keyed on nothing: this composable only exists once there are fixtures,
+    // and keying on the first fixture would re-seat focus every time the
+    // order changed under a 30-second tick.
+    val firstRowFocus = rememberInitialFocus(Unit)
+    val firstShown = byLeague.firstOrNull()?.second?.firstOrNull()
+    val clock = rememberClockFormat()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -176,7 +207,15 @@ private fun Fixtures(
                     verticalArrangement = Arrangement.spacedBy(Space.xs),
                 ) {
                     list.forEach { event ->
-                        FixtureRow(event, now) {
+                        FixtureRow(
+                            event, now, clock,
+                            // The first row ON SCREEN — fixtures.first() is
+                            // the earliest kick-off, which can sit in the
+                            // last league and drag the list to the bottom.
+                            modifier = if (event === firstShown) {
+                                Modifier.focusRequester(firstRowFocus)
+                            } else Modifier,
+                        ) {
                             vm.playEvent(event.streamId, event.alternates)
                             onPlay()
                         }
@@ -204,10 +243,16 @@ private val FixtureRowWidth = 620.dp
 private val StatusColumnWidth = 96.dp
 
 @Composable
-private fun FixtureRow(event: SportsEvent, nowMs: Long, onClick: () -> Unit) {
+private fun FixtureRow(
+    event: SportsEvent,
+    nowMs: Long,
+    clock: SimpleDateFormat,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = ClickableSurfaceDefaults.shape(NuxShape.Row),
         colors = ClickableSurfaceDefaults.colors(
             // Unfocused rows sit flat on the background so the focused one is
@@ -232,7 +277,7 @@ private fun FixtureRow(event: SportsEvent, nowMs: Long, onClick: () -> Unit) {
                 // it would otherwise never light up.
                 if (event.isLive(nowMs)) LiveBadge() else {
                     Text(
-                        text = statusOf(event, nowMs),
+                        text = statusOf(event, nowMs, clock),
                         style = MaterialTheme.typography.labelLarge,
                         color = NuxColors.OnSurfaceDim,
                         maxLines = 1,
@@ -291,13 +336,15 @@ private fun LiveBadge() {
  * "LIVE" for something already running; otherwise how long until kick-off,
  * because a clock time on its own makes the viewer do the arithmetic.
  */
-private fun statusOf(event: SportsEvent, nowMs: Long): String {
+private fun statusOf(event: SportsEvent, nowMs: Long, clock: SimpleDateFormat): String {
     val start = event.startMs ?: return "LIVE"
     if (start <= nowMs) return "LIVE"
     val minutes = ((start - nowMs) / 60_000).toInt()
     return when {
         minutes <= 1 -> "Starts now"
         minutes < 60 -> "in $minutes min"
-        else -> SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(start))
+        // The app's clock format, so a 12-hour viewer doesn't read "20:00"
+        // here beside "8:00 PM" in the guide.
+        else -> clock.format(Date(start))
     }
 }

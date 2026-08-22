@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -61,7 +62,16 @@ internal fun PlayerBadge(text: String, color: Color) {
             .background(NuxColors.Scrim)
             .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
-        Text(text = text, style = MaterialTheme.typography.labelMedium, color = color)
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = color,
+            // A corner pill, not a paragraph: "Recording scheduled: <long
+            // programme title>" wrapped into three lines over the picture.
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 420.dp),
+        )
     }
 }
 
@@ -99,7 +109,7 @@ internal fun CatchupOverlay(
     val scope = rememberCoroutineScope()
     var programs by remember(channel.id) { mutableStateOf<List<EpgProgram>?>(null) }
     val closeFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { closeFocus.requestFocusRetrying() }
+    val listFocus = remember { FocusRequester() }
 
     LaunchedEffect(channel.id) {
         val now = System.currentTimeMillis()
@@ -107,6 +117,16 @@ internal fun CatchupOverlay(
         programs = vm.epgFor(channel)
             .filter { it.hasArchive && it.endMs < now && it.startMs > oldest }
             .sortedByDescending { it.startMs }
+    }
+    // Focus opens on the newest programme — "what did I just miss" is the
+    // question this sheet answers — and only falls back to Close while the
+    // list is loading or empty. On Close, the list's first row was N presses
+    // of UP away through everything older.
+    LaunchedEffect(programs) {
+        val list = programs
+        if (list.isNullOrEmpty() || !listFocus.requestFocusRetrying()) {
+            closeFocus.requestFocusRetrying()
+        }
     }
 
     val dayFmt = remember { SimpleDateFormat("EEE d MMM", Locale.getDefault()) }
@@ -140,7 +160,10 @@ internal fun CatchupOverlay(
                 )
                 else -> LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .focusRequester(listFocus)
+                        .focusRestorer(),
                 ) {
                     items(programs!!, key = { it.id }) { program ->
                         Surface(
@@ -285,7 +308,18 @@ internal fun TracksOverlay(
             }
             Spacer(Modifier.height(16.dp))
 
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // Bounded: inside a Column the list measured with ALL the
+            // remaining height, so the Close button after it was laid out
+            // below the screen on any stream with more than a few rows —
+            // and it was the initial focus, so the sheet opened with no
+            // visible cursor. Focus opens on the first option instead.
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .focusRequester(initialFocus)
+                    .focusRestorer(),
+            ) {
                 if (video.isNotEmpty()) {
                     item(key = "video-header") {
                         Text(
@@ -341,7 +375,11 @@ internal fun TracksOverlay(
                         val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
                         OptionChips(
                             label = "Speed",
-                            options = speeds.map { if (it == 1f) "1x" else "${it}x" },
+                            options = speeds.map { speed ->
+                                // "2x", not "2.0x": trailing zeros trimmed the way 1x already was.
+                                val text = speed.toString().trimEnd('0').trimEnd('.')
+                                "${text}x"
+                            },
                             selectedIndex = speeds.indexOf(speed).coerceAtLeast(0),
                             onSelect = { onSpeed(speeds[it]) },
                         )
@@ -417,7 +455,7 @@ internal fun TracksOverlay(
                 ),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = NuxFocus.ButtonScale),
                 border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring12),
-                modifier = Modifier.widthIn(min = 120.dp).focusRequester(initialFocus),
+                modifier = Modifier.widthIn(min = 120.dp),
             ) {
                 Text(
                     "Close",
@@ -514,6 +552,8 @@ internal fun PlaybackErrorCard(
     message: String,
     canSwapEngine: Boolean,
     hasNext: Boolean,
+    /** Names the Next button: a channel on live, an episode in a box set. */
+    isLive: Boolean = true,
     onRetry: () -> Unit,
     onSwapEngine: () -> Unit,
     onNext: () -> Unit,
@@ -554,12 +594,15 @@ internal fun PlaybackErrorCard(
                     modifier = Modifier.focusRequester(retryFocus),
                 ) { Text("Retry") }
                 if (canSwapEngine) {
+                    // "Playback engine" is what the options menu calls it.
                     androidx.tv.material3.OutlinedButton(onClick = onSwapEngine) {
-                        Text("Try other player")
+                        Text("Try other engine")
                     }
                 }
                 if (hasNext) {
-                    androidx.tv.material3.OutlinedButton(onClick = onNext) { Text("Next channel") }
+                    androidx.tv.material3.OutlinedButton(onClick = onNext) {
+                        Text(if (isLive) "Next channel" else "Next episode")
+                    }
                 }
                 androidx.tv.material3.OutlinedButton(onClick = onBack) { Text("Back") }
             }
@@ -576,6 +619,8 @@ private fun plainLanguage(raw: String): String = when {
     raw.contains("TIMEOUT", true) || raw.contains("UNSPECIFIED_IO", true) ->
         "The stream didn't respond. This is usually the provider or the network."
     raw.contains("DECODER", true) || raw.contains("DECODING", true) ->
-        "This TV couldn't decode the stream. Try the other player engine."
-    else -> raw
+        "This TV couldn't decode the stream. Try the other engine."
+    // Already a sentence from the engine's own rewrite; make sure it reads
+    // as one (a period, no stray capital mid-line).
+    else -> raw.trim().trimEnd('.').let { if (it.isEmpty()) "The stream stopped." else "$it." }
 }

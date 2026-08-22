@@ -24,7 +24,12 @@ class UpdateManager(private val context: Context, private val http: OkHttpClient
         data object UpToDate : State()
         data class Available(val version: String, val apkUrl: String, val sizeBytes: Long) : State()
         data class Downloading(val progressPercent: Int) : State()
-        data class Ready(val version: String, val file: File) : State()
+        /**
+         * Downloaded. [note] carries why the last install attempt did not
+         * start (the unknown-sources permission, usually) — the file is kept
+         * so fixing that costs a press, not a second download.
+         */
+        data class Ready(val version: String, val file: File, val note: String? = null) : State()
         data class Error(val message: String) : State()
     }
 
@@ -93,7 +98,7 @@ class UpdateManager(private val context: Context, private val http: OkHttpClient
                 ).execute().use { it.header("Content-Length")?.toLongOrNull() }
             }.getOrNull() ?: 0L
             State.Available(version = tag, apkUrl = apkUrl, sizeBytes = size)
-        }.getOrElse { e -> State.Error(e.message ?: "Update check failed") }
+        }.getOrElse { e -> State.Error("Update check failed — ${e.userMessage("try again later")}") }
     }
 
     suspend fun download(apkUrl: String, onProgress: (Int) -> Unit): File =

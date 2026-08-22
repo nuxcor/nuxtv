@@ -49,9 +49,13 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit, onGoToGuide: (() -> Uni
 
     LaunchedEffect(active) { vm.refreshRecordings() }
 
-    val dateFmt = remember { SimpleDateFormat("EEE d MMM, HH:mm", Locale.getDefault()) }
+    // The app's clock format (12/24h follows the TV's setting), so this
+    // screen never reads "20:00" beside the guide's "8:00 PM".
+    val clock = com.agoro.tv.ui.components.rememberClockFormat()
+    val dayFmt = remember { SimpleDateFormat("EEE d MMM", Locale.getDefault()) }
     var confirmDelete by remember { mutableStateOf<com.agoro.tv.recording.Recording?>(null) }
     var confirmCancel by remember { mutableStateOf<com.agoro.tv.data.ScheduledRecording?>(null) }
+    var confirmStop by remember { mutableStateOf(false) }
     var menuRecording by remember { mutableStateOf<com.agoro.tv.recording.Recording?>(null) }
 
     Column(
@@ -64,7 +68,7 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit, onGoToGuide: (() -> Uni
         if (rec != null) {
             WideItem(
                 title = "Recording now: ${rec.channelName}",
-                subtitle = "${rec.bytesWritten / (1024 * 1024)} MB written — select to stop",
+                subtitle = "${rec.bytesWritten / (1024 * 1024)} MB written — OK to stop",
                 leading = {
                     // Alpha-only pulse: reads as "live" without animating layout.
                     val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "recPulse")
@@ -84,7 +88,9 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit, onGoToGuide: (() -> Uni
                         modifier = Modifier.graphicsLayer { this.alpha = alpha },
                     )
                 },
-                onClick = { vm.stopRecording() },
+                // Confirmed, like every other irreversible press: a recording
+                // stopped by an OK meant for the row below cannot be resumed.
+                onClick = { confirmStop = true },
             )
             Spacer(Modifier.height(14.dp))
         }
@@ -110,8 +116,11 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit, onGoToGuide: (() -> Uni
                 items(schedules.sortedBy { it.startMs }, key = { it.id }) { schedule ->
                     WideItem(
                         title = "${schedule.title} — ${schedule.channelName}",
-                        subtitle = dateFmt.format(Date(schedule.startMs)) +
-                            " – ${dateFmt.format(Date(schedule.endMs))}  •  select to cancel",
+                        // Day once, then the span — "Thu 21 Aug, 8:00 PM – 9:00 PM"
+                        // rather than the same date printed twice.
+                        subtitle = "${dayFmt.format(Date(schedule.startMs))}, " +
+                            "${clock.format(Date(schedule.startMs))} – " +
+                            "${clock.format(Date(schedule.endMs))}  •  OK to cancel",
                         leading = {
                             Icon(
                                 Icons.Default.FiberManualRecord,
@@ -136,7 +145,8 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit, onGoToGuide: (() -> Uni
                 // every row.
                 WideItem(
                     title = recording.name,
-                    subtitle = "${dateFmt.format(Date(recording.recordedAtMs))} • " +
+                    subtitle = "${dayFmt.format(Date(recording.recordedAtMs))}, " +
+                        "${clock.format(Date(recording.recordedAtMs))} • " +
                         "%.1f MB".format(recording.sizeBytes / 1024f / 1024f),
                     leading = {
                         Icon(
@@ -182,12 +192,23 @@ fun RecordingsTab(vm: MainViewModel, onPlay: () -> Unit, onGoToGuide: (() -> Uni
         )
     }
     confirmCancel?.let { schedule ->
+        // "Remove", not "Cancel recording": beside a "Cancel" button that
+        // keeps it, two buttons starting with the same word is a coin toss.
         com.agoro.tv.ui.components.ConfirmDialog(
-            title = "Cancel this scheduled recording?",
+            title = "Remove this scheduled recording?",
             message = schedule.title,
-            confirmLabel = "Cancel recording",
+            confirmLabel = "Remove",
             onConfirm = { vm.cancelSchedule(schedule.id) },
             onDismiss = { confirmCancel = null },
+        )
+    }
+    if (confirmStop) {
+        com.agoro.tv.ui.components.ConfirmDialog(
+            title = "Stop recording?",
+            message = active?.channelName,
+            confirmLabel = "Stop",
+            onConfirm = { vm.stopRecording() },
+            onDismiss = { confirmStop = false },
         )
     }
 }

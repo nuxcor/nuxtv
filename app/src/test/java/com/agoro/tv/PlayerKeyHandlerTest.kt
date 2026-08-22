@@ -25,6 +25,7 @@ class PlayerKeyHandlerTest {
         isKeyUp: Boolean = false,
         repeatCount: Int = 0,
         digitsPending: Boolean = false,
+        playing: Boolean = true,
     ) = playerKeyAction(
         code = code,
         isKeyDown = isKeyDown,
@@ -38,6 +39,7 @@ class PlayerKeyHandlerTest {
         centerArmed = centerArmed,
         centerLongPressFired = centerLongPressFired,
         digitsPending = digitsPending,
+        playing = playing,
     )
 
     // --- OK press / hold ---------------------------------------------------
@@ -413,6 +415,39 @@ class PlayerKeyHandlerTest {
         val result = press(KeyEvent.KEYCODE_LAST_CHANNEL, hasPreviousChannel = true)
         assertTrue(result.consumed)
         assertEquals(PlayerKeyAction.LastChannel, result.action)
+    }
+
+    @Test
+    fun `last-channel does not zap underneath an open panel`() {
+        val under = press(
+            KeyEvent.KEYCODE_LAST_CHANNEL, hasPreviousChannel = true, layer = PlayerLayer.Options,
+        )
+        assertFalse(under.consumed)
+        assertEquals(null, under.action)
+    }
+
+    @Test
+    fun `PLAY_PAUSE resumes a paused live stream`() {
+        val paused = press(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, playing = false)
+        assertTrue(paused.consumed)
+        assertEquals(PlayerKeyAction.PlayPause, paused.action)
+    }
+
+    @Test
+    fun `D-pad travel inside the controls keeps them up`() {
+        for (code in listOf(
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
+        )) {
+            val move = press(code, layer = PlayerLayer.Controls, isLive = false)
+            assertFalse("the focus system owns the move", move.consumed)
+            assertEquals(PlayerKeyAction.ShowControls, move.action)
+        }
+    }
+
+    @Test
+    fun `INFO opens the controls on VOD, which has no banner`() {
+        assertEquals(PlayerKeyAction.ShowControls, press(KeyEvent.KEYCODE_INFO, isLive = false).action)
     }
 
     @Test
