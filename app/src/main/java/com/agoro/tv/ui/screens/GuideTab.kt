@@ -207,12 +207,14 @@ fun GuideTab(
     // every step. This was lost when the redesign made the guide the
     // only Live surface — chips highlighted on focus but only OK
     // filtered, which read as "the category doesn't work".
-    var focusedCategory by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(focusedCategory) {
-        val id = focusedCategory ?: return@LaunchedEffect
-        kotlinx.coroutines.delay(NuxMotion.FocusDwellMs.toLong())
-        onCategoryId(id)
-    }
+    //
+    // A MutableState handed down, never read here: the chips write it and
+    // [CategoryDwell] reads it in a scope of its own. Read in THIS scope —
+    // as a LaunchedEffect key, which is a read — every chip focus
+    // recomposed the whole tab body, strip, header and ruler included,
+    // before the dwell had even started to count.
+    val focusedCategory = remember { mutableStateOf<String?>(null) }
+    CategoryDwell(focusedCategory, onCategoryId)
     // Only a focus that follows a key press can dwell-select. Focus also
     // lands on a chip when nothing pressed anything — the shell parking on
     // the first focusable after a return from the player, Compose reseating
@@ -510,8 +512,8 @@ fun GuideTab(
                     },
                     // Locked categories still need the OK press (and
                     // its PIN prompt); dwell must not walk past a PIN.
-                    onFocus = { if (!locked && dwellAllowed()) focusedCategory = category.id },
-                    onBlur = { if (focusedCategory == category.id) focusedCategory = null },
+                    onFocus = { if (!locked && dwellAllowed()) focusedCategory.value = category.id },
+                    onBlur = { if (focusedCategory.value == category.id) focusedCategory.value = null },
                     locked = locked,
                 )
             }
@@ -521,7 +523,7 @@ fun GuideTab(
         // first channel's on-now programme, not a channel name over a void.
         // Only for the true resting state — a focused channel whose lane reads
         // "No information" must not borrow another channel's programme.
-        val restingProgram = remember(channels.firstOrNull()?.id, epgState, nowTick) {
+        val restingProgram = remember(channels.firstOrNull()?.id, guideWindow, nowTick) {
             channels.firstOrNull()?.let { first ->
                 vm.programsFor(first).firstOrNull { nowTick in it.startMs until it.endMs }
             }
@@ -574,10 +576,15 @@ fun GuideTab(
             programsFor = remember(vm, windowStart, windowEnd) {
                 { channel: LiveChannel -> vm.programsIn(channel, windowStart, windowEnd) }
             },
-            // The window is filled asynchronously, so a row cache keyed only
-            // on the guide would hold the empty answer it got while the query
-            // was still running.
-            programsKey = epgState to guideWindow,
+            // The window revision is what says the rows' answer changed: it
+            // is bumped after every window load, the refresh after an ingest
+            // included. Keying on the EPG state's IDENTITY as well rebuilt
+            // every row twice per refresh — once when the new state was
+            // published, again when the window it filled landed — and once
+            // per pack on a cold start. Whether a guide is loaded at all
+            // still matters, because the rows resolve channels through it;
+            // that is a Boolean, and it flips once.
+            programsKey = (epgState is ContentRepository.EpgState.Ready) to guideWindow,
             onChannelLongPress = onChannelLongPress,
             windowStart = windowStart,
             windowEnd = windowEnd,
@@ -680,8 +687,22 @@ private fun GuideHeader(
 ) {
     val timeFmt = rememberClockFormat()
     val dateFmt = remember { SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault()) }
-    val current = channel()
-    val currentProgram = program()
+    // Debounced, the way the Home hero is, so travelling rows costs the
+    // header nothing until the viewer rests. Every DOWN used to re-key the
+    // artwork on the new channel at once, and a 200×104dp request is a
+    // different Coil cache entry from the row's 56×40 logo — a disk decode
+    // and a monogram flash per row passed through. The whole description
+    // waits together, never the text for one channel over another's logo.
+    // The first answer shows immediately: a header that opens blank for
+    // 180ms reads as a header that is broken.
+    val liveChannel = channel()
+    val liveProgram = program()
+    var shown by remember { mutableStateOf(liveChannel to liveProgram) }
+    LaunchedEffect(liveChannel, liveProgram) {
+        if (shown.first != null) delay(NuxMotion.HeroDebounceMs.toLong())
+        shown = liveChannel to liveProgram
+    }
+    val (current, currentProgram) = shown
     // Read from the guide table for this one programme. The grid's cells
     // arrive without synopses on purpose — see [rememberProgramDescription].
     val synopsis = rememberProgramDescription(vm, currentProgram)
@@ -840,6 +861,34 @@ private fun GuideHeader(
                 )
             }
         }
+    }
+}
+
+/**
+ * The category strip's rest-before-select, in a scope of its own so that a
+ * chip taking focus invalidates this and nothing else.
+ *
+ * The dwell is the rail's 450ms, not the 250ms every other category strip
+ * uses, for the same reason the rail's is longer: what a rest here replaces
+ * is the whole grid — every row re-laid, every cell rebuilt, the preview
+ * re-tuned — and at 250ms a viewer travelling the strip rebuilt it on every
+ * chip they merely passed through. The guide keeps dwell at all, where the
+ * channel list might have settled for OK, because the live preview earns
+ * it: resting on Sport and seeing Sport is the point.
+ *
+ * Cancelled the moment focus leaves the chip — the strip's onBlur nulls the
+ * state, which restarts the effect with nothing to select.
+ */
+@Composable
+private fun CategoryDwell(
+    focusedCategory: androidx.compose.runtime.State<String?>,
+    onCategoryId: (String) -> Unit,
+) {
+    val id = focusedCategory.value
+    LaunchedEffect(id) {
+        if (id == null) return@LaunchedEffect
+        delay(NuxMotion.TabDwellMs.toLong())
+        onCategoryId(id)
     }
 }
 
