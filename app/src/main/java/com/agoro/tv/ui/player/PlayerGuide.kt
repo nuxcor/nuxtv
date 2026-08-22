@@ -59,6 +59,7 @@ import com.agoro.tv.ui.screens.GuideGrid
 import com.agoro.tv.ui.screens.TimeRuler
 import com.agoro.tv.ui.screens.channelsInCategory
 import com.agoro.tv.ui.screens.guideDpPerMinute
+import com.agoro.tv.ui.screens.guideLaneWidth
 import com.agoro.tv.ui.screens.liveCategoryList
 import com.agoro.tv.ui.theme.NuxColors
 import com.agoro.tv.ui.theme.NuxShape
@@ -142,22 +143,25 @@ internal fun PlayerGuideOverlay(
     // still have to rebuild when it lands during a cold start.
     val guideWindow by vm.guideWindowRevision.collectAsState()
 
-    val timelineScroll = rememberScrollState()
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
     // No rail and no channel-view gutters in the player; the overlay's own
     // padding is the only fixed cost besides the channel column.
-    val dpPerMinute = remember(screenWidth) {
-        guideDpPerMinute(
-            screenWidth,
-            fixedCosts = PLAYER_GUIDE_PADDING * 2 + CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP,
-        )
-    }
+    val fixedCosts = PLAYER_GUIDE_PADDING * 2 + CHANNEL_COLUMN_WIDTH + CHANNEL_COLUMN_GAP
+    val dpPerMinute = remember(screenWidth) { guideDpPerMinute(screenWidth, fixedCosts) }
+    // Told to the grid before its first frame, so the rows window their
+    // cells from the start instead of composing the whole day once and
+    // discarding most of it — see guideLaneWidth.
+    val laneWidth = remember(screenWidth) { guideLaneWidth(screenWidth, fixedCosts) }
     val density = LocalDensity.current
-    LaunchedEffect(Unit) {
-        val nowOffsetMin = ((System.currentTimeMillis() - windowStart) / 60_000L - 15)
-            .coerceAtLeast(0)
-        timelineScroll.scrollTo(with(density) { (dpPerMinute * nowOffsetMin.toInt()).roundToPx() })
-    }
+    // Born at "now": scrolling there in an effect meant frame one composed
+    // the window's first cells and frame two replaced them.
+    val timelineScroll = rememberScrollState(
+        initial = run {
+            val nowOffsetMin = ((System.currentTimeMillis() - windowStart) / 60_000L - 15)
+                .coerceAtLeast(0)
+            with(density) { (dpPerMinute * nowOffsetMin.toInt()).roundToPx() }
+        }
+    )
 
     var focusedChannel by remember { mutableStateOf<LiveChannel?>(null) }
     var focusedProgram by remember { mutableStateOf<EpgProgram?>(null) }
@@ -264,16 +268,25 @@ internal fun PlayerGuideOverlay(
             channels.isEmpty() -> StatusPane(title = "No channels in this category")
 
             else -> {
-                TimeRuler(windowStart, windowEnd, nowTick, nowTick, timelineScroll, dpPerMinute)
+                TimeRuler(
+                    windowStart, windowEnd, nowTick, nowTick, timelineScroll, dpPerMinute,
+                    laneWidth = laneWidth,
+                )
                 GuideGrid(
                     channels = channels,
                     programsFor = { vm.programsIn(it, windowStart, windowEnd) },
-                    programsKey = epgState to guideWindow,
+                    // Whether, not which: keyed on the guide's identity every
+                    // refresh rebuilt every row twice (publish, then the
+                    // window revision). The revision already bumps after
+                    // every window load; the Ready flip is kept for the
+                    // cold start, where the window can land first.
+                    programsKey = (epgState is ContentRepository.EpgState.Ready) to guideWindow,
                     windowStart = windowStart,
                     windowEnd = windowEnd,
                     nowMs = nowTick,
                     timelineScroll = timelineScroll,
                     dpPerMinute = dpPerMinute,
+                    laneWidth = laneWidth,
                     playingChannelId = playingChannelId,
                     initialFocusChannelId = initialFocusChannelId,
                     onFocus = { channel, program ->
