@@ -32,6 +32,15 @@ tailrec fun Context.findActivity(): Activity? = when (this) {
  * never lowered: dropping a 4K output to 1080p because a 1080p channel is on
  * would trade a blackout for nothing.
  *
+ * The caller decides WHEN, and the rule there is Netflix's: match once, when
+ * a stream has settled, and never on the way out. The mode used to be
+ * re-evaluated the moment any frame rate was known, so zapping between a
+ * 25 fps channel and a 59.94 one re-synced HDMI on every zap — a second of
+ * black per channel change — and the player reset the mode on exit, which
+ * blanked the Home screen behind it for another second. The launcher does
+ * not care what refresh it runs at; the mode stays wherever the last stream
+ * put it until a stream wants something better.
+ *
  * There is deliberately no setting for this. A viewer cannot be asked whether
  * their box's output mode suits the stream — they can't see the mode, and the
  * question is answerable from the stream and the display alone.
@@ -52,8 +61,12 @@ class DisplayModeSwitcher(private val activity: Activity) {
      * @param videoHeight decoded height, or 0 before the first frame.
      * @param frameRate decoded frame rate, or null when the stream doesn't say
      * — resolution can still be matched without it, refresh cannot.
+     * @param allowResolutionChange false once a stream has already had its
+     * resolution matched: an adaptive ladder climbing a rung mid-stream is
+     * not a new stream, and raising the output for it would black the
+     * picture out in the middle of whatever the viewer is watching.
      */
-    fun apply(videoHeight: Int, frameRate: Float?) {
+    fun apply(videoHeight: Int, frameRate: Float?, allowResolutionChange: Boolean = true) {
         val display = display ?: return
         val current = display.mode ?: return
         val modes = display.supportedModes ?: return
@@ -62,7 +75,7 @@ class DisplayModeSwitcher(private val activity: Activity) {
         // Resolution: only ever upward, and only to the smallest mode that
         // actually covers the stream — a 1080p feed has nothing to gain from a
         // 4K output, and each extra switch is another second of black.
-        val wantsBiggerSize = videoHeight > current.physicalHeight
+        val wantsBiggerSize = allowResolutionChange && videoHeight > current.physicalHeight
         val targetHeight = if (wantsBiggerSize) {
             modes.map { it.physicalHeight }.distinct().sorted()
                 .firstOrNull { it >= videoHeight } ?: modes.maxOf { it.physicalHeight }
@@ -105,15 +118,6 @@ class DisplayModeSwitcher(private val activity: Activity) {
         requestedModeId = best.modeId
         activity.window.attributes = activity.window.attributes.apply {
             preferredDisplayModeId = best.modeId
-        }
-    }
-
-    /** Hands the display back to whatever mode the system would pick itself. */
-    fun reset() {
-        if (requestedModeId == 0) return
-        requestedModeId = 0
-        activity.window.attributes = activity.window.attributes.apply {
-            preferredDisplayModeId = 0
         }
     }
 

@@ -26,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,6 +61,22 @@ private const val KEY_HINTS_VERSION = 3
  * short enough that a hang never looks like patience rewarded.
  */
 private const val TUNE_TIMEOUT_MS = 45_000L
+
+/**
+ * How long a stream's decoded size and frame rate must hold before the
+ * display is asked to match them. Long enough that a zap-through never
+ * switches — the next channel's first frame cancels the wait — and that an
+ * adaptive ladder has climbed off its opening rung before the verdict.
+ */
+private const val DISPLAY_MODE_SETTLE_MS = 3_000L
+
+/**
+ * How long a stream must have been decoding before its tier is recorded.
+ * The first reported height is the ladder's opening rung, not the channel's
+ * quality; five seconds in, the selector has climbed to what the line can
+ * actually carry.
+ */
+private const val QUALITY_LEARN_SETTLE_MS = 5_000L
 
 /**
  * PiP params from the actual decoded size, not an assumed 16:9. The platform
@@ -211,32 +228,60 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
 
     // Learn each live stream's REAL tier as it decodes, so the lists can
     // stop repeating whatever the provider typed into the stream name.
-    LaunchedEffect(session.videoSize, session.currentIndex) {
+    //
+    // Once per tune, after the stream has settled — not on every decoded
+    // size. Keyed on videoSize this ran on every adaptive rung change, and
+    // each run was a DataStore decode, encode and rewrite that re-emitted
+    // the known-quality map, re-sorted every channel list and recomposed
+    // this screen's channel collector — a prefs write per bandwidth wobble,
+    // on the box that was wobbling. Tiers already recorded this visit, and
+    // tiers that merely confirm what the name says, skip the write outright.
+    val learnedTiers = remember { mutableMapOf<String, String>() }
+    LaunchedEffect(session.tuneSerial) {
         if (!request.isLive) return@LaunchedEffect
-        val (_, h) = session.videoSize ?: return@LaunchedEffect
-        request.items.getOrNull(session.currentIndex)?.url
-            ?.let { vm.recordDecodedQuality(it, h) }
+        val url = request.items.getOrNull(session.currentIndex)?.url ?: return@LaunchedEffect
+        snapshotFlow { session.videoSize?.second ?: 0 }.first { it > 0 }
+        delay(QUALITY_LEARN_SETTLE_MS)
+        val height = session.videoSize?.second ?: return@LaunchedEffect
+        val tier = com.agoro.tv.data.QualityTag.tierOf(height) ?: return@LaunchedEffect
+        if (learnedTiers[url] == tier || channel?.quality == tier) return@LaunchedEffect
+        learnedTiers[url] = tier
+        vm.recordDecodedQuality(url, height)
     }
 
     // Ask the TV for a mode that suits the stream — the panel's own refresh
     // and, where the output is smaller than the picture, its resolution.
     // Skipped in PiP: the window is a thumbnail there, and a mode change to
     // suit it would blank the app the viewer is actually looking at.
+    //
+    // Only once the stream has held the same size and rate for a few
+    // seconds: any change restarts the wait, so a zap-through never switches
+    // and a flapping report never switches twice. Resolution is matched once
+    // per tune — the first settled report — because a ladder climbing a rung
+    // later is the same stream, and a re-sync then would black out the
+    // picture mid-programme. And nothing on exit: the mode stays where the
+    // stream left it. The reset that used to run here blanked Home for a
+    // second every time the player closed, for the benefit of nobody.
     val displayModes = remember(context) {
         context.findActivity()?.let { DisplayModeSwitcher(it) }
     }
-    LaunchedEffect(displayModes, session.videoSize, session.videoFrameRate, inPip) {
+    var resolutionMatchedForTune by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(
+        displayModes, session.tuneSerial, session.videoSize?.second, session.videoFrameRate, inPip,
+    ) {
         val switcher = displayModes ?: return@LaunchedEffect
         if (inPip) return@LaunchedEffect
         val height = session.videoSize?.second ?: 0
+        val frameRate = session.videoFrameRate
         // Nothing has decoded yet: switching on a guess would blank the screen
         // over the tune, and be wrong as often as not.
-        if (height <= 0 && session.videoFrameRate == null) return@LaunchedEffect
-        runCatching { switcher.apply(height, session.videoFrameRate) }
-    }
-    // The rest of the app has no business running at 24Hz.
-    DisposableEffect(displayModes) {
-        onDispose { runCatching { displayModes?.reset() } }
+        if (height <= 0 && frameRate == null) return@LaunchedEffect
+        delay(DISPLAY_MODE_SETTLE_MS)
+        val tune = session.tuneSerial
+        runCatching {
+            switcher.apply(height, frameRate, allowResolutionChange = resolutionMatchedForTune != tune)
+        }
+        resolutionMatchedForTune = tune
     }
 
     // Keep the activity's PiP params fresh so API 31+ auto-enters on HOME
@@ -254,7 +299,13 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
 
     // Aspect ratio follows the channel: a per-channel override where the
     // viewer has set one, the global default otherwise.
-    LaunchedEffect(engine, session.currentIndex, request) {
+    //
+    // Not while a zap chain is running — this and the language lookup below
+    // are DataStore reads (the aspect one decodes a JSON map), and keyed on
+    // the index alone they ran once per channel skimmed. They wait for the
+    // run to rest, which is the only channel whose settings matter.
+    LaunchedEffect(engine, session.currentIndex, request, session.pendingTuneIndex) {
+        if (session.pendingTuneIndex != null) return@LaunchedEffect
         val url = request.items.getOrNull(session.currentIndex)?.url ?: return@LaunchedEffect
         val mode = prefs.aspectModeFor(url)
         if (mode != session.scaleMode) {
@@ -265,7 +316,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
 
     // Preferred audio/subtitle language, applied once per item as soon as the
     // stream announces its tracks (they appear a beat after it opens).
-    LaunchedEffect(engine, session.currentIndex) {
+    LaunchedEffect(engine, session.currentIndex, session.pendingTuneIndex) {
+        if (session.pendingTuneIndex != null) return@LaunchedEffect
         val prefAudio = prefs.preferredAudioLanguage.first()
         val prefText = prefs.preferredSubtitleLanguage.first()
         if (prefAudio == null && prefText == null) return@LaunchedEffect
@@ -409,8 +461,9 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         }
     }
 
-    // The zap dwell: identity updates were instant; the stream opens only once
-    // the chain rests, so holding CH+ doesn't open a connection per press.
+    // The zap dwell, for CHAINS only — a single press has already tuned by
+    // the time this sees it. Identity updates were instant; the stream opens
+    // only once the run rests, so skimming doesn't open a connection per press.
     LaunchedEffect(session.pendingTuneIndex) {
         if (session.pendingTuneIndex == null) return@LaunchedEffect
         delay(PlayerMotion.ZapDwellMs)
@@ -776,6 +829,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     // viewer has already found the thing the hint points at.
                     showKeyHints = request.isLive && hintsVersionSeen < KEY_HINTS_VERSION &&
                         session.bannerShows <= 3 && session.layer != PlayerLayer.Controls,
+                    logoDeferred = session.pendingTuneIndex != null,
                 )
             }
 
@@ -831,13 +885,17 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         }
 
         // The error card keeps its last message so the exit animation doesn't
-        // run on an empty card.
+        // run on an empty card. Its scrim fades on its own, under the card:
+        // inside the scale-and-fade it made the animated layer screen-sized.
         var lastError by remember { mutableStateOf("") }
         session.errorMessage?.let { lastError = it }
+        val errorUp = session.layer == PlayerLayer.Error && !inPip
+        FadingScrim(visible = errorUp)
         AnimatedVisibility(
-            visible = session.layer == PlayerLayer.Error && !inPip,
+            visible = errorUp,
             enter = PlayerMotion.enterScale(),
             exit = PlayerMotion.exitScale(),
+            modifier = Modifier.align(Alignment.Center),
         ) {
             PlaybackErrorCard(
                 title = item?.title.orEmpty(),
