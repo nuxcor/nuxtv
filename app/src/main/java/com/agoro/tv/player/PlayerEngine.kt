@@ -94,6 +94,14 @@ interface PlayerEngine {
     /** <= 0 for live streams. */
     val durationMs: Long
 
+    /**
+     * Media buffered ahead of the playhead, in ms, or null when the engine
+     * can't say. Read at the start of a stall to tell a starving line (next
+     * to nothing buffered) from a renderer that has stopped consuming (plenty
+     * buffered) — only the first is something another source can fix.
+     */
+    val bufferedAheadMs: Long?
+
     /** Decoded video size, or null before the first frame. */
     val videoResolution: Pair<Int, Int>?
 

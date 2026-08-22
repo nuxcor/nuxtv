@@ -180,7 +180,11 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     val isVod = !request.isLive
 
     // Engine lives for as long as engineChoice does; swapping recreates it.
-    val engine = remember(session.engineChoice) { session.createEngine(qualityPref == 1) }
+    val engine = remember(session.engineChoice) {
+        // A channel the app has seen decode at 4K tunnels from its first
+        // frame; anything else starts on the ordinary path. See TunnelPolicy.
+        session.createEngine(qualityPref == 1, knownUhd = { url -> vm.knownTierOf(url) == "4K" })
+    }
     DisposableEffect(engine) {
         engine.listener = session.listener
         // Media-session / CEC / assistant transport goes through the session,

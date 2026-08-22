@@ -33,9 +33,9 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
  * thread and an empty allocator, which is nothing worth a stall to reclaim.
  *
  * Two slots, because the guide's muted preview must never share the main
- * player: the preview is built without audio focus and without tunnelling,
- * both builder-time choices, and a preview that borrowed the instance the
- * viewer is watching on would have to stop it first. Each slot holds at most
+ * player: the preview is built without audio focus, a builder-time choice,
+ * and a preview that borrowed the instance the viewer is watching on would
+ * have to stop it first. Each slot holds at most
  * one idle instance; a borrow while the slot's instance is still out (an
  * engine swap composes the new engine before the old one's teardown runs)
  * builds a fresh one, and the surplus is released — off the main thread's

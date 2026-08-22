@@ -51,7 +51,16 @@ private fun mimeHintFor(url: String): String? {
  * focus from whatever is actually being listened to.
  */
 @OptIn(UnstableApi::class)
-class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEngine {
+class ExoEngine(
+    context: Context,
+    requestAudioFocus: Boolean = true,
+    /**
+     * Whether the app already knows this stream decodes at 4K, from a
+     * previous visit. Lets a UHD channel tunnel from its first frame instead
+     * of re-initialising the decoder after it; see [TunnelPolicy].
+     */
+    private val knownUhd: (String) -> Boolean = { false },
+) : PlayerEngine {
 
     override val name = "ExoPlayer"
     override var listener: PlayerEngine.Listener? = null
@@ -66,6 +75,18 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
     private var index: Int = 0
     private var live = false
     private var released = false
+
+    /** The real player, as opposed to the guide's muted preview. */
+    private val main = requestAudioFocus
+
+    /** What the selector is currently asked for; see [TunnelPolicy]. */
+    private var tunnelling = false
+
+    /** When the renderers were last asked to reconfigure — they rebuffer briefly while they do. */
+    private var reconfiguredAtMs = 0L
+
+    /** True between a READY-and-playing report and the next state change. */
+    private var wasPlaying = false
 
     init {
         // From the DEFAULTS, not buildUponParameters(): the selector came back
@@ -85,21 +106,79 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
             // there. Only a viewer pinning "Highest available" in the quality
             // sheet turns this on.
             .setForceHighestSupportedBitrate(false)
-            // Tunneled playback: video frames go straight from the decoder to
-            // the display pipeline, which is how TV silicon keeps 4K and HDR in
-            // sync with its audio instead of drifting. The selector only takes
-            // this path when the decoders advertise the feature for the actual
-            // format, so it costs nothing on hardware that can't do it.
-            //
-            // Off for the muted guide preview: tunneled decoder instances are a
-            // scarce resource on TV chipsets, and a preview competing for one
-            // with the stream the viewer is watching is a bad trade.
-            .setTunnelingEnabled(requestAudioFocus)
+            // Tunnelling is decided per stream in playAt, not here: off
+            // unless the stream is 4K/HDR, and off for good on a device whose
+            // tunnelled decoder has frozen. See TunnelPolicy.
+            .setTunnelingEnabled(false)
             .build()
     }
 
+    /**
+     * Asks the selector for tunnelled or ordinary rendering. A change while
+     * a stream is up re-initialises the video decoder — a beat of black —
+     * so it is only ever made when [TunnelPolicy] says the stream deserves
+     * it or the device has refused it, never as a matter of routine.
+     */
+    private fun setTunnelling(on: Boolean) {
+        if (on == tunnelling) return
+        tunnelling = on
+        markReconfigured()
+        trackSelector.parameters = trackSelector.buildUponParameters()
+            .setTunnelingEnabled(on)
+            .build()
+    }
+
+    /** Any track change re-buffers with a full buffer; [noteBuffering] must not read that as a freeze. */
+    private fun markReconfigured() {
+        reconfiguredAtMs = android.os.SystemClock.elapsedRealtime()
+    }
+
+    /** The first decoded format tells whether this stream is one worth tunnelling. */
+    private fun noteDecodedFormat() {
+        val format = player.videoFormat ?: return
+        val url = items.getOrNull(index)?.url ?: return
+        val uhd = format.height >= 2000 ||
+            format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION ||
+            format.colorInfo?.colorTransfer.let {
+                it == C.COLOR_TRANSFER_ST2084 || it == C.COLOR_TRANSFER_HLG
+            }
+        if (!uhd) return
+        TunnelPolicy.remember(url)
+        if (main && !TunnelPolicy.refusedByDevice) setTunnelling(true)
+    }
+
+    private companion object {
+        /**
+         * How long after a renderer reconfiguration its own rebuffer is
+         * ignored: switching the tunnel on or off, or a track change, empties
+         * and refills the decoder with a full buffer behind it, which is the
+         * very shape a HAL freeze has.
+         */
+        const val RECONFIGURE_GRACE_MS = 5_000L
+    }
+
+    /**
+     * A stall with a full buffer is not the network: nothing ExoPlayer can
+     * load is missing, a renderer simply is not ready. While tunnelled that
+     * is the vendor HAL refusing to advance — the failure mode the whole
+     * policy exists for — so the device is marked and the stream re-opens
+     * on the ordinary path, which is also what un-sticks it.
+     */
+    private fun noteBuffering() {
+        if (!main || !tunnelling || !wasPlaying) return
+        if (android.os.SystemClock.elapsedRealtime() - reconfiguredAtMs < RECONFIGURE_GRACE_MS) return
+        if (player.totalBufferedDuration < TunnelPolicy.FULL_BUFFER_MS) return
+        TunnelPolicy.refuse()
+        setTunnelling(false)
+    }
+
     private val playerListener = object : Player.Listener {
+        override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+            if (videoSize.height > 0) noteDecodedFormat()
+        }
+
         override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_BUFFERING) noteBuffering()
             listener?.onPlayingChanged(
                 playing = player.isPlaying,
                 buffering = playbackState == Player.STATE_BUFFERING,
@@ -118,6 +197,7 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            wasPlaying = isPlaying
             listener?.onPlayingChanged(
                 playing = isPlaying,
                 buffering = player.playbackState == Player.STATE_BUFFERING,
@@ -232,6 +312,9 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
         if (released || index !in items.indices) return
         this.index = index
         val item = items[index]
+        // Decided before the decoder opens, so a stream that deserves the
+        // tunnel gets it without a re-initialisation after the first frame.
+        setTunnelling(main && TunnelPolicy.wantsTunnel(item.url, knownUhd(item.url)))
         player.setMediaItem(
             MediaItem.Builder()
                 .setUri(item.url)
@@ -282,6 +365,9 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
     override val durationMs: Long
         get() = if (released) 0L
         else player.duration.takeIf { it != C.TIME_UNSET && !player.isCurrentMediaItemLive } ?: 0L
+
+    override val bufferedAheadMs: Long?
+        get() = if (released) null else player.totalBufferedDuration
 
     override val videoResolution: Pair<Int, Int>?
         get() = if (released) null
@@ -400,6 +486,7 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
 
     override fun selectVideoTrack(id: String?) {
         if (released) return
+        markReconfigured()
         trackSelector.parameters = trackSelector.buildUponParameters().apply {
             // Any explicit choice — a pinned rung or Auto — hands bitrate
             // control back to the selector, so the forced-highest default
@@ -424,6 +511,7 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
 
     private fun applyOverride(trackType: Int, id: String) {
         if (released) return
+        markReconfigured()
         val (groupIndex, trackIndex) = id.split(":").map { it.toInt() }
         val group = player.currentTracks.groups.getOrNull(groupIndex) ?: return
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
@@ -436,6 +524,7 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
 
     override fun selectTextTrack(id: String?) {
         if (released) return
+        markReconfigured()
         if (id == null) {
             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)

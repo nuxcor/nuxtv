@@ -1103,6 +1103,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             viewModelScope, SharingStarted.Eagerly, emptyMap(),
         )
 
+    /** The tier a stream was last seen to decode at ("4K", "FHD", …), or null if never watched. */
+    fun knownTierOf(url: String): String? = knownQualitiesNow.value[url]
+
     /** Remember what a stream really decodes at, so lists stop repeating the name's lie. */
     fun recordDecodedQuality(url: String, height: Int) {
         val tier = com.agoro.tv.data.QualityTag.tierOf(height) ?: return

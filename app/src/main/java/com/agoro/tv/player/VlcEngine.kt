@@ -314,6 +314,9 @@ class VlcEngine(
     // be read back honestly. Badges stay off on the VLC engine rather than
     // guessing from a codec name — ExoPlayer, the default, reports both.
     override val hdrFormat: String? get() = null
+
+    /** libVLC doesn't expose its buffer depth; stalls are taken at their word. */
+    override val bufferedAheadMs: Long? get() = null
     override val audioFormatLabel: String? get() = null
 
     // VLC reports the rate as a rational, and leaves the denominator at 0 on
