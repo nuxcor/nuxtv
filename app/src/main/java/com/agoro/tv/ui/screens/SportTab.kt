@@ -187,6 +187,7 @@ private fun Fixtures(
     // and keying on the first fixture would re-seat focus every time the
     // order changed under a 30-second tick.
     val firstRowFocus = rememberInitialFocus(Unit)
+    val firstShown = byLeague.firstOrNull()?.second?.firstOrNull()
     val clock = rememberClockFormat()
 
     LazyColumn(
@@ -208,7 +209,10 @@ private fun Fixtures(
                     list.forEach { event ->
                         FixtureRow(
                             event, now, clock,
-                            modifier = if (event === fixtures.first()) {
+                            // The first row ON SCREEN — fixtures.first() is
+                            // the earliest kick-off, which can sit in the
+                            // last league and drag the list to the bottom.
+                            modifier = if (event === firstShown) {
                                 Modifier.focusRequester(firstRowFocus)
                             } else Modifier,
                         ) {

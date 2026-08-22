@@ -440,4 +440,19 @@ class SportsParserTest {
         assertEquals("the plain call leads even at a lower tier", 1, rows[0].streamId)
         assertEquals(listOf(2), rows[0].alternates)
     }
+
+    /** A roster carrying both spellings of a club must not make two matches. */
+    @Test
+    fun `a short roster alias folds into the club's full name`() {
+        val now = ms(2026, 8, 22, 15, 0, "UTC")
+        val roster = mapOf("Championship" to listOf("Ipswich", "Ipswich Town", "Sunderland"))
+        val short = SportsParser.parse(
+            1, "Live | Ipswich vs Sunderland | all | 22-08-2026 | 15:00 (GMT)", now, roster,
+        )!!
+        val long = SportsParser.parse(
+            2, "Live | Ipswich Town vs Sunderland | all | 22-08-2026 | 15:00 (GMT) | 4K", now, roster,
+        )!!
+        assertEquals("Ipswich Town", short.home)
+        assertEquals(1, SportsParser.upcoming(listOf(short, long), now, 60).size)
+    }
 }

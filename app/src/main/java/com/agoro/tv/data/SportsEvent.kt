@@ -248,8 +248,22 @@ object SportsParser {
             hit.second.trim().contains(' ') -> hit.first
             else -> return null
         }
-        return Sides(league, hHit?.second ?: tidyCase(home), aHit?.second ?: tidyCase(away))
+        return Sides(league, hHit?.let { fullName(it, idx) } ?: tidyCase(home),
+            aHit?.let { fullName(it, idx) } ?: tidyCase(away))
     }
+
+    /**
+     * The roster's LONGEST spelling of a club, when it carries more than one:
+     * a pack that lists both "Ipswich" and "Ipswich Town" had one slot match
+     * each, and the same match appeared twice under two names. The index is
+     * longest-first, so the first same-league entry containing the hit as
+     * whole words is the full name.
+     */
+    private fun fullName(
+        hit: Triple<String, String, String>,
+        idx: List<Triple<String, String, String>>,
+    ): String =
+        idx.firstOrNull { it.first == hit.first && hasWord(it.third, hit.third) }?.second ?: hit.second
 
     /**
      * "SV WALDHOF MANNHEIM" → "SV Waldhof Mannheim". Only all-caps input is

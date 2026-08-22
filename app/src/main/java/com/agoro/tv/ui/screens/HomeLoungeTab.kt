@@ -299,13 +299,13 @@ fun HomeLoungeTab(
     // per focus event the correction only fired when the row index changed.
     var focusSignal by rememberSaveable { mutableStateOf(0) }
 
-    // At rest (nothing focused yet) the hero describes the remembered card —
+    // The hero describes the focused card — the remembered one on a return,
     // the first one on a fresh visit — so the screen never opens on an empty
-    // header, and a return doesn't flash the first shelf's title over the
-    // card focus is about to land on. Derived, not set-once: the card's
-    // programme line refreshes with the guide's minute tick.
-    var hero by remember { mutableStateOf<HeroInfo?>(null) }
-    val restingHero = remember(
+    // header. DERIVED from the focus position, never snapshotted by the focus
+    // callback: a snapshot taken before the guide had loaded described the
+    // channel as "Live" with no programme and stayed that way until focus
+    // moved, while the card under it had long since filled in.
+    val activeHero = remember(
         rowKeys, continueRow, favoritesRow, recentsRow, recentlyAdded,
         starterChannels, starterMovies, starterSeries, nowNext, focusedRow, focusedIndex,
     ) {
@@ -326,7 +326,6 @@ fun HomeLoungeTab(
             HomeRow.StarterSeries -> starterSeries.at().toHero()
         }
     }
-    val activeHero = hero ?: restingHero
     // Debounced so travelling a row doesn't hard-cut the hero (and the
     // shell's backdrop with it) 5x/second.
     var shownHero by remember { mutableStateOf<HeroInfo?>(null) }
@@ -432,7 +431,6 @@ fun HomeLoungeTab(
                     focusedIndex = index
                     focusedRowKey = rowKeys[rowIndex].name
                     focusSignal++
-                    hero = channelHero(channel, nn)
                 },
             )
         }
@@ -461,7 +459,6 @@ fun HomeLoungeTab(
                     focusedIndex = index
                     focusedRowKey = rowKeys[rowIndex].name
                     focusSignal++
-                    hero = movie.toHero()
                 },
             )
         }
@@ -491,7 +488,6 @@ fun HomeLoungeTab(
                     focusedIndex = index
                     focusedRowKey = rowKeys[rowIndex].name
                     focusSignal++
-                    hero = series.toHero()
                     vm.prefetchEpisodes(series)
                 },
             )

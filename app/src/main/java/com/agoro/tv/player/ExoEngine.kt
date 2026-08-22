@@ -351,9 +351,12 @@ class ExoEngine(context: Context, requestAudioFocus: Boolean = true) : PlayerEng
             .flatMap { (groupIndex, group) ->
                 (0 until group.length).map { trackIndex ->
                     val format = group.getTrackFormat(trackIndex)
+                    // A name a viewer recognises, not the codec string: "EN •
+                    // mp4a.40.2" is a MIME parameter, and on the screen it
+                    // was the only thing in the app that looked like one.
                     val label = listOfNotNull(
-                        format.label ?: format.language?.uppercase(),
-                        format.codecs,
+                        format.label ?: format.language?.let { languageName(it) },
+                        friendlyCodec(format),
                     ).joinToString(" • ").ifBlank { "Track ${trackIndex + 1}" }
                     Track(
                         id = "$groupIndex:$trackIndex",
@@ -481,4 +484,45 @@ internal fun humanError(errorCodeName: String): String = when (errorCodeName) {
     "ERROR_CODE_DRM_LICENSE_ACQUISITION_FAILED" -> "this stream is copy-protected"
     "ERROR_CODE_BEHIND_LIVE_WINDOW" -> "the live stream moved on"
     else -> errorCodeName.removePrefix("ERROR_CODE_").replace('_', ' ').lowercase()
+}
+
+/** "en" → "English"; an unknown or odd tag stays as its upper-cased code. */
+private fun languageName(tag: String): String {
+    val locale = java.util.Locale.forLanguageTag(tag)
+    val name = locale.getDisplayLanguage(java.util.Locale.getDefault())
+    return if (name.isBlank() || name.equals(tag, ignoreCase = true)) tag.uppercase() else name
+}
+
+/**
+ * What the codec is called on a box, where it is worth saying at all. Plain
+ * AAC stereo and plain H.264 say nothing a viewer acts on, so they say
+ * nothing; surround formats and the newer video codecs do.
+ */
+private fun friendlyCodec(format: androidx.media3.common.Format): String? {
+    val mime = format.sampleMimeType ?: return null
+    val base = when (mime) {
+        MimeTypes.AUDIO_E_AC3_JOC -> "Dolby Atmos"
+        MimeTypes.AUDIO_AC4 -> "Dolby AC-4"
+        MimeTypes.AUDIO_TRUEHD -> "Dolby TrueHD"
+        MimeTypes.AUDIO_E_AC3 -> "Dolby Digital+"
+        MimeTypes.AUDIO_AC3 -> "Dolby Digital"
+        MimeTypes.AUDIO_DTS_X -> "DTS:X"
+        MimeTypes.AUDIO_DTS_HD -> "DTS-HD"
+        MimeTypes.AUDIO_DTS -> "DTS"
+        MimeTypes.AUDIO_AAC -> null
+        MimeTypes.AUDIO_MPEG -> "MP3"
+        MimeTypes.AUDIO_OPUS -> "Opus"
+        MimeTypes.AUDIO_FLAC -> "FLAC"
+        MimeTypes.VIDEO_H265 -> "HEVC"
+        MimeTypes.VIDEO_AV1 -> "AV1"
+        MimeTypes.VIDEO_VP9 -> "VP9"
+        MimeTypes.VIDEO_DOLBY_VISION -> "Dolby Vision"
+        else -> null
+    }
+    val channels = when (format.channelCount) {
+        6 -> "5.1"
+        8 -> "7.1"
+        else -> null
+    }
+    return listOfNotNull(base, channels).joinToString(" ").ifBlank { null }
 }
