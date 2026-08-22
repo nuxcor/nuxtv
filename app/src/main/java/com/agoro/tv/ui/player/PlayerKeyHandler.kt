@@ -89,6 +89,8 @@ internal fun playerKeyAction(
     centerLongPressFired: Boolean,
     /** True while typed channel digits are waiting out their commit timer. */
     digitsPending: Boolean = false,
+    /** Whether the engine is playing — a paused live stream must be resumable. */
+    playing: Boolean = true,
 ): PlayerKeyResult {
     // "No overlay" — bare playback or the transport bar. Panels (channel
     // list, guide, tracks, catch-up, options) and the error card own their
@@ -161,31 +163,43 @@ internal fun playerKeyAction(
             } else PlayerKeyResult.Ignored
 
         // INFO summons the banner; pressed again while it's up, it means
-        // "tell me more" — the controls.
+        // "tell me more" — the controls. VOD has no banner (the title lives
+        // in the controls), so INFO goes straight there rather than being
+        // eaten by a request for something that never appears.
         AndroidKeyEvent.KEYCODE_INFO ->
-            if (chromeFree && bannerVisible) PlayerKeyResult(true, PlayerKeyAction.ShowControls)
-            else if (noOverlay || layer == PlayerLayer.Error) {
+            if (chromeFree && (bannerVisible || !isLive)) {
+                PlayerKeyResult(true, PlayerKeyAction.ShowControls)
+            } else if (noOverlay || layer == PlayerLayer.Error) {
                 PlayerKeyResult(true, PlayerKeyAction.ShowBanner)
             } else PlayerKeyResult.Ignored
 
         AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ->
             when {
-                // Swallowed on live: pausing a broadcast only resumes at the
-                // live edge, and remotes that alias the centre button to
-                // PLAY_PAUSE when a media session is active made OK look
-                // like it had two random behaviours. Still allowed from the
-                // error card, where "press play" is a natural retry.
-                isLive && layer != PlayerLayer.Error ->
+                // Swallowed on live WHILE PLAYING: pausing a broadcast only
+                // resumes at the live edge, and remotes that alias the centre
+                // button to PLAY_PAUSE when a media session is active made OK
+                // look like it had two random behaviours. A stream that is
+                // already paused — by leaving the app, by the sleep timer —
+                // must still answer to it, or nothing on the remote resumes.
+                // Still allowed from the error card, where "press play" is a
+                // natural retry.
+                isLive && playing && layer != PlayerLayer.Error ->
                     if (noOverlay) PlayerKeyResult(consumed = true) else PlayerKeyResult.Ignored
                 noOverlay || layer == PlayerLayer.Error ->
                     PlayerKeyResult(true, PlayerKeyAction.PlayPause)
                 else -> PlayerKeyResult.Ignored
             }
 
+        // Inside the transport bar the D-pad is travelling it, and every
+        // press restarts the auto-hide — the bar used to slide away under a
+        // cursor that was still moving along it, five seconds after the press
+        // that opened it. Not consumed: the move itself is the focus system's.
         AndroidKeyEvent.KEYCODE_DPAD_UP ->
             when {
                 isLive && zapFromBare -> PlayerKeyResult(true, PlayerKeyAction.Zap(+1))
                 !isLive && chromeFree -> PlayerKeyResult(true, PlayerKeyAction.ShowControls)
+                layer == PlayerLayer.Controls ->
+                    PlayerKeyResult(consumed = false, action = PlayerKeyAction.ShowControls)
                 else -> PlayerKeyResult.Ignored
             }
 
@@ -193,12 +207,17 @@ internal fun playerKeyAction(
             when {
                 isLive && zapFromBare -> PlayerKeyResult(true, PlayerKeyAction.Zap(-1))
                 !isLive && chromeFree -> PlayerKeyResult(true, PlayerKeyAction.ShowControls)
+                layer == PlayerLayer.Controls ->
+                    PlayerKeyResult(consumed = false, action = PlayerKeyAction.ShowControls)
                 else -> PlayerKeyResult.Ignored
             }
 
+        // Gated like the other zaps: from under an open menu it changed the
+        // channel beneath the panel, which then silently re-labelled itself.
         AndroidKeyEvent.KEYCODE_LAST_CHANNEL, AndroidKeyEvent.KEYCODE_PROG_RED ->
-            if (isLive && hasPreviousChannel) PlayerKeyResult(true, PlayerKeyAction.LastChannel)
-            else PlayerKeyResult.Ignored
+            if (isLive && hasPreviousChannel && zapFromBare) {
+                PlayerKeyResult(true, PlayerKeyAction.LastChannel)
+            } else PlayerKeyResult.Ignored
 
         // A dedicated guide key toggles the grid from anywhere in
         // the player — including from inside the mini-guide, where
@@ -231,6 +250,8 @@ internal fun playerKeyAction(
                         action = if (hasMultipleItems) PlayerKeyAction.OpenChannelList
                         else PlayerKeyAction.ShowControls,
                     )
+                layer == PlayerLayer.Controls ->
+                    PlayerKeyResult(consumed = false, action = PlayerKeyAction.ShowControls)
                 else -> PlayerKeyResult.Ignored
             }
 
@@ -238,6 +259,8 @@ internal fun playerKeyAction(
             when {
                 chromeFree && !isLive -> PlayerKeyResult(true, PlayerKeyAction.Seek(+10_000))
                 chromeFree -> PlayerKeyResult(true, PlayerKeyAction.ShowControls)
+                layer == PlayerLayer.Controls ->
+                    PlayerKeyResult(consumed = false, action = PlayerKeyAction.ShowControls)
                 else -> PlayerKeyResult.Ignored
             }
 

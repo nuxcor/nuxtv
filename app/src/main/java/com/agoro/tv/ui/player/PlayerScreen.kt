@@ -45,6 +45,7 @@ import com.agoro.tv.data.LiveChannel
 import com.agoro.tv.data.PlayerPrefs
 import com.agoro.tv.player.DisplayModeSwitcher
 import com.agoro.tv.player.findActivity
+import com.agoro.tv.ui.components.requestFocusRetrying
 import com.agoro.tv.ui.theme.NuxColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -369,12 +370,31 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     // Pause when the app leaves the foreground, unless we're in PiP —
     // otherwise audio keeps playing invisibly behind the launcher.
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    // And come back playing. Live TV paused by the launcher has nothing to
+    // resume "from" — the app re-joins the live edge (togglePlayPause's
+    // 30-second rule) the way a television does when it is switched back
+    // to, rather than showing a frozen frame and a Paused glyph with no
+    // play control on a live remote. VOD stays paused: a film picks up
+    // where the viewer chooses.
     DisposableEffect(lifecycleOwner, engine) {
+        var pausedByLifecycle = false
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
-                val pip = android.os.Build.VERSION.SDK_INT >= 24 &&
-                    (context as? android.app.Activity)?.isInPictureInPictureMode == true
-                if (!pip && engine.isPlaying) engine.playPause()
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
+                    val pip = android.os.Build.VERSION.SDK_INT >= 24 &&
+                        (context as? android.app.Activity)?.isInPictureInPictureMode == true
+                    if (!pip && engine.isPlaying) {
+                        engine.playPause()
+                        pausedByLifecycle = true
+                    }
+                }
+                androidx.lifecycle.Lifecycle.Event.ON_START -> {
+                    if (pausedByLifecycle && request.isLive && !engine.isPlaying) {
+                        session.togglePlayPause()
+                    }
+                    pausedByLifecycle = false
+                }
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -535,7 +555,11 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     val rootFocus = remember { FocusRequester() }
     LaunchedEffect(session.layer) {
         if (session.layer == PlayerLayer.None) {
-            runCatching { rootFocus.requestFocus() }
+            // Retried on the Boolean: this runs exactly as a closing overlay's
+            // focused control leaves composition, and a refusal here — the
+            // one single shot left in the player — was "remote dead on bare
+            // video".
+            rootFocus.requestFocusRetrying()
         }
     }
 
@@ -557,8 +581,15 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             if (minutes == 0) 0L else System.currentTimeMillis() + minutes * 60_000L
     }
 
+    // THIS channel's recording, not any recording: the state is global, and
+    // zapping from the channel being recorded to another one showed REC on
+    // the wrong banner and "Stop recording" on a channel that was not. A
+    // recording is named for its channel when it starts, so compare that.
+    val recordingThis = activeRecording != null && activeRecording?.channelName == item?.title
     fun toggleRecording() {
-        if (activeRecording != null) vm.stopRecording()
+        // Starting on another channel replaces the running recording — the
+        // service's generation counter makes that safe.
+        if (recordingThis) vm.stopRecording()
         else item?.let { vm.startRecording(it) }
     }
 
@@ -582,6 +613,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     centerArmed = session.centerArmed,
                     centerLongPressFired = session.centerLongPressFired,
                     digitsPending = session.digitBuffer.isNotEmpty(),
+                    playing = session.playing,
                 )
                 when (val action = result.action) {
                     PlayerKeyAction.CenterArm -> session.centerArmed = true
@@ -739,7 +771,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     resolution = session.videoSize,
                     hdrFormat = session.hdrFormat,
                     audioFormatLabel = session.audioFormatLabel,
-                    isRecording = activeRecording != null,
+                    isRecording = recordingThis,
                     // Only while the controls are down: with them open the
                     // viewer has already found the thing the hint points at.
                     showKeyHints = request.isLive && hintsVersionSeen < KEY_HINTS_VERSION &&
@@ -812,6 +844,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 message = lastError,
                 canSwapEngine = true,
                 hasNext = request.items.size > 1,
+                isLive = request.isLive,
                 onRetry = { session.retryAfterError() },
                 onSwapEngine = { session.swapEngineAfterError() },
                 onNext = { session.zap(+1) },
@@ -931,7 +964,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 isFavoritable = request.isLive && channel != null,
                 isFavorite = channel != null && channel.url in favorites,
                 canRecord = request.isLive && item?.recordUrl != null,
-                isRecording = activeRecording != null,
+                isRecording = recordingThis,
                 hasCatchup = request.isLive && (channel?.archiveDays ?: 0) > 0,
                 aspectLabel = ASPECT_LABELS.getOrElse(session.scaleMode) { ASPECT_LABELS[0] },
                 engineName = engine.name,
@@ -969,8 +1002,14 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            // The two PERSISTENT chips — REC and the sleep countdown — step
+            // aside while a panel owns the top-right: they sat on the
+            // options menu's channel name and the guide's clock for as long
+            // as those were open. Transient toasts still show everywhere.
+            val panelOwnsCorner = session.layer == PlayerLayer.Options ||
+                session.layer == PlayerLayer.Guide || session.layer == PlayerLayer.Tracks
             val rec = activeRecording
-            if (rec != null) {
+            if (rec != null && !panelOwnsCorner) {
                 PlayerBadge(
                     text = "REC ${rec.channelName} • ${rec.bytesWritten / (1024 * 1024)} MB",
                     color = NuxColors.Error,
@@ -1002,10 +1041,15 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     color = NuxColors.Primary,
                 )
             }
-            if (session.sleepDeadlineMs > 0) {
+            // Only while the chrome is up, or in the last two minutes: a
+            // static "Sleep in 74m" over the picture for an hour and a
+            // quarter is the kind of thing a TV burns in.
+            if (session.sleepDeadlineMs > 0 && !panelOwnsCorner) {
                 val minutesLeft =
                     ((session.sleepDeadlineMs - sleepNowMs + 59_999) / 60_000L).coerceAtLeast(0)
-                PlayerBadge(text = "Sleep in ${minutesLeft}m", color = NuxColors.OnSurfaceDim)
+                if (session.layer != PlayerLayer.None || minutesLeft <= 2) {
+                    PlayerBadge(text = "Sleep in ${minutesLeft}m", color = NuxColors.OnSurfaceDim)
+                }
             }
         }
     }

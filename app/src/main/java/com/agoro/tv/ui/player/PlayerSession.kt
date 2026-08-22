@@ -288,7 +288,10 @@ class PlayerSession internal constructor(
                 }
 
                 else -> {
-                    errorMessage = "Couldn't play this — $message."
+                    // Just the reason: the card's title already says it
+                    // couldn't play, and "Couldn't play this — Couldn't play"
+                    // was the sentence on screen.
+                    errorMessage = message
                     layer = PlayerLayer.Error
                 }
             }

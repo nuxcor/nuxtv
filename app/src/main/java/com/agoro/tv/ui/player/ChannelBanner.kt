@@ -178,7 +178,10 @@ internal fun ChannelBanner(
             if (showKeyHints) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "OK Options  ·  ◀ Channels  ·  ▲▼ Change channel  ·  INFO Info",
+                    // INFO while the banner is up opens the controls, so
+                    // that is what the hint says; "INFO Info" on the thing
+                    // INFO had just opened said nothing.
+                    text = "OK Options  ·  ◀ Channels  ·  ▲▼ Change channel  ·  INFO More",
                     style = MaterialTheme.typography.labelSmall,
                     color = NuxColors.OnSurfaceDim,
                     maxLines = 1,
