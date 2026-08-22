@@ -35,7 +35,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -349,11 +348,15 @@ private val NothingPainter = androidx.compose.ui.graphics.painter.ColorPainter(C
  */
 fun Modifier.focusHalo(
     shape: androidx.compose.foundation.shape.RoundedCornerShape,
+    /** The card's own focus state — read in draw, never in composition. */
+    focused: androidx.compose.runtime.State<Boolean>,
     scale: Float = NuxFocus.CardScale,
-): Modifier = composed {
-    var focused by remember { mutableStateOf(false) }
+): Modifier =
+    // No focus node of its own: the card already watches its focus for
+    // onFocus, and a second FocusEventModifierNode spliced between the
+    // caller's FocusRequester and the surface is one more thing in the chain
+    // an arrival request has to get through. A draw modifier is inert.
     this
-        .onFocusChanged { focused = it.isFocused }
         .drawWithCache {
             val reach = NuxFocus.HaloReach.toPx()
             val rings = 6
@@ -363,7 +366,7 @@ fun Modifier.focusHalo(
             val dy = size.height * grow
             val radius = shape.topStart.toPx(size, this)
             onDrawBehind {
-                if (!focused) return@onDrawBehind
+                if (!focused.value) return@onDrawBehind
                 for (i in 0 until rings) {
                     val inset = reach * (i + 1) / rings
                     val alpha = NuxFocus.HaloColor.alpha * (1f - i.toFloat() / rings)
@@ -380,7 +383,6 @@ fun Modifier.focusHalo(
                 }
             }
         }
-}
 
 /**
  * Poster card for movie and series rows. Captionless: the artwork carries the
@@ -411,13 +413,17 @@ fun PosterCard(
     /** Applied to the surface itself, so a FocusRequester lands on the node that focuses. */
     modifier: Modifier = Modifier,
 ) {
+    val focused = remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
         modifier = modifier
             .then(if (width != null) Modifier.width(width) else Modifier.fillMaxWidth())
-            .focusHalo(CardShape)
-            .onFocusChanged { if (it.isFocused) onFocus() },
+            .focusHalo(CardShape, focused)
+            .onFocusChanged {
+                focused.value = it.isFocused
+                if (it.isFocused) onFocus()
+            },
         shape = ClickableSurfaceDefaults.shape(CardShape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
