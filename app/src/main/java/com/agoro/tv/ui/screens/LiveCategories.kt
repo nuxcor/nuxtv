@@ -69,6 +69,13 @@ internal fun channelsInCategory(
      * learned. [MainViewModel.allChannelsView] computes it once, off-thread.
      */
     allChannels: List<LiveChannel> = channels,
+    /**
+     * [channels] grouped by category, built once off the main thread by
+     * [MainViewModel.channelsByCategory]. With it a provider category is a
+     * map lookup; without it — or with one built from a different list, which
+     * is what a cold start hands over for a frame — this filters as before.
+     */
+    byCategory: LiveCategoryIndex? = null,
 ): List<LiveChannel> = when (categoryId) {
     // ifEmpty, and not as a formality: allChannelsView is a flowOn hop
     // DOWNSTREAM of displayChannels, so on a cold start there is a window
@@ -86,7 +93,35 @@ internal fun channelsInCategory(
         val byUrl = channels.associateBy { it.url }
         recents.mapNotNull { byUrl[it] }
     }
-    else -> channels.filter { it.categoryId == categoryId }
+    else ->
+        if (byCategory != null && byCategory.channels === channels) {
+            byCategory.byId[categoryId].orEmpty()
+        } else {
+            channels.filter { it.categoryId == categoryId }
+        }
+}
+
+/**
+ * A channel list grouped by provider category.
+ *
+ * Every category switch used to filter the whole list — thousands of
+ * channels, on the main thread, under a chip the viewer had only rested on.
+ * Keeps the list it was built from so a reader can tell whether the index is
+ * for the channels it holds: the index is a flow hop downstream of the list,
+ * so there is always a frame where the two disagree.
+ */
+class LiveCategoryIndex(
+    val channels: List<LiveChannel>,
+    val byId: Map<String, List<LiveChannel>>,
+) {
+    companion object {
+        val empty = LiveCategoryIndex(emptyList(), emptyMap())
+
+        fun of(channels: List<LiveChannel>) = LiveCategoryIndex(
+            channels,
+            channels.groupBy { it.categoryId.orEmpty() },
+        )
+    }
 }
 
 /**

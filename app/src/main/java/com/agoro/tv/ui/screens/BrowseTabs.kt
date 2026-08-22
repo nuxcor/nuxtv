@@ -24,14 +24,23 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import com.agoro.tv.ui.components.LocalArrivalFocusAllowed
@@ -64,7 +73,6 @@ import com.agoro.tv.ui.components.PosterCard
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
 import com.agoro.tv.ui.components.itemEntrance
-import com.agoro.tv.ui.components.rememberListEntrance
 import com.agoro.tv.ui.components.SectionTitle
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.focus.FocusRequester
@@ -128,7 +136,9 @@ private fun gridColumnsFor(width: Dp): Int =
     ((width + GRID_GAP) / (POSTER_TARGET_WIDTH + GRID_GAP)).let { kotlin.math.round(it).toInt() }
         .coerceIn(3, 7)
 internal const val VOD_CONTINUE = "__continue__"
-private const val VOD_MORE = "__more__"
+
+/** Titles filed under a category the playlist never declared — see [CatalogIndex]. */
+internal const val VOD_MORE = "__more__"
 
 /** One spelling for the shortcut, so the duplicate check can't drift from it. */
 private const val VOD_NEW_LABEL = "Recently added"
@@ -162,6 +172,34 @@ internal class VodPage(
         /** For lists small enough that materialising them costs nothing. */
         fun of(entries: List<VodEntry>) =
             VodPage(entries.size, { entries[it].id }, { entries[it] })
+    }
+
+    /** The hero for the cell at [index], clamped; null on an empty page. */
+    fun heroAt(index: Int): HeroInfo? =
+        if (size > 0) entryAt(index.coerceIn(0, size - 1)).hero else null
+}
+
+/**
+ * A snap scroll that survives the list's own bring-into-view.
+ *
+ * Focusing a card asks its lazy list to bring it into view, and that request
+ * takes the list's scroll mutex at the same priority as an animateScrollToItem
+ * in flight — so a RIGHT pressed while a row was still sliding to the top
+ * cancelled the slide and left the row wherever the card became visible.
+ * Home used to paper over this by re-snapping on EVERY focus event, which is
+ * the "two animations fight per horizontal move" it was meant to cure. The
+ * interruption arrives as the mutex's CancellationException with this
+ * coroutine still alive; a real cancellation — a newer snap, the screen
+ * leaving — is rethrown by ensureActive.
+ */
+internal suspend fun snapRetrying(attempts: Int = 3, scroll: suspend () -> Unit) {
+    repeat(attempts) {
+        try {
+            scroll()
+            return
+        } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+        }
     }
 }
 
@@ -247,10 +285,20 @@ fun HeroHeader(hero: HeroInfo?) {
 /**
  * Poster browsing with a category strip along the top — shared by Movies and
  * Shows, which differ only in what a card says and where it goes. The strip is
- * the same grammar as Live TV's: chips in a row, dwell selects, UP from the
- * first poster row comes back to it, and the grid keeps the full pane width.
+ * the same grammar as Live TV's: chips in a row, UP from the first poster row
+ * comes back to it, and the grid keeps the full pane width. OK selects a
+ * chip; there is no dwell here — see the strip below for why.
  *
  * The hero is pinned above the grid, one line tall — see [BrowseHero].
+ *
+ * Nothing in this body reads the focus position. A D-pad press writes
+ * [focusedEntryIndex] and that is all it does in composition: the hero and
+ * the row snap are driven off it by snapshotFlow in effects, the arrival
+ * requester sits on a cell chosen once, and each cell remembers its own
+ * entry. The first cut read the index in every cell's modifier and in this
+ * scope's snap, so every composed poster — and the browser around them —
+ * recomposed on every press, rebuilding a VodEntry, a HeroInfo and two
+ * lambdas per cell to find out that nothing about the cell had changed.
  */
 @Composable
 private fun VodBrowser(
@@ -275,14 +323,6 @@ private fun VodBrowser(
     val activeCategory = remember(selectedCategory, shown) {
         if (shown.any { it.id == selectedCategory }) selectedCategory else VOD_ALL
     }
-    // Same rest-before-select rule as the nav rail and Live TV: travelling the
-    // column would otherwise rebuild the whole grid on every step.
-    var focusedCategory by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(focusedCategory) {
-        val id = focusedCategory ?: return@LaunchedEffect
-        kotlinx.coroutines.delay(NuxMotion.FocusDwellMs.toLong())
-        selectedCategory = id
-    }
 
     val page = remember(activeCategory, continueWatching, entriesFor) {
         if (activeCategory == VOD_CONTINUE) VodPage.of(continueWatching)
@@ -299,28 +339,35 @@ private fun VodBrowser(
     // the first composition after a return is not, and treating it as one
     // threw away the viewer's place in the grid.
     var laidOutCategory by rememberSaveable { mutableStateOf(activeCategory) }
-
-    fun heroAt(index: Int): HeroInfo? =
-        if (page.size > 0) page.entryAt(index.coerceIn(0, page.size - 1)).hero else null
-    var hero by remember(initialHero) {
-        mutableStateOf(heroAt(if (browsingGrid) focusedEntryIndex else 0) ?: initialHero)
-    }
     // The grid is replaced wholesale on a category switch without focus moving
-    // inside it, so nothing else would clear the header of the item it was
-    // describing in a category that is no longer shown.
+    // inside it; resetting the index is what moves the hero to the first
+    // poster of the new category, since the hero follows the index.
     LaunchedEffect(activeCategory) {
         if (activeCategory == laidOutCategory) return@LaunchedEffect
         laidOutCategory = activeCategory
         focusedEntryIndex = 0
-        hero = heroAt(0) ?: initialHero
     }
 
-    // Debounced so travelling a poster row doesn't hard-cut the hero (text and
-    // backdrop together) 5x/second.
-    var shownHero by remember { mutableStateOf(hero) }
-    LaunchedEffect(hero) {
-        kotlinx.coroutines.delay(NuxMotion.HeroDebounceMs.toLong())
-        shownHero = hero
+    // The hero follows the focused poster — the remembered one on a return,
+    // the first one on a fresh visit — and is DERIVED from the index rather
+    // than snapshotted by the focus callback, so it is read here exactly once
+    // (without observation: a read the composition tracked would bring every
+    // press back into this scope) and from then on only inside the effect.
+    // Debounced there, so travelling a poster row doesn't hard-cut the hero
+    // (text and backdrop together) 5x/second.
+    val pageState = rememberUpdatedState(page)
+    val initialHeroState = rememberUpdatedState(initialHero)
+    val shownHero = remember {
+        mutableStateOf(Snapshot.withoutReadObservation { page.heroAt(focusedEntryIndex) ?: initialHero })
+    }
+    LaunchedEffect(Unit) {
+        snapshotFlow { pageState.value.heroAt(focusedEntryIndex) ?: initialHeroState.value }
+            .distinctUntilChanged()
+            .collectLatest { hero ->
+                if (hero == shownHero.value) return@collectLatest
+                kotlinx.coroutines.delay(NuxMotion.HeroDebounceMs.toLong())
+                shownHero.value = hero
+            }
     }
 
     // On the strip itself, with a restorer: UP from the grid lands on the chip
@@ -340,13 +387,17 @@ private fun VodBrowser(
     // on the first thing it finds — a chip, since the strip composes before
     // the grid — and that chip's focus callback rewrites browsingGrid before
     // this effect gets to run. Read late, the return always "remembered"
-    // being on the strip.
-    val returnIndex = remember { if (browsingGrid) focusedEntryIndex else -1 }
+    // being on the strip. Read without observation, or this scope would
+    // recompose on every press for a value it only ever wanted once.
+    val returnIndex = remember {
+        Snapshot.withoutReadObservation { if (browsingGrid) focusedEntryIndex else -1 }
+    }
     // True until the arrival has settled. A chip focused in passing during
-    // that window must not dwell-select: the shell's parking put focus on
-    // whichever chip was nearest, and a quarter-second later the category
-    // the viewer had chosen was replaced by it.
-    var arriving by remember { mutableStateOf(true) }
+    // that window must not count as the viewer leaving the grid: the shell's
+    // parking put focus on whichever chip was nearest, and the return then
+    // "remembered" being on the strip. A plain holder — nothing in
+    // composition reads it, so flipping it must not invalidate anything.
+    val arriving = remember { booleanArrayOf(true) }
     val arrivalAllowed = LocalArrivalFocusAllowed.current
     val arrivalPending = remember { booleanArrayOf(true) }
     LaunchedEffect(arrivalAllowed) {
@@ -364,7 +415,7 @@ private fun VodBrowser(
             }
             categoriesFocus.requestFocusRetrying()
         } finally {
-            arriving = false
+            arriving[0] = false
         }
     }
 
@@ -373,11 +424,15 @@ private fun VodBrowser(
     // poster is the stand-in, not the request: asking for the 16:9 art even
     // when a poster exists is what turns a wall of stretched portrait crops
     // into something that looks composed.
-    BackdropLayer(
-        borrowedArt(vm, shownHero?.art, shownHero?.backdrop, wide = true)
-            ?: shownHero?.poster
-    )
+    BrowseBackdrop(vm, shownHero)
     Column(modifier = Modifier.fillMaxSize()) {
+        // OK selects, nothing else does. Live TV's chips dwell-select because
+        // the guide beneath them is the whole screen and a rest on a chip is
+        // a real choice; here the grid beneath the strip is rebuilt from
+        // scratch on every switch — scrolled to the top, re-staggered, the
+        // hero reset — and a dwell turned travelling the strip into a series
+        // of those. A viewer moving along the chips to reach "Thriller" does
+        // not want "Action", "Comedy" and "Drama" laid out on the way.
         androidx.compose.foundation.lazy.LazyRow(
             modifier = Modifier
                 .padding(bottom = 10.dp)
@@ -392,11 +447,9 @@ private fun VodBrowser(
                     selected = category.id == activeCategory,
                     onClick = { selectedCategory = category.id },
                     onFocus = {
-                        if (arriving) return@CategoryItem
+                        if (arriving[0]) return@CategoryItem
                         browsingGrid = false
-                        focusedCategory = category.id
                     },
-                    onBlur = { if (focusedCategory == category.id) focusedCategory = null },
                 )
             }
         }
@@ -406,7 +459,7 @@ private fun VodBrowser(
         // grid's first item, leaving every poster past row one nameless.
         // One line, so it costs the grid less than a third of a row.
         Box(modifier = Modifier.fillMaxWidth().height(BROWSE_HERO_HEIGHT)) {
-            BrowseHero(shownHero)
+            BrowseHeroSlot(shownHero)
         }
         if (page.size == 0) {
             StatusPane(
@@ -416,7 +469,10 @@ private fun VodBrowser(
             )
             return@Column
         }
-        val gridEntrance = rememberListEntrance(activeCategory)
+        // Saveable, so a return from a film does not stagger the grid in
+        // again. Only a category switch — a real change of content — or a
+        // fresh launch animates.
+        val gridEntrance = rememberSaveable(activeCategory) { android.os.SystemClock.uptimeMillis() }
         val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
         // A category switch starts at the top. The state is shared across
         // categories, and without this "Comedy" opened wherever "All" had
@@ -440,16 +496,22 @@ private fun VodBrowser(
         // scales about its centre and the grid clips, so the row that snapping
         // exists to show you was the one row guaranteed to be cut.
         val overhangPx = with(LocalDensity.current) { FOCUS_OVERHANG.roundToPx() }
-        val focusedRow = focusedEntryIndex / gridColumns
-        // Keyed on the ROW: focusedEntryIndex changes on LEFT/RIGHT too, so
-        // travelling sideways cancelled and restarted a full smooth-scroll
-        // animation to the row it was already on, once per keypress.
-        LaunchedEffect(focusedRow, browsingGrid, overhangPx) {
-            if (!browsingGrid) return@LaunchedEffect
-            val row = focusedRow
-            // A negative offset seats the row below the viewport start rather
-            // than on it.
-            gridState.animateScrollToItem(row * gridColumns, scrollOffset = -overhangPx)
+        // Keyed on the ROW, via snapshotFlow rather than a read in this
+        // scope: focusedEntryIndex changes on LEFT/RIGHT too, and a read here
+        // rebuilt the grid's whole modifier chain — re-measuring it through
+        // shelfRingRoom — once per keypress, while the row it derives stayed
+        // the same. distinctUntilChanged is what makes sideways travel free.
+        LaunchedEffect(gridColumns, overhangPx) {
+            snapshotFlow { if (browsingGrid) focusedEntryIndex / gridColumns else -1 }
+                .distinctUntilChanged()
+                .collectLatest { row ->
+                    if (row < 0) return@collectLatest
+                    // A negative offset seats the row below the viewport
+                    // start rather than on it.
+                    snapRetrying {
+                        gridState.animateScrollToItem(row * gridColumns, scrollOffset = -overhangPx)
+                    }
+                }
         }
         LazyVerticalGrid(
             state = gridState,
@@ -492,8 +554,10 @@ private fun VodBrowser(
             ),
         ) {
             items(count = page.size, key = { page.keyAt(it) }) { index ->
-                // Built here, for this cell only — see [VodPage].
-                val entry = page.entryAt(index)
+                // Built here, for this cell only — see [VodPage] — and
+                // remembered, so the cell's lambdas keep their identity and
+                // the poster beneath can skip.
+                val entry = remember(page, index) { page.entryAt(index) }
                 Box(modifier = Modifier.itemEntrance(index, gridEntrance)) {
                     PosterCard(
                         title = entry.title,
@@ -501,14 +565,16 @@ private fun VodBrowser(
                         width = null,
                         year = entry.year,
                         progress = entry.progress,
-                        modifier = if (index == focusedEntryIndex) {
+                        // The arrival requester rides on exactly one cell —
+                        // the one chosen at composition — and is never asked
+                        // for again, so no cell needs to watch the index.
+                        modifier = if (index == returnIndex) {
                             Modifier.focusRequester(posterFocus)
                         } else Modifier,
                         onClick = entry.onOpen,
                         onFocus = {
                             browsingGrid = true
                             focusedEntryIndex = index
-                            hero = entry.hero
                             entry.onFocus()
                         },
                     )
@@ -518,6 +584,28 @@ private fun VodBrowser(
         }
     }
     }
+}
+
+/**
+ * The backdrop and the header each read the hero in a scope of their own, so
+ * a debounced hero swap recomposes the two of them and not the browser — the
+ * strip, the grid and every composed cell — around them.
+ */
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.BrowseBackdrop(
+    vm: MainViewModel,
+    hero: State<HeroInfo?>,
+) {
+    val current = hero.value
+    BackdropLayer(
+        borrowedArt(vm, current?.art, current?.backdrop, wide = true)
+            ?: current?.poster
+    )
+}
+
+@Composable
+private fun BrowseHeroSlot(hero: State<HeroInfo?>) {
+    BrowseHero(hero.value)
 }
 
 /** The pinned hero's slot — one line of title and chips. */
@@ -581,33 +669,35 @@ fun MoviesTab(
         )
         return
     }
-    val resumePositions by vm.resumePositions.collectAsState()
-    val resumeProgress by vm.resumeProgress.collectAsState()
-    val pin by vm.parentalPin.collectAsState()
-    val unlocked by vm.parentalUnlocked.collectAsState()
-
-    val visible = remember(bundle, pin, unlocked) {
-        val lockedIds = bundle.movieCategories
-            .filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
-        bundle.movieCategories.filterNot { vm.isLockedCategory(it.name) } to
-            bundle.movies.filterNot { it.categoryId in lockedIds }
+    // The catalogue, indexed once off the main thread — see [CatalogIndex].
+    // Nothing is drawn until the index for THIS bundle has landed: it arrives
+    // a beat after the bundle, and the one before it describes a playlist
+    // that is no longer on screen.
+    val catalog by vm.catalog.collectAsState()
+    val current = catalog?.takeIf { it.index.bundle === bundle }
+    if (current == null) {
+        Box(Modifier.fillMaxSize())
+        return
     }
-    val (categories, movies) = visible
+    val index = current.index
+    val resumeProgress by vm.resumeProgress.collectAsState()
+
     // Anything filed under a category the playlist never declared still has to
     // be reachable, so it gets a category of its own rather than disappearing.
-    val shownCategories = remember(categories, movies) {
-        val known = categories.mapTo(HashSet()) { it.id }
+    val shownCategories = remember(index) {
         buildList {
             // Ahead of the provider's own categories: it is the shortcut, and
             // a shortcut buried under three hundred genre names is not one.
             // Skipped when the catalogue already offers a shelf by that name —
             // a curated manifest names one itself, and two tabs reading
             // "Recently added" is the catalogue looking broken.
-            if (movies.any { it.addedMs != null } && categories.none { it.name.equals(VOD_NEW_LABEL, true) }) {
+            if (index.newMovies.isNotEmpty() &&
+                index.movieCategories.none { it.name.equals(VOD_NEW_LABEL, true) }
+            ) {
                 add(Category(id = VOD_NEW, name = VOD_NEW_LABEL))
             }
-            addAll(categories)
-            if (movies.any { it.categoryId == null || it.categoryId !in known }) {
+            addAll(index.movieCategories)
+            if (!index.moviesByCategory[VOD_MORE].isNullOrEmpty()) {
                 add(Category(id = VOD_MORE, name = "More"))
             }
         }
@@ -625,26 +715,25 @@ fun MoviesTab(
         onOpen = { onOpenMovie(this) },
     )
 
-    val continueWatching = remember(movies, resumePositions, resumeProgress) {
-        // Newest first, like Home's shelf — not playlist order.
-        val byUrl = movies.associateBy { it.url }
-        resumePositions.keys.toList().asReversed().mapNotNull { byUrl[it]?.entry() }
+    // Newest first, like Home's shelf — the index already orders it so.
+    val continueWatching = remember(current, resumeProgress) {
+        current.resumedMovies.map { it.entry() }
     }
     VodBrowser(
         vm = vm,
         categories = shownCategories,
         continueWatching = continueWatching,
+        // Every category is a lookup; the filters and the sort that used to
+        // run here, on the main thread, per chip, ran once in the index.
         entriesFor = { categoryId ->
-            val known = categories.mapTo(HashSet()) { it.id }
             val list = when (categoryId) {
-                VOD_ALL -> movies
-                VOD_NEW -> movies.filter { it.addedMs != null }.sortedByDescending { it.addedMs }
-                VOD_MORE -> movies.filter { it.categoryId == null || it.categoryId !in known }
-                else -> movies.filter { it.categoryId == categoryId }
+                VOD_ALL -> index.movies
+                VOD_NEW -> index.newMovies
+                else -> index.moviesByCategory[categoryId].orEmpty()
             }
             VodPage(list.size, { list[it].id }, { list[it].entry() })
         },
-        initialHero = movies.firstOrNull()?.toHero(),
+        initialHero = remember(index) { index.movies.firstOrNull()?.toHero() },
     )
 }
 
@@ -664,49 +753,36 @@ fun SeriesTab(
         )
         return
     }
-    val resumePositions by vm.resumePositions.collectAsState()
+    // See MoviesTab: the index for this bundle, or nothing yet.
+    val catalog by vm.catalog.collectAsState()
+    val current = catalog?.takeIf { it.index.bundle === bundle }
+    if (current == null) {
+        Box(Modifier.fillMaxSize())
+        return
+    }
+    val index = current.index
     val resumeProgress by vm.resumeProgress.collectAsState()
-    // Which series each watched episode belongs to. Series.episodes is null
-    // for Xtream until the detail page fetched them, so anything keyed off
-    // it — the Continue watching shelf, the poster progress bar — simply
-    // never appeared on the setup this app is built for, while Home's
-    // Continue watching row (built from this map) did.
-    val episodeOrigins by vm.episodeOrigins.collectAsState()
-    val pin by vm.parentalPin.collectAsState()
-    val unlocked by vm.parentalUnlocked.collectAsState()
-
+    // Which series each watched episode belongs to, folded by the index into
     // seriesId -> progress of the most recently watched episode.
-    val seriesProgress = remember(resumePositions, resumeProgress, episodeOrigins) {
-        val out = HashMap<String, Float?>()
-        for (url in resumePositions.keys) {
-            val seriesId = episodeOrigins[url] ?: continue
-            // Insertion order is oldest-first; the last write wins, so the
-            // newest episode's progress is what the poster shows.
-            out[seriesId] = resumeProgress[url]
-        }
-        out
-    }
+    // Series.episodes is null for Xtream until the detail page fetched them,
+    // so anything keyed off it — the Continue watching shelf, the poster
+    // progress bar — simply never appeared on the setup this app is built
+    // for, while Home's Continue watching row (built from the origins map)
+    // did.
+    val seriesProgress = current.seriesProgress
 
-    val visible = remember(bundle, pin, unlocked) {
-        val lockedIds = bundle.seriesCategories
-            .filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
-        bundle.seriesCategories.filterNot { vm.isLockedCategory(it.name) } to
-            bundle.series.filterNot { it.categoryId in lockedIds }
-    }
-    val (categories, seriesList) = visible
-    val shownCategories = remember(categories, seriesList) {
-        val known = categories.mapTo(HashSet()) { it.id }
+    val shownCategories = remember(index) {
         buildList {
             // See the movies list: the manifest's own series sections lead
             // with a "Recently added" shelf, so adding a second one put the
             // same name in the column twice.
-            if (seriesList.any { it.addedMs != null } &&
-                categories.none { it.name.equals(VOD_NEW_LABEL, true) }
+            if (index.newSeries.isNotEmpty() &&
+                index.seriesCategories.none { it.name.equals(VOD_NEW_LABEL, true) }
             ) {
                 add(Category(id = VOD_NEW, name = VOD_NEW_LABEL))
             }
-            addAll(categories)
-            if (seriesList.any { it.categoryId == null || it.categoryId !in known }) {
+            addAll(index.seriesCategories)
+            if (!index.seriesByCategory[VOD_MORE].isNullOrEmpty()) {
                 add(Category(id = VOD_MORE, name = "More"))
             }
         }
@@ -731,35 +807,35 @@ fun SeriesTab(
         onFocus = { vm.prefetchEpisodes(this) },
     )
 
-    val continueWatching = remember(seriesList, resumePositions, resumeProgress, seriesProgress) {
-        // Newest first, the order Home uses for the same shelf.
-        val order = resumePositions.keys.toList().asReversed()
-            .mapNotNull { episodeOrigins[it] }.distinct()
-        val byId = seriesList.associateBy { it.id }
-        val fromOrigins = order.mapNotNull { byId[it] }
-        val fromEpisodes = seriesList.filter { series ->
-            series.id !in seriesProgress &&
-                series.episodes?.any { it.url in resumePositions } == true
-        }
-        (fromOrigins + fromEpisodes).map { it.entry() }
+    // Newest first, the order Home uses for the same shelf.
+    val continueWatching = remember(current, resumeProgress) {
+        current.resumedSeries.map { it.entry() }
     }
     VodBrowser(
         vm = vm,
         categories = shownCategories,
         continueWatching = continueWatching,
         entriesFor = { categoryId ->
-            val known = categories.mapTo(HashSet()) { it.id }
             val list = when (categoryId) {
-                VOD_ALL -> seriesList
-                VOD_NEW ->
-                    seriesList.filter { it.addedMs != null }.sortedByDescending { it.addedMs }
-                VOD_MORE -> seriesList.filter { it.categoryId == null || it.categoryId !in known }
-                else -> seriesList.filter { it.categoryId == categoryId }
+                VOD_ALL -> index.series
+                VOD_NEW -> index.newSeries
+                else -> index.seriesByCategory[categoryId].orEmpty()
             }
             VodPage(list.size, { list[it].id }, { list[it].entry() })
         },
-        initialHero = seriesList.firstOrNull()?.toHero(),
+        initialHero = remember(index) { index.series.firstOrNull()?.toHero() },
     )
+}
+
+/**
+ * "★ 7.5", by arithmetic. `"%.1f".format(it)` builds a java.util.Formatter
+ * per call, and this runs once per poster composed into a grid — a screenful
+ * on every category switch and every scroll, on the main thread. A rounded
+ * tenth needs no Formatter.
+ */
+internal fun ratingChip(rating: Double): String {
+    val tenths = Math.round(rating * 10)
+    return "★ ${tenths / 10}.${kotlin.math.abs(tenths % 10)}"
 }
 
 internal fun Movie.toHero() = HeroInfo(
@@ -770,7 +846,7 @@ internal fun Movie.toHero() = HeroInfo(
     chips = listOfNotNull(
         "Movie",
         year?.toString(),
-        rating?.let { "★ %.1f".format(it) },
+        rating?.let { ratingChip(it) },
         genre,
     ),
     plot = plot,
@@ -784,7 +860,7 @@ internal fun Series.toHero() = HeroInfo(
     chips = listOfNotNull(
         "Show",
         year?.toString(),
-        rating?.let { "★ %.1f".format(it) },
+        rating?.let { ratingChip(it) },
         episodes?.let { "${it.size} episodes" },
         genre,
     ),
