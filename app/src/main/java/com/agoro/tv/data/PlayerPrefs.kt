@@ -6,11 +6,20 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 
 enum class EngineChoice { EXO, VLC }
@@ -58,6 +67,12 @@ private val Context.playerDataStore: DataStore<Preferences> by preferencesDataSt
  */
 const val RECENT_CHANNEL_LIMIT = 20
 
+/** How long borrowed-art answers pool before they are written; see [PlayerPrefs.putArtwork]. */
+private const val ARTWORK_FLUSH_MS = 2_000L
+
+/** A screenful of answers is written without waiting out the pause. */
+private const val ARTWORK_BATCH = 24
+
 /** Player-related preferences: default engine and VOD resume positions. */
 class PlayerPrefs(private val context: Context) {
 
@@ -89,6 +104,48 @@ class PlayerPrefs(private val context: Context) {
     private val episodeOriginsKey = stringPreferencesKey("episode_origins")
     private val artworkKey = stringPreferencesKey("tmdb_artwork")
     private val frameStatsKey = stringPreferencesKey("frame_stats_overlay")
+
+    /**
+     * One decode per distinct blob, shared by every collector.
+     *
+     * DataStore re-emits the whole Preferences object to every collector on
+     * any write, and each JSON-backed flow below used to decode its own blob
+     * from scratch on each of those — so one artwork lookup landing made
+     * twelve collectors re-parse twelve blobs, eleven of them unchanged. A
+     * slot remembers the last raw string it saw and the value it decoded
+     * from it; an unchanged blob is the same String instance in the next
+     * Preferences map, so the check is an identity compare and the decode
+     * happens exactly once per actual change. Decoding is the only work
+     * these flows do, so this is what [flowOn] was paying for.
+     */
+    private class JsonSlot<T : Any>(private val empty: T, private val decode: (String) -> T) {
+        @Volatile private var lastRaw: String? = null
+        @Volatile private var lastValue: T = empty
+
+        fun read(raw: String?): T {
+            if (raw == null) return empty
+            val seen = lastRaw
+            if (seen != null && (seen === raw || seen == raw)) return lastValue
+            // Two collectors can race the first read of a new blob and both
+            // decode it; they agree on the answer, so last writer wins.
+            val value = runCatching { decode(raw) }.getOrNull() ?: empty
+            lastValue = value
+            lastRaw = raw
+            return value
+        }
+    }
+
+    private val knownQualitiesSlot = JsonSlot<Map<String, String>>(emptyMap()) { json.decodeFromString(it) }
+    private val episodeOriginsSlot = JsonSlot<Map<String, String>>(emptyMap()) { json.decodeFromString(it) }
+    private val artworkSlot = JsonSlot<Map<String, ArtEntry>>(emptyMap()) { json.decodeFromString(it) }
+    private val resumePositionsSlot = JsonSlot<Map<String, Long>>(emptyMap()) { json.decodeFromString(it) }
+    private val resumeDurationsSlot = JsonSlot<Map<String, Long>>(emptyMap()) { json.decodeFromString(it) }
+    private val favoritesSlot = JsonSlot<Set<String>>(emptySet()) { json.decodeFromString(it) }
+    private val recentChannelsSlot = JsonSlot<List<String>>(emptyList()) { json.decodeFromString(it) }
+    private val schedulesSlot =
+        JsonSlot<List<ScheduledRecording>>(emptyList()) { json.decodeFromString(it) }
+    private val hiddenSlot = JsonSlot<Set<String>>(emptySet()) { json.decodeFromString(it) }
+    private val hiddenTitlesSlot = JsonSlot<Set<String>>(emptySet()) { json.decodeFromString(it) }
 
     /**
      * Live playback URLs changed from the panel's .m3u8 endpoint to the raw
@@ -134,9 +191,7 @@ class PlayerPrefs(private val context: Context) {
      * every list. Newest 500 kept.
      */
     val knownQualities: Flow<Map<String, String>> = context.playerDataStore.data.map { prefs ->
-        prefs[knownQualitiesKey]?.let {
-            runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrNull()
-        } ?: emptyMap()
+        knownQualitiesSlot.read(prefs[knownQualitiesKey])
     }.flowOn(Dispatchers.Default)
 
     suspend fun setKnownQuality(url: String, tier: String) {
@@ -161,9 +216,7 @@ class PlayerPrefs(private val context: Context) {
      * the player; newest 500 kept.
      */
     val episodeOrigins: Flow<Map<String, String>> = context.playerDataStore.data.map { prefs ->
-        prefs[episodeOriginsKey]?.let {
-            runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrNull()
-        } ?: emptyMap()
+        episodeOriginsSlot.read(prefs[episodeOriginsKey])
     }.flowOn(Dispatchers.Default)
 
     suspend fun recordEpisodeOrigins(seriesId: String, episodeUrls: List<String>) {
@@ -185,6 +238,21 @@ class PlayerPrefs(private val context: Context) {
      * is stored too ([ArtEntry.empty]) so a title TMDB doesn't know is asked
      * about once, not forever. Newest 800 kept.
      */
+    /**
+     * Lookups answered but not yet written. Each answer used to be its own
+     * DataStore edit — decode the 800-entry map, re-encode it, fsync — and a
+     * screenful of bare cards produces up to 24 of them in a burst, during
+     * exactly the scroll the art is meant to decorate. Now they pool here
+     * and go to disk together, after a short pause or once the pool is a
+     * screenful, whichever comes first. The flow above reads this too, so
+     * nothing on screen waits for the write.
+     */
+    private val artworkPending = MutableStateFlow<Map<String, ArtEntry>>(emptyMap())
+    private val artworkLock = Any()
+    private var artworkFlush: Job? = null
+    private val artworkFlushMutex = Mutex()
+    private val artworkScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     // flowOn, here and on every other JSON-backed flow below: DataStore
     // re-emits the WHOLE Preferences object to every collector on any write,
     // and MainViewModel collects these with stateIn(viewModelScope, ...) —
@@ -192,23 +260,62 @@ class PlayerPrefs(private val context: Context) {
     // mid-scroll made artwork, resume positions, favorites, hidden, episode
     // origins, schedules and sources all re-parse their JSON on the main
     // thread, during exactly the scroll borrowed art exists to decorate.
-    val artwork: Flow<Map<String, ArtEntry>> = context.playerDataStore.data.map { prefs ->
-        prefs[artworkKey]?.let {
-            runCatching { json.decodeFromString<Map<String, ArtEntry>>(it) }.getOrNull()
-        } ?: emptyMap()
-    }.flowOn(Dispatchers.Default)
+    //
+    // What is on disk plus what is waiting to go there: a lookup shows on
+    // its card the moment it lands, while the write behind it is batched.
+    val artwork: Flow<Map<String, ArtEntry>> = combine(
+        context.playerDataStore.data.map { prefs -> artworkSlot.read(prefs[artworkKey]) },
+        artworkPending,
+    ) { stored, pending -> if (pending.isEmpty()) stored else stored + pending }
+        .flowOn(Dispatchers.Default)
 
     suspend fun putArtwork(id: String, entry: ArtEntry) {
+        val flushNow = synchronized(artworkLock) {
+            artworkPending.value = artworkPending.value + (id to entry)
+            val full = artworkPending.value.size >= ARTWORK_BATCH
+            if (full) {
+                artworkFlush?.cancel()
+                artworkFlush = null
+            } else if (artworkFlush == null) {
+                artworkFlush = artworkScope.launch {
+                    delay(ARTWORK_FLUSH_MS)
+                    flushArtwork()
+                }
+            }
+            full
+        }
+        if (flushNow) flushArtwork()
+    }
+
+    private suspend fun flushArtwork(): Unit = artworkFlushMutex.withLock {
+        val batch = synchronized(artworkLock) {
+            artworkFlush = null
+            artworkPending.value
+        }
+        if (batch.isEmpty()) return@withLock
         context.playerDataStore.edit { prefs ->
             val map = prefs[artworkKey]?.let {
                 runCatching { json.decodeFromString<LinkedHashMap<String, ArtEntry>>(it) }.getOrNull()
             } ?: LinkedHashMap()
-            map.remove(id) // re-inserting moves the entry to the newest slot
-            map[id] = entry
+            batch.forEach { (id, entry) ->
+                map.remove(id) // re-inserting moves the entry to the newest slot
+                map[id] = entry
+            }
             val trimmed =
                 if (map.size > 800) map.entries.drop(map.size - 800).associate { it.toPair() }
                 else map
             prefs[artworkKey] = json.encodeToString(trimmed)
+        }
+        // Only what was written leaves the pool; an answer that arrived
+        // during the edit is still waiting for the next one.
+        synchronized(artworkLock) {
+            artworkPending.value = artworkPending.value.filterNot { (id, entry) -> batch[id] === entry }
+            if (artworkPending.value.isNotEmpty() && artworkFlush == null) {
+                artworkFlush = artworkScope.launch {
+                    delay(ARTWORK_FLUSH_MS)
+                    flushArtwork()
+                }
+            }
         }
     }
 
@@ -229,9 +336,7 @@ class PlayerPrefs(private val context: Context) {
 
     /** url → position, for Continue Watching rows. */
     val resumePositions: Flow<Map<String, Long>> = context.playerDataStore.data.map { prefs ->
-        prefs[positionsKey]?.let {
-            runCatching { json.decodeFromString<Map<String, Long>>(it) }.getOrNull()
-        } ?: emptyMap()
+        resumePositionsSlot.read(prefs[positionsKey])
     }.flowOn(Dispatchers.Default)
 
     /**
@@ -241,9 +346,7 @@ class PlayerPrefs(private val context: Context) {
      * predating this simply have no duration and show no progress bar.
      */
     val resumeDurations: Flow<Map<String, Long>> = context.playerDataStore.data.map { prefs ->
-        prefs[durationsKey]?.let {
-            runCatching { json.decodeFromString<Map<String, Long>>(it) }.getOrNull()
-        } ?: emptyMap()
+        resumeDurationsSlot.read(prefs[durationsKey])
     }.flowOn(Dispatchers.Default)
 
     /** Saves (or clears, when near the end) a VOD resume position. Keeps the newest 200. */
@@ -297,9 +400,7 @@ class PlayerPrefs(private val context: Context) {
     // --- favorites (keyed by stream URL, stable across playlist reloads) ------
 
     val favorites: Flow<Set<String>> = context.playerDataStore.data.map { prefs ->
-        prefs[favoritesKey]?.let {
-            runCatching { json.decodeFromString<Set<String>>(it) }.getOrNull()
-        } ?: emptySet()
+        favoritesSlot.read(prefs[favoritesKey])
     }.flowOn(Dispatchers.Default)
 
     suspend fun toggleFavorite(channelUrl: String) {
@@ -317,9 +418,7 @@ class PlayerPrefs(private val context: Context) {
     // playlist reload that renumbers or re-ids everything. Newest first.
 
     val recentChannels: Flow<List<String>> = context.playerDataStore.data.map { prefs ->
-        prefs[recentChannelsKey]?.let {
-            runCatching { json.decodeFromString<List<String>>(it) }.getOrNull()
-        } ?: emptyList()
+        recentChannelsSlot.read(prefs[recentChannelsKey])
     }.flowOn(Dispatchers.Default)
 
     /**
@@ -345,9 +444,7 @@ class PlayerPrefs(private val context: Context) {
     // --- scheduled recordings -------------------------------------------------
 
     val schedules: Flow<List<ScheduledRecording>> = context.playerDataStore.data.map { prefs ->
-        prefs[schedulesKey]?.let {
-            runCatching { json.decodeFromString<List<ScheduledRecording>>(it) }.getOrNull()
-        } ?: emptyList()
+        schedulesSlot.read(prefs[schedulesKey])
     }.flowOn(Dispatchers.Default)
 
     suspend fun addSchedule(item: ScheduledRecording) {
@@ -371,9 +468,7 @@ class PlayerPrefs(private val context: Context) {
     // --- hidden channels ------------------------------------------------------
 
     val hidden: Flow<Set<String>> = context.playerDataStore.data.map { prefs ->
-        prefs[hiddenKey]?.let {
-            runCatching { json.decodeFromString<Set<String>>(it) }.getOrNull()
-        } ?: emptySet()
+        hiddenSlot.read(prefs[hiddenKey])
     }.flowOn(Dispatchers.Default)
 
     suspend fun toggleHidden(channelUrl: String) {
@@ -397,9 +492,7 @@ class PlayerPrefs(private val context: Context) {
     // under a new id would quietly un-hide itself.
 
     val hiddenTitles: Flow<Set<String>> = context.playerDataStore.data.map { prefs ->
-        prefs[hiddenTitlesKey]?.let {
-            runCatching { json.decodeFromString<Set<String>>(it) }.getOrNull()
-        } ?: emptySet()
+        hiddenTitlesSlot.read(prefs[hiddenTitlesKey])
     }.flowOn(Dispatchers.Default)
 
     suspend fun toggleHiddenTitle(key: String) {

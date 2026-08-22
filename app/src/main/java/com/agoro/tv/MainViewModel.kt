@@ -1191,20 +1191,52 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun playChannels(channels: List<LiveChannel>, startIndex: Int) {
         playback = PlaybackRequest(
-            items = channels.map {
-                PlayableItem(
-                    url = it.url,
-                    title = it.displayName,
-                    subtitle = "Live",
-                    artwork = it.logo,
-                    channelId = it.id,
-                    recordUrl = it.recordUrl,
-                    fallbackUrls = it.fallbackUrls,
-                )
-            },
+            items = LiveItems(channels),
             startIndex = startIndex.coerceIn(0, (channels.size - 1).coerceAtLeast(0)),
             isLive = true,
         )
+    }
+
+    /**
+     * A channel list seen as playable items, mapped on read.
+     *
+     * OK on a channel used to map the whole list it came from into items
+     * before anything navigated — and from "All channels" that list is every
+     * channel the playlist has, thousands of them, each read through
+     * [LiveChannel.displayName], which is six regex passes the first time.
+     * A pause of most of a second between the press and the picture, spent
+     * building a playlist the player reads one entry of. The player asks by
+     * index, so that is when an entry is built; the rest never are unless
+     * the viewer actually walks to them. An entry once built is kept, so a
+     * walk that does happen — a digit tune searching the list for a channel
+     * — costs what the old eager map did, once, and nothing after.
+     *
+     * Equality is the underlying channels', never an element walk: the
+     * request lives in a Compose state that compares old and new on every
+     * assignment, and a structural compare of two lazy views would be the
+     * full map twice over — the exact cost this exists to avoid.
+     */
+    private class LiveItems(private val channels: List<LiveChannel>) : AbstractList<PlayableItem>() {
+        private val built = arrayOfNulls<PlayableItem>(channels.size)
+
+        override val size: Int get() = channels.size
+
+        override fun get(index: Int): PlayableItem = built[index] ?: channels[index].let {
+            PlayableItem(
+                url = it.url,
+                title = it.displayName,
+                subtitle = "Live",
+                artwork = it.logo,
+                channelId = it.id,
+                recordUrl = it.recordUrl,
+                fallbackUrls = it.fallbackUrls,
+            )
+        }.also { built[index] = it }
+
+        override fun equals(other: Any?): Boolean =
+            if (other is LiveItems) channels == other.channels else super.equals(other)
+
+        override fun hashCode(): Int = channels.hashCode()
     }
 
     fun playMovie(movie: Movie, startOver: Boolean = false) {

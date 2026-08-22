@@ -51,6 +51,9 @@ class XtreamClient(
             u = u.substringBefore("/player_api.php").substringBefore("/get.php")
             return u
         }
+
+        // Compiled once: this ran per movie, and a catalogue has 29,000.
+        private val YEAR = Regex("(19|20)\\d{2}")
     }
 
     private fun buildRequest(action: String?, extra: Map<String, String>): Request {
@@ -385,7 +388,7 @@ class XtreamClient(
     }
 
     private fun yearFrom(text: String?): Int? =
-        text?.let { Regex("(19|20)\\d{2}").find(it)?.value?.toIntOrNull() }
+        text?.let { YEAR.find(it)?.value?.toIntOrNull() }
 }
 
 // --- defensive JSON accessors -------------------------------------------------
