@@ -147,9 +147,18 @@ class PlayerSession internal constructor(
             if (value) {
                 stallClock.clear()
                 lastTuneMs = System.currentTimeMillis()
+                tuneSerial++
             }
             tuningState = value
         }
+
+    /**
+     * Counts tunes. Effects that must act once per stream — matching the
+     * display mode, learning the decoded tier — key on this rather than on
+     * the index, which a retry or a rejoin repeats and a new playlist reuses.
+     */
+    var tuneSerial: Int by mutableIntStateOf(0)
+        private set
 
     /** When the current stream was asked for; see [STALL_GRACE_MS]. */
     private var lastTuneMs = System.currentTimeMillis()
