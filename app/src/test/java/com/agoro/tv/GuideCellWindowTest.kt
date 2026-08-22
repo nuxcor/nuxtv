@@ -38,8 +38,14 @@ class GuideCellWindowTest {
     )
 
     /** lead + every composed span + trail must equal the row's full width. */
-    private fun assertWidthPreserved(layout: GuideRowLayout, perMinutePx: Float, scrollPx: Int, viewportPx: Float) {
-        val visible = visibleCellsFor(layout, perMinutePx, scrollPx, viewportPx)
+    private fun assertWidthPreserved(
+        layout: GuideRowLayout,
+        perMinutePx: Float,
+        scrollPx: Int,
+        viewportPx: Float,
+        seedViewportPx: Float = 0f,
+    ) {
+        val visible = visibleCellsFor(layout, perMinutePx, scrollPx, viewportPx, seedViewportPx)
         var composed = 0f
         layout.cells.forEachIndexed { i, spec ->
             if (i in visible.range) {
@@ -97,6 +103,27 @@ class GuideCellWindowTest {
         assertEquals(0..11, visible.range)
         assertEquals(0f, visible.leadMinutes, 0.01f)
         assertEquals(0f, visible.trailMinutes, 0.01f)
+    }
+
+    @Test
+    fun `an unmeasured viewport with a seed composes only the seeded window`() {
+        // The first frame of every fresh composition — Live entry, return
+        // from the player, overlay open — has no measured viewport. The host
+        // knows the lane's width from its own arithmetic and passes it as
+        // the seed, so frame one composes the handful frame two keeps rather
+        // than every cell of the day.
+        val layout = row(count = 60)
+        val perMinutePx = 4f
+        val scrollPx = 3_600
+        val seeded = visibleCellsFor(layout, perMinutePx, scrollPx, viewportPx = 0f, seedViewportPx = 900f)
+        val measured = visibleCellsFor(layout, perMinutePx, scrollPx, viewportPx = 900f)
+        assertEquals(measured.range, seeded.range)
+        assertTrue("composed ${seeded.range.count()} of 60", seeded.range.count() in 1..25)
+        assertWidthPreserved(layout, perMinutePx, scrollPx, viewportPx = 0f, seedViewportPx = 900f)
+        // The seed only ever stands in for an UNKNOWN viewport; a measured
+        // one wins however the two disagree.
+        val real = visibleCellsFor(layout, perMinutePx, scrollPx, viewportPx = 400f, seedViewportPx = 900f)
+        assertEquals(visibleCellsFor(layout, perMinutePx, scrollPx, viewportPx = 400f).range, real.range)
     }
 
     @Test
