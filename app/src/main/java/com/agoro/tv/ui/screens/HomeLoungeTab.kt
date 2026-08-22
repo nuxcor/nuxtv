@@ -69,6 +69,9 @@ import com.agoro.tv.ui.components.shelfRingRoom
 import com.agoro.tv.ui.components.StatusAction
 import com.agoro.tv.ui.components.StatusPane
 import com.agoro.tv.ui.components.itemEntrance
+import com.agoro.tv.ui.components.LocalArrivalFocusAllowed
+import com.agoro.tv.ui.components.requestFocusRetrying
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.agoro.tv.ui.components.rememberListEntrance
 import com.agoro.tv.ui.theme.NuxColors
 import com.agoro.tv.ui.theme.NuxFocus
@@ -276,30 +279,42 @@ fun HomeLoungeTab(
         return
     }
 
-    // At rest (nothing focused yet) the hero describes the first card, so the
-    // screen never opens on an empty header. Derived, not set-once: the first
-    // card's programme line refreshes with the guide's minute tick.
+    // Saveable, all three: Home leaves composition for every detail page and
+    // every channel, and coming back is a return, not a launch. The row and
+    // the card within it are what "where I was" means here; the signal is
+    // saved too so the first-arrival scroll-to-top below stays spent.
+    var focusedRow by rememberSaveable { mutableStateOf(0) }
+    var focusedIndex by rememberSaveable { mutableStateOf(0) }
+    // Bumped on every card focus, not just row changes: the LazyColumn's own
+    // bring-into-view nudges the list on focus, and without a counter-snap
+    // per focus event the correction only fired when the row index changed.
+    var focusSignal by rememberSaveable { mutableStateOf(0) }
+
+    // At rest (nothing focused yet) the hero describes the remembered card —
+    // the first one on a fresh visit — so the screen never opens on an empty
+    // header, and a return doesn't flash the first shelf's title over the
+    // card focus is about to land on. Derived, not set-once: the card's
+    // programme line refreshes with the guide's minute tick.
     var hero by remember { mutableStateOf<HeroInfo?>(null) }
     val restingHero = remember(
         rowKeys, continueRow, favoritesRow, recentsRow, recentlyAdded,
-        starterChannels, starterMovies, starterSeries, nowNext,
+        starterChannels, starterMovies, starterSeries, nowNext, focusedRow, focusedIndex,
     ) {
-        when (rowKeys.first()) {
-            HomeRow.Continue -> when (val first = continueRow.first()) {
-                is ContinueCard.MovieCard -> first.movie.toHero()
-                is ContinueCard.SeriesCard -> first.series.toHero()
+        fun <T> List<T>.at() = getOrElse(focusedIndex) { first() }
+        when (rowKeys.getOrElse(focusedRow) { rowKeys.first() }) {
+            HomeRow.Continue -> when (val card = continueRow.at()) {
+                is ContinueCard.MovieCard -> card.movie.toHero()
+                is ContinueCard.SeriesCard -> card.series.toHero()
             }
-            HomeRow.New -> when (val first = recentlyAdded.first()) {
-                is CatalogCard.MovieCard -> first.movie.toHero()
-                is CatalogCard.SeriesCard -> first.series.toHero()
+            HomeRow.New -> when (val card = recentlyAdded.at()) {
+                is CatalogCard.MovieCard -> card.movie.toHero()
+                is CatalogCard.SeriesCard -> card.series.toHero()
             }
-            HomeRow.Favorites ->
-                channelHero(favoritesRow.first(), nowNext[favoritesRow.first().id])
-            HomeRow.Recents -> channelHero(recentsRow.first(), nowNext[recentsRow.first().id])
-            HomeRow.StarterChannels ->
-                channelHero(starterChannels.first(), nowNext[starterChannels.first().id])
-            HomeRow.StarterMovies -> starterMovies.first().toHero()
-            HomeRow.StarterSeries -> starterSeries.first().toHero()
+            HomeRow.Favorites -> favoritesRow.at().let { channelHero(it, nowNext[it.id]) }
+            HomeRow.Recents -> recentsRow.at().let { channelHero(it, nowNext[it.id]) }
+            HomeRow.StarterChannels -> starterChannels.at().let { channelHero(it, nowNext[it.id]) }
+            HomeRow.StarterMovies -> starterMovies.at().toHero()
+            HomeRow.StarterSeries -> starterSeries.at().toHero()
         }
     }
     val activeHero = hero ?: restingHero
@@ -322,11 +337,6 @@ fun HomeLoungeTab(
     }
 
     val columnState = rememberLazyListState()
-    var focusedRow by remember { mutableStateOf(0) }
-    // Bumped on every card focus, not just row changes: the LazyColumn's own
-    // bring-into-view nudges the list on focus, and without a counter-snap
-    // per focus event the correction only fired when the row index changed.
-    var focusSignal by remember { mutableStateOf(0) }
     // Row snapping (the browse grid's rule): the focused row aligns to the
     // top of the scrolling lane so the rows above scroll fully away instead
     // of leaving clipped caption slivers. The hero is pinned above the lane,
@@ -356,7 +366,36 @@ fun HomeLoungeTab(
     val searchFocus = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
 
+    // Where focus lands on arrival: the card the viewer left, or the first
+    // card of the first shelf on a fresh visit. Left to the shell's geometric
+    // parking, focus went to whichever node existed first — the Search pill,
+    // because the hero composes a frame before the lazy rows do — so the app
+    // opened (and every return from a detail page landed) on Search rather
+    // than on anything to watch. Rides on the card itself; the shelf's
+    // restorer is the fallback when that card has scrolled out of composition.
+    val cardFocus = remember { FocusRequester() }
+    // Once per visit (the rememberInitialFocus rule): the allowed flag flips
+    // on every drawer round trip, and firing on that edge would drag focus
+    // off wherever the viewer had since moved to.
+    val arrivalAllowed = LocalArrivalFocusAllowed.current
+    val arrivalPending = remember { booleanArrayOf(true) }
+    LaunchedEffect(arrivalAllowed) {
+        if (!arrivalAllowed || !arrivalPending[0]) return@LaunchedEffect
+        arrivalPending[0] = false
+        // The rows compose a frame after the column does; give the card a
+        // moment before settling for its shelf.
+        if (!cardFocus.requestFocusRetrying(retries = 6, intervalMs = 50)) {
+            rowFocus.requestFocusRetrying()
+        }
+    }
+
     var menu by remember { mutableStateOf<HomeMenu?>(null) }
+
+    /** The arrival requester rides on exactly one card: the remembered one. */
+    fun cardFocusModifier(rowIndex: Int, index: Int): Modifier =
+        if (rowIndex == focusedRow && index == focusedIndex) {
+            Modifier.focusRequester(cardFocus)
+        } else Modifier
 
     @Composable
     fun ChannelTile(row: List<LiveChannel>, rowIndex: Int, index: Int, channel: LiveChannel) {
@@ -365,6 +404,7 @@ fun HomeLoungeTab(
             ChannelShelfCard(
                 channel = channel,
                 now = nn?.now,
+                modifier = cardFocusModifier(rowIndex, index),
                 onClick = {
                     vm.playChannels(row, index)
                     onPlay()
@@ -372,6 +412,7 @@ fun HomeLoungeTab(
                 onLongClick = { menu = HomeMenu.Channel(channel, row, index) },
                 onFocus = {
                     focusedRow = rowIndex
+                    focusedIndex = index
                     focusSignal++
                     hero = channelHero(channel, nn)
                 },
@@ -394,10 +435,12 @@ fun HomeLoungeTab(
                 imageUrl = borrowedArt(vm, movie.artRef(), movie.poster),
                 year = movie.year,
                 progress = progress,
+                modifier = cardFocusModifier(rowIndex, index),
                 onClick = { onOpenMovie(movie) },
                 onLongClick = onLongClick,
                 onFocus = {
                     focusedRow = rowIndex
+                    focusedIndex = index
                     focusSignal++
                     hero = movie.toHero()
                 },
@@ -419,12 +462,14 @@ fun HomeLoungeTab(
                 imageUrl = borrowedArt(vm, series.artRef(), series.poster),
                 year = series.year,
                 progress = progress,
+                modifier = cardFocusModifier(rowIndex, index),
                 // The detail screen lands on the part-watched episode's
                 // resume action.
                 onClick = { onOpenSeries(series) },
                 onLongClick = onLongClick,
                 onFocus = {
                     focusedRow = rowIndex
+                    focusedIndex = index
                     focusSignal++
                     hero = series.toHero()
                     vm.prefetchEpisodes(series)
@@ -470,9 +515,7 @@ fun HomeLoungeTab(
                 if (event.type == KeyEventType.KeyDown &&
                     event.key == Key.DirectionUp && focusedRow == 0
                 ) {
-                    scope.launch {
-                        runCatching { searchFocus.requestFocus() }
-                    }
+                    scope.launch { searchFocus.requestFocusRetrying() }
                     true
                 } else false
             },

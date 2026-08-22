@@ -48,6 +48,8 @@ fun ChannelShelfCard(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     onFocus: () -> Unit = {},
+    /** Applied to the clickable surface — the node that takes focus. */
+    modifier: Modifier = Modifier,
 ) {
     val progress = now?.let {
         val span = it.endMs - it.startMs
@@ -60,7 +62,7 @@ fun ChannelShelfCard(
         Surface(
             onClick = onClick,
             onLongClick = onLongClick,
-            modifier = Modifier.onFocusChanged { if (it.isFocused) onFocus() },
+            modifier = modifier.onFocusChanged { if (it.isFocused) onFocus() },
             shape = ClickableSurfaceDefaults.shape(NuxShape.Card),
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = Color.Transparent,
@@ -118,6 +120,11 @@ fun ChannelShelfCard(
         Text(
             text = channel.displayName,
             style = MaterialTheme.typography.titleSmall,
+            // Explicit: the caption sits outside the Surface (see above), so
+            // it inherits no content colour and tv-material3's default is
+            // black — the name rendered invisible on the page while the
+            // dimmer programme line under it was readable.
+            color = NuxColors.OnSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = 2.dp),

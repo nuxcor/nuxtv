@@ -359,6 +359,9 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     LaunchedEffect(session.currentIndex, request) {
         if (!request.isLive) return@LaunchedEffect
         val url = request.items.getOrNull(session.currentIndex)?.url ?: return@LaunchedEffect
+        // Immediately, for the guide's return landing; the dwell below is
+        // only for the Recent shelf.
+        vm.noteTuned(url)
         delay(8_000)
         vm.recordChannelVisit(url)
     }

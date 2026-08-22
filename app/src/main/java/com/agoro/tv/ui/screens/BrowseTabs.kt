@@ -334,6 +334,7 @@ private fun VodBrowser(
                         browsingGrid = false
                         focusedCategory = category.id
                     },
+                    onBlur = { if (focusedCategory == category.id) focusedCategory = null },
                 )
             }
         }

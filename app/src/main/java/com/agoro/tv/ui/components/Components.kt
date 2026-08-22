@@ -300,11 +300,13 @@ fun PosterCard(
     /** Hold OK for the actions OK itself can't offer; null means no menu here. */
     onLongClick: (() -> Unit)? = null,
     onFocus: () -> Unit = {},
+    /** Applied to the surface itself, so a FocusRequester lands on the node that focuses. */
+    modifier: Modifier = Modifier,
 ) {
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = Modifier
+        modifier = modifier
             .then(if (width != null) Modifier.width(width) else Modifier.fillMaxWidth())
             .onFocusChanged { if (it.isFocused) onFocus() },
         shape = ClickableSurfaceDefaults.shape(CardShape),
@@ -990,8 +992,14 @@ fun BoxScope.ScrollEdgeFade(
                 .fillMaxWidth()
                 .height(height)
                 .background(
+                    // The page gradient is BackgroundRaised at the top of
+                    // the screen and Background at the bottom, so each fade
+                    // has to start from the colour that is actually behind
+                    // it. Both used Background, and at the top — where the
+                    // page is lighter — that painted a dark band across the
+                    // first row instead of dissolving it.
                     Brush.verticalGradient(
-                        listOf(NuxColors.Background, Color.Transparent)
+                        listOf(NuxColors.BackgroundRaised, Color.Transparent)
                     )
                 )
         )

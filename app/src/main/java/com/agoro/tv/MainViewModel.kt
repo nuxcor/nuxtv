@@ -959,6 +959,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { playerPrefs.recordChannelVisit(url) }
     }
 
+    /**
+     * The channel the player most recently tuned, set the moment it tunes —
+     * no dwell. Recents wait eight seconds so a zap past twenty channels does
+     * not record all twenty, but the guide's return landing needs the channel
+     * the viewer actually left, including the one they backed out of after
+     * two seconds because it was dead. Session-only by design.
+     */
+    private val _lastTunedUrl = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val lastTunedUrl: StateFlow<String?> = _lastTunedUrl
+    fun noteTuned(url: String) {
+        _lastTunedUrl.value = url
+    }
+
     fun clearRecentChannels() {
         viewModelScope.launch { playerPrefs.clearRecentChannels() }
     }

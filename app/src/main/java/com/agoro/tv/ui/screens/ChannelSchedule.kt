@@ -67,7 +67,8 @@ import java.util.Locale
 @Composable
 fun ChannelSchedule(
     channel: LiveChannel,
-    programs: List<EpgProgram>,
+    /** Null while the guide table is still being read; the list draws nothing. */
+    programs: List<EpgProgram>?,
     nowMs: Long,
     onWatch: () -> Unit,
     /**
@@ -109,7 +110,7 @@ fun ChannelSchedule(
 
     // Everything still to come, plus whatever is on now — a schedule that opens
     // on programmes that already finished is a history, not a plan.
-    val upcoming = remember(programs, tick) { programs.filter { it.endMs > tick } }
+    val upcoming = remember(programs, tick) { programs?.filter { it.endMs > tick } }
     val listState = rememberLazyListState()
 
     DialogScaffold(
@@ -167,7 +168,11 @@ fun ChannelSchedule(
             }
             Spacer(Modifier.height(2.dp))
 
-            if (upcoming.isEmpty()) {
+            if (upcoming == null) {
+                // Still loading: the slot keeps its height so the sheet
+                // doesn't resize when the rows land.
+                Spacer(Modifier.height(Space.xxl))
+            } else if (upcoming.isEmpty()) {
                 Text(
                     text = "No guide data for this channel.",
                     style = MaterialTheme.typography.bodyMedium,

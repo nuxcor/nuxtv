@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
@@ -246,6 +247,8 @@ internal class GuideGridFocus(anchorMs: Long) {
     /** rowIndex → that row's cells, registered while the row is composed. */
     val rows = mutableMapOf<Int, List<GuideCellFocus>>()
     var focusedRow = -1
+    /** Which channel [focusedRow] meant — so a changed list can re-resolve it. */
+    var focusedChannelId: String? = null
 
     /** Bumped on every focus arrival. requestFocus() returning without
      *  throwing is NOT proof focus moved — the entry redirect was observed
@@ -268,9 +271,10 @@ internal class GuideGridFocus(anchorMs: Long) {
     /** The anchor moves only when the focused cell doesn't cover it — entering
      *  a cell to the right drags the anchor along, but crossing a long
      *  programme vertically doesn't reset it to the programme's start. */
-    fun noteCellFocus(rowIndex: Int, startMs: Long, endMs: Long, nowMs: Long) {
+    fun noteCellFocus(rowIndex: Int, channelId: String, startMs: Long, endMs: Long, nowMs: Long) {
         arrivals++
         focusedRow = rowIndex
+        focusedChannelId = channelId
         focusedIsCell = true
         val fromFallback = verticalFallback
         verticalFallback = false
@@ -279,9 +283,10 @@ internal class GuideGridFocus(anchorMs: Long) {
         }
     }
 
-    fun noteChannelFocus(rowIndex: Int) {
+    fun noteChannelFocus(rowIndex: Int, channelId: String) {
         arrivals++
         focusedRow = rowIndex
+        focusedChannelId = channelId
         focusedIsCell = false
         verticalFallback = false
     }
@@ -298,11 +303,23 @@ internal class GuideGridFocus(anchorMs: Long) {
 @Stable
 class GuideGridHandle {
     internal var focusAnchorImpl: (suspend () -> Boolean)? = null
+    internal var beforePlayImpl: (() -> Unit)? = null
 
     /** Land focus on the anchored cell of the last-focused row (else the first
      *  row), verified — not merely requested. False when the grid is empty or
      *  never composed. */
     suspend fun focusAnchor(): Boolean = focusAnchorImpl?.invoke() ?: false
+
+    /**
+     * Hand the guide's muted preview connection back before the player asks
+     * for one. The grid's own play path does this; every other route onto a
+     * channel from the Live tab — the hold-OK menu, the schedule sheet — must
+     * too, or on a one-connection line the stream refused is the one the
+     * viewer just asked for.
+     */
+    fun beforePlay() {
+        beforePlayImpl?.invoke()
+    }
 }
 
 /** The cell covering [anchorMs], else the nearest one — a row whose data stops
@@ -402,6 +419,17 @@ internal fun GuideGrid(
     LaunchedEffect(windowStart, windowEnd) {
         gridFocus.anchorMs = gridFocus.anchorMs.coerceIn(windowStart, windowEnd - 1)
     }
+    // The remembered row is an index into a list that can be swapped out
+    // from under it — a category switch from the strip replaces every
+    // channel. Re-resolve it by channel so DOWN from the strip lands on the
+    // same channel if the new category has it, and on the top row if not —
+    // instead of on whichever channel happens to sit at row 37 now.
+    LaunchedEffect(channels) {
+        val id = gridFocus.focusedChannelId ?: return@LaunchedEffect
+        if (channels.getOrNull(gridFocus.focusedRow)?.id == id) return@LaunchedEffect
+        gridFocus.focusedRow = channels.indexOfFirst { it.id == id }
+        if (gridFocus.focusedRow < 0) gridFocus.focusedChannelId = null
+    }
 
     fun focusRow(rowIndex: Int): Boolean {
         val cells = gridFocus.rows[rowIndex] ?: return false
@@ -422,7 +450,15 @@ internal fun GuideGrid(
      */
     suspend fun landOnRow(rowIndex: Int): Boolean {
         if (rowIndex !in channels.indices) return false
-        runCatching { listState.scrollToItem(rowIndex) }
+        // Only scroll when the row isn't already on screen. A re-entry from
+        // the drawer lands on the row it left, and scrolling that row to the
+        // top of the list every time made the whole grid jump for nothing.
+        val info = listState.layoutInfo
+        val shown = info.visibleItemsInfo.firstOrNull { it.index == rowIndex }
+        val fullyVisible = shown != null &&
+            shown.offset >= info.viewportStartOffset &&
+            shown.offset + shown.size <= info.viewportEndOffset
+        if (!fullyVisible) runCatching { listState.scrollToItem(rowIndex) }
         repeat(8) {
             val before = gridFocus.arrivals
             if (focusRow(rowIndex)) {
@@ -479,10 +515,11 @@ internal fun GuideGrid(
         // buffer restarts this effect, and the jump must survive that.
         digitBuffer = ""
         if (typed == null) return@LaunchedEffect
-        // Number first, position second — the same rule the row labels use, so
-        // typing what you see always lands on it.
+        // By number only. Numbers are positions over the WHOLE list and a
+        // category shows a slice of it, so the old "position second"
+        // fallback turned typing 5 in Sports into the fifth row there —
+        // channel 304, under a badge that had just said "Channel 5".
         val target = channels.indexOfFirst { it.number == typed }
-            .takeIf { it >= 0 } ?: (typed - 1)
         if (target in channels.indices) {
             scope.launch {
                 listState.scrollToItem(target)
@@ -502,8 +539,15 @@ internal fun GuideGrid(
     // so a tick that fires in that window read nulls and stopped. Re-running
     // when the real values arrive costs nothing once something holds focus —
     // the remembered row wins below, and lands where the viewer already is.
-    LaunchedEffect(entryFocusTick, lastPlayedChannelId) {
+    // ...but only until the tick has landed somewhere. The late values
+    // change again on every category switch (the last-watched channel is in
+    // this list or it isn't), and re-running then pulled focus off the strip
+    // the viewer was travelling and into row N of the category they had
+    // merely paused on.
+    val landedTick = remember { intArrayOf(0) }
+    LaunchedEffect(entryFocusTick, lastPlayedChannelId, playingChannelId) {
         if (entryFocusTick == 0) return@LaunchedEffect
+        if (landedTick[0] == entryFocusTick && gridFocus.focusedRow >= 0) return@LaunchedEffect
         // A row this grid has already held beats any of it. The tick fires on
         // every sustained re-entry, not only on a return from the player —
         // stepping out to the rail and back would otherwise throw a viewer
@@ -520,7 +564,7 @@ internal fun GuideGrid(
                 channels.indexOfFirst { it.id == lastPlayedChannelId }.takeIf { it >= 0 }
             else -> null
         } ?: remembered ?: 0
-        landOnRow(index)
+        if (landOnRow(index)) landedTick[0] = entryFocusTick
     }
 
     // The host's DOWN route in. Reassigned every composition so the lambda
@@ -808,7 +852,10 @@ internal fun TimeRuler(
                 Text(
                     text = if (isNow) "ON NOW" else fmt.format(Date(t)),
                     style = MaterialTheme.typography.labelMedium,
-                    color = if (isNow) NuxColors.Error else NuxColors.OnSurfaceDim,
+                    // Gold, like every other "now" signal on this screen —
+                    // the header chip, the marker line, the cell bar. Red is
+                    // the app's error and REC colour and said neither here.
+                    color = if (isNow) NuxColors.Primary else NuxColors.OnSurfaceDim,
                     // getLineWidth, not size.width: the Text is stretched to
                     // the full slot, so its layout size is the slot — which
                     // made the pin limit zero and hid every label the moment
@@ -914,7 +961,7 @@ private fun GuideRow(
                 .focusProperties { upFromRow?.let { up = it } }
                 .onFocusChanged {
                     if (it.isFocused) {
-                        gridFocus.noteChannelFocus(rowIndex)
+                        gridFocus.noteChannelFocus(rowIndex, channel.id)
                         onFocus(
                             layout.cells.firstOrNull { spec ->
                                 nowMs in spec.program.startMs until spec.program.endMs
@@ -973,8 +1020,12 @@ private fun GuideRow(
                     style = MaterialTheme.typography.labelSmall,
                     color = NuxColors.OnSurfaceDim,
                     maxLines = 1,
+                    softWrap = false,
                     textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                    modifier = Modifier.width(24.dp),
+                    // Four digits: numbers are positions over the whole
+                    // list, and at 24dp "1042" wrapped to "104" — the wrong
+                    // number in the column that defines them.
+                    modifier = Modifier.width(34.dp),
                 )
                 // Bigger, and on nothing. A logo is already a shape on a
                 // transparent ground; setting it in a grey tile framed it a
@@ -1026,7 +1077,9 @@ private fun GuideRow(
                         .focusProperties { upFromRow?.let { up = it } }
                         .onFocusChanged {
                             if (it.isFocused) {
-                                gridFocus.noteCellFocus(rowIndex, windowStart, windowEnd, nowMs)
+                                gridFocus.noteCellFocus(
+                                    rowIndex, channel.id, windowStart, windowEnd, nowMs,
+                                )
                                 onFocus(null)
                             }
                         }
@@ -1111,7 +1164,7 @@ private fun GuideRow(
                         focusRequester = cellRequesters[i],
                         onFocus = {
                             gridFocus.noteCellFocus(
-                                rowIndex, spec.clampedStartMs, spec.clampedEndMs, nowMs,
+                                rowIndex, channel.id, spec.clampedStartMs, spec.clampedEndMs, nowMs,
                             )
                             onFocus(spec.program)
                         },
@@ -1251,10 +1304,17 @@ private fun ProgramCell(
 
     Surface(
         onClick = {
+            // Decided on the wall clock, not the 30s tick the styling uses:
+            // for up to half a minute after a programme starts the cell
+            // still looked "future", and OK scheduled a recording of what
+            // was already on instead of playing it.
+            val now = System.currentTimeMillis()
+            val onNow = now in program.startMs until program.endMs
+            val over = program.endMs <= now
             when {
-                airingNow -> onPlayLive()
-                isPast && hasArchive -> onCatchup()
-                !isPast -> onSchedule() // records when possible, else sets a reminder
+                onNow -> onPlayLive()
+                over && hasArchive -> onCatchup()
+                !over -> onSchedule() // records when possible, else sets a reminder
                 else -> Unit
             }
         },
@@ -1265,7 +1325,12 @@ private fun ProgramCell(
             // Caller has already reconciled this against the ruler; see layoutGuideRow.
             .width(dpPerMinute * widthMinutes)
             .height(ROW_HEIGHT)
-            .padding(end = 2.dp, top = 6.dp, bottom = 6.dp),
+            // 4dp of row gap each side, not 6: the row lost 10dp when the
+            // quality deck came off it and the two text lines inside did
+            // not — the time line was being sliced through its middle by
+            // the cell's bottom edge. The budget is now exactly the two
+            // lines (22 + 16) plus the insets, see the Column below.
+            .padding(end = 2.dp, top = 4.dp, bottom = 4.dp),
         shape = ClickableSurfaceDefaults.shape(NuxShape.Chip),
         scale = ClickableSurfaceDefaults.scale(
             focusedScale = com.agoro.tv.ui.theme.NuxFocus.RowScale,
@@ -1320,11 +1385,13 @@ private fun ProgramCell(
                             (widthMinutes * perMinPx - 120.dp.toPx()).coerceAtLeast(0f)
                         alpha = if (timelineScroll.value - startPx > maxPin) 0f else 1f
                     }
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    // 2dp above, 4dp below: the progress bar draws inside
+                    // the bottom inset instead of across the time line.
+                    .padding(start = 8.dp, end = 8.dp, top = 2.dp, bottom = 4.dp),
             ) {
                 Text(
                     text = program.title,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleSmall.copy(lineHeight = 22.sp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1334,7 +1401,7 @@ private fun ProgramCell(
                     // the header teaches it once, for the focused cell.
                     text = fmt.format(Date(program.startMs)) +
                         (if (airingNow) " • Now" else ""),
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelMedium.copy(lineHeight = 16.sp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

@@ -119,6 +119,12 @@ fun GuideTab(
     onChannelLongPress: (LiveChannel) -> Unit = {},
     /** Escape hatch offered when the playlist has no live channels at all. */
     onOpenSettings: () -> Unit = {},
+    /**
+     * The host's line into the grid: hand focus back to the row it left after
+     * an overlay closes, release the preview before the host plays. Created
+     * here when the host has no use for it.
+     */
+    gridHandle: GuideGridHandle = remember { GuideGridHandle() },
 ) {
     val epgState by vm.epgState.collectAsState()
     val coverage by vm.guideCoverage.collectAsState()
@@ -162,6 +168,10 @@ fun GuideTab(
     val pin by vm.parentalPin.collectAsState()
     val unlocked by vm.parentalUnlocked.collectAsState()
     var pinPromptOpen by remember { mutableStateOf(false) }
+    // The category the PIN was asked for. Unlocking used to close the prompt
+    // and leave the viewer on the category they came from — a typed PIN
+    // that opened nothing.
+    var pinPendingCategory by remember { mutableStateOf<String?>(null) }
     val lockedIds = remember(bundle, pin, unlocked) {
         bundle.liveCategories.filter { vm.isLockedCategory(it.name) }
             .map { it.id }.toSet()
@@ -182,8 +192,13 @@ fun GuideTab(
     // list the grid searches and entry fell back to the top of the guide.
     // Recents are newest-first and keyed by url, which is how every other
     // channel table keys them.
-    val lastPlayedChannelId = remember(recents, channels) {
-        recents.firstOrNull()?.let { url -> channels.firstOrNull { it.url == url }?.id }
+    // The channel just tuned outranks the dwell-gated recents: a viewer who
+    // backed out of a dead stream after two seconds comes back to THAT row,
+    // not to whatever they watched long enough to be recorded last night.
+    val lastTuned by vm.lastTunedUrl.collectAsState()
+    val lastPlayedChannelId = remember(lastTuned, recents, channels) {
+        (lastTuned ?: recents.firstOrNull())
+            ?.let { url -> channels.firstOrNull { it.url == url }?.id }
     }
 
     // Same rest-before-select rule as every other category surface
@@ -245,7 +260,10 @@ fun GuideTab(
     var nowTick by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
-            delay(30_000)
+            // On the half-minute boundary, so the header clock turns over
+            // with the real minute instead of up to 30s after it.
+            val now = System.currentTimeMillis()
+            delay(30_000 - now % 30_000)
             nowTick = System.currentTimeMillis()
         }
     }
@@ -334,7 +352,7 @@ fun GuideTab(
     // the grid goes through it: geometric search from the strip or the day
     // chip finds no candidate on device and the unconsumed DOWN falls back to
     // the first chip, ping-ponging focus above a grid it can never enter.
-    val gridHandle = remember { GuideGridHandle() }
+    gridHandle.beforePlayImpl = { preview.release() }
     fun Modifier.downIntoGrid(): Modifier = onPreviewKeyEvent { event ->
         if (event.type == KeyEventType.KeyDown &&
             event.key.nativeKeyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
@@ -350,6 +368,7 @@ fun GuideTab(
     // jump and draws the badge.
     val digitState = remember { mutableStateOf("") }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -366,10 +385,6 @@ fun GuideTab(
                 } else false
             },
     ) {
-        statusMessage?.let {
-            Text(it, style = MaterialTheme.typography.labelLarge, color = NuxColors.Secondary)
-            Spacer(Modifier.height(6.dp))
-        }
         notice?.let {
             // Resolved here, and remembered: the suggestion reads every
             // channel name in the playlist, and this used to rebuild that
@@ -385,7 +400,16 @@ fun GuideTab(
             GuideNoticeBar(
                 notice = it,
                 pack = pack,
-                onPick = { cc -> vm.setEpgOverrideUrl(epgshareUrl(cc)) },
+                onPick = { cc ->
+                    vm.setEpgOverrideUrl(epgshareUrl(cc))
+                    // The bar — and the button focus is on — unmounts the
+                    // moment the load starts; land in the grid instead of
+                    // leaving the next press to reseat focus blind.
+                    scope.launch {
+                        delay(120)
+                        gridHandle.focusAnchor()
+                    }
+                },
                 onOpenSettings = onOpenSettings,
             )
             Spacer(Modifier.height(10.dp))
@@ -456,12 +480,15 @@ fun GuideTab(
                     name = entry.label,
                     selected = category.id == categoryId,
                     onClick = {
-                        if (locked) pinPromptOpen = true
-                        else onCategoryId(category.id)
+                        if (locked) {
+                            pinPendingCategory = category.id
+                            pinPromptOpen = true
+                        } else onCategoryId(category.id)
                     },
                     // Locked categories still need the OK press (and
                     // its PIN prompt); dwell must not walk past a PIN.
                     onFocus = { if (!locked) focusedCategory = category.id },
+                    onBlur = { if (focusedCategory == category.id) focusedCategory = null },
                     locked = locked,
                 )
             }
@@ -570,13 +597,43 @@ fun GuideTab(
             },
         )
     }
+    // Over the guide, not above it: as the Column's first child the toast
+    // pushed strip, header, ruler and every row down for four seconds and
+    // then snapped them back — the whole screen reflowed to say one line.
+    com.agoro.tv.ui.components.ToastBadge(
+        message = statusMessage,
+        modifier = Modifier
+            .align(Alignment.BottomEnd)
+            .padding(bottom = Space.m, end = Space.m),
+    )
+    }
 
     if (pinPromptOpen) {
         com.agoro.tv.ui.components.PinPrompt(
             onSubmit = { entered ->
-                vm.tryUnlock(entered).also { ok -> if (ok) pinPromptOpen = false }
+                vm.tryUnlock(entered).also { ok ->
+                    if (ok) {
+                        pinPromptOpen = false
+                        pinPendingCategory?.let(onCategoryId)
+                        pinPendingCategory = null
+                        // The prompt's button is about to leave composition
+                        // with focus on it; land in the grid that just
+                        // opened rather than wherever Compose falls.
+                        scope.launch {
+                            kotlinx.coroutines.delay(120)
+                            gridHandle.focusAnchor()
+                        }
+                    }
+                }
             },
-            onDismiss = { pinPromptOpen = false },
+            onDismiss = {
+                pinPromptOpen = false
+                pinPendingCategory = null
+                scope.launch {
+                    kotlinx.coroutines.delay(120)
+                    gridHandle.focusAnchor()
+                }
+            },
         )
     }
 }
@@ -647,7 +704,13 @@ private fun GuideHeader(
         }
 
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.Top) {
+            // Spaced: the weighted title column otherwise runs right up to
+            // the clock, and a long title's "OK to record" chip sat touching
+            // the time with nothing between them.
+            Row(
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(Space.l),
+            ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,

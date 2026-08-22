@@ -1,4 +1,7 @@
-@file:OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
+@file:OptIn(
+    androidx.tv.material3.ExperimentalTvMaterial3Api::class,
+    androidx.compose.ui.ExperimentalComposeUiApi::class,
+)
 
 package com.agoro.tv.ui.components
 
@@ -22,6 +25,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -66,6 +71,14 @@ fun DialogScaffold(
             .drawBehind {
                 drawRect(NuxColors.Scrim.copy(alpha = NuxColors.Scrim.alpha * progress.value))
             }
+            // A focus group alone does not contain the D-pad: when nothing
+            // inside the panel lies in the pressed direction, Compose's
+            // search escalates to the ancestors and lands on whatever sits
+            // under the scrim — a settings chip, a poster, or the shell's
+            // edge catcher, which then slid the drawer open over the dialog.
+            // Cancelling the exit keeps the remote on the dialog until the
+            // dialog itself closes, which is what a scrim promises.
+            .focusProperties { exit = { FocusRequester.Cancel } }
             .focusGroup(),
         contentAlignment = contentAlignment,
     ) {

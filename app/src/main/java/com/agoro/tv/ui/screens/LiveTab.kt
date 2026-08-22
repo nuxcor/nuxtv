@@ -111,10 +111,10 @@ internal fun rememberChannelJump(
     }
     LaunchedEffect(jump.jumpTick, channels) {
         if (jump.jumpTick == 0) return@LaunchedEffect
-        // Number first, position second — the same rule the row labels and the
-        // player's keypad use, so typing what you see always lands on it.
+        // By number only — numbers are positions over the whole list and
+        // this list may be a category's slice of it, where "the fifth row"
+        // is not channel 5.
         val target = channels.indexOfFirst { it.number == jump.jumpNumber }
-            .takeIf { it >= 0 } ?: (jump.jumpNumber - 1)
         if (target !in channels.indices) return@LaunchedEffect
         jump.targetIndex = target
         jump.listState.scrollToItem(target)
@@ -242,6 +242,24 @@ internal fun LiveTab(
     // own, and every channel's schedule sits beside it instead of behind a
     // toggle. Two views of the same channels meant the same press did
     // different things depending on a switch set weeks ago.
+    val gridHandle = remember { GuideGridHandle() }
+    // Overlays here are in-layout: when one closes, the row that held focus
+    // is simply gone and Compose reseats focus on the nearest thing it can
+    // find — the first category chip, whose dwell then switched the whole
+    // guide. Hand focus back to the row the menu was opened on instead.
+    // After a beat, because the request loses to that same reseating if it
+    // fires in the frame the overlay unmounts.
+    fun refocusGrid() {
+        focusScope.launch {
+            kotlinx.coroutines.delay(120)
+            gridHandle.focusAnchor()
+        }
+    }
+    fun playFromHost(channel: LiveChannel) {
+        gridHandle.beforePlay()
+        vm.playChannels(channels, channels.indexOf(channel).coerceAtLeast(0))
+        onPlay()
+    }
     GuideTab(
         entryFocusTick = entryFocusTick,
         vm = vm,
@@ -251,13 +269,17 @@ internal fun LiveTab(
         onCategoryId = { selectedCategory = it },
         onChannelLongPress = { menuChannel = it },
         onOpenSettings = onOpenSettings,
+        gridHandle = gridHandle,
     )
     scheduleChannel?.let { channel ->
         // Read from the guide table rather than the resident window: this
         // sheet puts a line of synopsis under every title, and the window
         // deliberately carries none. One channel's worth, one query.
-        val programs by androidx.compose.runtime.produceState(
-            initialValue = emptyList<com.agoro.tv.data.EpgProgram>(),
+        // Null until the query lands: an empty initial value showed "No guide
+        // data for this channel" for a frame or two on every open, on a sheet
+        // that is only offered when there is guide data.
+        val programs by androidx.compose.runtime.produceState<List<com.agoro.tv.data.EpgProgram>?>(
+            initialValue = null,
             channel.id,
             epgState,
         ) {
@@ -270,8 +292,7 @@ internal fun LiveTab(
             nowMs = System.currentTimeMillis(),
             onWatch = {
                 scheduleChannel = null
-                vm.playChannels(channels, channels.indexOf(channel).coerceAtLeast(0))
-                onPlay()
+                playFromHost(channel)
             },
             onSelectProgram = { program ->
                 // Same rules as the guide: what a programme offers depends on
@@ -288,8 +309,7 @@ internal fun LiveTab(
                 val now = System.currentTimeMillis()
                 if (program.startMs <= now) {
                     scheduleChannel = null
-                    vm.playChannels(channels, channels.indexOf(channel).coerceAtLeast(0))
-                    onPlay()
+                    playFromHost(channel)
                     null
                 } else if (vm.scheduleRecording(channel, program)) {
                     "Recording scheduled: ${program.title}"
@@ -302,7 +322,10 @@ internal fun LiveTab(
                     "Reminder set: ${program.title}"
                 }
             },
-            onDismiss = { scheduleChannel = null },
+            onDismiss = {
+                scheduleChannel = null
+                refocusGrid()
+            },
         )
     }
     menuChannel?.let { channel ->
@@ -317,12 +340,7 @@ internal fun LiveTab(
         ContextMenu(
             title = channel.displayName,
             actions = buildList {
-                add(
-                    MenuAction("Play") {
-                        vm.playChannels(channels, channels.indexOf(channel).coerceAtLeast(0))
-                        onPlay()
-                    }
-                )
+                add(MenuAction("Play") { playFromHost(channel) })
                 // Offered only when there is something to show — otherwise this
                 // is a menu row that opens an empty sheet.
                 if (hasSchedule) {
@@ -335,7 +353,10 @@ internal fun LiveTab(
                 )
                 add(MenuAction("Hide this channel") { vm.toggleHidden(channel) })
             },
-            onDismiss = { menuChannel = null },
+            onDismiss = {
+                menuChannel = null
+                refocusGrid()
+            },
         )
     }
     }
@@ -349,10 +370,17 @@ fun CategoryItem(
     modifier: Modifier = Modifier.fillMaxWidth(),
     locked: Boolean = false,
     onFocus: () -> Unit = {},
+    /**
+     * Focus left the chip. Dwell-select owners cancel their pending select
+     * here: a chip focus passes over on its way somewhere else — the shell's
+     * parking on a return from the player, a grid's UP redirect — must not
+     * go on to switch the category a quarter-second after focus has gone.
+     */
+    onBlur: () -> Unit = {},
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.onFocusChanged { if (it.isFocused) onFocus() },
+        modifier = modifier.onFocusChanged { if (it.isFocused) onFocus() else onBlur() },
         // 14dp: at 8dp these read as rectangles with the corners knocked
         // off, and at a full capsule they read as lozenges — more shape than
         // the word inside needs on something this wide and short.
