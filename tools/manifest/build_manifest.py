@@ -15,7 +15,15 @@ HOST = "pro.dzidzi.online"
 # the order here is a decision, not incidental. It used to be emitted through
 # sorted(), which is alphabetical by CODE — that put AFR/DSTV first, ahead of
 # the markets this package is mostly made of, for no reason a viewer could see.
-KEEP_REGIONS = ("US", "UK", "CA", "AFR")   # the 4K/8K bundles hide ~25 other markets
+# Canada came out on 2026-08-22: the CA lineup was a second copy of channels
+# the US and UK shelves already carry (TSN beside ESPN, Sportsnet beside FS1,
+# CTV and Global beside the networks they simulcast), and what was genuinely
+# its own — TSN 1-5, Sportsnet, TVA Sports, CTV News, Global News, NBA TV CA,
+# The Weather Network — is not a market this package serves. Its feeds go with
+# it: four channels that are NOT Canadian had a Canadian feed as their best
+# source (Euronews, MAV TV, beIN Sports, BBC World News) and fall back to the
+# next one, each measured at 720p or better.
+KEEP_REGIONS = ("US", "UK", "AFR")   # the 4K/8K bundles hide ~25 other markets
 DROP_REGIONS = set()                        # superseded by KEEP_REGIONS
 ALWAYS_ON    = {"24/7", "STREAMING"} # single-show loops - their own destination, not Live TV
 TIMESHIFT    = __import__("re").compile(r"\+\d\s*$")   # "ITV 1 +1" - demote, never delete
@@ -279,6 +287,13 @@ CHANNEL_ALIAS = {
     # sitting beside each other on the US news shelf.
     'abcnewslive': 'abcnews',
     'foxnewschannel': 'foxnews',
+    # Al Jazeera English, under three house styles — "AL JAZEERA" on the
+    # African packages, "AL JAZEERA EN" in the UK, "AL JAZEERA ENGLISH" in the
+    # US. One broadcast: folding them also lets the DSTV uniqueness rule see
+    # that the African copy is not its own channel. (Al Jazeera Arabic keys
+    # as 'aljazeeraarabic' and is untouched.)
+    'aljazeeraen': 'aljazeera',
+    'aljazeeraenglish': 'aljazeera',
 }
 
 # Provider source tags — "NBC NEWS NOW (A)", "(D)", "(H)", "(PC)" — which name
@@ -299,11 +314,29 @@ VARIANT_TAG = re.compile(r'\(\s*(?:[A-Za-z]|PC)\s*\)')
 # dropped. Applied to both keys, because the two disagreeing is what hid it.
 NBC_FAMILY = re.compile(r'^\s*NBC\s+(?=(?:C|MS)NBC\b)', re.I)
 
+# A trailing "TV", "NETWORK" or "CHANNEL" is house style, not the channel's
+# name: the panel carries "RACING" and "RACING TV", "GINX ESPORTS" and "GINX
+# ESPORTS TV", and each pair stood on the shelf twice. Only in TRAILING
+# position, and never as the whole name — "TV" alone, or a "CHANNEL 4", is a
+# name in its own right. Internal words stay put, so "SKY NEWS" can never fold
+# into "SKY".
+# Stripped from the KEY, not from the name: the panel writes this channel both
+# ways ("LALIGA TV" and "LALIGATV"), and a rule that needed the space split
+# the tile in two instead of folding it.
+TRAILING_STYLE = re.compile(r'(?:tv|network|channel)$')
+
 def channel_key(n):
     n = NBC_FAMILY.sub('', VARIANT_TAG.sub('', QUAL.sub('', SPFX.sub('', asc(n)))))
     for pat, base in PLURALISE:          # "Sky Sport 1" == "Sky Sports 1"
         n = re.sub(pat, base, n, flags=re.I)
     k = re.sub(r'[^a-z0-9]', '', n.lower())
+    # Never down to a short stub. "PRIME TV" -> "prime" collided with the
+    # provider's own separator rows ("#### PRIME ####") and cost a real DSTV
+    # channel; "MAV TV" -> "mav" is not a name anyone uses. Six characters is
+    # the floor for what is left.
+    stub = TRAILING_STYLE.sub('', k)
+    if stub != k and len(stub) >= 6:
+        k = stub
     return CHANNEL_ALIAS.get(k, k)
 
 NAMEREG = re.compile(r'^([A-Z]{2,3})\s*:')
@@ -528,7 +561,7 @@ TIER_RANK = {"8K":0,"4K":1,"UHD":2,"FHD":3,"HEVC":4,"H265":5,"RAW":6,"HD":7,None
 REGION_PIN = {'nbcnewsnow': 'US', 'bbcworldnews': 'US'}
 
 # The territories that share one shelf per genre. DSTV (AFR) keeps its own.
-MERGED_REGIONS = ('US', 'UK', 'CA')
+MERGED_REGIONS = ('US', 'UK')
 tiles = collections.defaultdict(list)
 for k, sid, reg, sec, t in live_rows:
     if k in REGION_PIN:
@@ -857,7 +890,12 @@ for chan, items in _uk_reg.items():                 # BBC ONE x16 -> one tile
         for i, pref in enumerate(UK_PREFERRED_REGION):
             if reg == pref: return i
         return len(UK_PREFERRED_REGION)
-    items.sort(key=rank)
+    # Region first — London is the feed a viewer means by "BBC One" — then
+    # the picture, so two copies of the same region are separated by what
+    # they actually decode rather than by which was read first.
+    items.sort(key=lambda it: (rank(it), -_probed.get(str(it[0]), 0),
+                               TIER_RANK.get(measured_tier(it[0])
+                                             or tier_of(_nm.get(it[0], '')), 8)))
     uk_collapse[chan] = {"section": "ENTERTAINMENT", "region": "UK",
                          "primary": items[0][0],
                          "sources": [i[0] for i in items],
@@ -871,6 +909,13 @@ for chan, items in _uk_reg.items():                 # BBC ONE x16 -> one tile
 # catalogue. The tile names one feed to represent the channel; that feed is
 # not a duplicate of anything.
 _uk_primaries = {t['primary'] for t in uk_collapse.values()}
+# EVERY folded variant, not only the ones a collapse tile carried. A stream
+# that reached _uk_reg straight from the stream loop never joined this list,
+# so a regional variant that never formed a tile of its own stayed on the
+# shelf beside the feed chosen to represent the channel — which is how BBC
+# One London shipped twice, once as the 4K copy and once as the RAW one.
+for _t in uk_collapse.values():
+    uk_locals_drop.extend(x for x in _t['sources'] if x != _t['primary'])
 uk_locals_drop = [x for x in uk_locals_drop if x not in _uk_primaries]
 
 
@@ -1090,7 +1135,9 @@ for st in ls:
 # Canada is carried for the sports and news that US feeds do not cover (TSN,
 # Sportsnet, CBC/CTV news). Its entertainment, kids, movies, docs and music
 # duplicate what the US region already provides.
-REGION_SECTIONS = {"CA": {"SPORTS", "NEWS"}}
+# Empty since Canada left KEEP_REGIONS — it was the only territory that
+# contributed a subset of its sections. Kept as the hook, not as a rule.
+REGION_SECTIONS = {}
 
 def _final_section(sid, default):
     sid = str(sid)
@@ -2144,6 +2191,116 @@ for _comp, _clubs in _derived.items():
         SPORT_LEAGUES[_comp] = sorted(set(SPORT_LEAGUES.get(_comp, [])) | set(_clubs))
         sport_derived[_comp] = len(_clubs)
 
+# --------------------------------------------- one owner per stream, at the end
+# Two folds run over the same streams — the quality collapse (by channel name)
+# and the metro fold (by market and network) — and a US local affiliate is in
+# both. They pick their primary on different rules, so they disagreed, and the
+# app treats EVERY tile primary as a survivor: a stream folded away by one
+# fold came back as the other's primary and the shelf carried the same station
+# twice ("NBC 4 (WNBC) NEW YORK (A)" beside "(H)", CW 56 Boston beside itself).
+#
+# The metro fold owns anything with a market: it is the one that knows the
+# station is WNBC New York rather than a channel called NBC 4. The collapse
+# gives up those members; a tile left with fewer than two goes entirely, since
+# a tile of one is just the channel.
+_metro_member = {sid for t in metro_tiles.values()
+                 for sid in [t['primary'], *t['sources']]}
+_dedup_conflicts = 0
+for _key in list(collapse):
+    _t = collapse[_key]
+    _kept = [sid for sid in _t['sources'] if sid not in _metro_member]
+    if len(_kept) == len(_t['sources']): continue
+    _dedup_conflicts += 1
+    if len(_kept) < 2:
+        del collapse[_key]
+    else:
+        _t['sources'] = _kept
+        _t['primary'] = _kept[0]
+
+# And now that the metro fold owns them outright, rank its sources the way the
+# collapse does — measured height first, advertised tier second — instead of
+# by the name-shape heuristic alone. The heuristic still breaks ties, because
+# between two feeds that decode the same it is the flagship call sign that
+# says which one is the real station.
+#
+# The source lists were also carrying each id two and three times over (the
+# fold runs in passes and re-appends), which the app then handed the player as
+# a failover ladder of the same dead stream repeated.
+for _mkey, _t in metro_tiles.items():
+    _seen, _srcs = set(), []
+    for sid in _t['sources']:
+        if sid not in _seen:
+            _seen.add(sid); _srcs.append(sid)
+    _srcs.sort(key=lambda sid: (
+        -_probed.get(str(sid), 0),
+        TIER_RANK.get(measured_tier(sid) or tier_of(_nm.get(sid, '')), 8),
+        _quality_rank(asc(_nm.get(sid, '')), _t['metro'], _t['network']),
+    ))
+    _t['sources'] = _srcs
+    _t['primary'] = _srcs[0]
+    _t['label']   = asc(_nm.get(_srcs[0], _t['label']))
+
+# ------------------------------------------------- what a tile is CALLED
+# Picture and name are two different questions, and this panel answers them
+# with different streams: the 1080p copy of a local station is routinely the
+# one with the least useful name ("US: ABC (KABC)", "PRIME: ABC13 HOUSTON")
+# while the station's full name sits on a 720p copy. Ranking a tile by
+# measurement alone therefore renamed half the Locals shelf to its worst
+# spelling. The app reads display_name per stream id, so a tile can play the
+# best feed and still be called what the channel is called.
+CALLSIGN = re.compile(r'\b([KW][A-Z]{2,3})\b')
+NUMBERED = re.compile(r'\b(?:ABC|CBS|NBC|FOX|CW|PBS|TELEMUNDO|UNIVISION)\s*(\d{1,2})\b', re.I)
+
+def _clean_label(n):
+    n = QUAL.sub('', SPFX.sub('', asc(n)))
+    return re.sub(r'\s+', ' ', n).strip(' -:|.').strip()
+
+display_name = {}
+
+# Metro locals get a COMPOSED label. Every source is the same station, so the
+# station's identity — network, channel number, call sign, market — is what it
+# should read, in one shape across the shelf, rather than whichever of six
+# provider spellings happened to win on picture.
+for _mkey, _t in metro_tiles.items():
+    _names = [_clean_label(_nm.get(sid, '')) for sid in _t['sources']]
+    _call = FLAGSHIP.get((_t['metro'], _t['network']))
+    if not _call:
+        for _n in _names:
+            _m = CALLSIGN.search(_n.replace(_t['metro'], ' '))
+            if _m:
+                _call = _m.group(1); break
+    # The number has to come off the SAME feed as the call sign, or a market
+    # with two stations on one network takes the other one's channel number:
+    # Los Angeles folded KCBS (channel 2) and KCAL (9) into one CBS tile and
+    # the label read "CBS 9 (KCBS)".
+    _num = None
+    for _pass in ((n for n in _names if _call and _call in n), _names):
+        for _n in _pass:
+            _m = NUMBERED.search(_n)
+            if _m:
+                _num = _m.group(1); break
+        if _num: break
+    _label = ' '.join(x for x in (_t['network'], _num,
+                                  f"({_call})" if _call else None, _t['metro']) if x)
+    _t['label'] = _label
+    display_name[str(_t['primary'])] = _label
+
+# Quality tiles keep a provider spelling, but the FULLEST one its sources
+# offer: folding "MLB NETWORK" and "PRIME: MLB" onto the better picture must
+# not leave the shelf reading "PRIME: MLB". Most common spelling wins, longest
+# breaks the tie — the sources are one channel by construction, so the
+# longest is the least abbreviated, not a different thing.
+for _t in collapse.values():
+    _cands = [c for c in (_clean_label(_nm.get(sid, '')) for sid in _t['sources']) if c]
+    if not _cands: continue
+    # Longest first, frequency second: the fullest spelling is the channel's
+    # name and the short ones are the abbreviations. Frequency alone picked
+    # "RACING" over "RACING TV" because the panel carries two terse copies
+    # and one full one.
+    _best = max(_cands, key=lambda c: (len(c), _cands.count(c)))
+    if _best != _clean_label(_nm.get(_t['primary'], '')):
+        display_name[str(_t['primary'])] = _best
+
 # How early a fixture may appear, in minutes. An hour ahead of kick-off, which
 # also covers the catalogue refresh: slot names only change when the catalogue
 # is re-fetched, so a shorter cue would let a match start before it is listed.
@@ -2208,7 +2365,7 @@ manifest = {
     },
     "name_section": name_section,
     "region_labels": {"US": "United States", "UK": "United Kingdom",
-                      "CA": "Canada", "AFR": AFR_LABEL},
+                      "AFR": AFR_LABEL},
     "uk_reassign": uk_reassign,
     "uk_collapse": uk_collapse,
     "local_market": locals_market,
@@ -2221,6 +2378,10 @@ manifest = {
         "series": sorted(g for g, n in sgen.items() if n >= GENRE_MIN),
     },
     "vod_drop": vod_drop,
+    # Per-stream names the fold resolved: a composed station label for the
+    # metro locals, the fullest provider spelling for a quality tile. Without
+    # this the app shows the primary's own name, which is chosen for picture.
+    "display_name": display_name,
     "vod_display_name": vod_display,
     "vod_name_rules": {
         "strip_prefix": VOD_PFX.pattern, "strip_prefix_repeat": 3,
@@ -2269,6 +2430,9 @@ manifest = {
         "us_markets": len(set(locals_market.values())),
         "metro_local_tiles": len(metro_tiles),
         "metro_locals_folded": sum(len(v["sources"])-1 for v in metro_tiles.values()),
+        # Tiles the metro fold took back off the quality collapse — the pair
+        # that used to ship as two shelf entries for one station.
+        "collapse_metro_conflicts": _dedup_conflicts,
         "uk_locals_dropped": len(uk_locals_drop),
         "uk_reassigned": len(uk_reassign),
         "uk_regional_collapsed": sum(len(v["sources"])-1 for v in uk_collapse.values()),
