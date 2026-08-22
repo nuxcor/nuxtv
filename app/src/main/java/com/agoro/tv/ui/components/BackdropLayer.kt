@@ -178,7 +178,21 @@ fun BoxScope.BackdropLayer(
         }
     }
 
-    Box(modifier = Modifier.matchParentSize().bleed(bleedX, bleedY)) {
+    Box(
+        modifier = Modifier
+            .matchParentSize()
+            .bleed(bleedX, bleedY)
+            // The ground under a hero is flat Background, edge to edge. The
+            // old full-width scrims tinted the theme's page gradient to
+            // within 2% of Background everywhere, so confining them to the
+            // image box left the lane's leading third visibly lighter than
+            // the rest — a seam down the screen at the image's edge. One
+            // opaque fill is the cheapest pass a GPU can make (no blend, no
+            // shader) and it restores the same flat ground. Only while there
+            // is art to stand on: with no hero the page keeps its gradient,
+            // as it always did.
+            .drawBehind { if (url != null) drawRect(NuxColors.Background) },
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth(widthFraction)
