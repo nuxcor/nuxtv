@@ -1,4 +1,7 @@
-@file:OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
+@file:OptIn(
+    androidx.tv.material3.ExperimentalTvMaterial3Api::class,
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+)
 
 package com.agoro.tv.ui.screens
 
@@ -24,6 +27,9 @@ import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.focus.focusRequester
+import com.agoro.tv.ui.components.requestFocusRetrying
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -89,6 +95,7 @@ internal fun SettingsTab(
     // remote every time you D-pad past it.
     var epgDialogOpen by remember { mutableStateOf(false) }
     var pinDialogOpen by remember { mutableStateOf(false) }
+    var pinGateOpen by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var sourceOptions by remember { mutableStateOf<String?>(null) }
     var confirmImport by remember { mutableStateOf(false) }
@@ -132,13 +139,25 @@ internal fun SettingsTab(
         }
     }
 
+    // Above the manager's early return, so the list keeps its scroll across
+    // a visit to it instead of coming back at the top with focus nowhere.
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val manageFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    var returnToManage by remember { mutableStateOf(false) }
     if (manageOpen && shownBundle != null) {
-        ChannelManager(vm = vm, bundle = shownBundle, onClose = { manageOpen = false })
+        ChannelManager(vm = vm, bundle = shownBundle, onClose = {
+            manageOpen = false
+            returnToManage = true
+        })
         return
+    }
+    LaunchedEffect(returnToManage) {
+        if (!returnToManage) return@LaunchedEffect
+        returnToManage = false
+        manageFocus.requestFocusRetrying()
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
@@ -242,7 +261,24 @@ internal fun SettingsTab(
         }
 
         item(key = "playlist-buttons") {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Two of these buttons remove themselves when pressed ("Clear
+            // recent", "Show N hidden"): the button focus is on leaves
+            // composition and focus falls to nothing. Move it to the stable
+            // neighbour first, then act.
+            val refreshFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
+            fun thenRefocus(action: () -> Unit) {
+                scope.launch {
+                    refreshFocus.requestFocusRetrying()
+                    action()
+                }
+            }
+            // Wraps at large font scales instead of running the last button
+            // off the pane while it stays focusable.
+            androidx.compose.foundation.layout.FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 if (!brandedBuild) {
                     Button(onClick = onAddPlaylist) { Text("Add playlist") }
                 }
@@ -254,6 +290,7 @@ internal fun SettingsTab(
                         vm.refresh()
                     },
                     enabled = !loadingNow,
+                    modifier = Modifier.focusRequester(refreshFocus),
                 ) {
                     Icon(Icons.Default.Refresh, contentDescription = "Refresh playlist", modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
@@ -266,13 +303,18 @@ internal fun SettingsTab(
                 // primary row where it was the easiest control to hit by
                 // accident.
                 if (shownBundle != null) {
-                    OutlinedButton(onClick = { manageOpen = true }) { Text("Manage channels") }
+                    OutlinedButton(
+                        onClick = { manageOpen = true },
+                        modifier = Modifier.focusRequester(manageFocus),
+                    ) { Text("Manage channels") }
                 }
                 // Only offered when there is something to clear: a button that
                 // does nothing still costs a press to walk past.
                 val recentChannels by vm.recentChannels.collectAsState()
                 if (recentChannels.isNotEmpty()) {
-                    OutlinedButton(onClick = { vm.clearRecentChannels() }) { Text("Clear recent") }
+                    OutlinedButton(onClick = { thenRefocus { vm.clearRecentChannels() } }) {
+                        Text("Clear recent")
+                    }
                 }
                 // The way back from "Not interested". All of them at once
                 // rather than a screen listing them: dismissing a title off
@@ -282,7 +324,7 @@ internal fun SettingsTab(
                 // says what it will do, and absent when it would do nothing.
                 val hiddenTitles by vm.hiddenTitles.collectAsState()
                 if (hiddenTitles.isNotEmpty()) {
-                    OutlinedButton(onClick = { vm.showHiddenTitlesAgain() }) {
+                    OutlinedButton(onClick = { thenRefocus { vm.showHiddenTitlesAgain() } }) {
                         Text("Show ${hiddenTitles.size} hidden on Home")
                     }
                 }
@@ -446,7 +488,11 @@ internal fun SettingsTab(
                             else NuxColors.Primary,
                         )
                     },
-                    onClick = { pinDialogOpen = true },
+                    // A set PIN guards its own switch: changing or removing it
+                    // asks for it first, or the lock is decorative.
+                    onClick = {
+                        if (parentalPin.isNullOrBlank()) pinDialogOpen = true else pinGateOpen = true
+                    },
                 )
             }
         }
@@ -457,23 +503,29 @@ internal fun SettingsTab(
                 Text(
                     text = when (val u = update) {
                         is UpdateManager.State.Available ->
-                            "Version ${BuildConfig.VERSION_NAME} — ${u.version} is available" +
+                            "Version ${BuildConfig.VERSION_NAME} — ${u.version.removePrefix("v")} is available" +
                                 (u.sizeBytes.takeIf { it > 0 }?.let { " (${it / 1048576} MB)" } ?: "")
+                        // The button IS the prompt once the system dialog has
+                        // been dismissed; "install when prompted" promised a
+                        // prompt that was never coming back.
                         is UpdateManager.State.Ready ->
-                            "Update downloaded — install when prompted"
+                            u.note ?: "Update downloaded — press Install"
                         is UpdateManager.State.UpToDate ->
                             "Version ${BuildConfig.VERSION_NAME} — up to date"
-                        is UpdateManager.State.Error ->
-                            "Update check failed: ${u.message}"
+                        // Already a sentence: the check, the download and the
+                        // installer each say which of them failed.
+                        is UpdateManager.State.Error -> u.message
                         // Downloading and Checking: the button below already
                         // carries the live progress — saying it twice, 40px
                         // apart, read as a glitch.
                         else -> "Version ${BuildConfig.VERSION_NAME}"
                     },
                     style = MaterialTheme.typography.labelMedium,
-                    color = when (update) {
+                    color = when (val u = update) {
                         is UpdateManager.State.Available -> NuxColors.Secondary
                         is UpdateManager.State.Error -> NuxColors.Error
+                        is UpdateManager.State.Ready ->
+                            if (u.note != null) NuxColors.Error else NuxColors.Secondary
                         else -> NuxColors.OnSurfaceDim
                     },
                 )
@@ -509,7 +561,9 @@ internal fun SettingsTab(
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(onClick = {
                         vm.exportBackup { path ->
-                            statusMessage = path?.let { "Backup saved to $it" } ?: "Backup failed"
+                            // No path: it is app storage a TV has no file
+                            // browser for, and it didn't fit the pill anyway.
+                            statusMessage = if (path != null) "Backup saved" else "Backup failed"
                         }
                     }) { Text("Export backup") }
                     OutlinedButton(onClick = { confirmImport = true }) { Text("Import backup") }
@@ -527,6 +581,10 @@ internal fun SettingsTab(
         modifier = Modifier
             .align(Alignment.BottomEnd)
             .padding(bottom = Space.m, end = Space.s),
+        // Failures in the failure colour: "Backup failed" in the same teal
+        // as "Backup restored" read as success from across the room.
+        textColor = if (statusMessage?.let { isFailure(it) } == true) NuxColors.Error
+        else NuxColors.Secondary,
     )
 
     // Dialogs come AFTER the list inside this Box: siblings draw in
@@ -550,17 +608,42 @@ internal fun SettingsTab(
             onDismiss = { epgDialogOpen = false },
         )
     }
+    if (pinGateOpen) {
+        com.agoro.tv.ui.components.PinPrompt(
+            onSubmit = { entered ->
+                vm.tryUnlock(entered).also { ok ->
+                    if (ok) {
+                        pinGateOpen = false
+                        pinDialogOpen = true
+                    }
+                }
+            },
+            onDismiss = { pinGateOpen = false },
+        )
+    }
     if (pinDialogOpen) {
+        val hasPin = !parentalPin.isNullOrBlank()
         TextInputDialog(
-            title = "Parental PIN",
-            message = "Optional. Clearing the PIN turns parental control off.",
-            initialValue = parentalPin.orEmpty(),
+            title = if (hasPin) "Change PIN" else "Set a PIN",
+            message = if (hasPin) "Enter a new PIN, or remove it to turn parental control off."
+            else "Locked categories stay hidden until this PIN is entered.",
+            // Empty, not the current PIN: the field would otherwise hand the
+            // digits to anyone who reached it.
+            initialValue = "",
             label = "PIN",
             digitsOnly = true,
+            clearLabel = if (hasPin) "Remove PIN" else null,
             onConfirm = { entered ->
-                vm.setParentalPin(entered)
-                statusMessage = if (entered.isBlank()) "Parental lock disabled"
-                else "Parental PIN saved"
+                // Saving an empty field changes nothing — only the explicit
+                // Remove button turns the lock off.
+                if (entered.isNotBlank()) {
+                    vm.setParentalPin(entered)
+                    statusMessage = "Parental PIN saved"
+                }
+            },
+            onClear = {
+                vm.setParentalPin("")
+                statusMessage = "Parental lock disabled"
             },
             onDismiss = { pinDialogOpen = false },
         )
@@ -579,6 +662,9 @@ internal fun SettingsTab(
             onRemove = {
                 sourceOptions = null
                 vm.removeSource(source.id)
+                // The row focus was on is about to leave the list; seat it on
+                // the action row rather than leaving the next press blind.
+                returnToManage = true
             },
             onDismiss = { sourceOptions = null },
         )
@@ -591,6 +677,11 @@ internal fun SettingsTab(
     )
     }
 }
+
+/** Whether a status line reports something that did not work. */
+private fun isFailure(message: String): Boolean =
+    message.contains("failed", ignoreCase = true) ||
+        message.startsWith("No backup") || message.startsWith("Couldn't")
 
 @Composable
 private fun SettingsConfirmations(

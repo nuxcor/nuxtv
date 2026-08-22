@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -58,7 +59,7 @@ internal fun ChannelManager(vm: MainViewModel, bundle: ContentBundle, onClose: (
             OutlinedButton(onClick = onClose) { Text("Done") }
         }
         Text(
-            "Select a channel to hide or unhide it everywhere. Type a channel number to jump.",
+            "OK hides or shows a channel everywhere. Type a channel number to jump.",
             style = MaterialTheme.typography.labelMedium,
             color = NuxColors.OnSurfaceDim,
         )
@@ -85,6 +86,11 @@ internal fun ChannelManager(vm: MainViewModel, bundle: ContentBundle, onClose: (
             else bundle.channels.filter { it.categoryId == activeCategory }
         }
         val jump = rememberChannelJump(channels)
+        // The Settings list this replaces held focus; without an arrival
+        // target the first press was spent on Compose's own guess (the
+        // bottom-right row, for UP). Land on the category column, which is
+        // where the work starts.
+        val arrival = com.agoro.tv.ui.components.rememberInitialFocus(Unit)
 
         Box(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -99,12 +105,16 @@ internal fun ChannelManager(vm: MainViewModel, bundle: ContentBundle, onClose: (
                 verticalArrangement = Arrangement.spacedBy(Space.xs),
                 contentPadding = PaddingValues(bottom = Space.l),
             ) {
-                items(categories, key = { it.id }) { category ->
+                itemsIndexed(categories, key = { _, c -> c.id }) { index, category ->
                     CategoryItem(
                         name = category.name,
                         selected = category.id == activeCategory,
                         onClick = { selectedCategory = category.id },
                         onFocus = { focusedCategory = category.id },
+                        onBlur = { if (focusedCategory == category.id) focusedCategory = null },
+                        modifier = if (index == 0) {
+                            Modifier.fillMaxWidth().focusRequester(arrival)
+                        } else Modifier.fillMaxWidth(),
                     )
                 }
             }
@@ -122,7 +132,7 @@ internal fun ChannelManager(vm: MainViewModel, bundle: ContentBundle, onClose: (
                     val isHidden = channel.url in hidden
                     WideItem(
                         title = channel.displayName,
-                        subtitle = if (isHidden) "Hidden — select to unhide" else "Visible",
+                        subtitle = if (isHidden) "Hidden — OK to show" else "Shown — OK to hide",
                         badge = channel.quality,
                         imageUrl = channel.logo,
                         modifier = if (index == jump.targetIndex) {

@@ -229,7 +229,10 @@ private fun RailItem(
             containerColor = if (selected) NuxColors.SelectedContainer else Color.Transparent,
             focusedContainerColor = NuxColors.SurfaceRaised,
             contentColor = if (selected) NuxColors.Primary else NuxColors.OnSurfaceDim,
-            focusedContentColor = NuxColors.OnSurface,
+            // Gold survives focus: the drawer opens WITH focus on the current
+            // tab, and with white-on-focus the viewer couldn't tell which tab
+            // they were on until they moved off it.
+            focusedContentColor = if (selected) NuxColors.Primary else NuxColors.OnSurface,
         ),
         scale = ClickableSurfaceDefaults.scale(
             focusedScale = NuxFocus.RowScale,

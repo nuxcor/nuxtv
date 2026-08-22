@@ -117,7 +117,10 @@ fun OnboardingScreen(
 
     // Remote BACK mirrors the on-screen Back button: form → chooser → leave.
     // With no chooser to fall back to, an edit leaves outright.
-    androidx.activity.compose.BackHandler(enabled = step != Step.Choose) {
+    // And not mid-connect: the on-screen Back is disabled while a login runs,
+    // and the remote's BACK used to do what it refused — reset the form while
+    // the save carried on underneath and popped the screen by itself later.
+    androidx.activity.compose.BackHandler(enabled = step != Step.Choose && addState !is AddState.Loading) {
         vm.resetAddState()
         if (editing != null) onCancel() else step = Step.Choose
     }
@@ -223,6 +226,7 @@ fun OnboardingScreen(
                         user = user, onUser = { user = it },
                         pass = pass, onPass = { pass = it },
                         submitLabel = if (editing != null) "Save" else "Connect",
+                        editing = editing != null,
                         onSubmit = {
                             if (editing != null) {
                                 vm.updateXtream(editing.id, name, server, user, pass, onSuccess = onDone)
@@ -242,6 +246,7 @@ fun OnboardingScreen(
                         url = m3uUrl, onUrl = { m3uUrl = it },
                         epgUrl = epgUrl, onEpgUrl = { epgUrl = it },
                         submitLabel = if (editing != null) "Save" else "Connect",
+                        editing = editing != null,
                         onSubmit = {
                             if (editing != null) {
                                 vm.updateM3u(editing.id, name, m3uUrl, epgUrl, onSuccess = onDone)
@@ -359,7 +364,9 @@ private fun ChooseStep(
                 OutlinedButton(
                     onClick = onXtream,
                     modifier = Modifier.focusRequester(firstFocus),
-                ) { Text("Enter on TV instead") }
+                    // "Instead" of the phone — only when there is a phone
+                    // route on screen to be instead of.
+                ) { Text(if (pairingUrl != null) "Enter on TV instead" else "Enter details") }
                 if (cancellable) {
                     OutlinedButton(onClick = onCancel) { Text("Cancel") }
                 }
@@ -387,8 +394,8 @@ private fun ChooseStep(
         } else {
             // No LAN address (no network yet): the manual card is the flow.
             SourceOptionCard(
-                title = "Xtream Codes",
-                subtitle = "Server URL, username and password",
+                title = "Sign in with your details",
+                subtitle = "Server address, username and password",
                 icon = Icons.Default.Dns,
                 onClick = onXtream,
                 modifier = Modifier.weight(1f),
@@ -488,26 +495,39 @@ private fun XtreamForm(
     user: String, onUser: (String) -> Unit,
     pass: String, onPass: (String) -> Unit,
     submitLabel: String,
+    editing: Boolean,
     onSubmit: () -> Unit,
     onBack: () -> Unit,
 ) {
     val connectFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     var revealPassword by rememberSaveable { mutableStateOf(false) }
     FormContainer(addState = addState, onBack = onBack, submitEnabled = server.isNotBlank() && user.isNotBlank(),
-        onSubmit = onSubmit, submitLabel = submitLabel, connectFocus = connectFocus) {
+        onSubmit = onSubmit, submitLabel = submitLabel, editing = editing,
+        connectFocus = connectFocus) { firstFieldFocus ->
+        fun first() = firstFieldFocus?.let { Modifier.focusRequester(it) } ?: Modifier
         // Credentials only. The playlist name was an optional field nobody
         // filled in on a remote, and it sat between the password and Connect.
         if (askForServer) {
-            NuxTextField(value = server, onValueChange = onServer, label = "Server URL  •  http://host:port")
+            NuxTextField(
+                value = server, onValueChange = onServer, label = "Server URL  •  http://host:port",
+                modifier = first(),
+            )
         }
-        NuxTextField(value = user, onValueChange = onUser, label = "Username")
+        NuxTextField(
+            value = user, onValueChange = onUser, label = "Username",
+            modifier = if (askForServer) Modifier else first(),
+        )
         NuxTextField(
             value = pass,
             onValueChange = onPass,
             label = "Password",
             password = !revealPassword,
             isLast = true,
+            // Done on the keyboard goes to Connect; DOWN on the remote takes
+            // the next thing on screen, which is the Show password toggle —
+            // jumping over it made it reachable only by UP from Connect.
             onAdvance = { runCatching { connectFocus.requestFocus() } },
+            dpadDownAdvances = false,
         )
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -532,17 +552,22 @@ private fun M3uForm(
     url: String, onUrl: (String) -> Unit,
     epgUrl: String, onEpgUrl: (String) -> Unit,
     submitLabel: String,
+    editing: Boolean,
     onSubmit: () -> Unit,
     onBack: () -> Unit,
 ) {
     val connectFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     FormContainer(addState = addState, onBack = onBack, submitEnabled = url.isNotBlank(),
-        onSubmit = onSubmit, submitLabel = submitLabel, connectFocus = connectFocus) {
-        NuxTextField(value = url, onValueChange = onUrl, label = "M3U URL  •  http://…/playlist.m3u")
+        onSubmit = onSubmit, submitLabel = submitLabel, editing = editing,
+        connectFocus = connectFocus) { firstFieldFocus ->
+        NuxTextField(
+            value = url, onValueChange = onUrl, label = "Playlist URL  •  http://…/playlist.m3u",
+            modifier = firstFieldFocus?.let { Modifier.focusRequester(it) } ?: Modifier,
+        )
         NuxTextField(
             value = epgUrl,
             onValueChange = onEpgUrl,
-            label = "EPG URL (optional, XMLTV)  •  auto-detected from url-tvg",
+            label = "TV guide URL (optional)",
             isLast = true,
             onAdvance = { runCatching { connectFocus.requestFocus() } },
         )
@@ -556,13 +581,22 @@ private fun FormContainer(
     onSubmit: () -> Unit,
     submitLabel: String = "Connect",
     onBack: () -> Unit,
+    /** True when editing: the button reads "Cancel" and focus opens on Save. */
+    editing: Boolean = false,
     connectFocus: androidx.compose.ui.focus.FocusRequester =
         androidx.compose.ui.focus.FocusRequester(),
-    fields: @Composable () -> Unit,
+    /** The form's fields; the requester, when non-null, goes on the first one. */
+    fields: @Composable (firstFieldFocus: androidx.compose.ui.focus.FocusRequester?) -> Unit,
 ) {
     val loading = addState is AddState.Loading
+    // The chooser's focused button is gone by the time the form fades in, so
+    // the form opens with nothing focused unless it asks. Adding lands on the
+    // first field; editing lands on Save, so the keyboard doesn't pop unasked
+    // over details that were probably fine.
+    val arrival = com.agoro.tv.ui.components.rememberInitialFocus(Unit)
+    val backLabel = if (editing) "Cancel" else "Back"
     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        fields()
+        fields(if (editing) null else arrival)
         if (addState is AddState.Error) {
             Text(
                 text = addState.message,
@@ -575,11 +609,13 @@ private fun FormContainer(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.align(Alignment.CenterHorizontally),
         ) {
-            OutlinedButton(onClick = onBack, enabled = !loading) { Text("Back") }
+            OutlinedButton(onClick = onBack, enabled = !loading) { Text(backLabel) }
             Button(
                 onClick = onSubmit,
                 enabled = submitEnabled && !loading,
-                modifier = Modifier.focusRequester(connectFocus),
+                modifier = Modifier
+                    .focusRequester(connectFocus)
+                    .then(if (editing) Modifier.focusRequester(arrival) else Modifier),
             ) {
                 Text(if (loading) "Connecting…" else submitLabel)
             }
@@ -602,6 +638,9 @@ private fun NuxTextField(
     password: Boolean = false,
     isLast: Boolean = false,
     onAdvance: (() -> Unit)? = null,
+    /** Whether DOWN on the remote runs [onAdvance] too, or just moves focus. */
+    dpadDownAdvances: Boolean = true,
+    modifier: Modifier = Modifier,
 ) {
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val advance: () -> Unit = {
@@ -623,11 +662,11 @@ private fun NuxTextField(
             // Done jumps straight to the Connect button instead of dropping focus.
             onDone = { advance() },
         ),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             // TV remotes navigate fields with the D-pad; the m3 TextField
             // swallows those keys by default. Down advances the form.
-            .dpadFieldNavigation(onDown = advance),
+            .dpadFieldNavigation(onDown = if (dpadDownAdvances) advance else null),
         colors = NuxFieldDefaults.colors(),
     )
 }

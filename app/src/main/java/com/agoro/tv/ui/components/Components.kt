@@ -879,7 +879,15 @@ fun TextInputDialog(
     message: String? = null,
     digitsOnly: Boolean = false,
     confirmLabel: String = "Save",
+    /**
+     * The third button, which confirms an empty value. Offered by default
+     * whenever there is something to clear; name it to offer it regardless —
+     * a PIN change starts from an empty field but must still be removable.
+     */
+    clearLabel: String? = null,
     onConfirm: (String) -> Unit,
+    /** What the clear button does; by default it confirms an empty value. */
+    onClear: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     var value by remember { mutableStateOf(initialValue) }
@@ -912,6 +920,15 @@ fun TextInputDialog(
                 } else {
                     androidx.compose.ui.text.input.VisualTransformation.None
                 },
+                // A numeric keypad for a PIN, not a QWERTY board with the
+                // digits on a second page.
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    keyboardType = if (digitsOnly) {
+                        androidx.compose.ui.text.input.KeyboardType.NumberPassword
+                    } else {
+                        androidx.compose.ui.text.input.KeyboardType.Uri
+                    },
+                ),
                 colors = NuxFieldDefaults.colors(),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -924,9 +941,12 @@ fun TextInputDialog(
                     Text(confirmLabel)
                 }
                 androidx.tv.material3.OutlinedButton(onClick = onDismiss) { Text("Cancel") }
-                if (initialValue.isNotBlank()) {
-                    androidx.tv.material3.OutlinedButton(onClick = { onConfirm(""); onDismiss() }) {
-                        Text("Clear")
+                if (clearLabel != null || initialValue.isNotBlank()) {
+                    androidx.tv.material3.OutlinedButton(onClick = {
+                        onClear?.invoke() ?: onConfirm("")
+                        onDismiss()
+                    }) {
+                        Text(clearLabel ?: "Clear")
                     }
                 }
             }
