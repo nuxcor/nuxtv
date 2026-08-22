@@ -3,6 +3,7 @@ package com.agoro.tv.ui.player
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -12,9 +13,17 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.agoro.tv.ui.theme.NuxColors
 import com.agoro.tv.ui.theme.NuxShape
@@ -82,6 +91,16 @@ internal object PlayerTheme {
  * because everything here moves over full-bleed video — a chip popping at
  * browse tempo reads as flicker against a moving picture. Transform/alpha
  * only; exits run at ~0.8× so dismissal always feels quicker than arrival.
+ *
+ * The big panels slide and do not fade. A fade on an AnimatedVisibility is a
+ * layer alpha, and a layer with alpha below one is rendered through an
+ * offscreen buffer the size of the layer — for a full-screen sheet on a 4K
+ * panel that is a 3840×2160 copy per frame, blended over the video plane,
+ * for every frame of the transition, on a quad-core A53. A slide is a
+ * translation: the same pixels, drawn somewhere else. Fades stay on the
+ * things small enough not to matter — the tune card, the paused badge, the
+ * chips — and on the bottom strips; a scrim that needs to fade draws its
+ * own alpha through [FadingScrim] rather than a layer.
  */
 internal object PlayerMotion {
     const val FastMs = 150
@@ -126,23 +145,19 @@ internal object PlayerMotion {
 
     /** Slide in from the left edge — the channel list and its category column. */
     fun enterFromLeft(ms: Int = PanelMs): EnterTransition =
-        slideInHorizontally(tween(ms, easing = EnterEasing)) { -it } +
-            fadeIn(tween(ms, easing = EnterEasing))
+        slideInHorizontally(tween(ms, easing = EnterEasing)) { -it }
 
     fun exitToLeft(ms: Int = PanelMs): ExitTransition =
-        slideOutHorizontally(tween(exitMs(ms), easing = ExitEasing)) { -it } +
-            fadeOut(tween(exitMs(ms), easing = ExitEasing))
+        slideOutHorizontally(tween(exitMs(ms), easing = ExitEasing)) { -it }
 
     /** Slide in from the right edge — tracks, catch-up, channel options. */
     fun enterFromRight(ms: Int = PanelMs): EnterTransition =
-        slideInHorizontally(tween(ms, easing = EnterEasing)) { it } +
-            fadeIn(tween(ms, easing = EnterEasing))
+        slideInHorizontally(tween(ms, easing = EnterEasing)) { it }
 
     fun exitToRight(ms: Int = PanelMs): ExitTransition =
-        slideOutHorizontally(tween(exitMs(ms), easing = ExitEasing)) { it } +
-            fadeOut(tween(exitMs(ms), easing = ExitEasing))
+        slideOutHorizontally(tween(exitMs(ms), easing = ExitEasing)) { it }
 
-    /** Fade + gentle scale — the error card. */
+    /** Fade + gentle scale — the error card (the card alone; its scrim is a [FadingScrim]). */
     fun enterScale(ms: Int = StandardMs): EnterTransition =
         scaleIn(tween(ms, easing = EnterEasing), initialScale = 0.96f) +
             fadeIn(tween(ms, easing = EnterEasing))
@@ -151,14 +166,15 @@ internal object PlayerMotion {
         scaleOut(tween(exitMs(ms), easing = ExitEasing), targetScale = 0.96f) +
             fadeOut(tween(exitMs(ms), easing = ExitEasing))
 
-    /** Fade with a slight vertical settle — the grid guide. */
+    /**
+     * A short rise from below — the grid guide. A slide alone, so the travel
+     * is a little longer than the settle that used to ride under a fade.
+     */
     fun enterGuide(ms: Int = GuideMs): EnterTransition =
-        slideInVertically(tween(ms, easing = EnterEasing)) { it / 24 } +
-            fadeIn(tween(ms, easing = EnterEasing))
+        slideInVertically(tween(ms, easing = EnterEasing)) { it / 12 }
 
     fun exitGuide(ms: Int = GuideMs): ExitTransition =
-        slideOutVertically(tween(exitMs(ms), easing = ExitEasing)) { it / 24 } +
-            fadeOut(tween(exitMs(ms), easing = ExitEasing))
+        slideOutVertically(tween(exitMs(ms), easing = ExitEasing)) { it / 12 }
 
     /** Plain fade — TuneCard over the last frame, the buffering chip. */
     fun enterFade(ms: Int = StandardMs): EnterTransition =
@@ -166,6 +182,38 @@ internal object PlayerMotion {
 
     fun exitFade(ms: Int = StandardMs): ExitTransition =
         fadeOut(tween(exitMs(ms), easing = ExitEasing))
+}
+
+/**
+ * A full-screen scrim that fades without an offscreen buffer. The alpha is
+ * the scrim's own layer with [CompositingStrategy.ModulateAlpha], which
+ * multiplies it into the one rectangle being drawn instead of compositing a
+ * screen-sized copy — the cost a fade inside AnimatedVisibility pays. Sits
+ * under whatever it is dimming for; the card on top animates separately.
+ */
+@Composable
+internal fun FadingScrim(
+    visible: Boolean,
+    color: Color = PlayerTheme.ScrimStrong,
+    ms: Int = PlayerMotion.StandardMs,
+) {
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = if (visible) tween(ms, easing = PlayerMotion.EnterEasing)
+        else tween(ms * 4 / 5, easing = PlayerMotion.ExitEasing),
+        label = "scrim",
+    )
+    if (alpha > 0f) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    this.alpha = alpha
+                    compositingStrategy = CompositingStrategy.ModulateAlpha
+                }
+                .background(color)
+        )
+    }
 }
 
 /** Overscan-safe insets for the full-bleed player; the player route skips the

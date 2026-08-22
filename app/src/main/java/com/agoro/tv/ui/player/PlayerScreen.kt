@@ -885,13 +885,17 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         }
 
         // The error card keeps its last message so the exit animation doesn't
-        // run on an empty card.
+        // run on an empty card. Its scrim fades on its own, under the card:
+        // inside the scale-and-fade it made the animated layer screen-sized.
         var lastError by remember { mutableStateOf("") }
         session.errorMessage?.let { lastError = it }
+        val errorUp = session.layer == PlayerLayer.Error && !inPip
+        FadingScrim(visible = errorUp)
         AnimatedVisibility(
-            visible = session.layer == PlayerLayer.Error && !inPip,
+            visible = errorUp,
             enter = PlayerMotion.enterScale(),
             exit = PlayerMotion.exitScale(),
+            modifier = Modifier.align(Alignment.Center),
         ) {
             PlaybackErrorCard(
                 title = item?.title.orEmpty(),
