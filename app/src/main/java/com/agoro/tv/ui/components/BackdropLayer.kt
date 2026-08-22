@@ -193,7 +193,10 @@ fun BoxScope.BackdropLayer(
             // as it always did.
             .drawBehind { if (url != null) drawRect(NuxColors.Background) },
     ) {
-        Box(
+        // No art, nothing at all — the scrims are there to tame an image,
+        // and painted over the bare page they cut the same seam the fill
+        // above exists to prevent.
+        if (url != null) Box(
             modifier = Modifier
                 .fillMaxWidth(widthFraction)
                 .fillMaxHeight()
