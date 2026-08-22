@@ -32,6 +32,12 @@ data class SportsEvent(
     val tierRank: Int = TIER_UNKNOWN,
     /** A studio or tactical-camera companion feed rather than the match itself. */
     val sideFeed: Boolean = false,
+    /**
+     * The match, but in another commentary language ("EN ESPAÑOL"). Still the
+     * match — it ranks below the plain feed and above a studio show, and it
+     * folds into the same fixture row instead of appearing as a second one.
+     */
+    val languageFeed: Boolean = false,
     /** The same match on other slots, best first, for the player to fall back to. */
     val alternates: List<Int> = emptyList(),
 ) {
@@ -186,8 +192,9 @@ object SportsParser {
         if (ended.containsMatchIn(name)) return null
         if (otherLeague.containsMatchIn(name)) return null
 
-        val (home, away) = readFixture(name) ?: return null
-        val league = leagueIn(home, away, idx, ambiguous) ?: return null
+        val (rawHome, rawAway) = readFixture(name) ?: return null
+        val sides = resolveSides(rawHome, rawAway, idx, ambiguous) ?: return null
+        val (league, home, away) = sides
         val start = readStart(name, nowMs)
 
         // A fixture with no readable kick-off is only shown when the pack has
@@ -197,6 +204,7 @@ object SportsParser {
             return if (liveWord.containsMatchIn(name)) {
                 SportsEvent(
                     streamId, league, home, away, null, true, tierOf(name), isSideFeed(name),
+                    languageFeed = isLanguageFeed(name),
                 )
             } else {
                 null
@@ -206,7 +214,54 @@ object SportsParser {
         return SportsEvent(
             streamId, league, home, away, start,
             live = start <= nowMs, tierRank = tierOf(name), sideFeed = isSideFeed(name),
+            languageFeed = isLanguageFeed(name),
         )
+    }
+
+    /** League plus the two sides as they should be shown. */
+    private data class Sides(val league: String, val home: String, val away: String)
+
+    /**
+     * [leagueIn], and while the roster is open: the club's name AS THE ROSTER
+     * SPELLS IT. The provider's side is the raw slot text — "REAL SOCIEDAD
+     * (MATCHDAY 2)", "EN ESPAÑOL-REAL BETIS" — and a fixture list that prints
+     * it looks like the playlist, not like sport. The roster already knows
+     * this club is Real Sociedad; say so. It also makes the two slots for one
+     * match key as one match, so the Spanish feed folds into the row instead
+     * of standing beside it. A side the roster does not carry (the cup-tie
+     * case) keeps its own text, tidied out of all-caps.
+     */
+    private fun resolveSides(
+        home: String,
+        away: String,
+        idx: List<Triple<String, String, String>>,
+        ambiguous: Set<String>,
+    ): Sides? {
+        val h = norm(home)
+        val a = norm(away)
+        val hHit = idx.firstOrNull { hasWord(h, it.third) }
+        val aHit = idx.firstOrNull { hasWord(a, it.third) }
+        val hit = hHit ?: aHit ?: return null
+        val league = when {
+            hHit != null && aHit != null -> hHit.first
+            hit.third in ambiguous -> return null
+            hit.second.trim().contains(' ') -> hit.first
+            else -> return null
+        }
+        return Sides(league, hHit?.second ?: tidyCase(home), aHit?.second ?: tidyCase(away))
+    }
+
+    /**
+     * "SV WALDHOF MANNHEIM" → "SV Waldhof Mannheim". Only all-caps input is
+     * touched, and only words long enough to be words — "FC", "SV", "PSG" are
+     * initials and stay as they are.
+     */
+    internal fun tidyCase(side: String): String {
+        if (side.any { it.isLowerCase() }) return side
+        return side.split(' ').joinToString(" ") { word ->
+            if (word.length <= 3) word
+            else word.lowercase(Locale.ROOT).replaceFirstChar { it.titlecase(Locale.ROOT) }
+        }
     }
 
     /** The teams, taken from the busiest-looking field the name offers. */
@@ -242,6 +297,7 @@ object SportsParser {
         // "Studio Coverage: Arsenal v ..." — the label is the feed's, not the
         // club's, and left on it the studio slot keys as a different fixture.
         .replace(sideFeedWords, " ")
+        .replace(languageFeedWords, " ")
         .replace(Regex("""(?i)\b(8K|4K|UHD|HD|SD|EXCLUSIVE|ᴴᴰ|ᴿᴬᵂ)\b"""), " ")
         .replace(Regex("""^\s*\d{1,3}\s*[-–]\s*"""), " ")
         .replace(Regex("""\s+"""), " ")
@@ -449,6 +505,13 @@ object SportsParser {
 
     internal fun isSideFeed(name: String) = sideFeedWords.containsMatchIn(name)
 
+    /** "EN ESPAÑOL", "SPANISH", "(FR)": the same match, another commentary. */
+    private val languageFeedWords = Regex(
+        """(?i)\b(EN\s+ESPA[ÑN]OL|ESPA[ÑN]OL|SPANISH|EN\s+FRAN[ÇC]AIS|FRENCH|ARABIC|PORTUGU[EÊ]S|DEUTSCH|ITALIANO)\b"""
+    )
+
+    internal fun isLanguageFeed(name: String) = languageFeedWords.containsMatchIn(name)
+
     /**
      * What the slot claims its picture is. The advertised token is all there
      * is here — these slots are never probed, because a pipe's measurement
@@ -474,14 +537,19 @@ object SportsParser {
     internal fun bestPerFixture(events: List<SportsEvent>): List<SportsEvent> =
         events.groupBy { norm(it.home) + "|" + norm(it.away) }
             .map { (_, sameMatch) ->
-                // Tier first, then the match over a side camera. Arsenal v
+                // The match itself first — over another language's call,
+                // over a side camera — and only then the better picture. A
+                // studio show in 8K is still not the match. Arsenal v
                 // Coventry arrived on four slots at the same tier — studio
                 // coverage, a player camera, a multi camera and the match —
-                // so the tie broke on whichever landed first, and the
-                // pre-match studio show took the row, bringing its own
-                // earlier start time along as the kick-off.
+                // and with nothing separating them the tie broke on
+                // whichever landed first: the pre-match studio show took the
+                // row, bringing its own earlier start time as the kick-off.
                 val ranked = sameMatch.sortedWith(
-                    compareBy({ it.tierRank }, { if (it.sideFeed) 1 else 0 })
+                    compareBy(
+                        { if (it.sideFeed) 2 else if (it.languageFeed) 1 else 0 },
+                        { it.tierRank },
+                    )
                 )
                 ranked.first().copy(alternates = ranked.drop(1).map { it.streamId })
             }

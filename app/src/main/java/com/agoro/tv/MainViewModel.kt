@@ -1064,19 +1064,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         // Programme titles, the guide's other half: what is ON, not just what
         // the channel is called. Current and upcoming only — a finished
         // programme isn't something search can offer to watch.
+        //
+        // One row per title per channel — its next airing. A rolling news
+        // channel repeats "News Live Weekends" every half hour, and listing
+        // each airing filled all twenty slots with one programme on one
+        // channel before the search had reached the second channel.
         val now = System.currentTimeMillis()
         val programs = ArrayList<ProgramHit>()
         outer@ for (channel in b.channels) {
             if (channel.categoryId in lockedLive) continue
+            val seenTitles = HashSet<String>()
             for (program in repo.programsFor(channel)) {
                 if (program.endMs <= now) continue
+                if (!seenTitles.add(program.title.lowercase())) continue
                 if (searchRank(program.title, q, tokens) != null) {
                     programs.add(ProgramHit(channel, program))
-                    if (programs.size >= 20) break@outer
+                    if (programs.size >= 60) break@outer
                 }
             }
         }
         programs.sortBy { it.program.startMs }
+        if (programs.size > 20) programs.subList(20, programs.size).clear()
 
         return SearchResults(
             channels = channels,

@@ -253,15 +253,19 @@ fun HomeLoungeTab(
         }
     }
 
+    // displayChannels folds off the main thread and lands a beat after the
+    // bundle. Nothing is drawn in that beat: the welcome pane would tell a
+    // viewer with favorites that they have none, and the catalogue shelves
+    // would take focus a frame before the live shelf was prepended above
+    // them — so Home opened anchored on Movies with its first row scrolled
+    // off the top, and focus on a film instead of on television.
+    if (displayChannels.isEmpty() && bundle.channels.isNotEmpty()) {
+        Box(Modifier.fillMaxSize())
+        return
+    }
+
     if (rowKeys.isEmpty()) {
         LaunchedEffect(Unit) { onHeroChange(null) }
-        // displayChannels folds off the main thread and lands a beat after the
-        // bundle — flashing the welcome pane in that beat would tell a viewer
-        // with favorites that they have none.
-        if (displayChannels.isEmpty() && bundle.channels.isNotEmpty()) {
-            Box(Modifier.fillMaxSize())
-            return
-        }
         // StatusPane focuses its primary action on arrival, which is what the
         // shell's boot-focus retry lands on.
         //
@@ -285,6 +289,11 @@ fun HomeLoungeTab(
     // saved too so the first-arrival scroll-to-top below stays spent.
     var focusedRow by rememberSaveable { mutableStateOf(0) }
     var focusedIndex by rememberSaveable { mutableStateOf(0) }
+    // The focused row by NAME as well as by index: a shelf appearing above
+    // it (the first favorite starred, a first resume) shifts every index
+    // below, and the viewer's row must follow itself rather than hand its
+    // slot to the newcomer.
+    var focusedRowKey by rememberSaveable { mutableStateOf(HomeRow.Continue.name) }
     // Bumped on every card focus, not just row changes: the LazyColumn's own
     // bring-into-view nudges the list on focus, and without a counter-snap
     // per focus event the correction only fired when the row index changed.
@@ -353,7 +362,15 @@ fun HomeLoungeTab(
     // Only before the first focus. After that the position is the viewer's, and
     // a late-arriving shelf must not move it under them.
     LaunchedEffect(rowKeys) {
-        if (focusSignal == 0) columnState.scrollToItem(0)
+        if (focusSignal == 0) {
+            columnState.scrollToItem(0)
+            return@LaunchedEffect
+        }
+        val index = rowKeys.indexOfFirst { it.name == focusedRowKey }
+        if (index >= 0 && index != focusedRow) {
+            focusedRow = index
+            columnState.scrollToItem(index)
+        }
     }
     // Focus has to come back after the menu closes. A destructive action —
     // "Not interested", "Remove from Continue watching" — deletes the very card
@@ -413,6 +430,7 @@ fun HomeLoungeTab(
                 onFocus = {
                     focusedRow = rowIndex
                     focusedIndex = index
+                    focusedRowKey = rowKeys[rowIndex].name
                     focusSignal++
                     hero = channelHero(channel, nn)
                 },
@@ -441,6 +459,7 @@ fun HomeLoungeTab(
                 onFocus = {
                     focusedRow = rowIndex
                     focusedIndex = index
+                    focusedRowKey = rowKeys[rowIndex].name
                     focusSignal++
                     hero = movie.toHero()
                 },
@@ -470,6 +489,7 @@ fun HomeLoungeTab(
                 onFocus = {
                     focusedRow = rowIndex
                     focusedIndex = index
+                    focusedRowKey = rowKeys[rowIndex].name
                     focusSignal++
                     hero = series.toHero()
                     vm.prefetchEpisodes(series)

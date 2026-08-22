@@ -32,7 +32,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
+import com.agoro.tv.ui.components.LocalArrivalFocusAllowed
+import com.agoro.tv.ui.theme.Space
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -114,9 +117,16 @@ private val GRID_GAP = 16.dp
  */
 private val FOCUS_OVERHANG = 12.dp
 
-/** Columns that fit [width] at [POSTER_TARGET_WIDTH], clamped to a TV-shaped range. */
+/**
+ * Columns that fit [width] at [POSTER_TARGET_WIDTH], clamped to a TV-shaped
+ * range. Rounded, not floored: on the 880dp lane flooring gave four columns
+ * of 208dp — a quarter wider than the target and a third wider than Home's
+ * shelf posters, one row to a screen. Five columns of 163dp is the nearest
+ * fit to the size the constant asks for.
+ */
 private fun gridColumnsFor(width: Dp): Int =
-    ((width + GRID_GAP) / (POSTER_TARGET_WIDTH + GRID_GAP)).toInt().coerceIn(3, 7)
+    ((width + GRID_GAP) / (POSTER_TARGET_WIDTH + GRID_GAP)).let { kotlin.math.round(it).toInt() }
+        .coerceIn(3, 7)
 internal const val VOD_CONTINUE = "__continue__"
 private const val VOD_MORE = "__more__"
 
@@ -240,8 +250,7 @@ fun HeroHeader(hero: HeroInfo?) {
  * the same grammar as Live TV's: chips in a row, dwell selects, UP from the
  * first poster row comes back to it, and the grid keeps the full pane width.
  *
- * The hero scrolls with the grid rather than sitting above it: it is 150dp of a
- * 476dp lane, and pinning it would leave room for a single row of posters.
+ * The hero is pinned above the grid, one line tall — see [BrowseHero].
  */
 @Composable
 private fun VodBrowser(
@@ -279,12 +288,31 @@ private fun VodBrowser(
         if (activeCategory == VOD_CONTINUE) VodPage.of(continueWatching)
         else entriesFor(activeCategory)
     }
-    var hero by remember(initialHero) { mutableStateOf(initialHero) }
+    // Saveable: the tab leaves composition for every detail page and every
+    // film played, and coming back must be a return. The grid's scroll state
+    // already survives; this is the poster within it, and whether focus was
+    // in the grid at all (else it belongs on the strip).
+    var focusedEntryIndex by rememberSaveable { mutableStateOf(0) }
+    var browsingGrid by rememberSaveable { mutableStateOf(false) }
+    // The category this composition has already laid out. A change after
+    // that is a real switch (scroll to the top, describe the first poster);
+    // the first composition after a return is not, and treating it as one
+    // threw away the viewer's place in the grid.
+    var laidOutCategory by rememberSaveable { mutableStateOf(activeCategory) }
+
+    fun heroAt(index: Int): HeroInfo? =
+        if (page.size > 0) page.entryAt(index.coerceIn(0, page.size - 1)).hero else null
+    var hero by remember(initialHero) {
+        mutableStateOf(heroAt(if (browsingGrid) focusedEntryIndex else 0) ?: initialHero)
+    }
     // The grid is replaced wholesale on a category switch without focus moving
     // inside it, so nothing else would clear the header of the item it was
     // describing in a category that is no longer shown.
     LaunchedEffect(activeCategory) {
-        hero = (if (page.size > 0) page.entryAt(0).hero else null) ?: initialHero
+        if (activeCategory == laidOutCategory) return@LaunchedEffect
+        laidOutCategory = activeCategory
+        focusedEntryIndex = 0
+        hero = heroAt(0) ?: initialHero
     }
 
     // Debounced so travelling a poster row doesn't hard-cut the hero (text and
@@ -295,12 +323,50 @@ private fun VodBrowser(
         shownHero = hero
     }
 
-    // True while focus lives in the grid — gates the row snapping so the
-    // strip above never scrolls the grid out from under itself.
-    var browsingGrid by remember { mutableStateOf(false) }
+    // On the strip itself, with a restorer: UP from the grid lands on the chip
+    // focus last left, the guide's pattern. A requester on chip 0 broke two
+    // ways — the chip could be disposed (the strip scrolls) so UP did nothing
+    // at all, and when it existed the landing on "All" dwell-selected it and
+    // wiped the category the viewer had chosen.
     val categoriesFocus = remember { FocusRequester() }
-    var focusedEntryIndex by remember { mutableStateOf(0) }
+    val posterFocus = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
+
+    // Arrival: the poster the viewer left, if focus was in the grid; else the
+    // strip. Once per visit — see rememberInitialFocus for why not on every
+    // flip of the allowed flag.
+    //
+    // The target is read ONCE, at composition: the shell's own parking lands
+    // on the first thing it finds — a chip, since the strip composes before
+    // the grid — and that chip's focus callback rewrites browsingGrid before
+    // this effect gets to run. Read late, the return always "remembered"
+    // being on the strip.
+    val returnIndex = remember { if (browsingGrid) focusedEntryIndex else -1 }
+    // True until the arrival has settled. A chip focused in passing during
+    // that window must not dwell-select: the shell's parking put focus on
+    // whichever chip was nearest, and a quarter-second later the category
+    // the viewer had chosen was replaced by it.
+    var arriving by remember { mutableStateOf(true) }
+    val arrivalAllowed = LocalArrivalFocusAllowed.current
+    val arrivalPending = remember { booleanArrayOf(true) }
+    LaunchedEffect(arrivalAllowed) {
+        if (!arrivalAllowed || !arrivalPending[0]) return@LaunchedEffect
+        arrivalPending[0] = false
+        try {
+            if (returnIndex >= 0) {
+                focusedEntryIndex = returnIndex
+                browsingGrid = true
+                // The grid composes a few frames after the strip; wait it out.
+                if (posterFocus.requestFocusRetrying(retries = 16, intervalMs = 50)) {
+                    return@LaunchedEffect
+                }
+                browsingGrid = false
+            }
+            categoriesFocus.requestFocusRetrying()
+        } finally {
+            arriving = false
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
     // Ambient artwork for the focused entry behind the whole browse pane. The
@@ -315,6 +381,7 @@ private fun VodBrowser(
         androidx.compose.foundation.lazy.LazyRow(
             modifier = Modifier
                 .padding(bottom = 10.dp)
+                .focusRequester(categoriesFocus)
                 .focusRestorer(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(end = 16.dp),
@@ -324,19 +391,22 @@ private fun VodBrowser(
                     name = category.name,
                     selected = category.id == activeCategory,
                     onClick = { selectedCategory = category.id },
-                    // The re-entry target must be an ITEM: focusing the
-                    // strip landed on the scroll container itself — no
-                    // ring, no dwell, focus stranded.
-                    modifier = if (index == 0) {
-                        Modifier.focusRequester(categoriesFocus)
-                    } else Modifier,
                     onFocus = {
+                        if (arriving) return@CategoryItem
                         browsingGrid = false
                         focusedCategory = category.id
                     },
                     onBlur = { if (focusedCategory == category.id) focusedCategory = null },
                 )
             }
+        }
+        // Pinned above the grid, like Home's: posters are captionless, so
+        // the focused one's name has to live somewhere that does not scroll
+        // away with the row above it — which is what the hero did as the
+        // grid's first item, leaving every poster past row one nameless.
+        // One line, so it costs the grid less than a third of a row.
+        Box(modifier = Modifier.fillMaxWidth().height(BROWSE_HERO_HEIGHT)) {
+            BrowseHero(shownHero)
         }
         if (page.size == 0) {
             StatusPane(
@@ -348,6 +418,17 @@ private fun VodBrowser(
         }
         val gridEntrance = rememberListEntrance(activeCategory)
         val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+        // A category switch starts at the top. The state is shared across
+        // categories, and without this "Comedy" opened wherever "All" had
+        // been scrolled to — row 60 of a list that may have 40. Only a real
+        // switch: the first composition after a return keeps the restored
+        // offset.
+        var gridCategory by remember { mutableStateOf(activeCategory) }
+        LaunchedEffect(activeCategory) {
+            if (gridCategory == activeCategory) return@LaunchedEffect
+            gridCategory = activeCategory
+            gridState.scrollToItem(0)
+        }
         BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
         val gridColumns = gridColumnsFor(maxWidth)
         // Row snapping: the focused row aligns to the top of the pane, so the
@@ -366,9 +447,9 @@ private fun VodBrowser(
         LaunchedEffect(focusedRow, browsingGrid, overhangPx) {
             if (!browsingGrid) return@LaunchedEffect
             val row = focusedRow
-            // +1 skips the full-span hero header item. A negative offset seats
-            // the row below the viewport start rather than on it.
-            gridState.animateScrollToItem(1 + row * gridColumns, scrollOffset = -overhangPx)
+            // A negative offset seats the row below the viewport start rather
+            // than on it.
+            gridState.animateScrollToItem(row * gridColumns, scrollOffset = -overhangPx)
         }
         LazyVerticalGrid(
             state = gridState,
@@ -410,7 +491,6 @@ private fun VodBrowser(
                 bottom = 36.dp,
             ),
         ) {
-            item(key = "hero", span = { GridItemSpan(maxLineSpan) }) { HeroHeader(shownHero) }
             items(count = page.size, key = { page.keyAt(it) }) { index ->
                 // Built here, for this cell only — see [VodPage].
                 val entry = page.entryAt(index)
@@ -421,6 +501,9 @@ private fun VodBrowser(
                         width = null,
                         year = entry.year,
                         progress = entry.progress,
+                        modifier = if (index == focusedEntryIndex) {
+                            Modifier.focusRequester(posterFocus)
+                        } else Modifier,
                         onClick = entry.onOpen,
                         onFocus = {
                             browsingGrid = true
@@ -434,6 +517,47 @@ private fun VodBrowser(
         }
         }
     }
+    }
+}
+
+/** The pinned hero's slot — one line of title and chips. */
+private val BROWSE_HERO_HEIGHT = 52.dp
+
+/**
+ * Title and chips on one line, for the browse grids. Home's two-deck
+ * [HeroHeader] with its synopsis is the right size above three shelves; above
+ * a grid it is a third of the lane, and the synopsis is one OK press away on
+ * the detail page anyway.
+ */
+@Composable
+private fun BrowseHero(hero: HeroInfo?) {
+    if (hero == null) return
+    androidx.compose.animation.AnimatedContent(
+        targetState = hero,
+        transitionSpec = {
+            androidx.compose.animation.fadeIn(
+                androidx.compose.animation.core.tween(NuxMotion.EmphasizedMs, easing = NuxMotion.StandardEasing)
+            ) togetherWith androidx.compose.animation.fadeOut(
+                androidx.compose.animation.core.tween(NuxMotion.FastMs, easing = NuxMotion.ExitEasing)
+            )
+        },
+        label = "browseHero",
+    ) { current ->
+        Row(
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Space.m),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+        ) {
+            Text(
+                text = current.title,
+                style = MaterialTheme.typography.headlineSmall,
+                color = NuxColors.OnSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            current.chips.take(4).forEachIndexed { i, chip -> MetaChip(chip, accent = i == 0) }
+        }
     }
 }
 
@@ -502,7 +626,9 @@ fun MoviesTab(
     )
 
     val continueWatching = remember(movies, resumePositions, resumeProgress) {
-        movies.filter { it.url in resumePositions }.map { it.entry() }
+        // Newest first, like Home's shelf — not playlist order.
+        val byUrl = movies.associateBy { it.url }
+        resumePositions.keys.toList().asReversed().mapNotNull { byUrl[it]?.entry() }
     }
     VodBrowser(
         vm = vm,
@@ -540,8 +666,26 @@ fun SeriesTab(
     }
     val resumePositions by vm.resumePositions.collectAsState()
     val resumeProgress by vm.resumeProgress.collectAsState()
+    // Which series each watched episode belongs to. Series.episodes is null
+    // for Xtream until the detail page fetched them, so anything keyed off
+    // it — the Continue watching shelf, the poster progress bar — simply
+    // never appeared on the setup this app is built for, while Home's
+    // Continue watching row (built from this map) did.
+    val episodeOrigins by vm.episodeOrigins.collectAsState()
     val pin by vm.parentalPin.collectAsState()
     val unlocked by vm.parentalUnlocked.collectAsState()
+
+    // seriesId -> progress of the most recently watched episode.
+    val seriesProgress = remember(resumePositions, resumeProgress, episodeOrigins) {
+        val out = HashMap<String, Float?>()
+        for (url in resumePositions.keys) {
+            val seriesId = episodeOrigins[url] ?: continue
+            // Insertion order is oldest-first; the last write wins, so the
+            // newest episode's progress is what the poster shows.
+            out[seriesId] = resumeProgress[url]
+        }
+        out
+    }
 
     val visible = remember(bundle, pin, unlocked) {
         val lockedIds = bundle.seriesCategories
@@ -576,7 +720,7 @@ fun SeriesTab(
         art = artRef(),
         year = year,
         // The episode the viewer is actually part-way through.
-        progress = episodes?.firstNotNullOfOrNull { resumeProgress[it.url] },
+        progress = seriesProgress[id] ?: episodes?.firstNotNullOfOrNull { resumeProgress[it.url] },
         hero = toHero(),
         onOpen = { onOpenSeries(this) },
         // Focusing a poster warms its episodes — on curated proxies
@@ -587,10 +731,17 @@ fun SeriesTab(
         onFocus = { vm.prefetchEpisodes(this) },
     )
 
-    val continueWatching = remember(seriesList, resumePositions, resumeProgress) {
-        seriesList
-            .filter { series -> series.episodes?.any { it.url in resumePositions } == true }
-            .map { it.entry() }
+    val continueWatching = remember(seriesList, resumePositions, resumeProgress, seriesProgress) {
+        // Newest first, the order Home uses for the same shelf.
+        val order = resumePositions.keys.toList().asReversed()
+            .mapNotNull { episodeOrigins[it] }.distinct()
+        val byId = seriesList.associateBy { it.id }
+        val fromOrigins = order.mapNotNull { byId[it] }
+        val fromEpisodes = seriesList.filter { series ->
+            series.id !in seriesProgress &&
+                series.episodes?.any { it.url in resumePositions } == true
+        }
+        (fromOrigins + fromEpisodes).map { it.entry() }
     }
     VodBrowser(
         vm = vm,

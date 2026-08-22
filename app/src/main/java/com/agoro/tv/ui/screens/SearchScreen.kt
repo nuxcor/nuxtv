@@ -4,7 +4,14 @@ package com.agoro.tv.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.focus.FocusRequester
+import com.agoro.tv.ui.components.requestFocusRetrying
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.Alignment
+import com.agoro.tv.ui.theme.Space
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -53,13 +60,33 @@ fun SearchTab(
     onOpenMovie: (Movie) -> Unit,
     onOpenSeries: (Series) -> Unit,
     onPlay: () -> Unit,
+    /** BACK: Search is entered from Home's pill, so BACK goes back to Home. */
+    onBack: () -> Unit = {},
 ) {
     var query by rememberSaveable { mutableStateOf("") }
+    // Search is not a rail destination: the viewer came from Home's pill, and
+    // BACK should return them there, not open the drawer they did not come
+    // from. (The IME's own BACK closes the keyboard first, as it should.)
+    androidx.activity.compose.BackHandler(onBack = onBack)
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(statusMessage) {
+        if (statusMessage != null) {
+            kotlinx.coroutines.delay(4_000)
+            statusMessage = null
+        }
+    }
     val contentState by vm.content.collectAsState()
     val visible by vm.displayChannels.collectAsState()
     val favorites by vm.favorites.collectAsState()
     val nowNext by vm.nowNext.collectAsState()
     var menuChannel by remember { mutableStateOf<LiveChannel?>(null) }
+    // The card the menu was opened on keeps a requester after the menu
+    // closes, so focus can come back to it: left to Compose, a dismissed
+    // menu dropped focus onto the query field and the keyboard popped up
+    // over the results.
+    var menuOrigin by remember { mutableStateOf<String?>(null) }
+    val menuOriginFocus = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
     var results by remember { mutableStateOf(MainViewModel.SearchResults()) }
     // Debounced off-main-thread search so typing stays smooth on huge playlists.
     LaunchedEffect(query, contentState, visible) {
@@ -72,6 +99,21 @@ fun SearchTab(
     }
 
     val timeFmt = rememberClockFormat()
+    val dayFmt = remember { java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()) }
+    /** "9:00 AM", "Tomorrow 9:00 AM", "Mon 9:00 AM" — the day only when it is not today. */
+    fun airTime(startMs: Long): String {
+        val time = timeFmt.format(java.util.Date(startMs))
+        val cal = java.util.Calendar.getInstance()
+        val today = cal.get(java.util.Calendar.DAY_OF_YEAR)
+        cal.timeInMillis = startMs
+        val day = cal.get(java.util.Calendar.DAY_OF_YEAR)
+        return when (day - today) {
+            0 -> time
+            1 -> "Tomorrow $time"
+            else -> "${dayFmt.format(java.util.Date(startMs))} $time"
+        }
+    }
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier.fillMaxSize(),
     ) {
@@ -82,7 +124,7 @@ fun SearchTab(
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            label = { androidx.compose.material3.Text("Search channels, movies and series") },
+            label = { androidx.compose.material3.Text("Search channels, movies and shows") },
             singleLine = true,
             modifier = Modifier
                 .fillMaxWidth()
@@ -176,11 +218,17 @@ fun SearchTab(
                                     ChannelShelfCard(
                                         channel = channel,
                                         now = nowNext[channel.id]?.now,
+                                        modifier = if (channel.id == menuOrigin) {
+                                            Modifier.focusRequester(menuOriginFocus)
+                                        } else Modifier,
                                         onClick = {
                                             vm.playChannels(results.channels, index)
                                             onPlay()
                                         },
-                                        onLongClick = { menuChannel = channel },
+                                        onLongClick = {
+                                            menuOrigin = channel.id
+                                            menuChannel = channel
+                                        },
                                     )
                                 }
                             }
@@ -197,19 +245,43 @@ fun SearchTab(
                             hit.program.startMs until hit.program.endMs
                         WideItem(
                             title = hit.program.title,
-                            subtitle = "${hit.channel.displayName} • " +
-                                timeFmt.format(java.util.Date(hit.program.startMs)),
-                            badge = if (airing) "ON NOW" else null,
+                            subtitle = "${hit.channel.displayName} • " + airTime(hit.program.startMs),
+                            // The same vocabulary as the guide's header chip,
+                            // so OK does what the row says it does.
+                            badge = when {
+                                airing -> "ON NOW"
+                                hit.channel.recordUrl != null -> "OK to record"
+                                else -> "OK to remind"
+                            },
                             imageUrl = hit.channel.logo,
                             onClick = {
-                                vm.playChannels(listOf(hit.channel), 0)
-                                onPlay()
+                                // The guide's rule: a programme on now plays;
+                                // one still to come is recorded or remembered.
+                                // Tuning a channel eight hours before the thing
+                                // you searched for is not watching it.
+                                val now = System.currentTimeMillis()
+                                if (hit.program.startMs <= now) {
+                                    vm.playChannels(listOf(hit.channel), 0)
+                                    onPlay()
+                                } else if (vm.scheduleRecording(hit.channel, hit.program)) {
+                                    statusMessage = "Recording scheduled: ${hit.program.title}"
+                                } else {
+                                    vm.scheduleReminder(hit.channel, hit.program)
+                                    statusMessage = "Reminder set: ${hit.program.title}"
+                                }
                             },
                         )
                     }
                 }
             }
         }
+    }
+    com.agoro.tv.ui.components.ToastBadge(
+        message = statusMessage,
+        modifier = Modifier
+            .align(Alignment.BottomEnd)
+            .padding(bottom = Space.m, end = Space.m),
+    )
     }
     menuChannel?.let { channel ->
         val isFav = channel.url in favorites
@@ -226,7 +298,16 @@ fun SearchTab(
                 },
                 MenuAction("Hide this channel") { vm.toggleHidden(channel) },
             ),
-            onDismiss = { menuChannel = null },
+            onDismiss = {
+                menuChannel = null
+                // After the frame in which Compose reseats focus itself; a
+                // request made before loses to it. Hidden channels leave the
+                // shelf, so a refusal here just means the card is gone.
+                scope.launch {
+                    kotlinx.coroutines.delay(120)
+                    menuOriginFocus.requestFocusRetrying()
+                }
+            },
         )
     }
 }

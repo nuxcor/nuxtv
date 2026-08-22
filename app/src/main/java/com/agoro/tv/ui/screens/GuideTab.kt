@@ -213,6 +213,14 @@ fun GuideTab(
         kotlinx.coroutines.delay(NuxMotion.FocusDwellMs.toLong())
         onCategoryId(id)
     }
+    // Only a focus that follows a key press can dwell-select. Focus also
+    // lands on a chip when nothing pressed anything — the shell parking on
+    // the first focusable after a return from the player, Compose reseating
+    // focus after an overlay closes — and the entry redirect into the grid
+    // is not always faster than the dwell, so those arrivals switched the
+    // category out from under the viewer.
+    var lastKeyDownMs by remember { mutableStateOf(0L) }
+    fun dwellAllowed() = android.os.SystemClock.uptimeMillis() - lastKeyDownMs < 1_000
     if (allChannels.isEmpty()) {
         StatusPane(
             title = "No live channels",
@@ -378,6 +386,7 @@ fun GuideTab(
             .spendGutter(Space.gutter - Space.gutterGrid)
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                lastKeyDownMs = android.os.SystemClock.uptimeMillis()
                 val code = event.key.nativeKeyCode
                 if (code in android.view.KeyEvent.KEYCODE_0..android.view.KeyEvent.KEYCODE_9) {
                     digitState.value += (code - android.view.KeyEvent.KEYCODE_0).toString()
@@ -487,7 +496,7 @@ fun GuideTab(
                     },
                     // Locked categories still need the OK press (and
                     // its PIN prompt); dwell must not walk past a PIN.
-                    onFocus = { if (!locked) focusedCategory = category.id },
+                    onFocus = { if (!locked && dwellAllowed()) focusedCategory = category.id },
                     onBlur = { if (focusedCategory == category.id) focusedCategory = null },
                     locked = locked,
                 )

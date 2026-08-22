@@ -280,9 +280,12 @@ fun HomeScreen(
                             onHeroChange = { homeHero = it },
                             onBrowse = { tab = it },
                         )
-                        HomeTab.Search -> SearchTab(vm, onOpenMovie, onOpenSeries, onPlay)
+                        HomeTab.Search -> SearchTab(
+                            vm, onOpenMovie, onOpenSeries, onPlay,
+                            onBack = { tab = HomeTab.Home },
+                        )
                         HomeTab.Live -> LiveTab(vm, state.bundle, onPlay, onOpenSettings = { tab = HomeTab.Settings })
-                        HomeTab.Sport -> SportTab(vm, state.bundle, onPlay)
+                        HomeTab.Sport -> SportTab(vm, state.bundle, onPlay, onBrowse = { tab = it })
                         HomeTab.Movies -> MoviesTab(vm, state.bundle, onOpenMovie, onOpenSettings = { tab = HomeTab.Settings })
                         HomeTab.Series -> SeriesTab(vm, state.bundle, onOpenSeries, onOpenSettings = { tab = HomeTab.Settings })
                         HomeTab.Recordings -> RecordingsTab(
