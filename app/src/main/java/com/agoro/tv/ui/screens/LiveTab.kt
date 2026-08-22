@@ -253,13 +253,27 @@ internal fun LiveTab(
     // is simply gone and Compose reseats focus on the nearest thing it can
     // find — the first category chip, whose dwell then switched the whole
     // guide. Hand focus back to the row the menu was opened on instead.
-    // After a beat, because the request loses to that same reseating if it
-    // fires in the frame the overlay unmounts.
-    fun refocusGrid() {
-        focusScope.launch {
-            kotlinx.coroutines.delay(120)
-            gridHandle.focusAnchor()
-        }
+    //
+    // In the SAME FRAME the overlay unmounts, not after a wall-clock wait.
+    // This used to delay 120ms, and in that window the reseating had already
+    // happened — so a quick press after closing drove the chip, not the
+    // guide. The request cannot be made before the overlay is gone: the
+    // dialog scaffold cancels any focus exit while it stands. Armed by the
+    // dismissal (a plain holder: nothing in composition reads it) and run by
+    // the effect below once the frame that removed the overlay has applied,
+    // before the next key event can arrive. focusAnchor verifies the landing
+    // and retries for a row still composing, which is the bounded fallback.
+    val returnFocusPending = remember { booleanArrayOf(false) }
+    fun refocusGridOnClose() {
+        returnFocusPending[0] = true
+    }
+    LaunchedEffect(menuChannel, scheduleChannel) {
+        // The menu's "What's on" closes the menu and opens the sheet in one
+        // press; the return waits for the sheet, and the flag stays armed.
+        if (menuChannel != null || scheduleChannel != null) return@LaunchedEffect
+        if (!returnFocusPending[0]) return@LaunchedEffect
+        returnFocusPending[0] = false
+        gridHandle.focusAnchor()
     }
     fun playFromHost(channel: LiveChannel) {
         gridHandle.beforePlay()
@@ -329,8 +343,10 @@ internal fun LiveTab(
                 }
             },
             onDismiss = {
+                // Arm the return first, then unmount: the effect above runs
+                // in the frame the sheet leaves and finds the flag set.
+                refocusGridOnClose()
                 scheduleChannel = null
-                refocusGrid()
             },
         )
     }
@@ -360,8 +376,8 @@ internal fun LiveTab(
                 add(MenuAction("Hide this channel") { vm.toggleHidden(channel) })
             },
             onDismiss = {
+                refocusGridOnClose()
                 menuChannel = null
-                refocusGrid()
             },
         )
     }
