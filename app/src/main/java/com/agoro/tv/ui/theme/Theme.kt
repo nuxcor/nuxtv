@@ -16,7 +16,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Border
-import androidx.tv.material3.Glow
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Shapes
 import androidx.tv.material3.Typography
@@ -243,10 +242,20 @@ object NuxFocus {
     /** The card/row default — [NuxShape.Card]. */
     val ring: Border = ring16
 
-    val cardGlow: Glow = Glow(
-        elevationColor = NuxColors.Primary.copy(alpha = 0.30f),
-        elevation = 24.dp,
-    )
+    /**
+     * The focused card's halo: colour and reach. Drawn by
+     * [com.agoro.tv.ui.components.focusHalo], not by tv-material's Glow.
+     *
+     * Glow is a Paint.setShadowLayer blur, and HWUI rasterises that mask on
+     * the CPU for every frame the geometry changes — which, under a 1.06
+     * scale tween, is every frame of every focus move, on the one card that
+     * is always animating. A 24dp blur of a poster-sized path each frame is
+     * milliseconds on a Cortex-A53. The halo is a handful of concentric
+     * strokes instead: the same soft gold edge, drawn straight from the
+     * display list.
+     */
+    val HaloColor = NuxColors.Primary.copy(alpha = 0.30f)
+    val HaloReach = 24.dp
 
     /** Focused containers lift the surface; they never fill with brand gold. */
     val container = NuxColors.SurfaceRaised

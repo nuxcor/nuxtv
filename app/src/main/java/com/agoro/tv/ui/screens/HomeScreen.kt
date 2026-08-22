@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -140,6 +141,18 @@ fun HomeScreen(
     // on the catcher opened the drawer.
     var lastKeyCode by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
+        // A return is not a launch. Every tab seats its own arrival focus on
+        // the card the viewer left, and this loop's first attempt used to
+        // fire in the same dispatch — landing on the first focusable (the
+        // Search pill, a strip chip) for a frame or three whenever the
+        // remembered card was not in the first frame, before the tab's own
+        // request hopped it back. On a return the shell only backstops: if
+        // the tab has not seated anything after a beat, park as before.
+        if (hasLaunched) {
+            delay(150)
+            if (!contentHasFocus) parkInContent(retries = 25, intervalMs = 80)
+            return@LaunchedEffect
+        }
         // Park on the CONTENT, always — on launch that is the Live guide,
         // whose entry redirect lands focus on the current programme, so the
         // app boots one OK away from watching. Parking on the rail was both
@@ -213,11 +226,27 @@ fun HomeScreen(
             // all of it again in reverse when the load landed.
             val current = tab
             // One-shot entrance on tab switch: the tree still swaps instantly
-            // (no Crossfade, see above) — only alpha/translation animate, so
+            // (no Crossfade, see above) — only a short rise animates, so
             // focus targeting and the guide's registry see final layout on
             // frame one.
-            val tabEntrance = remember(current) { Animatable(0f) }
+            //
+            // A rise, and NOT a fade. Alpha on this Box put the entire
+            // content lane — every shelf, poster and backdrop — through a
+            // full-screen offscreen layer for fifteen frames, in the same
+            // frames the new tab was composing its lists and fetching its
+            // images. That is the costliest thing a TV GPU can be asked for
+            // and it ran on every tab switch. A translation is free: it is
+            // a transform on the display list, not a buffer.
+            //
+            // Nor on a return. Home leaves composition for every channel and
+            // every detail page, so remember(current) was fresh on the way
+            // back and the whole lounge rose into view again behind the
+            // cut — the launch choreography replayed for a screen the viewer
+            // had only stepped away from. A visit that has already launched
+            // snaps straight to its resting place.
+            val tabEntrance = remember(current) { Animatable(if (hasLaunched) 1f else 0f) }
             LaunchedEffect(current) {
+                if (tabEntrance.value == 1f) return@LaunchedEffect
                 try {
                     // Snap-on-timeout: an idle window can starve the frame
                     // clock, leaving animateTo suspended and the whole tab
@@ -239,7 +268,6 @@ fun HomeScreen(
             }
             Box(
                 modifier = Modifier.graphicsLayer {
-                    alpha = tabEntrance.value
                     translationY = (1f - tabEntrance.value) * (NuxMotion.EntranceRise.toPx() * 0.66f)
                 }
             ) {
@@ -358,18 +386,28 @@ fun HomeScreen(
             }
             .focusable(),
     )
-    androidx.compose.animation.AnimatedVisibility(
-        visible = railVisible,
-        enter = androidx.compose.animation.fadeIn(
+    // Dim the content while the drawer is up, so the two read as layers.
+    // The fade animates the scrim's COLOUR in drawBehind, the way
+    // DialogScaffold does — not a layer alpha over a full-screen Box, which
+    // is an offscreen buffer the size of the screen for every frame of the
+    // fade, on the one gesture the viewer makes most.
+    val scrimProgress by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (railVisible) 1f else 0f,
+        animationSpec = if (railVisible) {
             tween(NuxMotion.StandardMs, easing = NuxMotion.StandardEasing)
-        ),
-        exit = androidx.compose.animation.fadeOut(
+        } else {
             tween(NuxMotion.FastMs, easing = NuxMotion.ExitEasing)
-        ),
-    ) {
-        // Dim the content while the drawer is up, so the two read as layers.
-        Box(Modifier.fillMaxSize().background(NuxColors.Scrim))
-    }
+        },
+        label = "drawerScrim",
+    )
+    Box(
+        Modifier
+            .fillMaxSize()
+            .drawBehind {
+                val a = scrimProgress
+                if (a > 0f) drawRect(NuxColors.Scrim.copy(alpha = NuxColors.Scrim.alpha * a))
+            }
+    )
     androidx.compose.animation.AnimatedVisibility(
         visible = railVisible,
         enter = androidx.compose.animation.slideInHorizontally(

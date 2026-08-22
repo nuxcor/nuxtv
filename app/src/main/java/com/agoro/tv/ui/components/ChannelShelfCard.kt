@@ -62,7 +62,9 @@ fun ChannelShelfCard(
         Surface(
             onClick = onClick,
             onLongClick = onLongClick,
-            modifier = modifier.onFocusChanged { if (it.isFocused) onFocus() },
+            modifier = modifier
+                .focusHalo(NuxShape.Card)
+                .onFocusChanged { if (it.isFocused) onFocus() },
             shape = ClickableSurfaceDefaults.shape(NuxShape.Card),
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = Color.Transparent,
@@ -72,7 +74,6 @@ fun ChannelShelfCard(
             ),
             scale = ClickableSurfaceDefaults.scale(focusedScale = NuxFocus.CardScale),
             border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring16),
-            glow = ClickableSurfaceDefaults.glow(focusedGlow = NuxFocus.cardGlow),
         ) {
             Box {
                 Artwork(
