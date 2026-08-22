@@ -59,8 +59,22 @@ internal data class PlayerKeyResult(
 ) {
     companion object {
         val Ignored = PlayerKeyResult(consumed = false)
+
+        /** Consumed, nothing to do — a swallowed repeat. */
+        val Swallowed = PlayerKeyResult(consumed = true)
     }
 }
+
+/**
+ * A held zap key steps once per this many auto-repeats. Android repeats a
+ * held key every ~50 ms, and each repeat used to be a full zap — five state
+ * writes, a banner restart, two recompositions and a logo fetch — twenty
+ * times a second, which is neither something a viewer can follow nor
+ * something a quad-core box can keep up with. Every sixth is about three
+ * channels a second: a skim you can read, that the dwell then turns into
+ * one connection where it stops.
+ */
+internal const val ZAP_REPEAT_EVERY = 6
 
 /**
  * The player's key map as a pure function, so it can be unit-tested without a
@@ -151,16 +165,20 @@ internal fun playerKeyAction(
     }
 
     if (!isKeyDown) return PlayerKeyResult.Ignored
+
+    // The first press always zaps; a held key zaps on every Nth repeat and
+    // swallows the rest — consumed, so nothing underneath sees them either.
+    fun zap(delta: Int): PlayerKeyResult =
+        if (repeatCount == 0 || repeatCount % ZAP_REPEAT_EVERY == 0) {
+            PlayerKeyResult(true, PlayerKeyAction.Zap(delta))
+        } else PlayerKeyResult.Swallowed
+
     return when (code) {
         AndroidKeyEvent.KEYCODE_CHANNEL_UP ->
-            if (noOverlay || layer == PlayerLayer.Error) {
-                PlayerKeyResult(true, PlayerKeyAction.Zap(+1))
-            } else PlayerKeyResult.Ignored
+            if (noOverlay || layer == PlayerLayer.Error) zap(+1) else PlayerKeyResult.Ignored
 
         AndroidKeyEvent.KEYCODE_CHANNEL_DOWN ->
-            if (noOverlay || layer == PlayerLayer.Error) {
-                PlayerKeyResult(true, PlayerKeyAction.Zap(-1))
-            } else PlayerKeyResult.Ignored
+            if (noOverlay || layer == PlayerLayer.Error) zap(-1) else PlayerKeyResult.Ignored
 
         // INFO summons the banner; pressed again while it's up, it means
         // "tell me more" — the controls. VOD has no banner (the title lives
@@ -196,7 +214,7 @@ internal fun playerKeyAction(
         // that opened it. Not consumed: the move itself is the focus system's.
         AndroidKeyEvent.KEYCODE_DPAD_UP ->
             when {
-                isLive && zapFromBare -> PlayerKeyResult(true, PlayerKeyAction.Zap(+1))
+                isLive && zapFromBare -> zap(+1)
                 !isLive && chromeFree -> PlayerKeyResult(true, PlayerKeyAction.ShowControls)
                 layer == PlayerLayer.Controls ->
                     PlayerKeyResult(consumed = false, action = PlayerKeyAction.ShowControls)
@@ -205,7 +223,7 @@ internal fun playerKeyAction(
 
         AndroidKeyEvent.KEYCODE_DPAD_DOWN ->
             when {
-                isLive && zapFromBare -> PlayerKeyResult(true, PlayerKeyAction.Zap(-1))
+                isLive && zapFromBare -> zap(-1)
                 !isLive && chromeFree -> PlayerKeyResult(true, PlayerKeyAction.ShowControls)
                 layer == PlayerLayer.Controls ->
                     PlayerKeyResult(consumed = false, action = PlayerKeyAction.ShowControls)

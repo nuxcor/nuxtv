@@ -60,6 +60,13 @@ internal fun ChannelBanner(
     audioFormatLabel: String?,
     isRecording: Boolean,
     showKeyHints: Boolean = false,
+    /**
+     * True while a zap chain is still running. The logo slot stays, empty,
+     * so the banner doesn't reflow — but no image is asked for: a run
+     * through twenty channels used to start twenty Coil requests, one per
+     * channel skimmed, for logos that were on screen for a tenth of a second.
+     */
+    logoDeferred: Boolean = false,
 ) {
     val nowNextMap by vm.nowNext.collectAsState()
     val favorites by vm.favorites.collectAsState()
@@ -92,12 +99,16 @@ internal fun ChannelBanner(
                 // ratios and Crop fills the box by slicing the sides off — a
                 // wide wordmark came out reading "CTRUM EWS". Crop is right for
                 // posters, which is why it is the default, but never for logos.
-                com.agoro.tv.ui.components.Artwork(
-                    imageUrl = channel.logo,
-                    title = channel.displayName,
-                    modifier = Modifier.size(width = 78.dp, height = 46.dp),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                )
+                if (logoDeferred) {
+                    Spacer(Modifier.size(width = 78.dp, height = 46.dp))
+                } else {
+                    com.agoro.tv.ui.components.Artwork(
+                        imageUrl = channel.logo,
+                        title = channel.displayName,
+                        modifier = Modifier.size(width = 78.dp, height = 46.dp),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    )
+                }
             }
         }
 

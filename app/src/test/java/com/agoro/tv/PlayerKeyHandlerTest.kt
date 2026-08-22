@@ -3,6 +3,7 @@ package com.agoro.tv
 import android.view.KeyEvent
 import com.agoro.tv.ui.player.PlayerKeyAction
 import com.agoro.tv.ui.player.PlayerLayer
+import com.agoro.tv.ui.player.ZAP_REPEAT_EVERY
 import com.agoro.tv.ui.player.playerKeyAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -216,6 +217,42 @@ class PlayerKeyHandlerTest {
         assertFalse(press(KeyEvent.KEYCODE_DPAD_UP, layer = PlayerLayer.ChannelList).consumed)
         assertFalse(press(KeyEvent.KEYCODE_DPAD_UP, layer = PlayerLayer.Controls).consumed)
         assertFalse(press(KeyEvent.KEYCODE_DPAD_UP, layer = PlayerLayer.Options).consumed)
+    }
+
+    @Test
+    fun `a held zap key steps every Nth repeat and swallows the rest`() {
+        // Auto-repeat arrives every ~50 ms; a zap per repeat was twenty
+        // channel changes a second. The first press always zaps.
+        for (code in listOf(KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_DPAD_UP)) {
+            assertEquals(PlayerKeyAction.Zap(+1), press(code, repeatCount = 0).action)
+            val early = press(code, repeatCount = 1)
+            assertTrue("repeat must be consumed, not passed on", early.consumed)
+            assertEquals(null, early.action)
+            assertEquals(PlayerKeyAction.Zap(+1), press(code, repeatCount = ZAP_REPEAT_EVERY).action)
+            val between = press(code, repeatCount = ZAP_REPEAT_EVERY + 1)
+            assertTrue(between.consumed)
+            assertEquals(null, between.action)
+            assertEquals(
+                PlayerKeyAction.Zap(+1),
+                press(code, repeatCount = ZAP_REPEAT_EVERY * 2).action,
+            )
+        }
+        assertEquals(null, press(KeyEvent.KEYCODE_CHANNEL_DOWN, repeatCount = 2).action)
+        assertEquals(
+            PlayerKeyAction.Zap(-1),
+            press(KeyEvent.KEYCODE_DPAD_DOWN, repeatCount = ZAP_REPEAT_EVERY).action,
+        )
+    }
+
+    @Test
+    fun `the repeat rule is the zap's alone`() {
+        // A held UP on VOD keeps poking the controls; it never zapped.
+        assertEquals(
+            PlayerKeyAction.ShowControls,
+            press(KeyEvent.KEYCODE_DPAD_UP, isLive = false, repeatCount = 3).action,
+        )
+        // And a repeat under a panel is still the panel's, not swallowed here.
+        assertFalse(press(KeyEvent.KEYCODE_DPAD_UP, layer = PlayerLayer.ChannelList, repeatCount = 3).consumed)
     }
 
     @Test

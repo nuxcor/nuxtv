@@ -299,7 +299,13 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
 
     // Aspect ratio follows the channel: a per-channel override where the
     // viewer has set one, the global default otherwise.
-    LaunchedEffect(engine, session.currentIndex, request) {
+    //
+    // Not while a zap chain is running — this and the language lookup below
+    // are DataStore reads (the aspect one decodes a JSON map), and keyed on
+    // the index alone they ran once per channel skimmed. They wait for the
+    // run to rest, which is the only channel whose settings matter.
+    LaunchedEffect(engine, session.currentIndex, request, session.pendingTuneIndex) {
+        if (session.pendingTuneIndex != null) return@LaunchedEffect
         val url = request.items.getOrNull(session.currentIndex)?.url ?: return@LaunchedEffect
         val mode = prefs.aspectModeFor(url)
         if (mode != session.scaleMode) {
@@ -310,7 +316,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
 
     // Preferred audio/subtitle language, applied once per item as soon as the
     // stream announces its tracks (they appear a beat after it opens).
-    LaunchedEffect(engine, session.currentIndex) {
+    LaunchedEffect(engine, session.currentIndex, session.pendingTuneIndex) {
+        if (session.pendingTuneIndex != null) return@LaunchedEffect
         val prefAudio = prefs.preferredAudioLanguage.first()
         val prefText = prefs.preferredSubtitleLanguage.first()
         if (prefAudio == null && prefText == null) return@LaunchedEffect
@@ -454,8 +461,9 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         }
     }
 
-    // The zap dwell: identity updates were instant; the stream opens only once
-    // the chain rests, so holding CH+ doesn't open a connection per press.
+    // The zap dwell, for CHAINS only — a single press has already tuned by
+    // the time this sees it. Identity updates were instant; the stream opens
+    // only once the run rests, so skimming doesn't open a connection per press.
     LaunchedEffect(session.pendingTuneIndex) {
         if (session.pendingTuneIndex == null) return@LaunchedEffect
         delay(PlayerMotion.ZapDwellMs)
@@ -821,6 +829,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     // viewer has already found the thing the hint points at.
                     showKeyHints = request.isLive && hintsVersionSeen < KEY_HINTS_VERSION &&
                         session.bannerShows <= 3 && session.layer != PlayerLayer.Controls,
+                    logoDeferred = session.pendingTuneIndex != null,
                 )
             }
 

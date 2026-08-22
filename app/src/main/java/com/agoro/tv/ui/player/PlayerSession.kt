@@ -199,9 +199,16 @@ class PlayerSession internal constructor(
     var scaleMode: Int by mutableIntStateOf(0)
     var speed: Float by mutableStateOf(1f)
 
-    /** Zap target waiting out the dwell; null when nothing is pending. */
+    /**
+     * Zap target waiting out the dwell; null when nothing is pending. Only
+     * a CHAIN of zaps waits: the first press tunes at once, and the dwell
+     * applies from the second press of a run — see [zap].
+     */
     var pendingTuneIndex: Int? by mutableStateOf(null)
         private set
+
+    /** When the last zap landed, for telling a chain from a single press. */
+    private var lastZapMs = 0L
 
     /** Guards the one-time prefs loads (VOD speed) across engine swaps. */
     internal var vodSpeedLoaded: Boolean = false
@@ -473,24 +480,48 @@ class PlayerSession internal constructor(
     // transition callback. We already know the target, and the callback lands a
     // frame or two later — long enough for the banner to appear captioned with
     // the channel you just left. The callback then confirms the same value.
+    //
+    // A single press tunes NOW. The dwell used to apply to every zap, so one
+    // CH+ sat on the old picture for 400 ms before the new stream was even
+    // asked for — and on a TV that wait is the whole difference between
+    // "changed channel" and "is it doing anything?". The dwell is for runs:
+    // once a second press lands within the dwell window the viewer is
+    // skimming, and from then on the stream opens only where the run rests,
+    // so skimming twenty channels opens one connection rather than twenty.
     fun zap(delta: Int) {
         val engine = engine ?: return
         val count = request.items.size
         if (count <= 1) return
         clearError()
-        previousIndex = engine.currentIndex
+        val now = System.currentTimeMillis()
+        val chained = pendingTuneIndex != null || now - lastZapMs < PlayerMotion.ZapDwellMs
+        lastZapMs = now
         // Chain from what's on screen: during the dwell the engine still holds
         // the channel the chain started from.
         val base = pendingTuneIndex ?: engine.currentIndex
         val target = ((base + delta) % count + count) % count
         currentIndex = target
-        pendingTuneIndex = target // the scaffold commits it after ZAP_DWELL_MS
+        bannerTick++
+        if (chained && target == engine.currentIndex) {
+            // The run stepped back onto the channel the engine already has
+            // open: nothing to commit, and re-opening it would only restart
+            // it. The tune card shows only if that stream is still coming up.
+            pendingTuneIndex = null
+            tuning = !engine.isPlaying
+            return
+        }
+        previousIndex = engine.currentIndex
         tuning = true
         videoSize = null // the old stream's resolution isn't this channel's
         videoFrameRate = null
         hdrFormat = null
         audioFormatLabel = null
-        bannerTick++
+        if (chained) {
+            pendingTuneIndex = target // the scaffold commits it after ZAP_DWELL_MS
+        } else {
+            pendingTuneIndex = null
+            engine.playAt(target)
+        }
     }
 
     /** Opens the stream a zap chain settled on; a no-op when nothing is pending. */
