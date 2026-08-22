@@ -27,7 +27,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,8 +52,6 @@ import com.agoro.tv.ui.theme.NuxColors
 import com.agoro.tv.ui.theme.NuxFocus
 import com.agoro.tv.ui.theme.NuxShape
 import com.agoro.tv.ui.theme.Space
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -78,9 +75,6 @@ fun SportTab(
     val sport by vm.sport.collectAsState()
     val leagues = sport?.leagues.orEmpty()
     val cue = sport?.cueMinutes ?: 60
-    // Remembered so the produceState keys below stay the same instances
-    // between recompositions instead of fresh collections to compare.
-    val ambiguous = remember(sport) { sport?.ambiguous.orEmpty().toSet() }
     val leagueOrder = remember(leagues) { leagues.keys.toList() }
 
     // Before the parse, not after it. With no leagues there is nothing to look
@@ -99,25 +93,13 @@ fun SportTab(
         return
     }
 
-    // Parsed OFF the main thread, and once — not on every minute tick.
-    //
-    // This reads six thousand PPV slots, several regexes each, against every
-    // club of every league. In composition on the main thread that froze the
-    // app the moment the tab was opened on a streaming stick, and then froze
-    // it again every sixty seconds. It is time-independent work, so it belongs
-    // behind the catalogue, not behind the clock.
-    val parsed by produceState<List<SportsEvent>?>(null, bundle.events, leagues, ambiguous) {
-        // Cleared first: produceState keeps its last value across a key
-        // change, so a re-parse would otherwise go on rendering the previous
-        // catalogue's fixtures until the new ones landed.
-        value = null
-        value = withContext(Dispatchers.Default) {
-            SportsParser.parseAll(
-                bundle.events.mapNotNull { ch -> ch.xtreamId?.let { it to ch.name } },
-                System.currentTimeMillis(), leagues, ambiguous,
-            )
-        }
-    }
+    // Parsed OFF the main thread, once per playlist, and KEPT — see
+    // [MainViewModel.sportFixtures]. As a produceState here the parse was
+    // thrown away every time the tab left composition, so every visit
+    // re-read six thousand slots, several regexes each, against every club
+    // of every league; and it was keyed on the events list, so a republished
+    // bundle re-ran it even when the slots had not changed.
+    val parsed by vm.sportFixtures.collectAsState()
 
     // Null means the first parse has not landed. Saying "nothing on right now"
     // and then replacing it a second later reads as a fault, so say nothing.
@@ -127,9 +109,8 @@ fun SportTab(
     }
     // The clock lives in here, not up there. Ticking in this composable would
     // recompose the whole of SportTab every thirty seconds — the manifest
-    // collect, the produceState scope and every key it compares — so that a
-    // label could say "in 5 min". Only the part that reads the clock should
-    // answer to it.
+    // collect and the fixtures collect — so that a label could say "in 5
+    // min". Only the part that reads the clock should answer to it.
     Fixtures(parsed.orEmpty(), leagueOrder, cue, onPlay, onBrowse, vm)
 }
 

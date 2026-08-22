@@ -431,6 +431,141 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .flowOn(kotlinx.coroutines.Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(60_000), emptyList())
 
+    // --- Catalogue indexes ---------------------------------------------------
+    //
+    // The VOD and live catalogues, indexed once per bundle off the main
+    // thread, the way [displayChannels] already folds the channel list. The
+    // browse tabs used to do this work in composition — Home, Movies and
+    // Shows each walked the 23,000-title catalogue on every bundle publish
+    // and every return to the tab, and a category chip cost a filter over
+    // all of it. On a quad-core A53 those were the frames the viewer waited
+    // through with nothing on screen. The joins themselves live in
+    // HomeRows.kt beside their tests; this is the one place they run.
+
+    /**
+     * [displayChannels] grouped by provider category, so a category switch
+     * in Live TV is a lookup rather than a pass over every channel.
+     */
+    val channelsByCategory: StateFlow<com.agoro.tv.ui.screens.LiveCategoryIndex> =
+        displayChannels.map { com.agoro.tv.ui.screens.LiveCategoryIndex.of(it) }
+            .flowOn(kotlinx.coroutines.Dispatchers.Default)
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(60_000),
+                com.agoro.tv.ui.screens.LiveCategoryIndex.empty,
+            )
+
+    /**
+     * Reuses the last index when neither the bundle nor the lock changed.
+     * WhileSubscribed tears the combine down a minute after the last browse
+     * tab leaves, and on the next visit every upstream StateFlow replays its
+     * current value — which would rebuild an index of the very same bundle.
+     * Identity, not equality: comparing two 23,000-title bundles is the cost
+     * this exists to avoid.
+     */
+    @Volatile private var catalogIndexCache: com.agoro.tv.ui.screens.CatalogIndex? = null
+    @Volatile private var catalogIndexCachePin: String? = null
+
+    /**
+     * The open catalogue and the personal shelves over it — see
+     * [com.agoro.tv.ui.screens.CatalogIndex] and [com.agoro.tv.ui.screens.Catalog].
+     *
+     * Two stages on purpose. The index (parental filter, per-category and
+     * per-url maps, the dated titles sorted) depends only on the bundle and
+     * the lock; the shelves over it depend on resume positions, which are
+     * written every few seconds of playback. One combine would have rebuilt
+     * the whole index on every one of those writes.
+     *
+     * Null until the first index lands: the tabs draw nothing for that beat
+     * rather than a catalogue built from the previous playlist.
+     */
+    internal val catalog: StateFlow<com.agoro.tv.ui.screens.Catalog?> =
+        kotlinx.coroutines.flow.combine(
+            content,
+            kotlinx.coroutines.flow.combine(playerPrefs.parentalPin, _parentalUnlocked) { pin, unlocked ->
+                pin.takeIf { !unlocked }
+            }.distinctUntilChanged(),
+        ) { c, effectivePin ->
+            val bundle = (c as? ContentState.Ready)?.bundle ?: return@combine null
+            val cached = catalogIndexCache
+            if (cached != null && cached.bundle === bundle && catalogIndexCachePin == effectivePin) {
+                cached
+            } else {
+                com.agoro.tv.ui.screens.buildCatalogIndex(bundle) { name ->
+                    effectivePin != null && adultPattern.containsMatchIn(name)
+                }.also {
+                    catalogIndexCache = it
+                    catalogIndexCachePin = effectivePin
+                }
+            }
+        }
+            .let { index ->
+                kotlinx.coroutines.flow.combine(
+                    index, resumePositions, resumeProgress, episodeOrigins, hiddenTitles,
+                ) { idx, positions, progress, origins, hidden ->
+                    idx?.let {
+                        com.agoro.tv.ui.screens.buildCatalog(it, positions, progress, origins, hidden)
+                    }
+                }
+            }
+            .flowOn(kotlinx.coroutines.Dispatchers.Default)
+            // A minute, like displayChannels: long enough that a trip to the
+            // player and back does not rebuild the index.
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(60_000), null)
+
+    /**
+     * How long a fixture parse stays good. The parse reads kick-off times
+     * relative to the clock it was given — a slot more than a day out is
+     * dropped as noise — so one taken this morning is missing tonight's late
+     * additions by the evening. An hour keeps it honest without re-reading
+     * six thousand slots on every visit.
+     */
+    private val sportParseTtlMs = 60L * 60 * 1000
+
+    @Volatile private var sportCacheEvents: List<LiveChannel>? = null
+    @Volatile private var sportCacheSport: com.agoro.tv.data.Sport? = null
+    @Volatile private var sportCacheAtMs: Long = 0L
+    @Volatile private var sportCache: List<com.agoro.tv.data.SportsEvent>? = null
+
+    /**
+     * The Sport destination's fixtures, parsed out of the PPV slots.
+     *
+     * Parsed OFF the main thread, and kept: this reads six thousand slots,
+     * several regexes each, against every club of every league. It used to
+     * live in the tab as a produceState, which meant the parse was thrown
+     * away every time the tab left composition and redone on the next visit
+     * — and re-keyed on the events list, so a republished bundle re-ran it
+     * even when the slots had not changed. Cached by the identity of the
+     * slot list, it runs once per playlist load and once an hour after that.
+     *
+     * Null until the first parse lands; an empty list when the manifest
+     * carries no leagues.
+     */
+    val sportFixtures: StateFlow<List<com.agoro.tv.data.SportsEvent>?> =
+        kotlinx.coroutines.flow.combine(content, sport) { c, s ->
+            val bundle = (c as? ContentState.Ready)?.bundle ?: return@combine null
+            val leagues = s?.leagues.orEmpty()
+            if (leagues.isEmpty()) return@combine emptyList()
+            val now = System.currentTimeMillis()
+            val cached = sportCache
+            if (cached != null && sportCacheEvents === bundle.events && sportCacheSport === s &&
+                now - sportCacheAtMs < sportParseTtlMs
+            ) {
+                return@combine cached
+            }
+            com.agoro.tv.data.SportsParser.parseAll(
+                bundle.events.mapNotNull { ch -> ch.xtreamId?.let { it to ch.name } },
+                now, leagues, s?.ambiguous.orEmpty().toSet(),
+            ).also {
+                sportCacheEvents = bundle.events
+                sportCacheSport = s
+                sportCacheAtMs = now
+                sportCache = it
+            }
+        }
+            .flowOn(kotlinx.coroutines.Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(60_000), null)
+
     var playback by mutableStateOf<PlaybackRequest?>(null)
         private set
 

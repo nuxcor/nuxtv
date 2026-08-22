@@ -1,6 +1,8 @@
 package com.agoro.tv.ui.screens
 
 import com.agoro.tv.MainViewModel
+import com.agoro.tv.data.Category
+import com.agoro.tv.data.ContentBundle
 import com.agoro.tv.data.LiveChannel
 import com.agoro.tv.data.Movie
 import com.agoro.tv.data.Series
@@ -26,17 +28,19 @@ internal sealed interface ContinueCard {
  * position of its most recently watched episode. URLs that resolve to nothing
  * (a movie gone from the playlist, an episode played before origins were
  * recorded) are skipped silently.
+ *
+ * Takes the catalogue's maps, not its lists: this used to `associateBy` the
+ * 23,000-title movie list on every call, and it was called in composition on
+ * every bundle publish. [CatalogIndex] builds those maps once.
  */
 internal fun buildContinueWatching(
-    movies: List<Movie>,
-    series: List<Series>,
+    movieByUrl: Map<String, Movie>,
+    seriesById: Map<String, Series>,
     episodeOrigins: Map<String, String>,
     resumePositions: Map<String, Long>,
     resumeProgress: Map<String, Float>,
     limit: Int = 20,
 ): List<ContinueCard> {
-    val movieByUrl = movies.associateBy { it.url }
-    val seriesById = series.associateBy { it.id }
     val seenSeries = HashSet<String>()
     return buildList {
         for (url in resumePositions.keys.toList().asReversed()) {
@@ -77,11 +81,12 @@ internal fun buildRecentlyAdded(
     minimum: Int = 4,
 ): List<CatalogCard> {
     // Bounded insertion rather than sorting the catalogue. This walks every
-    // title the playlist has — 20,000 is an ordinary size — to keep twenty of
-    // them, and it runs during Home's first composition after each bundle
-    // load, so the old "pair up all of them, sort all of them, take 20" cost
-    // both a full n log n and an allocation per dated title on the critical
-    // path of the app's first frame.
+    // title it is given — the whole dated catalogue, 20,000 on an ordinary
+    // playlist — to keep twenty of them, so the old "pair up all of them,
+    // sort all of them, take 20" cost both a full n log n and an allocation
+    // per dated title. It runs off the main thread now (see [buildCatalog]),
+    // but a walk that allocates nothing for the titles it rejects is still
+    // the difference between a pass over 20,000 longs and 20,000 objects.
     //
     // Ties keep insertion order (the scan stops at the first entry that is
     // not strictly older), so movies still precede series at an identical
@@ -90,12 +95,22 @@ internal fun buildRecentlyAdded(
     val topCards = ArrayList<CatalogCard>(limit)
     var dated = 0
 
-    fun offer(added: Long, card: CatalogCard) {
+    /**
+     * Where [added] would sit in the top list, or -1 when it would not make
+     * it. Asked BEFORE the card exists: building the card first meant one
+     * allocation per dated title in the catalogue for the twenty that were
+     * kept, and on a playlist where every film carries a date that was the
+     * whole catalogue.
+     */
+    fun slotFor(added: Long): Int {
         dated++
-        if (topCards.size == limit && added <= topAdded[limit - 1]) return
+        if (topCards.size == limit && added <= topAdded[limit - 1]) return -1
         var at = topCards.size
         while (at > 0 && topAdded[at - 1] < added) at--
-        if (at >= limit) return
+        return if (at >= limit) -1 else at
+    }
+
+    fun insert(at: Int, added: Long, card: CatalogCard) {
         topAdded.add(at, added)
         topCards.add(at, card)
         if (topCards.size > limit) {
@@ -104,10 +119,224 @@ internal fun buildRecentlyAdded(
         }
     }
 
-    movies.forEach { m -> m.addedMs?.let { offer(it, CatalogCard.MovieCard(m)) } }
-    series.forEach { s -> s.addedMs?.let { offer(it, CatalogCard.SeriesCard(s)) } }
+    movies.forEach { m ->
+        val added = m.addedMs ?: return@forEach
+        val at = slotFor(added)
+        if (at >= 0) insert(at, added, CatalogCard.MovieCard(m))
+    }
+    series.forEach { s ->
+        val added = s.addedMs ?: return@forEach
+        val at = slotFor(added)
+        if (at >= 0) insert(at, added, CatalogCard.SeriesCard(s))
+    }
     if (dated < minimum) return emptyList()
     return topCards
+}
+
+/**
+ * How a title is named in the hidden-from-Home set.
+ *
+ * The catalogue id, not the stream url: a url carries the provider's stream id
+ * and those get re-issued, so a title that came back under a new id would
+ * quietly reappear on Home after being dismissed.
+ */
+internal fun movieHomeKey(movie: Movie) = "m:${movie.id}"
+internal fun seriesHomeKey(series: Series) = "s:${series.id}"
+
+// --- The catalogue index ----------------------------------------------------
+
+/**
+ * The open catalogue, indexed once per bundle.
+ *
+ * Built off the main thread by [MainViewModel.catalog]; Home, Movies and
+ * Shows read it instead of walking the bundle themselves. Each of the three
+ * used to re-derive its own view in composition: two filterNot passes over
+ * the 23,000-title catalogue for the parental lock, an associateBy over it
+ * for Continue watching, a filter over it on every category switch and a
+ * sort of it for "Recently added" — on the main thread, and again on every
+ * bundle publish and every return to the tab. Indexed once, a category is a
+ * map lookup and a resumed film is one.
+ */
+internal class CatalogIndex(
+    /**
+     * The bundle this was built from. Screens compare by IDENTITY: the index
+     * lands a beat after the bundle, and one built from the previous bundle
+     * is not theirs to draw.
+     */
+    val bundle: ContentBundle,
+    /** Categories outside the parental lock, in playlist order. */
+    val movieCategories: List<Category>,
+    val seriesCategories: List<Category>,
+    /** Titles outside locked categories, in playlist order. */
+    val movies: List<Movie>,
+    val series: List<Series>,
+    val movieByUrl: Map<String, Movie>,
+    val seriesById: Map<String, Series>,
+    /**
+     * Category id → its titles. Anything filed under a category the playlist
+     * never declared sits under [VOD_MORE], so it stays reachable.
+     */
+    val moviesByCategory: Map<String, List<Movie>>,
+    val seriesByCategory: Map<String, List<Series>>,
+    /** The dated titles, newest first — the "Recently added" category in full. */
+    val newMovies: List<Movie>,
+    val newSeries: List<Series>,
+)
+
+internal fun buildCatalogIndex(
+    bundle: ContentBundle,
+    isLockedCategory: (String) -> Boolean,
+): CatalogIndex {
+    val lockedMovieIds = bundle.movieCategories
+        .filter { isLockedCategory(it.name) }.mapTo(HashSet()) { it.id }
+    val lockedSeriesIds = bundle.seriesCategories
+        .filter { isLockedCategory(it.name) }.mapTo(HashSet()) { it.id }
+    val movieCategories =
+        if (lockedMovieIds.isEmpty()) bundle.movieCategories
+        else bundle.movieCategories.filterNot { it.id in lockedMovieIds }
+    val seriesCategories =
+        if (lockedSeriesIds.isEmpty()) bundle.seriesCategories
+        else bundle.seriesCategories.filterNot { it.id in lockedSeriesIds }
+    // The bundle's own lists when nothing is locked, so a screen that keys a
+    // remember on the list sees the same instance across rebuilds.
+    val movies =
+        if (lockedMovieIds.isEmpty()) bundle.movies
+        else bundle.movies.filterNot { it.categoryId in lockedMovieIds }
+    val series =
+        if (lockedSeriesIds.isEmpty()) bundle.series
+        else bundle.series.filterNot { it.categoryId in lockedSeriesIds }
+
+    // One pass per list builds all three indexes; three passes over 23,000
+    // titles is the kind of thing that is fine on a desktop and not on an A53.
+    val knownMovieCategories = movieCategories.mapTo(HashSet()) { it.id }
+    val movieByUrl = HashMap<String, Movie>(movies.size * 2)
+    val moviesByCategory = HashMap<String, ArrayList<Movie>>()
+    val newMovies = ArrayList<Movie>()
+    for (movie in movies) {
+        movieByUrl[movie.url] = movie
+        val category = movie.categoryId?.takeIf { it in knownMovieCategories } ?: VOD_MORE
+        moviesByCategory.getOrPut(category) { ArrayList() }.add(movie)
+        if (movie.addedMs != null) newMovies.add(movie)
+    }
+    // Stable: titles the provider dated identically keep playlist order.
+    newMovies.sortByDescending { it.addedMs }
+
+    val knownSeriesCategories = seriesCategories.mapTo(HashSet()) { it.id }
+    val seriesById = HashMap<String, Series>(series.size * 2)
+    val seriesByCategory = HashMap<String, ArrayList<Series>>()
+    val newSeries = ArrayList<Series>()
+    for (show in series) {
+        seriesById[show.id] = show
+        val category = show.categoryId?.takeIf { it in knownSeriesCategories } ?: VOD_MORE
+        seriesByCategory.getOrPut(category) { ArrayList() }.add(show)
+        if (show.addedMs != null) newSeries.add(show)
+    }
+    newSeries.sortByDescending { it.addedMs }
+
+    return CatalogIndex(
+        bundle = bundle,
+        movieCategories = movieCategories,
+        seriesCategories = seriesCategories,
+        movies = movies,
+        series = series,
+        movieByUrl = movieByUrl,
+        seriesById = seriesById,
+        moviesByCategory = moviesByCategory,
+        seriesByCategory = seriesByCategory,
+        newMovies = newMovies,
+        newSeries = newSeries,
+    )
+}
+
+/**
+ * The personal shelves over a [CatalogIndex]: what was resumed, what was
+ * just added, what a day-one viewer is greeted with. Cheap joins, but they
+ * re-run on every resume-position write — once every few seconds of
+ * playback — so they live beside the index rather than in composition.
+ */
+internal class Catalog(
+    val index: CatalogIndex,
+    /** Home's Continue watching row, newest first. */
+    val continueWatching: List<ContinueCard>,
+    /** Home's Recently added shelf, with "Not interested" titles removed. */
+    val recentlyAdded: List<CatalogCard>,
+    /**
+     * The day-one rows: empty once the viewer has resumed anything. Filtered
+     * before the cut, or hiding a title would leave a gap in the row rather
+     * than pulling the next one up into it.
+     */
+    val starterMovies: List<Movie>,
+    val starterSeries: List<Series>,
+    /** Resumed films, newest first — the Movies tab's Continue watching. */
+    val resumedMovies: List<Movie>,
+    /** Series id → progress of its most recently watched episode. */
+    val seriesProgress: Map<String, Float?>,
+    /** Series with a watched episode, newest first — the Shows tab's Continue watching. */
+    val resumedSeries: List<Series>,
+)
+
+internal fun buildCatalog(
+    index: CatalogIndex,
+    resumePositions: Map<String, Long>,
+    resumeProgress: Map<String, Float>,
+    episodeOrigins: Map<String, String>,
+    hiddenTitles: Set<String>,
+    starterLength: Int = STARTER_ROW_LENGTH,
+): Catalog {
+    val continueWatching = buildContinueWatching(
+        index.movieByUrl, index.seriesById, episodeOrigins, resumePositions, resumeProgress,
+    )
+    // Resume positions run oldest-first; both resumed lists read newest-first,
+    // like Home's shelf — not playlist order.
+    val newestFirst = resumePositions.keys.toList().asReversed()
+    val resumedMovies = newestFirst.mapNotNull { index.movieByUrl[it] }
+
+    // Series id → progress of the most recently watched episode. Insertion
+    // order is oldest-first; the last write wins, so the newest episode's
+    // progress is what the poster shows.
+    val seriesProgress = HashMap<String, Float?>()
+    for (url in resumePositions.keys) {
+        val seriesId = episodeOrigins[url] ?: continue
+        seriesProgress[seriesId] = resumeProgress[url]
+    }
+    val fromOrigins = newestFirst.mapNotNull { episodeOrigins[it] }.distinct()
+        .mapNotNull { index.seriesById[it] }
+    // M3U series carry their episodes inline, so a watched episode can be
+    // found without an origin record.
+    val fromEpisodes = index.series.filter { show ->
+        show.id !in seriesProgress &&
+            show.episodes?.any { it.url in resumePositions } == true
+    }
+
+    val recentlyAdded = buildRecentlyAdded(index.newMovies, index.newSeries)
+        .filterNot { card ->
+            when (card) {
+                is CatalogCard.MovieCard -> movieHomeKey(card.movie) in hiddenTitles
+                is CatalogCard.SeriesCard -> seriesHomeKey(card.series) in hiddenTitles
+            }
+        }
+    // A sequence, so the walk stops at the twentieth kept title instead of
+    // filtering the whole catalogue to take twenty off the front.
+    val watchedCatalogue = continueWatching.isNotEmpty()
+    val starterMovies =
+        if (watchedCatalogue) emptyList()
+        else index.movies.asSequence()
+            .filterNot { movieHomeKey(it) in hiddenTitles }.take(starterLength).toList()
+    val starterSeries =
+        if (watchedCatalogue) emptyList()
+        else index.series.asSequence()
+            .filterNot { seriesHomeKey(it) in hiddenTitles }.take(starterLength).toList()
+
+    return Catalog(
+        index = index,
+        continueWatching = continueWatching,
+        recentlyAdded = recentlyAdded,
+        starterMovies = starterMovies,
+        starterSeries = starterSeries,
+        resumedMovies = resumedMovies,
+        seriesProgress = seriesProgress,
+        resumedSeries = fromOrigins + fromEpisodes,
+    )
 }
 
 /**

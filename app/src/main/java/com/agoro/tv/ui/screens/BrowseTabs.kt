@@ -128,7 +128,9 @@ private fun gridColumnsFor(width: Dp): Int =
     ((width + GRID_GAP) / (POSTER_TARGET_WIDTH + GRID_GAP)).let { kotlin.math.round(it).toInt() }
         .coerceIn(3, 7)
 internal const val VOD_CONTINUE = "__continue__"
-private const val VOD_MORE = "__more__"
+
+/** Titles filed under a category the playlist never declared — see [CatalogIndex]. */
+internal const val VOD_MORE = "__more__"
 
 /** One spelling for the shortcut, so the duplicate check can't drift from it. */
 private const val VOD_NEW_LABEL = "Recently added"
@@ -581,33 +583,35 @@ fun MoviesTab(
         )
         return
     }
-    val resumePositions by vm.resumePositions.collectAsState()
-    val resumeProgress by vm.resumeProgress.collectAsState()
-    val pin by vm.parentalPin.collectAsState()
-    val unlocked by vm.parentalUnlocked.collectAsState()
-
-    val visible = remember(bundle, pin, unlocked) {
-        val lockedIds = bundle.movieCategories
-            .filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
-        bundle.movieCategories.filterNot { vm.isLockedCategory(it.name) } to
-            bundle.movies.filterNot { it.categoryId in lockedIds }
+    // The catalogue, indexed once off the main thread — see [CatalogIndex].
+    // Nothing is drawn until the index for THIS bundle has landed: it arrives
+    // a beat after the bundle, and the one before it describes a playlist
+    // that is no longer on screen.
+    val catalog by vm.catalog.collectAsState()
+    val current = catalog?.takeIf { it.index.bundle === bundle }
+    if (current == null) {
+        Box(Modifier.fillMaxSize())
+        return
     }
-    val (categories, movies) = visible
+    val index = current.index
+    val resumeProgress by vm.resumeProgress.collectAsState()
+
     // Anything filed under a category the playlist never declared still has to
     // be reachable, so it gets a category of its own rather than disappearing.
-    val shownCategories = remember(categories, movies) {
-        val known = categories.mapTo(HashSet()) { it.id }
+    val shownCategories = remember(index) {
         buildList {
             // Ahead of the provider's own categories: it is the shortcut, and
             // a shortcut buried under three hundred genre names is not one.
             // Skipped when the catalogue already offers a shelf by that name —
             // a curated manifest names one itself, and two tabs reading
             // "Recently added" is the catalogue looking broken.
-            if (movies.any { it.addedMs != null } && categories.none { it.name.equals(VOD_NEW_LABEL, true) }) {
+            if (index.newMovies.isNotEmpty() &&
+                index.movieCategories.none { it.name.equals(VOD_NEW_LABEL, true) }
+            ) {
                 add(Category(id = VOD_NEW, name = VOD_NEW_LABEL))
             }
-            addAll(categories)
-            if (movies.any { it.categoryId == null || it.categoryId !in known }) {
+            addAll(index.movieCategories)
+            if (!index.moviesByCategory[VOD_MORE].isNullOrEmpty()) {
                 add(Category(id = VOD_MORE, name = "More"))
             }
         }
@@ -625,26 +629,25 @@ fun MoviesTab(
         onOpen = { onOpenMovie(this) },
     )
 
-    val continueWatching = remember(movies, resumePositions, resumeProgress) {
-        // Newest first, like Home's shelf — not playlist order.
-        val byUrl = movies.associateBy { it.url }
-        resumePositions.keys.toList().asReversed().mapNotNull { byUrl[it]?.entry() }
+    // Newest first, like Home's shelf — the index already orders it so.
+    val continueWatching = remember(current, resumeProgress) {
+        current.resumedMovies.map { it.entry() }
     }
     VodBrowser(
         vm = vm,
         categories = shownCategories,
         continueWatching = continueWatching,
+        // Every category is a lookup; the filters and the sort that used to
+        // run here, on the main thread, per chip, ran once in the index.
         entriesFor = { categoryId ->
-            val known = categories.mapTo(HashSet()) { it.id }
             val list = when (categoryId) {
-                VOD_ALL -> movies
-                VOD_NEW -> movies.filter { it.addedMs != null }.sortedByDescending { it.addedMs }
-                VOD_MORE -> movies.filter { it.categoryId == null || it.categoryId !in known }
-                else -> movies.filter { it.categoryId == categoryId }
+                VOD_ALL -> index.movies
+                VOD_NEW -> index.newMovies
+                else -> index.moviesByCategory[categoryId].orEmpty()
             }
             VodPage(list.size, { list[it].id }, { list[it].entry() })
         },
-        initialHero = movies.firstOrNull()?.toHero(),
+        initialHero = remember(index) { index.movies.firstOrNull()?.toHero() },
     )
 }
 
@@ -664,49 +667,36 @@ fun SeriesTab(
         )
         return
     }
-    val resumePositions by vm.resumePositions.collectAsState()
+    // See MoviesTab: the index for this bundle, or nothing yet.
+    val catalog by vm.catalog.collectAsState()
+    val current = catalog?.takeIf { it.index.bundle === bundle }
+    if (current == null) {
+        Box(Modifier.fillMaxSize())
+        return
+    }
+    val index = current.index
     val resumeProgress by vm.resumeProgress.collectAsState()
-    // Which series each watched episode belongs to. Series.episodes is null
-    // for Xtream until the detail page fetched them, so anything keyed off
-    // it — the Continue watching shelf, the poster progress bar — simply
-    // never appeared on the setup this app is built for, while Home's
-    // Continue watching row (built from this map) did.
-    val episodeOrigins by vm.episodeOrigins.collectAsState()
-    val pin by vm.parentalPin.collectAsState()
-    val unlocked by vm.parentalUnlocked.collectAsState()
-
+    // Which series each watched episode belongs to, folded by the index into
     // seriesId -> progress of the most recently watched episode.
-    val seriesProgress = remember(resumePositions, resumeProgress, episodeOrigins) {
-        val out = HashMap<String, Float?>()
-        for (url in resumePositions.keys) {
-            val seriesId = episodeOrigins[url] ?: continue
-            // Insertion order is oldest-first; the last write wins, so the
-            // newest episode's progress is what the poster shows.
-            out[seriesId] = resumeProgress[url]
-        }
-        out
-    }
+    // Series.episodes is null for Xtream until the detail page fetched them,
+    // so anything keyed off it — the Continue watching shelf, the poster
+    // progress bar — simply never appeared on the setup this app is built
+    // for, while Home's Continue watching row (built from the origins map)
+    // did.
+    val seriesProgress = current.seriesProgress
 
-    val visible = remember(bundle, pin, unlocked) {
-        val lockedIds = bundle.seriesCategories
-            .filter { vm.isLockedCategory(it.name) }.map { it.id }.toSet()
-        bundle.seriesCategories.filterNot { vm.isLockedCategory(it.name) } to
-            bundle.series.filterNot { it.categoryId in lockedIds }
-    }
-    val (categories, seriesList) = visible
-    val shownCategories = remember(categories, seriesList) {
-        val known = categories.mapTo(HashSet()) { it.id }
+    val shownCategories = remember(index) {
         buildList {
             // See the movies list: the manifest's own series sections lead
             // with a "Recently added" shelf, so adding a second one put the
             // same name in the column twice.
-            if (seriesList.any { it.addedMs != null } &&
-                categories.none { it.name.equals(VOD_NEW_LABEL, true) }
+            if (index.newSeries.isNotEmpty() &&
+                index.seriesCategories.none { it.name.equals(VOD_NEW_LABEL, true) }
             ) {
                 add(Category(id = VOD_NEW, name = VOD_NEW_LABEL))
             }
-            addAll(categories)
-            if (seriesList.any { it.categoryId == null || it.categoryId !in known }) {
+            addAll(index.seriesCategories)
+            if (!index.seriesByCategory[VOD_MORE].isNullOrEmpty()) {
                 add(Category(id = VOD_MORE, name = "More"))
             }
         }
@@ -731,35 +721,35 @@ fun SeriesTab(
         onFocus = { vm.prefetchEpisodes(this) },
     )
 
-    val continueWatching = remember(seriesList, resumePositions, resumeProgress, seriesProgress) {
-        // Newest first, the order Home uses for the same shelf.
-        val order = resumePositions.keys.toList().asReversed()
-            .mapNotNull { episodeOrigins[it] }.distinct()
-        val byId = seriesList.associateBy { it.id }
-        val fromOrigins = order.mapNotNull { byId[it] }
-        val fromEpisodes = seriesList.filter { series ->
-            series.id !in seriesProgress &&
-                series.episodes?.any { it.url in resumePositions } == true
-        }
-        (fromOrigins + fromEpisodes).map { it.entry() }
+    // Newest first, the order Home uses for the same shelf.
+    val continueWatching = remember(current, resumeProgress) {
+        current.resumedSeries.map { it.entry() }
     }
     VodBrowser(
         vm = vm,
         categories = shownCategories,
         continueWatching = continueWatching,
         entriesFor = { categoryId ->
-            val known = categories.mapTo(HashSet()) { it.id }
             val list = when (categoryId) {
-                VOD_ALL -> seriesList
-                VOD_NEW ->
-                    seriesList.filter { it.addedMs != null }.sortedByDescending { it.addedMs }
-                VOD_MORE -> seriesList.filter { it.categoryId == null || it.categoryId !in known }
-                else -> seriesList.filter { it.categoryId == categoryId }
+                VOD_ALL -> index.series
+                VOD_NEW -> index.newSeries
+                else -> index.seriesByCategory[categoryId].orEmpty()
             }
             VodPage(list.size, { list[it].id }, { list[it].entry() })
         },
-        initialHero = seriesList.firstOrNull()?.toHero(),
+        initialHero = remember(index) { index.series.firstOrNull()?.toHero() },
     )
+}
+
+/**
+ * "★ 7.5", by arithmetic. `"%.1f".format(it)` builds a java.util.Formatter
+ * per call, and this runs once per poster composed into a grid — a screenful
+ * on every category switch and every scroll, on the main thread. A rounded
+ * tenth needs no Formatter.
+ */
+internal fun ratingChip(rating: Double): String {
+    val tenths = Math.round(rating * 10)
+    return "★ ${tenths / 10}.${kotlin.math.abs(tenths % 10)}"
 }
 
 internal fun Movie.toHero() = HeroInfo(
@@ -770,7 +760,7 @@ internal fun Movie.toHero() = HeroInfo(
     chips = listOfNotNull(
         "Movie",
         year?.toString(),
-        rating?.let { "★ %.1f".format(it) },
+        rating?.let { ratingChip(it) },
         genre,
     ),
     plot = plot,
@@ -784,7 +774,7 @@ internal fun Series.toHero() = HeroInfo(
     chips = listOfNotNull(
         "Show",
         year?.toString(),
-        rating?.let { "★ %.1f".format(it) },
+        rating?.let { ratingChip(it) },
         episodes?.let { "${it.size} episodes" },
         genre,
     ),

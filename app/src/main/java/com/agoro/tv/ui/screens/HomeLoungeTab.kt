@@ -83,13 +83,14 @@ import kotlinx.coroutines.launch
  * The landing screen: what you were watching, what you starred, where you
  * just were — under a hero describing whichever card is focused, with Search
  * pinned to the top-right the way every TV launcher offers it. Pure assembly;
- * the joins live in [buildContinueWatching] and [channelsInCategory].
+ * the joins live in [Catalog] (built off the main thread by
+ * [MainViewModel.catalog]) and [channelsInCategory].
  */
 /**
  * How many items a day-one catalogue row carries. Long enough to browse, short
  * enough that Home never becomes a second, worse Movies tab.
  */
-private const val STARTER_ROW_LENGTH = 20
+internal const val STARTER_ROW_LENGTH = 20
 
 /**
  * What long-pressing a Home card opens. Only the cards with actions OK cannot
@@ -120,16 +121,6 @@ private sealed interface HomeMenu {
  * shelf added here without a branch is a compile error instead of a blank row
  * that still occupies a scroll position.
  */
-/**
- * How a title is named in the hidden-from-Home set.
- *
- * The catalogue id, not the stream url: a url carries the provider's stream id
- * and those get re-issued, so a title that came back under a new id would
- * quietly reappear on Home after being dismissed.
- */
-private fun movieHomeKey(movie: Movie) = "m:${movie.id}"
-private fun seriesHomeKey(series: Series) = "s:${series.id}"
-
 private enum class HomeRow {
     Continue, Favorites, Recents, StarterChannels, StarterMovies, StarterSeries, New
 }
@@ -146,19 +137,20 @@ fun HomeLoungeTab(
     /** Tab switch for Search and the empty-state escape hatches. */
     onBrowse: (HomeTab) -> Unit,
 ) {
-    val resumePositions by vm.resumePositions.collectAsState()
-    val resumeProgress by vm.resumeProgress.collectAsState()
-    val episodeOrigins by vm.episodeOrigins.collectAsState()
     val favorites by vm.favorites.collectAsState()
     val recents by vm.recentChannels.collectAsState()
     val displayChannels by vm.displayChannels.collectAsState()
     val nowNext by vm.nowNext.collectAsState()
+    // The catalogue rows, joined once off the main thread — Continue
+    // watching, Recently added, the day-one shelves — see [Catalog]. They
+    // never draw straight from the bundle: the index filters the parental
+    // lock first, and Home is the screen that greets whoever switches the TV
+    // on, so it is the last place that may put a locked category's artwork
+    // on screen. "Not interested" is applied there too, to Home's rows only —
+    // the film is still in Movies, in Shows and in search, because "not on
+    // my home screen" is not "delete this".
+    val catalog by vm.catalog.collectAsState()
 
-    val continueRow = remember(bundle, resumePositions, resumeProgress, episodeOrigins) {
-        buildContinueWatching(
-            bundle.movies, bundle.series, episodeOrigins, resumePositions, resumeProgress,
-        )
-    }
     val favoritesRow = remember(displayChannels, favorites) {
         channelsInCategory(CATEGORY_FAVORITES, displayChannels, favorites, recents)
     }
@@ -166,38 +158,26 @@ fun HomeLoungeTab(
         channelsInCategory(CATEGORY_RECENT, displayChannels, favorites, recents)
     }
 
-    // The catalogue rows below draw straight from the bundle, which the browse
-    // tabs never do — they filter the parental lock first. Home is the screen
-    // that greets whoever switches the TV on, so it is the last place that may
-    // put a locked category's artwork on screen.
-    val pin by vm.parentalPin.collectAsState()
-    val unlocked by vm.parentalUnlocked.collectAsState()
-    val openCatalog = remember(bundle, pin, unlocked) {
-        val lockedMovieIds = bundle.movieCategories
-            .filter { vm.isLockedCategory(it.name) }.mapTo(HashSet()) { it.id }
-        val lockedSeriesIds = bundle.seriesCategories
-            .filter { vm.isLockedCategory(it.name) }.mapTo(HashSet()) { it.id }
-        bundle.movies.filterNot { it.categoryId in lockedMovieIds } to
-            bundle.series.filterNot { it.categoryId in lockedSeriesIds }
+    // displayChannels folds off the main thread and lands a beat after the
+    // bundle, and the catalogue index a beat after that. Nothing is drawn in
+    // those beats: the welcome pane would tell a viewer with favorites that
+    // they have none, and the catalogue shelves would take focus a frame
+    // before the live shelf was prepended above them — so Home opened
+    // anchored on Movies with its first row scrolled off the top, and focus
+    // on a film instead of on television.
+    if (displayChannels.isEmpty() && bundle.channels.isNotEmpty()) {
+        Box(Modifier.fillMaxSize())
+        return
     }
-    val (openMovies, openSeries) = openCatalog
-
-    // Titles pushed off Home with "Not interested". Applied here, to Home's
-    // catalogue rows only — the film is still in Movies, in Shows and in
-    // search, because "not on my home screen" is not "delete this".
-    val hiddenTitles by vm.hiddenTitles.collectAsState()
-
+    val shelves = catalog?.takeIf { it.index.bundle === bundle }
+    if (shelves == null && (bundle.movies.isNotEmpty() || bundle.series.isNotEmpty())) {
+        Box(Modifier.fillMaxSize())
+        return
+    }
+    val continueRow = shelves?.continueWatching.orEmpty()
     // Not a day-one row: what a provider just added is the reason to open the
     // app on any day, so this one stays whatever else Home is showing.
-    val recentlyAdded = remember(openCatalog, hiddenTitles) {
-        buildRecentlyAdded(openMovies, openSeries)
-            .filterNot { card ->
-                when (card) {
-                    is CatalogCard.MovieCard -> movieHomeKey(card.movie) in hiddenTitles
-                    is CatalogCard.SeriesCard -> seriesHomeKey(card.series) in hiddenTitles
-                }
-            }
-    }
+    val recentlyAdded = shelves?.recentlyAdded.orEmpty()
 
     // Day one has no history, and a launcher that greets a 20,000-item
     // playlist with an empty screen is the app's worst first impression. When
@@ -211,18 +191,9 @@ fun HomeLoungeTab(
     // all lost Live TV from Home entirely and was left looking at Recently
     // added — mostly series. Live earned its place back by not being governed
     // by what someone watched on demand.
-    val watchedCatalogue = continueRow.isNotEmpty()
+    val starterMovies = shelves?.starterMovies.orEmpty()
+    val starterSeries = shelves?.starterSeries.orEmpty()
     val watchedChannels = favoritesRow.isNotEmpty() || recentsRow.isNotEmpty()
-    // Filtered before take(), or hiding a title would leave a gap in the row
-    // rather than pulling the next one up into it.
-    val starterMovies = remember(openCatalog, watchedCatalogue, hiddenTitles) {
-        if (watchedCatalogue) emptyList()
-        else openMovies.filterNot { movieHomeKey(it) in hiddenTitles }.take(STARTER_ROW_LENGTH)
-    }
-    val starterSeries = remember(openCatalog, watchedCatalogue, hiddenTitles) {
-        if (watchedCatalogue) emptyList()
-        else openSeries.filterNot { seriesHomeKey(it) in hiddenTitles }.take(STARTER_ROW_LENGTH)
-    }
     val starterChannels = remember(displayChannels, watchedChannels) {
         if (watchedChannels) emptyList() else displayChannels.take(STARTER_ROW_LENGTH)
     }
@@ -251,17 +222,6 @@ fun HomeLoungeTab(
             // typed ones rather than splitting them.
             if (recentlyAdded.isNotEmpty()) add(HomeRow.New)
         }
-    }
-
-    // displayChannels folds off the main thread and lands a beat after the
-    // bundle. Nothing is drawn in that beat: the welcome pane would tell a
-    // viewer with favorites that they have none, and the catalogue shelves
-    // would take focus a frame before the live shelf was prepended above
-    // them — so Home opened anchored on Movies with its first row scrolled
-    // off the top, and focus on a film instead of on television.
-    if (displayChannels.isEmpty() && bundle.channels.isNotEmpty()) {
-        Box(Modifier.fillMaxSize())
-        return
     }
 
     if (rowKeys.isEmpty()) {

@@ -189,8 +189,14 @@ internal fun LiveTab(
     // Needed here (not just inside the guide) because the schedule sheet and
     // the context menu play from this list.
     val allView by vm.allChannelsView.collectAsState()
-    val channels = remember(allVisible, activeCategory, favorites, recents, allView) {
-        channelsInCategory(activeCategory, allVisible, favorites, recents, allChannels = allView)
+    // Grouped once off the main thread, so a category switch is a lookup
+    // and not a filter over every channel — see LiveCategoryIndex.
+    val byCategory by vm.channelsByCategory.collectAsState()
+    val channels = remember(allVisible, activeCategory, favorites, recents, allView, byCategory) {
+        channelsInCategory(
+            activeCategory, allVisible, favorites, recents,
+            allChannels = allView, byCategory = byCategory,
+        )
     }
     val epgState by vm.epgState.collectAsState()
 
