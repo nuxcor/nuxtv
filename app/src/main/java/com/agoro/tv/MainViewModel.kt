@@ -53,7 +53,7 @@ private const val BACKUP_FILE = "agoro-backup.json"
 private const val LEGACY_BACKUP_FILE = "dzidzi-backup.json"
 
 /** How old the cached catalog may grow before a quiet refresh re-fetches it. */
-private const val PLAYLIST_MAX_AGE_MS = 12 * 60 * 60 * 1000L
+private const val PLAYLIST_MAX_AGE_MS = com.agoro.tv.data.ContentRepository.PLAYLIST_MAX_AGE_MS
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -971,6 +971,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Remember what a stream really decodes at, so lists stop repeating the name's lie. */
     fun recordDecodedQuality(url: String, height: Int) {
         val tier = com.agoro.tv.data.QualityTag.tierOf(height) ?: return
+        // Already known at this tier: nothing to write, and — more to the
+        // point — nothing to re-emit. A write here fans out to a JSON decode,
+        // a prefs rewrite and a full re-sort of displayChannels, so the
+        // cheapest version of that is the one that never starts.
+        if (knownQualitiesNow.value[url] == tier) return
         viewModelScope.launch { playerPrefs.setKnownQuality(url, tier) }
     }
 
