@@ -182,8 +182,13 @@ fun GuideTab(
         liveCategoryList(bundle, allChannels, favorites, recents)
     }
     val allView by vm.allChannelsView.collectAsState()
-    val channels = remember(allChannels, categoryId, favorites, recents, allView) {
-        channelsInCategory(categoryId, allChannels, favorites, recents, allChannels = allView)
+    // A lookup, not a filter over every channel — see LiveCategoryIndex.
+    val byCategory by vm.channelsByCategory.collectAsState()
+    val channels = remember(allChannels, categoryId, favorites, recents, allView, byCategory) {
+        channelsInCategory(
+            categoryId, allChannels, favorites, recents,
+            allChannels = allView, byCategory = byCategory,
+        )
     }
     // The channel last watched, resolved against THIS list — the one the grid
     // renders. Resolving it upstream from displayChannels was wrong: the All

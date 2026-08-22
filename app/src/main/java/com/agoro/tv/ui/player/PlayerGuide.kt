@@ -120,8 +120,13 @@ internal fun PlayerGuideOverlay(
         mutableStateOf(defaultCategoryId(categories))
     }
     val allView by vm.allChannelsView.collectAsState()
-    val channels = remember(allChannels, categoryId, favorites, recents, allView) {
-        channelsInCategory(categoryId, allChannels, favorites, recents, allChannels = allView)
+    // A lookup, not a filter over every channel — see LiveCategoryIndex.
+    val byCategory by vm.channelsByCategory.collectAsState()
+    val channels = remember(allChannels, categoryId, favorites, recents, allView, byCategory) {
+        channelsInCategory(
+            categoryId, allChannels, favorites, recents,
+            allChannels = allView, byCategory = byCategory,
+        )
     }
 
     var nowTick by remember { mutableStateOf(System.currentTimeMillis()) }
