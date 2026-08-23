@@ -166,19 +166,29 @@ object ManifestCuration {
         // locals grouped by market. See [orderChannels].
         orderChannels(channels, manifest)
 
-        // Sections render in the manifest's order, not discovery order. A
-        // region-less shelf sorts by its section like any other rather than
-        // being flung to the end: "SPORTS" has no '|', so asking for the
-        // region ahead of it returned the whole key, matched no territory,
-        // and scored 99.
+        // Genre first, territory second. Sections render in the manifest's
+        // order, not discovery order; a region-less shelf sorts by its section
+        // like any other rather than being flung to the end ("SPORTS" has no
+        // '|', so asking for the region ahead of it returned the whole key,
+        // matched no territory, and scored 99).
+        //
+        // Territory used to be the primary key, which sent every shelf a
+        // territory kept for itself to the end of the strip — DStv landed past
+        // Streaming Networks and 24/7, rows a viewer reaches for far less
+        // often. What the strip reads as is genres, so a territory's row
+        // belongs beside the genre it holds: DStv sits directly after the
+        // merged Entertainment it is the counterpart to. kept_regions still
+        // decides the order among territories, as the ORDERED list it is
+        // documented to be — it is now the tie-break within a genre rather
+        // than the top-level grouping.
         val ordered = liveCats.values.sortedWith(
             compareBy(
+                { manifest.sectionOrder.indexOf(it.id.substringAfter('|')).takeIf { i -> i >= 0 } ?: 99 },
                 { cat ->
                     val region = cat.id.substringBefore('|').takeIf { cat.id.contains('|') }
                     if (region == null) 0 else manifest.keptRegions.indexOf(region)
                         .takeIf { i -> i >= 0 } ?: 99
                 },
-                { manifest.sectionOrder.indexOf(it.id.substringAfter('|')).takeIf { i -> i >= 0 } ?: 99 },
             )
         )
         // The region suffix earns its place only when this viewer's catalogue

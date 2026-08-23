@@ -21,10 +21,15 @@ Two fields exist for exactly this and are easy to forget:
 - `collapse[].section` / `.region` — the shelf a folded tile resolved for
   itself, which outranks the primary's own provider category.
 
-`kept_regions` is an **ordered** list, not a set: the app renders territories
-in this sequence. It was once emitted through `sorted()`, which is alphabetical
-by code, and that silently put AFR/DSTV at the head of the strip ahead of the
+`kept_regions` is an **ordered** list, not a set: it decides the order among
+territories. It was once emitted through `sorted()`, which is alphabetical by
+code, and that silently put AFR/DSTV at the head of the strip ahead of the
 markets this package is mostly made of.
+
+It is the tie-break *within* a genre, not the top-level grouping — the strip
+sorts by section order first, so a territory that keeps its own shelf renders
+beside the genre it holds rather than after every merged shelf. DStv sits
+directly after the merged Entertainment, not past Streaming Networks.
 
 ## Credentials
 

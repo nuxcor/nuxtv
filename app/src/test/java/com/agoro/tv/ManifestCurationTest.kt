@@ -174,6 +174,41 @@ class ManifestCurationTest {
     }
 
     @Test
+    fun `a territory's shelf sits beside its genre, not at the end of the strip`() {
+        // DStv holds Entertainment, so it belongs next to the merged
+        // Entertainment — not past Streaming Networks and 24/7, which is where
+        // sorting by territory first used to put it.
+        val m = CatalogueManifest(
+            sections = CatalogueManifest.Sections(
+                live = listOf(
+                    CatalogueManifest.Section(key = "ENTERTAINMENT", label = "Entertainment"),
+                    CatalogueManifest.Section(key = "STREAMING", label = "Streaming Networks"),
+                ),
+            ),
+            categories = CatalogueManifest.Categories(
+                live = mapOf(
+                    "10" to CatalogueManifest.CategoryRule("ENTERTAINMENT", "US"),
+                    "20" to CatalogueManifest.CategoryRule("STREAMING", "US"),
+                    "30" to CatalogueManifest.CategoryRule("ENTERTAINMENT", "AFR"),
+                ),
+            ),
+            keptRegions = listOf("US", "AFR"),
+            mergedRegions = listOf("US"),
+            regionLabels = mapOf("US" to "United States", "AFR" to "DStv"),
+        )
+        val out = ManifestCuration.apply(
+            ContentBundle(
+                channels = listOf(channel(1, "10"), channel(2, "20"), channel(3, "30")),
+            ),
+            m,
+        )
+        assertEquals(
+            listOf("Entertainment", "DStv", "Streaming Networks"),
+            out.liveCategories.map { it.name },
+        )
+    }
+
+    @Test
     fun `a territory with two shelves keeps the genre in both labels`() {
         // The counted half of the rule: a lineup that opens two rows needs the
         // genre back to tell them apart, without anyone remembering to.
