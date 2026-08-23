@@ -923,7 +923,7 @@ uk_locals_drop = [x for x in uk_locals_drop if x not in _uk_primaries]
 # Keep the DStv bundle plus the Ghanaian channels out of Africa VIP; drop the
 # rest (francophone West African locals, Somali, Ethiopian, Azam, Canal+,
 # Mauritius). Then drop anything already carried under US or UK.
-AFR_LABEL = "DSTV"
+AFR_LABEL = "DStv"   # the brand's own casing; the shelf chip renders this verbatim
 AFR_KEEP_CATEGORY = re.compile(r'DSTV', re.I)
 AFR_KEEP_PREFIX   = re.compile(r'^GHA\s*:', re.I)      # Ghana, from Africa VIP
 AFR_KEEP_NAME     = re.compile(r'SUPER\s?SPORT', re.I)  # SuperSport, wherever it sits

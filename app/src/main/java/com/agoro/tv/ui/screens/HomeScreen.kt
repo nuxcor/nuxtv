@@ -468,8 +468,23 @@ fun HomeScreen(
                     }
                 }
             },
-            settingsBadge = updateState is com.agoro.tv.data.UpdateManager.State.Available ||
-                updateState is com.agoro.tv.data.UpdateManager.State.Ready,
+            // Only the three states where something can actually be done.
+            // Checking and Error stay out of the rail: a background check that
+            // failed is not news a viewer opened a drawer for, and Settings
+            // carries both in full. It goes away by itself — installing makes
+            // the next check UpToDate, and the row has nothing to say.
+            updateLabel = when (val u = updateState) {
+                is com.agoro.tv.data.UpdateManager.State.Available ->
+                    "Update to ${u.version.removePrefix("v")}"
+                is com.agoro.tv.data.UpdateManager.State.Downloading ->
+                    "Downloading… ${u.progressPercent}%"
+                is com.agoro.tv.data.UpdateManager.State.Ready -> "Install update"
+                else -> null
+            },
+            // The same call Settings' one button makes, so the two can never
+            // disagree about what pressing means in a given state. A press
+            // while downloading is already a no-op there.
+            onUpdate = { vm.downloadAndInstallUpdate() },
         )
     }
     // One-time teach: the rail is invisible until summoned now, and a first

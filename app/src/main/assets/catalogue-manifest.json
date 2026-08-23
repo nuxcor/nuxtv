@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-23T14:24:52+00:00",
+ "generated": "2026-08-23T14:45:00+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -35883,7 +35883,7 @@
  "region_labels": {
   "US": "United States",
   "UK": "United Kingdom",
-  "AFR": "DSTV"
+  "AFR": "DStv"
  },
  "uk_reassign": {
   "1525694": "ENTERTAINMENT",
