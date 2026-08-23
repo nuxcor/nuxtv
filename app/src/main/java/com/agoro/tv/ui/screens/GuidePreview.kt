@@ -16,12 +16,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.agoro.tv.data.EngineChoice
 import com.agoro.tv.data.LiveChannel
 import com.agoro.tv.data.PlayableItem
 import com.agoro.tv.player.ExoEngine
 import com.agoro.tv.player.PlayerEngine
-import com.agoro.tv.player.VlcEngine
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -66,7 +64,8 @@ class GuidePreviewController internal constructor(
             listOf(PlayableItem(url = channel.url, title = channel.displayName, channelId = channel.id)),
             startIndex = 0,
         )
-        // libVLC ignores volume until media is open, so say it again after.
+        // Said again after prepare: the engine can drop the mute across a
+        // re-prepare, and an unmuted preview would talk over playback.
         target.setMuted(true)
     }
 
@@ -87,20 +86,13 @@ class GuidePreviewController internal constructor(
 }
 
 @Composable
-fun rememberGuidePreview(engineChoice: EngineChoice, highestQuality: Boolean): GuidePreviewController {
+fun rememberGuidePreview(): GuidePreviewController {
     val context = LocalContext.current
-    // Keyed on both, not just the engine: the lambda captures highestQuality,
-    // so keying on engineChoice alone would leave a controller built before the
-    // setting changed still constructing engines with the old value.
-    val controller = remember(engineChoice, highestQuality) {
+    val controller = remember {
         GuidePreviewController {
             // requestAudioFocus = false: a muted preview must never steal
             // audio focus or transport keys from whatever is actually playing.
-            if (engineChoice == EngineChoice.VLC) {
-                VlcEngine(context, highestQuality, requestAudioFocus = false)
-            } else {
-                ExoEngine(context, requestAudioFocus = false)
-            }
+            ExoEngine(context, requestAudioFocus = false)
         }
     }
     DisposableEffect(controller) { onDispose { controller.release() } }
@@ -159,8 +151,8 @@ fun GuidePreviewEffect(
 /**
  * The video surface, or nothing when no preview is running. Keyed on the
  * controller's generation so a released engine's view is discarded rather than
- * reattached — surfaces outlive the engines that made them, and libVLC in
- * particular does not survive being handed a stale one.
+ * reattached — surfaces outlive the engines that made them, and a released one
+ * does not survive being handed a stale one.
  */
 @Composable
 fun GuidePreviewSurface(controller: GuidePreviewController, modifier: Modifier = Modifier) {

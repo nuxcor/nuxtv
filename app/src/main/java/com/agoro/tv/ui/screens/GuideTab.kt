@@ -318,9 +318,7 @@ fun GuideTab(
     // connections for as long as it runs. Moving along a row costs
     // nothing — the channel is unchanged, so nothing re-prepares.
     val previewEnabled by vm.guidePreview.collectAsState()
-    val engineChoice by vm.engine.collectAsState()
-    val videoQuality by vm.videoQuality.collectAsState()
-    val preview = rememberGuidePreview(engineChoice, highestQuality = videoQuality == 1)
+    val preview = rememberGuidePreview()
     GuidePreviewEffect(
         controller = preview,
         enabled = previewEnabled,

@@ -1,19 +1,71 @@
 package com.agoro.tv.player
 
 import android.content.Context
+import android.view.Display
 import android.view.View
 import com.agoro.tv.data.PlayableItem
 
 /**
- * Minimal playback contract implemented by both the ExoPlayer and libVLC
- * backends, so the player UI is engine-agnostic and streams that one engine
- * can't decode can be retried on the other.
+ * The playback contract the player UI is written against.
+ *
+ * One implementation, [ExoEngine]. The seam is kept because the UI genuinely
+ * wants it — the guide's muted preview and the player build engines the same
+ * way and neither should reach into ExoPlayer's internals — not because a
+ * second backend is coming back. A stream that will not decode is now retried
+ * on a more forgiving ExoPlayer rather than on another player entirely; see
+ * [DecodeProfile].
  */
-/** Some providers gate on a known UA, so both engines send the same one. */
+/** Some providers gate on a known UA. */
 internal const val USER_AGENT = "Agoro/2.9"
 
 /** Sentinel id for "always the top rung", as opposed to a specific rendition. */
 const val HIGHEST_QUALITY = "highest"
+
+/**
+ * The transfer function a stream actually decoded with.
+ *
+ * Distinct from a display label: this is the machine-readable half the output
+ * path needs. A decoded HDR frame is only half of HDR — the other half is a
+ * display mode that can carry it, and a mode that carries HLG does not
+ * necessarily carry HDR10 or Dolby Vision. PQ or HLG sent through an SDR
+ * output is the grey, flat, desaturated picture viewers report as
+ * "washed out", and the app cannot avoid it without knowing which of these
+ * it is holding.
+ */
+enum class HdrType(
+    /** How a viewer knows it, for the stream badges. */
+    val label: String,
+) {
+    HDR10("HDR10"),
+    HLG("HLG"),
+    DOLBY_VISION("Dolby Vision");
+
+    /**
+     * [Display.HdrCapabilities] types that can carry this stream, best first.
+     *
+     * Not one-to-one: a panel that takes HDR10+ takes plain HDR10, and a
+     * Dolby Vision stream the display can't take is played by the decoder's
+     * HDR10-compatible base layer, so an HDR10 mode still beats an SDR one.
+     */
+    val carriers: List<Int>
+        get() = when (this) {
+            HDR10 -> listOf(
+                Display.HdrCapabilities.HDR_TYPE_HDR10,
+                Display.HdrCapabilities.HDR_TYPE_HDR10_PLUS,
+            )
+            HLG -> listOf(Display.HdrCapabilities.HDR_TYPE_HLG)
+            DOLBY_VISION -> listOf(
+                Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION,
+                Display.HdrCapabilities.HDR_TYPE_HDR10,
+                Display.HdrCapabilities.HDR_TYPE_HDR10_PLUS,
+            )
+        }
+
+    companion object {
+        /** Reads back what [name] persisted; null for an unknown or absent entry. */
+        fun byName(name: String?): HdrType? = entries.firstOrNull { it.name == name }
+    }
+}
 
 data class Track(
     val id: String,
@@ -113,11 +165,14 @@ interface PlayerEngine {
     val videoFrameRate: Float?
 
     /**
-     * "Dolby Vision", "HDR10" or "HLG" when the decoded video carries one, null
-     * for ordinary SDR. Read from the decoded format, never from the stream
-     * name — providers write "HDR" into titles that carry nothing of the kind.
+     * The HDR flavour the decoded video carries, null for ordinary SDR. Read
+     * from the decoded format, never from the stream name — providers write
+     * "HDR" into titles that carry nothing of the kind.
+     *
+     * Drives the display's output mode and the colour mode of the window as
+     * well as the badge: see [HdrType].
      */
-    val hdrFormat: String?
+    val hdrType: HdrType?
 
     /**
      * The decoded audio said the way a TV viewer recognises it: "Dolby Atmos",
@@ -143,6 +198,14 @@ interface PlayerEngine {
     /** null restores adaptive selection ("Auto"). */
     fun selectVideoTrack(id: String?)
 
+    /**
+     * True only while "Highest available" is the standing choice — set from
+     * the quality sheet, or re-applied per stream from the viewer's quality
+     * preference. The default is adaptive (false): the selector climbs to the
+     * top rung on its own, and pinning it regardless of the line macroblocks.
+     */
+    val isForcingHighest: Boolean
+
     /** 0 = fit, 1 = fill/stretch, 2 = zoom/crop. */
     fun setScaleMode(mode: Int)
 
@@ -161,6 +224,14 @@ interface PlayerEngine {
     interface Listener {
         fun onItemChanged(index: Int)
         fun onPlayingChanged(playing: Boolean, buffering: Boolean)
-        fun onError(message: String)
+        /**
+         * @param decodeFault true when the stream arrived but could not be
+         * read or decoded — a malformed container, an unsupported profile, a
+         * decoder that refused to start. Only those are worth re-opening on
+         * [DecodeProfile.TOLERANT]; a 404 or a dropped line will fail exactly
+         * the same way however forgiving the demuxer is, and offering software
+         * decoding for one wastes the viewer's time on a promise it can't keep.
+         */
+        fun onError(message: String, decodeFault: Boolean)
     }
 }

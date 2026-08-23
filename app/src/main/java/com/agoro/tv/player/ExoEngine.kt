@@ -34,11 +34,29 @@ private fun mimeHintFor(url: String): String? {
 }
 
 /**
+ * What HDR flavour a decoded format carries, if any.
+ *
+ * Dolby Vision is read off the sample MIME rather than the transfer, because
+ * a DV bitstream declares its own; the two HDR transfers are read off the
+ * colour info, which is where a stream that merely carries PQ or HLG says so.
+ */
+@OptIn(UnstableApi::class)
+private fun hdrTypeOf(format: androidx.media3.common.Format?): HdrType? {
+    if (format == null) return null
+    if (format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION) return HdrType.DOLBY_VISION
+    return when (format.colorInfo?.colorTransfer) {
+        C.COLOR_TRANSFER_ST2084 -> HdrType.HDR10
+        C.COLOR_TRANSFER_HLG -> HdrType.HLG
+        else -> null
+    }
+}
+
+/**
  * ExoPlayer backend over a player borrowed from [PlayerPool] for as long as
  * the engine lives — built once per process, never released on the way out.
  *
- * Like [VlcEngine], it hands the player ONE item at a time and keeps the
- * playlist itself. It used to give ExoPlayer the whole category as a playlist
+ * It hands the player ONE item at a time and keeps the playlist itself. It
+ * used to give ExoPlayer the whole category as a playlist
  * — thousands of MediaItems for "All" — and every failure-ladder step rebuilt
  * and re-set all of them; worse, the media session's legacy bridge answers
  * every timeline change by walking every window into a queue and shipping it
@@ -55,19 +73,28 @@ class ExoEngine(
     context: Context,
     requestAudioFocus: Boolean = true,
     /**
-     * Whether the app already knows this stream decodes at 4K, from a
-     * previous visit. Lets a UHD channel tunnel from its first frame instead
-     * of re-initialising the decoder after it; see [TunnelPolicy].
+     * Whether the app already knows this stream decodes at 4K or in HDR, from
+     * a previous visit. Lets such a channel tunnel from its first frame
+     * instead of re-initialising the decoder after it — which is a black beat
+     * mid-picture, and on an HDR stream a spell of it going out to the panel
+     * untunnelled; see [TunnelPolicy].
      */
-    private val knownUhd: (String) -> Boolean = { false },
+    private val deservesTunnel: (String) -> Boolean = { false },
+    /**
+     * How forgiving to build the underlying player. Streams open on
+     * [DecodeProfile.FAST]; the failure ladder re-opens a stream that would
+     * not decode on [DecodeProfile.TOLERANT], which is what replaced the old
+     * "try the other engine" swap to libVLC.
+     */
+    private val profile: DecodeProfile = DecodeProfile.FAST,
 ) : PlayerEngine {
 
-    override val name = "ExoPlayer"
+    override val name = if (profile == DecodeProfile.TOLERANT) "ExoPlayer (software)" else "ExoPlayer"
     override var listener: PlayerEngine.Listener? = null
     override var onTransportPlay: (() -> Unit)? = null
     override var onTransportPause: (() -> Unit)? = null
 
-    private val lease = PlayerPool.borrow(context, main = requestAudioFocus)
+    private val lease = PlayerPool.borrow(context, main = requestAudioFocus, profile = profile)
     private val player: ExoPlayer get() = lease.player
     private val trackSelector: DefaultTrackSelector get() = lease.trackSelector
 
@@ -137,12 +164,7 @@ class ExoEngine(
     private fun noteDecodedFormat() {
         val format = player.videoFormat ?: return
         val url = items.getOrNull(index)?.url ?: return
-        val uhd = format.height >= 2000 ||
-            format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION ||
-            format.colorInfo?.colorTransfer.let {
-                it == C.COLOR_TRANSFER_ST2084 || it == C.COLOR_TRANSFER_HLG
-            }
-        if (!uhd) return
+        if (format.height < 2000 && hdrTypeOf(format) == null) return
         TunnelPolicy.remember(url)
         if (main && !TunnelPolicy.refusedByDevice) setTunnelling(true)
     }
@@ -191,7 +213,7 @@ class ExoEngine(
             // clean end of stream, and with the category as its playlist it
             // used to answer that by quietly advancing to the next channel.
             when {
-                live -> listener?.onError("The stream ended unexpectedly")
+                live -> listener?.onError("The stream ended unexpectedly", decodeFault = false)
                 index < items.size - 1 -> playAt(index + 1)
             }
         }
@@ -205,7 +227,10 @@ class ExoEngine(
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            listener?.onError(humanError(error.errorCodeName))
+            listener?.onError(
+                humanError(error.errorCodeName),
+                decodeFault = isDecodeFault(error.errorCodeName),
+            )
         }
     }
 
@@ -314,7 +339,7 @@ class ExoEngine(
         val item = items[index]
         // Decided before the decoder opens, so a stream that deserves the
         // tunnel gets it without a re-initialisation after the first frame.
-        setTunnelling(main && TunnelPolicy.wantsTunnel(item.url, knownUhd(item.url)))
+        setTunnelling(main && TunnelPolicy.wantsTunnel(item.url, deservesTunnel(item.url)))
         player.setMediaItem(
             MediaItem.Builder()
                 .setUri(item.url)
@@ -327,8 +352,7 @@ class ExoEngine(
         )
         player.playWhenReady = true
         player.prepare()
-        // Announced from here, the way VlcEngine does, rather than from
-        // onMediaItemTransition: the session treats a repeat of the same
+        // Announced from here rather than from onMediaItemTransition: the session treats a repeat of the same
         // index as a reconnect and a new one as a new ladder, and it wants
         // that verdict before the banner draws, not a frame after.
         listener?.onItemChanged(index)
@@ -376,17 +400,8 @@ class ExoEngine(
     override val videoFrameRate: Float?
         get() = if (released) null else player.videoFormat?.frameRate?.takeIf { it > 0f }
 
-    override val hdrFormat: String?
-        get() {
-            if (released) return null
-            val format = player.videoFormat ?: return null
-            if (format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION) return "Dolby Vision"
-            return when (format.colorInfo?.colorTransfer) {
-                C.COLOR_TRANSFER_ST2084 -> "HDR10"
-                C.COLOR_TRANSFER_HLG -> "HLG"
-                else -> null
-            }
-        }
+    override val hdrType: HdrType?
+        get() = if (released) null else hdrTypeOf(player.videoFormat)
 
     override val audioFormatLabel: String?
         get() {
@@ -443,13 +458,7 @@ class ExoEngine(
     override fun audioTracks(): List<Track> = tracksOf(C.TRACK_TYPE_AUDIO)
     override fun textTracks(): List<Track> = tracksOf(C.TRACK_TYPE_TEXT)
 
-    /**
-     * True only while "Highest available" is the standing choice — set from
-     * the quality sheet, or re-applied per stream from the viewer's quality
-     * preference. The default is adaptive (false): the selector climbs to the
-     * top rung on its own, and pinning it regardless of the line macroblocks.
-     */
-    val isForcingHighest: Boolean
+    override val isForcingHighest: Boolean
         get() = trackSelector.parameters.forceHighestSupportedBitrate
 
     override fun videoTracks(): List<Track> {
@@ -533,6 +542,26 @@ class ExoEngine(
             applyOverride(C.TRACK_TYPE_TEXT, id)
         }
     }
+}
+
+/**
+ * Whether this failure is one a more forgiving demuxer or a software decoder
+ * could plausibly get past.
+ *
+ * The parsing codes are the demuxer giving up on a mux, the decoding ones are
+ * the vendor's hardware refusing a profile — both are what
+ * [DecodeProfile.TOLERANT] exists for. Everything else (HTTP status, network,
+ * DRM, a live window that moved on) fails identically no matter how the player
+ * is built, and must not be offered software decoding as a false hope.
+ */
+internal fun isDecodeFault(errorCodeName: String): Boolean = when (errorCodeName) {
+    "ERROR_CODE_PARSING_CONTAINER_MALFORMED",
+    "ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED",
+    "ERROR_CODE_DECODING_FAILED",
+    "ERROR_CODE_DECODER_INIT_FAILED",
+    "ERROR_CODE_DECODING_FORMAT_UNSUPPORTED",
+    "ERROR_CODE_DECODER_QUERY_FAILED" -> true
+    else -> false
 }
 
 /**

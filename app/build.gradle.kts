@@ -62,8 +62,8 @@ android {
         applicationId = "com.agoro.tv"
         minSdk = 23
         targetSdk = 36
-        versionCode = 93
-        versionName = "2.33.0"
+        versionCode = 94
+        versionName = "2.34.0"
 
         buildConfigField("String", "TMDB_API_KEY", buildConfigString(tmdbApiKey))
         buildConfigField("String", "PROVIDER_HOST", buildConfigString(providerHost))
@@ -102,7 +102,7 @@ android {
         }
     }
 
-    // TV hardware is arm; per-ABI APKs keep downloads small (libVLC is heavy).
+    // TV hardware is arm; per-ABI APKs keep downloads small.
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -179,9 +179,6 @@ dependencies {
     // to reference it in code. See docs/ffmpeg-decoder.md to rebuild.
     implementation(files("libs/media3-decoder-ffmpeg-1.8.0.aar"))
     implementation(libs.media3.session)
-    // MediaSessionCompat for the VLC engine's minimal session.
-    implementation(libs.androidx.media)
-    implementation(libs.libvlc)
 
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
