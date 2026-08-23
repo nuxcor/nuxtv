@@ -22,6 +22,15 @@ private fun languageFromTrackName(name: String?): String? =
  * libVLC backend. VLC's demuxers/decoders handle many streams ExoPlayer
  * rejects (odd TS muxing, exotic codecs), which is why it exists here.
  * The playlist is managed manually — VLC plays one Media at a time.
+ *
+ * Opening and stopping media happen on a worker thread of this engine's own,
+ * the way VLC-Android's PlaybackService does it. libVLC stops an input by
+ * joining its thread, and on a network input that join is the time it takes
+ * the demuxer to notice — 200 ms on a good day, two seconds when the provider
+ * has gone quiet. Setting a new media stops the old one the same way, so
+ * every zap on VLC used to freeze the main thread for as long as the last
+ * stream took to let go. Play, pause, seek and the track queries are cheap
+ * and stay on the caller's thread; libVLC's player API is thread-safe.
  */
 /**
  * @param requestAudioFocus Whether this player takes audio focus and exposes
@@ -73,6 +82,19 @@ class VlcEngine(
     private var released = false
     private var pendingSeekMs: Long = 0
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    // The thread that opens and stops inputs; see the class comment. Quits
+    // after the release it carries out, so a swapped-away engine leaves
+    // nothing behind.
+    private val worker = android.os.HandlerThread("vlc-player").apply { start() }
+    private val workerHandler = android.os.Handler(worker.looper)
+
+    /**
+     * Which tune is the latest. A zap that lands while the previous open is
+     * still queued supersedes it: the worker checks before it opens anything,
+     * so a chain of quick channel changes opens only the one it rests on.
+     */
+    @Volatile private var tuneGeneration = 0
 
     // libVLC doesn't manage audio focus itself the way ExoPlayer does, so the
     // engine drives it: request on play, abandon on pause/release. Loss
@@ -207,12 +229,20 @@ class VlcEngine(
     override fun playAt(index: Int) {
         if (released || index !in items.indices) return
         this.index = index
-        val media = Media(libVlc, Uri.parse(items[index].url))
-        media.setHWDecoderEnabled(true, false)
-        mediaPlayer.media = media
-        media.release()
+        val url = items[index].url
+        val generation = ++tuneGeneration
         audioFocus?.request()
-        mediaPlayer.play()
+        workerHandler.post {
+            // Superseded or torn down while queued: the open it would have
+            // done is the blocking call this thread exists to keep off the
+            // main thread, and nobody wants its result any more.
+            if (released || generation != tuneGeneration) return@post
+            val media = Media(libVlc, Uri.parse(url))
+            media.setHWDecoderEnabled(true, false)
+            mediaPlayer.media = media
+            media.release()
+            mediaPlayer.play()
+        }
         listener?.onItemChanged(index)
     }
 
@@ -247,6 +277,7 @@ class VlcEngine(
     }
 
     override fun release() {
+        if (released) return
         released = true
         listener = null
         audioFocus?.abandon()
@@ -255,10 +286,17 @@ class VlcEngine(
             release()
         }
         mediaPlayer.setEventListener(null)
-        mediaPlayer.stop()
+        // Views come off here, on the main thread, where views live; the stop
+        // and the native release — the input-thread join — go to the worker,
+        // which quits once they are done. Nothing else reaches the player
+        // after this: every entry point checks `released` first.
         mediaPlayer.detachViews()
-        mediaPlayer.release()
-        libVlc.release()
+        workerHandler.post {
+            mediaPlayer.stop()
+            mediaPlayer.release()
+            libVlc.release()
+            worker.quitSafely()
+        }
     }
 
     override val isPlaying: Boolean get() = !released && mediaPlayer.isPlaying
@@ -276,6 +314,9 @@ class VlcEngine(
     // be read back honestly. Badges stay off on the VLC engine rather than
     // guessing from a codec name — ExoPlayer, the default, reports both.
     override val hdrFormat: String? get() = null
+
+    /** libVLC doesn't expose its buffer depth; stalls are taken at their word. */
+    override val bufferedAheadMs: Long? get() = null
     override val audioFormatLabel: String? get() = null
 
     // VLC reports the rate as a rational, and leaves the denominator at 0 on

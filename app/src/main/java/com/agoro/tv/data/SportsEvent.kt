@@ -292,35 +292,65 @@ object SportsParser {
         return null
     }
 
+    // Every pattern below is compiled once. They were written inline, which
+    // reads naturally and compiles a Pattern per call — and stripNoise runs
+    // per field per slot, so a parse of 6,000 slots was ~30,000 trips
+    // through Pattern.compile before a single name was read.
+
+    /** "8/20 8pm": the NFL pack's slot time. */
+    private val noiseSlashTime = Regex("""(?i)\b\d{1,2}/\d{1,2}\s+\d{1,2}(?::\d{2})?\s*(am|pm)""")
+
+    /** "@ Aug 19 7:30 PM": the MLS pack's. */
+    private val noiseMonthTime =
+        Regex("""(?i)@?\s*[A-Z][a-z]{2}\s+\d{1,2}\s+\d{1,2}(?::\d{2})?\s*(AM|PM)""")
+
+    // Split on ':' orphans these from their values, so match the bare
+    // word too — no team is called "start".
+    private val noiseStartStop = Regex("""(?i)\b(start|stop)\b:?\S*""")
+
+    private val noiseDateOrCode = Regex("""(?i)\b\d{2}-\d{2}-\d{4}\b|\(\w{3}\)""")
+
+    // "(2026-08-22 04:50:29)" and the season trailing it, neither of which
+    // is part of a club's name.
+    // The closing bracket is optional: readFixture splits on ':' too, which
+    // cuts "(2026-08-22 04:50:29)" in half and leaves the opening half
+    // glued to the away side.
+    private val noiseBracketStamp = Regex("""\(\d{4}-\d{2}-\d{2}[^)]*\)?|\b\d{4}/\d{4}\b""")
+
+    // The competition, which these packs bill right after the fixture.
+    private val noiseCompetition = Regex("""(?i)\bMatchweek\s*\d+|\bPremier League\b|\bLaLiga\b""")
+
+    private val noiseTier = Regex("""(?i)\b(8K|4K|UHD|HD|SD|EXCLUSIVE|ᴴᴰ|ᴿᴬᵂ)\b""")
+
+    /** "12 - " — the slot number the listings packs lead with. */
+    private val leadingSlotNumber = Regex("""^\s*\d{1,3}\s*[-–]\s*""")
+
+    /** "(NYK)": the abbreviation a side is tagged with. */
+    private val sideAbbreviation = Regex("""\((\w{2,4})\)""")
+
+    private val runsOfSpace = Regex("""\s+""")
+
     /** Slot numbers, dates and tier shouting, none of which is a team name. */
     private fun stripNoise(field: String): String = field
-        .replace(Regex("""(?i)\b\d{1,2}/\d{1,2}\s+\d{1,2}(?::\d{2})?\s*(am|pm)"""), " ")
-        .replace(Regex("""(?i)@?\s*[A-Z][a-z]{2}\s+\d{1,2}\s+\d{1,2}(?::\d{2})?\s*(AM|PM)"""), " ")
-        // Split on ':' orphans these from their values, so match the bare
-        // word too — no team is called "start".
-        .replace(Regex("""(?i)\b(start|stop)\b:?\S*"""), " ")
-        .replace(Regex("""(?i)\b\d{2}-\d{2}-\d{4}\b|\(\w{3}\)"""), " ")
-        // "(2026-08-22 04:50:29)" and the season trailing it, neither of which
-        // is part of a club's name.
-        // The closing bracket is optional: readFixture splits on ':' too, which
-        // cuts "(2026-08-22 04:50:29)" in half and leaves the opening half
-        // glued to the away side.
-        .replace(Regex("""\(\d{4}-\d{2}-\d{2}[^)]*\)?|\b\d{4}/\d{4}\b"""), " ")
-        // The competition, which these packs bill right after the fixture.
-        .replace(Regex("""(?i)\bMatchweek\s*\d+|\bPremier League\b|\bLaLiga\b"""), " ")
+        .replace(noiseSlashTime, " ")
+        .replace(noiseMonthTime, " ")
+        .replace(noiseStartStop, " ")
+        .replace(noiseDateOrCode, " ")
+        .replace(noiseBracketStamp, " ")
+        .replace(noiseCompetition, " ")
         // "Studio Coverage: Arsenal v ..." — the label is the feed's, not the
         // club's, and left on it the studio slot keys as a different fixture.
         .replace(sideFeedWords, " ")
         .replace(languageFeedWords, " ")
-        .replace(Regex("""(?i)\b(8K|4K|UHD|HD|SD|EXCLUSIVE|ᴴᴰ|ᴿᴬᵂ)\b"""), " ")
-        .replace(Regex("""^\s*\d{1,3}\s*[-–]\s*"""), " ")
-        .replace(Regex("""\s+"""), " ")
+        .replace(noiseTier, " ")
+        .replace(leadingSlotNumber, " ")
+        .replace(runsOfSpace, " ")
         .trim()
 
     private fun clean(side: String): String = side
-        .replace(Regex("""^\s*\d{1,3}\s*[-–]\s*"""), "")
-        .replace(Regex("""\((\w{2,4})\)"""), "")
-        .replace(Regex("""\s+"""), " ")
+        .replace(leadingSlotNumber, "")
+        .replace(sideAbbreviation, "")
+        .replace(runsOfSpace, " ")
         .trim()
         // The listings packs prefix a camera angle with a bullet.
         .trim('-', '–', ':', '.', ',', '\u2022', '*')
@@ -433,8 +463,10 @@ object SportsParser {
     private fun norm(s: String) = s.uppercase(Locale.ROOT)
         .replace("Ö", "O").replace("Ü", "U").replace("Ä", "A")
         .replace("É", "E").replace("È", "E").replace("Á", "A").replace("Í", "I")
-        .replace(Regex("""[^A-Z0-9]+"""), " ")
+        .replace(nonAlphanumeric, " ")
         .trim()
+
+    private val nonAlphanumeric = Regex("""[^A-Z0-9]+""")
 
     internal fun readStart(name: String, nowMs: Long): Long? {
         isoStart.find(name)?.let { m ->
@@ -487,11 +519,15 @@ object SportsParser {
      * to believe; anything unprefixed stays UTC.
      */
     private fun zoneOf(name: String): TimeZone = when {
-        Regex("""^\s*AU\b""").containsMatchIn(name) -> TimeZone.getTimeZone("Australia/Sydney")
-        Regex("""^\s*UK\b""").containsMatchIn(name) -> TimeZone.getTimeZone("Europe/London")
-        Regex("""^\s*(US|CA)\b""").containsMatchIn(name) -> americanZone
+        australianPrefix.containsMatchIn(name) -> TimeZone.getTimeZone("Australia/Sydney")
+        britishPrefix.containsMatchIn(name) -> TimeZone.getTimeZone("Europe/London")
+        americanPrefix.containsMatchIn(name) -> americanZone
         else -> utc()
     }
+
+    private val australianPrefix = Regex("""^\s*AU\b""")
+    private val britishPrefix = Regex("""^\s*UK\b""")
+    private val americanPrefix = Regex("""^\s*(US|CA)\b""")
 
     private fun at(year: Int, month: Int, day: Int, hour: Int, minute: Int, zone: TimeZone): Long =
         Calendar.getInstance(zone).apply {
@@ -532,12 +568,17 @@ object SportsParser {
      * belongs to whatever match happened to be running at the time.
      */
     internal fun tierOf(name: String): Int = when {
-        Regex("""(?i)\b8K\b""").containsMatchIn(name) -> 0
-        Regex("""(?i)\b(4K|UHD)\b""").containsMatchIn(name) -> 1
-        Regex("""(?i)\bFHD\b""").containsMatchIn(name) -> 2
-        Regex("""(?i)\bHD\b""").containsMatchIn(name) -> 3
+        tier8k.containsMatchIn(name) -> 0
+        tier4k.containsMatchIn(name) -> 1
+        tierFhd.containsMatchIn(name) -> 2
+        tierHd.containsMatchIn(name) -> 3
         else -> SportsEvent.TIER_UNKNOWN
     }
+
+    private val tier8k = Regex("""(?i)\b8K\b""")
+    private val tier4k = Regex("""(?i)\b(4K|UHD)\b""")
+    private val tierFhd = Regex("""(?i)\bFHD\b""")
+    private val tierHd = Regex("""(?i)\bHD\b""")
 
     /**
      * One row per match, on the best slot carrying it.

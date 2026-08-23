@@ -1,7 +1,8 @@
 package com.agoro.tv.data
 
 import android.content.Context
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -417,32 +418,93 @@ class ManifestRepository(
     private val cacheFile = File(context.cacheDir, "catalogue-manifest.json")
     @Volatile private var cached: CatalogueManifest? = null
 
+    /**
+     * One load at a time. Three callers ask for the manifest at start-up —
+     * the catalogue fetch, the guide's pack list and the Sport tab — within
+     * the same second, and before this each of them ran the whole thing:
+     * three downloads racing one temp file, and three decodes of two 1.3 MB
+     * documents on a box where one decode is a visible pause. The first
+     * caller does the work; the rest wait for its answer.
+     */
+    private val loadMutex = Mutex()
+
     /** Null when no manifest is available; callers fall back to the raw bundle. */
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     suspend fun load(remoteUrl: String? = DEFAULT_REMOTE): CatalogueManifest? {
         cached?.let { return it }
-        return withContext(Dispatchers.IO) {
-            if (remoteUrl != null) refreshIfStale(remoteUrl)
-            // Newest content wins, not simply "cache beats asset". An app
-            // update ships a newer bundled manifest than whatever the cache
-            // last fetched — but comparing [version] couldn't see that: it is
-            // the SCHEMA number, 1 on both sides of every rebuild, and the
-            // tie sent every comparison to the cache. A cached remote from
-            // before the update then shadowed the new bundle for a full TTL,
-            // resurrecting channels the new manifest had dropped. The
-            // [generated] build stamp is the content version.
-            val fromCache = readCache()
-            val fromAsset = readAsset()
-            val parsed = when {
-                fromCache == null -> fromAsset
-                fromAsset == null -> fromCache
-                fromAsset.version > fromCache.version -> fromAsset
-                fromAsset.version == fromCache.version &&
-                    fromAsset.generated > fromCache.generated -> fromAsset
-                else -> fromCache
+        return loadMutex.withLock {
+            cached?.let { return@withLock it }
+            withContext(BackgroundWork.dispatcher) {
+                if (remoteUrl != null) refreshIfStale(remoteUrl)
+                // Newest content wins, not simply "cache beats asset". An app
+                // update ships a newer bundled manifest than whatever the cache
+                // last fetched — but comparing [version] couldn't see that: it is
+                // the SCHEMA number, 1 on both sides of every rebuild, and the
+                // tie sent every comparison to the cache. A cached remote from
+                // before the update then shadowed the new bundle for a full TTL,
+                // resurrecting channels the new manifest had dropped. The
+                // [generated] build stamp is the content version.
+                //
+                // Decided from the STAMPS, read off the first kilobyte of each
+                // file, and only the winner is decoded. Both used to be decoded
+                // in full to compare two short strings at the top of them.
+                val cacheStamp = readStamp { cacheFile.takeIf { it.exists() }?.inputStream() }
+                val assetStamp = readStamp { context.assets.open(CatalogueManifest.ASSET) }
+                val parsed = if (cacheStamp != null && assetStamp != null) {
+                    // Equal stamps keep the cache, as they always have.
+                    if (assetStamp > cacheStamp) readAsset() ?: readCache()
+                    else readCache() ?: readAsset()
+                } else {
+                    newerOfBoth()
+                }
+                parsed?.also { cached = it }
             }
-            parsed?.also { cached = it }
         }
+    }
+
+    /**
+     * The full comparison, decoding both: the fallback for a file whose head
+     * does not say when it was built. A missing cache lands here too, and
+     * costs one decode, because there is only one file to read.
+     */
+    private fun newerOfBoth(): CatalogueManifest? {
+        val fromCache = readCache()
+        val fromAsset = readAsset()
+        return when {
+            fromCache == null -> fromAsset
+            fromAsset == null -> fromCache
+            Stamp(fromAsset.version, fromAsset.generated) >
+                Stamp(fromCache.version, fromCache.generated) -> fromAsset
+            else -> fromCache
+        }
+    }
+
+    /**
+     * (schema version, build stamp) from the head of a manifest, without
+     * decoding it. Null when the head cannot be read or does not carry
+     * them — a hand-edited file with the keys elsewhere — which the caller
+     * treats as "unknown", never as "older".
+     */
+    private fun readStamp(open: () -> java.io.InputStream?): Stamp? = runCatching {
+        val head = (open() ?: return null).use { stream ->
+            val buf = ByteArray(STAMP_HEAD_BYTES)
+            var read = 0
+            while (read < buf.size) {
+                val n = stream.read(buf, read, buf.size - read)
+                if (n < 0) break
+                read += n
+            }
+            String(buf, 0, read, Charsets.UTF_8)
+        }
+        val generated = GENERATED_KEY.find(head)?.groupValues?.get(1) ?: return null
+        val version = VERSION_KEY.find(head)?.groupValues?.get(1)?.toIntOrNull() ?: 1
+        Stamp(version, generated)
+    }.getOrNull()
+
+    /** Orders as [load] always has: schema first, then the build stamp. */
+    private data class Stamp(val version: Int, val generated: String) : Comparable<Stamp> {
+        override fun compareTo(other: Stamp): Int =
+            compareValuesBy(this, other, { it.version }, { it.generated })
     }
 
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
@@ -497,5 +559,14 @@ class ManifestRepository(
                 "app/src/main/assets/catalogue-manifest.json"
 
         private const val CACHE_TTL_MS = 24L * 3600 * 1000
+
+        /**
+         * How much of a manifest's head carries its stamps. Both keys sit in
+         * the first hundred bytes of the file the build writes; a kilobyte
+         * leaves room for a reformat without leaving room for doubt.
+         */
+        private const val STAMP_HEAD_BYTES = 4096
+        private val GENERATED_KEY = Regex(""""generated"\s*:\s*"([^"]*)"""")
+        private val VERSION_KEY = Regex(""""manifest_version"\s*:\s*(\d+)""")
     }
 }

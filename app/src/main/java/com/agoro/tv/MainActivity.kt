@@ -41,4 +41,14 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // The pooled players outlive the player screen on purpose (leaving
+        // a channel must not block on codec teardown); a process that is
+        // genuinely done — the activity finishing, not rotating — lets them
+        // go. A stopped player holds no decoders, so leaking one across a
+        // configuration change would cost nothing either way.
+        if (isFinishing) com.agoro.tv.player.PlayerPool.drain()
+    }
 }

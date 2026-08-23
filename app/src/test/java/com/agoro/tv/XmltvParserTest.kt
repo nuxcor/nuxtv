@@ -145,4 +145,63 @@ class XmltvParserTest {
         assertEquals(setOf("one.tv", "two.tv"), restored.channelsWithProgrammes)
         assertEquals("Channel One", restored.channelNames["one.tv"])
     }
+
+    // --- filtering -----------------------------------------------------------
+
+    /**
+     * A programme on a channel this playlist cannot show is dropped on the
+     * channel id alone, before its times are read. The national feeds carry
+     * forty programmes for every one this catalogue keeps, and parsing two
+     * timestamps for each of the other thirty-nine was most of what a pack
+     * cost. So the discarded one here is given times no parser could read
+     * and a synopsis that would be wrong to keep: if either were looked at,
+     * the kept channel's schedule would not come out exactly as it does.
+     */
+    @Test
+    fun `a programme on an unwanted channel is skipped without reading it`() {
+        val mixed = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <tv>
+              <channel id="Kept.tv"><display-name>Kept</display-name></channel>
+              <channel id="Noise.tv"><display-name>Noise</display-name></channel>
+              <programme start="not-a-date" stop="" channel="Noise.tv">
+                <title>Should never be seen</title><desc>Nor this.</desc>
+              </programme>
+              <programme start="20260814100000 +0000" stop="20260814110000 +0000" channel="Kept.tv">
+                <title>Kept Show</title><desc>Kept synopsis.</desc>
+              </programme>
+              <programme channel="Noise.tv">
+                <title>No times at all</title>
+              </programme>
+              <programme start="20260814110000 +0000" stop="20260814120000 +0000" channel="undeclared.tv">
+                <title>Never declared</title>
+              </programme>
+            </tv>
+        """.trimIndent()
+        val rows = ArrayList<ProgrammeRow>()
+        // Ids are matched lowercase, as the matcher's are, against a feed
+        // that writes them in mixed case.
+        val data = XmltvParser.parse(
+            mixed.byteInputStream(),
+            wantedIds = setOf("kept.tv"),
+            sink = rows::add,
+        )
+        assertEquals(listOf("Kept Show"), rows.map { it.title })
+        assertEquals("Kept synopsis.", rows.single().description)
+        assertEquals(setOf("kept.tv"), data.channelsWithProgrammes)
+        // Declarations are always kept — the matcher binds by name — even
+        // for channels whose programmes are not.
+        assertEquals("Noise", data.channelNames["Noise.tv"])
+    }
+
+    /** The same gate on the name route: a channel wanted by display name keeps its schedule. */
+    @Test
+    fun `a channel wanted by name keeps its programmes`() {
+        val data = XmltvParser.parse(
+            xml.byteInputStream(),
+            wantedNameKeys = setOf(com.agoro.tv.data.EpgMatcher.normalizeKey("Channel Two")),
+        )
+        assertNull(data.programmes["one.tv"])
+        assertEquals(listOf("Far Future Show"), data.programmes["two.tv"]!!.map { it.title })
+    }
 }

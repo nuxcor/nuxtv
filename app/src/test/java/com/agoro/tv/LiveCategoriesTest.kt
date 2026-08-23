@@ -6,6 +6,7 @@ import com.agoro.tv.data.LiveChannel
 import com.agoro.tv.ui.screens.CATEGORY_ALL
 import com.agoro.tv.ui.screens.CATEGORY_FAVORITES
 import com.agoro.tv.ui.screens.CATEGORY_RECENT
+import com.agoro.tv.ui.screens.LiveCategoryIndex
 import com.agoro.tv.ui.screens.channelsInCategory
 import com.agoro.tv.ui.screens.liveCategoryList
 import com.agoro.tv.ui.screens.resolveCategoryId
@@ -104,6 +105,29 @@ class LiveCategoriesTest {
         assertEquals(
             listOf("2"),
             channelsInCategory(CATEGORY_FAVORITES, channels, setOf("http://x/2"), emptyList()).map { it.id },
+        )
+    }
+
+    @Test
+    fun `a pre-indexed category is a lookup, and a stale index is ignored`() {
+        val index = LiveCategoryIndex.of(channels)
+        assertEquals(
+            listOf("3"),
+            channelsInCategory("news", channels, emptySet(), emptyList(), byCategory = index).map { it.id },
+        )
+        assertTrue(channelsInCategory("ghost", channels, emptySet(), emptyList(), byCategory = index).isEmpty())
+        // Built from a different list — the frame between displayChannels
+        // landing and its index catching up — it must not answer for this one.
+        val shorter = channels.take(2)
+        assertEquals(
+            emptyList<String>(),
+            channelsInCategory("news", shorter, emptySet(), emptyList(), byCategory = index).map { it.id },
+        )
+        // The shortcuts never consult it.
+        assertEquals(
+            listOf("2"),
+            channelsInCategory(CATEGORY_FAVORITES, channels, setOf("http://x/2"), emptyList(), byCategory = index)
+                .map { it.id },
         )
     }
 

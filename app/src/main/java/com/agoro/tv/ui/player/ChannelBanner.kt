@@ -5,7 +5,6 @@ package com.agoro.tv.ui.player
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -60,6 +60,13 @@ internal fun ChannelBanner(
     audioFormatLabel: String?,
     isRecording: Boolean,
     showKeyHints: Boolean = false,
+    /**
+     * True while a zap chain is still running. The logo slot stays, empty,
+     * so the banner doesn't reflow — but no image is asked for: a run
+     * through twenty channels used to start twenty Coil requests, one per
+     * channel skimmed, for logos that were on screen for a tenth of a second.
+     */
+    logoDeferred: Boolean = false,
 ) {
     val nowNextMap by vm.nowNext.collectAsState()
     val favorites by vm.favorites.collectAsState()
@@ -92,12 +99,16 @@ internal fun ChannelBanner(
                 // ratios and Crop fills the box by slicing the sides off — a
                 // wide wordmark came out reading "CTRUM EWS". Crop is right for
                 // posters, which is why it is the default, but never for logos.
-                com.agoro.tv.ui.components.Artwork(
-                    imageUrl = channel.logo,
-                    title = channel.displayName,
-                    modifier = Modifier.size(width = 78.dp, height = 46.dp),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                )
+                if (logoDeferred) {
+                    Spacer(Modifier.size(width = 78.dp, height = 46.dp))
+                } else {
+                    com.agoro.tv.ui.components.Artwork(
+                        imageUrl = channel.logo,
+                        title = channel.displayName,
+                        modifier = Modifier.size(width = 78.dp, height = 46.dp),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    )
+                }
             }
         }
 
@@ -261,10 +272,12 @@ internal fun TuneCard(
             style = MaterialTheme.typography.headlineMedium.copy(
                 fontWeight = FontWeight.SemiBold,
                 // Legibility without a scrim card: the text floats over
-                // whatever frame the zap left behind.
+                // whatever frame the zap left behind. A hard offset shadow,
+                // not a blur: the blurred one was re-rasterised on every
+                // frame of the sweep below, for the whole of every tune.
                 shadow = androidx.compose.ui.graphics.Shadow(
                     color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.7f),
-                    blurRadius = 18f,
+                    offset = androidx.compose.ui.geometry.Offset(0f, 2f),
                 ),
             ),
             color = NuxColors.OnSurface,
@@ -283,8 +296,14 @@ internal fun TuneCard(
             Box(
                 modifier = Modifier
                     // The glow starts fully off the left edge and exits fully
-                    // right, so the loop point is invisible.
-                    .offset(x = (trackWidth + glowWidth) * sweep - glowWidth)
+                    // right, so the loop point is invisible. Read inside
+                    // graphicsLayer, so each frame of the sweep is a draw and
+                    // nothing more — as a Modifier.offset(x = …) parameter the
+                    // animated value was read in composition, and every frame
+                    // recomposed, re-measured and re-laid-out the card.
+                    .graphicsLayer {
+                        translationX = (trackWidth + glowWidth).toPx() * sweep - glowWidth.toPx()
+                    }
                     .width(glowWidth)
                     .fillMaxHeight()
                     .background(

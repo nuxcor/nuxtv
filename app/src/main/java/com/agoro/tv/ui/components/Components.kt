@@ -35,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.key
@@ -57,6 +58,14 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import androidx.compose.ui.node.LayoutModifierNode
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasureResult
+import androidx.compose.ui.layout.MeasureScope
+import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.node.invalidateMeasurement
+import androidx.compose.ui.platform.InspectorInfo
+import androidx.compose.ui.unit.Constraints
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
@@ -100,15 +109,50 @@ internal fun Modifier.spendGutter(gutter: Dp = Space.gutter): Modifier =
     shelfRingRoom(gutter)
 
 internal fun Modifier.shelfRingRoom(room: Dp = ShelfRingRoom): Modifier =
-    layout { measurable, constraints ->
-        val extra = room.roundToPx() * 2
+    this.then(RingRoomElement(room))
+
+/**
+ * A node with equality, not a `layout {}` lambda.
+ *
+ * `Modifier.layout { … }` compares by lambda identity, and a non-composable
+ * extension mints a fresh lambda on every call — so every recomposition of
+ * the scope that built the chain (every Home shelf on a row change, the
+ * Movies grid on every D-pad press, the whole guide column on the 30-second
+ * tick) handed the LazyRow, grid or column a "new" modifier and invalidated
+ * its measurement. The list re-measured with unchanged constraints, for
+ * nothing, in the same frame the focus animation was starting. An element
+ * keyed on the one value that matters is equal across recompositions and
+ * the node is left alone.
+ */
+private data class RingRoomElement(val room: Dp) : ModifierNodeElement<RingRoomNode>() {
+    override fun create() = RingRoomNode(room)
+    override fun update(node: RingRoomNode) {
+        if (node.room != room) {
+            node.room = room
+            node.invalidateMeasurement()
+        }
+    }
+    override fun InspectorInfo.inspectableProperties() {
+        name = "shelfRingRoom"
+        properties["room"] = room
+    }
+}
+
+private class RingRoomNode(var room: Dp) : LayoutModifierNode, Modifier.Node() {
+    override fun MeasureScope.measure(
+        measurable: Measurable,
+        constraints: Constraints,
+    ): MeasureResult {
+        val roomPx = room.roundToPx()
+        val extra = roomPx * 2
         val placeable = measurable.measure(
             constraints.copy(maxWidth = constraints.maxWidth + extra)
         )
-        layout(placeable.width - extra, placeable.height) {
-            placeable.placeRelative(-room.roundToPx(), 0)
+        return layout(placeable.width - extra, placeable.height) {
+            placeable.placeRelative(-roomPx, 0)
         }
     }
+}
 
 /**
  * Clock format honouring Android's "Use 24-hour format" toggle.
@@ -197,82 +241,148 @@ fun Artwork(
         modifier = modifier.background(background),
         contentAlignment = Alignment.Center,
     ) {
-        // key(): reusing one AsyncImage node across URL changes lets Coil keep
-        // painting the *previous* bitmap until the new request resolves — and
-        // with no error painter, a logo that 404s (routine for provider logo
-        // URLs) leaves the old channel's logo up for good. Zapping CNN→BBC
-        // showed BBC's logo on CNN. A fresh node per URL can't inherit pixels.
-        androidx.compose.runtime.key(imageUrl) {
-            var failed by remember { mutableStateOf(false) }
-            // Until the bitmap actually paints, the cell is the SurfaceVariant
-            // slab and nothing else — so a catalogue scrolled over a slow
-            // provider is a wall of identical grey rectangles. Show the same
-            // fallback the error path shows, underneath, and let the image
-            // cover it when it arrives.
-            var loaded by remember { mutableStateOf(false) }
-            // Held for the crossfade's duration: Coil reports success as the
-            // fade STARTS, so dropping the fallback there flashes the bare
-            // slab for 220ms — the exact thing this is here to prevent.
-            var covered by remember { mutableStateOf(false) }
-            androidx.compose.runtime.LaunchedEffect(loaded) {
-                if (loaded) {
-                    kotlinx.coroutines.delay(NuxMotion.ImageCrossfadeMs.toLong())
-                    covered = true
-                }
+        // One node per slot, whatever the URL does. This used to be
+        // key(imageUrl): a fresh AsyncImage per URL, so that a logo that 404s
+        // (routine for provider logo URLs) could never leave the previous
+        // channel's pixels up — zapping CNN→BBC once showed BBC's logo on
+        // CNN. That guarantee now comes from the painters instead: Coil is
+        // handed an explicit transparent placeholder and error painter, so
+        // while a request is in flight or after it fails the node draws
+        // nothing, no matter what it drew before. What the key() cost was a
+        // node teardown and rebuild — image, fallback text, effect — every
+        // time a lazy list reused a slot for another item, i.e. every card
+        // that scrolled into view.
+        var failed by remember(imageUrl) { mutableStateOf(false) }
+        // Until the bitmap actually paints, the cell is the SurfaceVariant
+        // slab and nothing else — so a catalogue scrolled over a slow
+        // provider is a wall of identical grey rectangles. Show the same
+        // fallback the error path shows, underneath, and let the image
+        // cover it when it arrives.
+        //
+        // Held for the crossfade's duration when there IS a crossfade: Coil
+        // reports success as the fade STARTS, so dropping the fallback there
+        // flashed the bare slab for 220ms. A memory-cache hit has no fade —
+        // Coil skips it — so the hold there was pure cost: an extra
+        // recomposition per card 220ms after every tab switch, and the
+        // title text sitting overdrawn under an image that was already up.
+        var covered by remember(imageUrl) { mutableStateOf(false) }
+        var fading by remember(imageUrl) { mutableStateOf(false) }
+        androidx.compose.runtime.LaunchedEffect(fading) {
+            if (fading) {
+                kotlinx.coroutines.delay(NuxMotion.ImageCrossfadeMs.toLong())
+                covered = true
             }
-            if (imageUrl.isNullOrBlank() || failed || !covered) {
-                if (fallbackFullTitle) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = NuxColors.OnSurfaceDim,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        maxLines = 4,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 10.dp),
-                    )
-                } else {
-                    Text(text = monogram, style = monogramStyle, color = NuxColors.OnSurfaceDim)
-                }
-            }
-            if (!imageUrl.isNullOrBlank() && !failed) {
-                val context = LocalContext.current
-                // Remembered per URL: this was rebuilt on every composition of
-                // every card in every grid, and a grid recomposes constantly
-                // while it scrolls.
-                val request = remember(imageUrl, context) {
-                    ImageRequest.Builder(context)
-                        .data(imageUrl)
-                        .crossfade(NuxMotion.ImageCrossfadeMs)
-                        .build()
-                }
-                AsyncImage(
-                    model = request,
-                    contentDescription = title,
-                    contentScale = contentScale,
-                    // A stale logo is worse than no logo: it mislabels what the
-                    // viewer is watching. Fall back to the monogram instead.
-                    onError = { failed = true },
-                    onSuccess = { loaded = true },
-                    // Logos are inset by a FRACTION of the chip, never a
-                    // fixed dp. The 6dp that breathed on a 52dp guide chip is
-                    // a 2.5% hairline on the 240dp channel shelf card, where
-                    // it left the logo running to all four edges looking blown
-                    // up. A fraction is the same inset at every call site: it
-                    // reproduces the small chips almost exactly (0.72 of a
-                    // 40dp-tall chip is the 28dp that 6dp of padding gave)
-                    // while pulling the big card's logo back off its edges.
-                    // Crop is unaffected — posters are meant to be full-bleed.
-                    modifier = if (contentScale == ContentScale.Fit) {
-                        Modifier.fillMaxSize(LogoFitFraction)
-                    } else {
-                        Modifier.fillMaxSize()
-                    },
+        }
+        if (imageUrl.isNullOrBlank() || failed || !covered) {
+            if (fallbackFullTitle) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NuxColors.OnSurfaceDim,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 10.dp),
                 )
+            } else {
+                Text(text = monogram, style = monogramStyle, color = NuxColors.OnSurfaceDim)
             }
+        }
+        if (!imageUrl.isNullOrBlank() && !failed) {
+            val context = LocalContext.current
+            // Remembered per URL: this was rebuilt on every composition of
+            // every card in every grid, and a grid recomposes constantly
+            // while it scrolls.
+            val request = remember(imageUrl, context) {
+                ImageRequest.Builder(context)
+                    .data(imageUrl)
+                    .crossfade(NuxMotion.ImageCrossfadeMs)
+                    .build()
+            }
+            AsyncImage(
+                model = request,
+                contentDescription = title,
+                contentScale = contentScale,
+                placeholder = NothingPainter,
+                error = NothingPainter,
+                // A stale logo is worse than no logo: it mislabels what the
+                // viewer is watching. Fall back to the monogram instead.
+                onError = { failed = true },
+                onSuccess = { state ->
+                    if (state.result.dataSource == coil3.decode.DataSource.MEMORY_CACHE) {
+                        covered = true
+                    } else {
+                        fading = true
+                    }
+                },
+                // Logos are inset by a FRACTION of the chip, never a
+                // fixed dp. The 6dp that breathed on a 52dp guide chip is
+                // a 2.5% hairline on the 240dp channel shelf card, where
+                // it left the logo running to all four edges looking blown
+                // up. A fraction is the same inset at every call site: it
+                // reproduces the small chips almost exactly (0.72 of a
+                // 40dp-tall chip is the 28dp that 6dp of padding gave)
+                // while pulling the big card's logo back off its edges.
+                // Crop is unaffected — posters are meant to be full-bleed.
+                modifier = if (contentScale == ContentScale.Fit) {
+                    Modifier.fillMaxSize(LogoFitFraction)
+                } else {
+                    Modifier.fillMaxSize()
+                },
+            )
         }
     }
 }
+
+/** Draws nothing — the explicit "no pixels" Coil is handed for loading and error. */
+private val NothingPainter = androidx.compose.ui.graphics.painter.ColorPainter(Color.Transparent)
+
+/**
+ * The focused card's soft gold edge, in place of tv-material's Glow — see
+ * [NuxFocus.HaloColor] for why. Sits OUTSIDE the surface's scale layer, so it
+ * is drawn for the scaled bounds rather than scaling with them: the halo is
+ * soft enough that a fixed ring around the 1.06x rest size reads the same as
+ * one that grew with the card, and it costs nothing while the scale tween
+ * runs. The focus flag is read only in the draw phase, so a focus change
+ * invalidates one draw and not the card's composition.
+ */
+fun Modifier.focusHalo(
+    shape: androidx.compose.foundation.shape.RoundedCornerShape,
+    /** The card's own focus state — read in draw, never in composition. */
+    focused: androidx.compose.runtime.State<Boolean>,
+    scale: Float = NuxFocus.CardScale,
+): Modifier =
+    // No focus node of its own: the card already watches its focus for
+    // onFocus, and a second FocusEventModifierNode spliced between the
+    // caller's FocusRequester and the surface is one more thing in the chain
+    // an arrival request has to get through. A draw modifier is inert.
+    this
+        .drawWithCache {
+            val reach = NuxFocus.HaloReach.toPx()
+            val rings = 6
+            // The card's scaled footprint, centred on its rest bounds.
+            val grow = (scale - 1f) / 2f
+            val dx = size.width * grow
+            val dy = size.height * grow
+            val radius = shape.topStart.toPx(size, this)
+            onDrawBehind {
+                if (!focused.value) return@onDrawBehind
+                for (i in 0 until rings) {
+                    val inset = reach * (i + 1) / rings
+                    val alpha = NuxFocus.HaloColor.alpha * (1f - i.toFloat() / rings)
+                    drawRoundRect(
+                        color = NuxFocus.HaloColor.copy(alpha = alpha),
+                        topLeft = androidx.compose.ui.geometry.Offset(-dx - inset, -dy - inset),
+                        size = androidx.compose.ui.geometry.Size(
+                            size.width + 2 * (dx + inset),
+                            size.height + 2 * (dy + inset),
+                        ),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius + inset),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = reach / rings + 0.5f),
+                    )
+                }
+            }
+        }
 
 /**
  * Poster card for movie and series rows. Captionless: the artwork carries the
@@ -303,12 +413,17 @@ fun PosterCard(
     /** Applied to the surface itself, so a FocusRequester lands on the node that focuses. */
     modifier: Modifier = Modifier,
 ) {
+    val focused = remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
         modifier = modifier
             .then(if (width != null) Modifier.width(width) else Modifier.fillMaxWidth())
-            .onFocusChanged { if (it.isFocused) onFocus() },
+            .focusHalo(CardShape, focused)
+            .onFocusChanged {
+                focused.value = it.isFocused
+                if (it.isFocused) onFocus()
+            },
         shape = ClickableSurfaceDefaults.shape(CardShape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
@@ -318,7 +433,6 @@ fun PosterCard(
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = NuxFocus.CardScale),
         border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring),
-        glow = ClickableSurfaceDefaults.glow(focusedGlow = NuxFocus.cardGlow),
     ) {
         Column {
             // Clipped as a stack so the progress bar follows the card's rounded
@@ -387,7 +501,15 @@ fun PosterCard(
 /** Timestamp marking when a list appeared; see [itemEntrance]. */
 @Composable
 fun rememberListEntrance(key: Any?): Long =
-    remember(key) { android.os.SystemClock.uptimeMillis() }
+    // Saveable, so a return does not replay the launch. Home and the browse
+    // tabs leave composition for every channel and every detail page; a
+    // plain remember was fresh on the way back and every card staggered in
+    // again behind the cut — 460ms of rise-and-fade on a screen the viewer
+    // had only stepped away from. The stamp is process uptime, so a stale
+    // one after process death simply means "no entrance", which is right.
+    androidx.compose.runtime.saveable.rememberSaveable(key) {
+        android.os.SystemClock.uptimeMillis()
+    }
 
 /**
  * Runs an entrance animation whose TERMINAL state must never depend on the

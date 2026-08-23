@@ -1,31 +1,54 @@
 package com.agoro.tv
 
+import com.agoro.tv.data.Category
+import com.agoro.tv.data.ContentBundle
 import com.agoro.tv.data.EpgProgram
+import com.agoro.tv.data.Episode
 import com.agoro.tv.data.LiveChannel
 import com.agoro.tv.data.Movie
 import com.agoro.tv.data.Series
 import com.agoro.tv.data.mergeEpisodeOrigins
 import com.agoro.tv.ui.screens.CatalogCard
 import com.agoro.tv.ui.screens.ContinueCard
+import com.agoro.tv.ui.screens.VOD_MORE
+import com.agoro.tv.ui.screens.buildCatalog
+import com.agoro.tv.ui.screens.buildCatalogIndex
 import com.agoro.tv.ui.screens.buildContinueWatching
 import com.agoro.tv.ui.screens.buildRecentlyAdded
 import com.agoro.tv.ui.screens.channelHero
+import com.agoro.tv.ui.screens.ratingChip
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HomeRowsTest {
 
-    private fun movie(id: String) =
-        Movie(id = id, name = "Movie $id", poster = null, url = "http://x/movie/$id", categoryId = null)
+    private fun movie(id: String, categoryId: String? = null) =
+        Movie(id = id, name = "Movie $id", poster = null, url = "http://x/movie/$id", categoryId = categoryId)
 
-    private fun series(id: String) =
-        Series(id = id, name = "Series $id", poster = null, categoryId = null)
+    private fun series(id: String, categoryId: String? = null) =
+        Series(id = id, name = "Series $id", poster = null, categoryId = categoryId)
 
     // LinkedHashMap literal: insertion order is the recency order under test.
     private fun positions(vararg urls: String): Map<String, Long> =
         LinkedHashMap<String, Long>().apply { urls.forEach { put(it, 60_000L) } }
+
+    /** The row as Home builds it: through the index's maps, never the lists. */
+    private fun buildContinueWatching(
+        movies: List<Movie>,
+        series: List<Series>,
+        episodeOrigins: Map<String, String>,
+        resumePositions: Map<String, Long>,
+        resumeProgress: Map<String, Float>,
+    ): List<ContinueCard> {
+        val index = buildCatalogIndex(ContentBundle(movies = movies, series = series)) { false }
+        return buildContinueWatching(
+            index.movieByUrl, index.seriesById, episodeOrigins, resumePositions, resumeProgress,
+        )
+    }
 
     @Test
     fun `cards come out newest first`() {
@@ -199,5 +222,152 @@ class HomeRowsTest {
         )
         assertEquals(20, row.size)
         assertEquals("m40", (row.first() as CatalogCard.MovieCard).movie.id)
+    }
+
+    @Test
+    fun `recently added reads the same from the index's pre-sorted lists`() {
+        // The index hands buildRecentlyAdded its dated titles newest-first;
+        // the bounded insertion must give the same answer it gives an
+        // unsorted walk, and the cap must still hold.
+        val movies = (1..30).map { dated("m$it", it.toLong()) }.shuffled(java.util.Random(7))
+        val shows = (1..30).map { datedSeries("s$it", it.toLong() + 100) }.shuffled(java.util.Random(9))
+        val index = buildCatalogIndex(ContentBundle(movies = movies, series = shows)) { false }
+        val fromIndex = buildRecentlyAdded(index.newMovies, index.newSeries)
+        val fromLists = buildRecentlyAdded(movies, shows)
+        assertEquals(fromLists, fromIndex)
+        assertEquals(20, fromIndex.size)
+        assertEquals("s30", (fromIndex.first() as CatalogCard.SeriesCard).series.id)
+    }
+
+    // --- The catalogue index ------------------------------------------------
+
+    private val adults = Category("xxx", "XXX Adult")
+    private val drama = Category("drama", "Drama")
+
+    private fun bundle(vararg movies: Movie, series: List<Series> = emptyList()) = ContentBundle(
+        movieCategories = listOf(drama, adults),
+        movies = movies.toList(),
+        seriesCategories = listOf(drama, adults),
+        series = series,
+    )
+
+    @Test
+    fun `locked categories and their titles leave the index`() {
+        val b = bundle(movie("a", "drama"), movie("b", "xxx"), movie("c"))
+        val index = buildCatalogIndex(b) { it.contains("Adult") }
+        assertEquals(listOf("drama"), index.movieCategories.map { it.id })
+        assertEquals(listOf("a", "c"), index.movies.map { it.id })
+        assertNull(index.movieByUrl["http://x/movie/b"])
+        assertFalse(index.moviesByCategory.containsKey("xxx"))
+    }
+
+    @Test
+    fun `an unlocked index hands back the bundle's own lists`() {
+        // Screens key remembers on these; a copy per rebuild would defeat that.
+        val b = bundle(movie("a", "drama"), movie("b", "xxx"))
+        val index = buildCatalogIndex(b) { false }
+        assertSame(b.movies, index.movies)
+        assertSame(b.movieCategories, index.movieCategories)
+        assertSame(b, index.bundle)
+    }
+
+    @Test
+    fun `titles under an undeclared category are filed under More`() {
+        val b = bundle(movie("a", "drama"), movie("b", "ghost"), movie("c", null))
+        val index = buildCatalogIndex(b) { false }
+        assertEquals(listOf("a"), index.moviesByCategory["drama"]!!.map { it.id })
+        assertEquals(listOf("b", "c"), index.moviesByCategory[VOD_MORE]!!.map { it.id })
+    }
+
+    @Test
+    fun `dated titles sort newest first and undated ones stay out of new`() {
+        val b = bundle(dated("old", 1), movie("undated"), dated("new", 9), dated("mid", 5))
+        val index = buildCatalogIndex(b) { false }
+        assertEquals(listOf("new", "mid", "old"), index.newMovies.map { it.id })
+        assertEquals(4, index.movies.size)
+    }
+
+    @Test
+    fun `the catalogue's resumed lists read newest first and the starters retire together`() {
+        val b = bundle(
+            movie("m1", "drama"), movie("m2", "drama"), movie("m3", "drama"),
+            series = listOf(series("s1", "drama"), series("s2", "drama")),
+        )
+        val index = buildCatalogIndex(b) { false }
+        val fresh = buildCatalog(
+            index,
+            resumePositions = emptyMap(),
+            resumeProgress = emptyMap(),
+            episodeOrigins = emptyMap(),
+            hiddenTitles = setOf("m:m2"),
+            starterLength = 2,
+        )
+        // Day one: starters, filtered before the cut so the hidden title
+        // pulls the next one up rather than leaving a gap.
+        assertTrue(fresh.continueWatching.isEmpty())
+        assertEquals(listOf("m1", "m3"), fresh.starterMovies.map { it.id })
+        assertEquals(listOf("s1", "s2"), fresh.starterSeries.map { it.id })
+
+        val watched = buildCatalog(
+            index,
+            resumePositions = positions("http://x/movie/m1", "http://x/ep/1", "http://x/movie/m3"),
+            resumeProgress = mapOf("http://x/ep/1" to 0.4f),
+            episodeOrigins = mapOf("http://x/ep/1" to "s2"),
+            hiddenTitles = emptySet(),
+        )
+        assertEquals(listOf("m3", "m1"), watched.resumedMovies.map { it.id })
+        assertEquals(listOf("s2"), watched.resumedSeries.map { it.id })
+        assertEquals(0.4f, watched.seriesProgress["s2"])
+        assertEquals(3, watched.continueWatching.size)
+        // Resuming anything retires the catalogue starters.
+        assertTrue(watched.starterMovies.isEmpty())
+        assertTrue(watched.starterSeries.isEmpty())
+    }
+
+    @Test
+    fun `a series with inline episodes is resumed without an origin record`() {
+        val m3u = series("s", "drama").copy(
+            episodes = listOf(Episode(id = "e1", title = "1", season = 1, episodeNum = 1, url = "http://x/ep/1")),
+        )
+        val index = buildCatalogIndex(bundle(series = listOf(m3u))) { false }
+        val catalog = buildCatalog(
+            index,
+            resumePositions = positions("http://x/ep/1"),
+            resumeProgress = emptyMap(),
+            episodeOrigins = emptyMap(),
+            hiddenTitles = emptySet(),
+        )
+        assertEquals(listOf("s"), catalog.resumedSeries.map { it.id })
+    }
+
+    @Test
+    fun `not interested hides a title from Home's recently added only`() {
+        val b = bundle(dated("a", 4), dated("b", 3), dated("c", 2), dated("d", 1))
+        val index = buildCatalogIndex(b) { false }
+        val catalog = buildCatalog(
+            index,
+            resumePositions = emptyMap(),
+            resumeProgress = emptyMap(),
+            episodeOrigins = emptyMap(),
+            hiddenTitles = setOf("m:b"),
+        )
+        assertEquals(
+            listOf("a", "c", "d"),
+            catalog.recentlyAdded.map { (it as CatalogCard.MovieCard).movie.id },
+        )
+        // The Movies tab's own Recently added keeps it.
+        assertEquals(listOf("a", "b", "c", "d"), index.newMovies.map { it.id })
+    }
+
+    // --- ratingChip ----------------------------------------------------------
+
+    @Test
+    fun `rating chips round to a tenth without a formatter`() {
+        assertEquals("★ 7.5", ratingChip(7.5))
+        assertEquals("★ 7.0", ratingChip(7.0))
+        assertEquals("★ 7.3", ratingChip(7.25))
+        assertEquals("★ 10.0", ratingChip(10.0))
+        assertEquals("★ 0.0", ratingChip(0.0))
+        assertEquals("★ 6.8", ratingChip(6.84))
     }
 }

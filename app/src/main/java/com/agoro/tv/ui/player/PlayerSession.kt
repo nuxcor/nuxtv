@@ -13,6 +13,7 @@ import com.agoro.tv.player.PlayerEngine
 import com.agoro.tv.player.VlcEngine
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -50,6 +51,25 @@ private fun normalizeLanguage(raw: String?): String? {
 }
 
 /**
+ * [base] with one entry swapped, without copying it. The failure ladder
+ * rewrites the current item's url a step at a time, and `toMutableList()` on
+ * a category of thousands — which the player receives as a lazily mapped
+ * view — would materialise the lot on every hop of every dead channel.
+ * Patches on the same index collapse rather than stack, so a deep ladder
+ * never nests more than one level.
+ */
+private class PatchedList<T>(
+    base: List<T>,
+    private val index: Int,
+    private val value: T,
+) : AbstractList<T>() {
+    private val base: List<T> =
+        if (base is PatchedList<T> && base.index == index) base.base else base
+    override val size: Int get() = base.size
+    override fun get(index: Int): T = if (index == this.index) value else base[index]
+}
+
+/**
  * Player state and engine lifecycle, held outside the composition the way
  * GuidePreviewController holds the guide preview's: Compose-observable fields,
  * explicit teardown, and the composable reduced to layout plus effects.
@@ -83,6 +103,23 @@ class PlayerSession internal constructor(
          */
         private const val STALL_WINDOW_MS = 60_000L
         private const val STALLS_BEFORE_HOP = 3
+
+        /**
+         * A stall has to last this long to count. The ladder used to count
+         * every BUFFERING transition, so three sub-second Wi-Fi blips in a
+         * minute — routine on a dongle, and absorbed by the buffer without
+         * a frame lost — bought the viewer a full re-tune, black screen
+         * and all. That re-tune was the "buffering" they were seeing.
+         */
+        private const val STALL_COUNTS_AFTER_MS = 1_500L
+
+        /**
+         * Buffered media at the start of a stall below which the line is
+         * the reason. Above it the player had plenty to play and a renderer
+         * stopped taking it — a decoder problem, which another source of
+         * the same picture cannot fix and the engine handles itself.
+         */
+        private const val STARVED_BUFFER_MS = 1_000L
 
         /** Settling time after a tune, during which buffering is expected. */
         private const val STALL_GRACE_MS = 12_000L
@@ -127,10 +164,20 @@ class PlayerSession internal constructor(
         set(value) {
             if (value) {
                 stallClock.clear()
+                stallTimer = null
                 lastTuneMs = System.currentTimeMillis()
+                tuneSerial++
             }
             tuningState = value
         }
+
+    /**
+     * Counts tunes. Effects that must act once per stream — matching the
+     * display mode, learning the decoded tier — key on this rather than on
+     * the index, which a retry or a rejoin repeats and a new playlist reuses.
+     */
+    var tuneSerial: Int by mutableIntStateOf(0)
+        private set
 
     /** When the current stream was asked for; see [STALL_GRACE_MS]. */
     private var lastTuneMs = System.currentTimeMillis()
@@ -171,9 +218,16 @@ class PlayerSession internal constructor(
     var scaleMode: Int by mutableIntStateOf(0)
     var speed: Float by mutableStateOf(1f)
 
-    /** Zap target waiting out the dwell; null when nothing is pending. */
+    /**
+     * Zap target waiting out the dwell; null when nothing is pending. Only
+     * a CHAIN of zaps waits: the first press tunes at once, and the dwell
+     * applies from the second press of a run — see [zap].
+     */
     var pendingTuneIndex: Int? by mutableStateOf(null)
         private set
+
+    /** When the last zap landed, for telling a chain from a single press. */
+    private var lastZapMs = 0L
 
     /** Guards the one-time prefs loads (VOD speed) across engine swaps. */
     internal var vodSpeedLoaded: Boolean = false
@@ -189,6 +243,13 @@ class PlayerSession internal constructor(
 
     /** Recent mid-play stall timestamps; see [STALL_WINDOW_MS]. */
     private val stallClock = ArrayDeque<Long>()
+
+    /** Counts the stall in progress once it has lasted [STALL_COUNTS_AFTER_MS]; cancelled if it ends first. */
+    private var stallTimer: Job? = null
+        set(value) {
+            field?.cancel()
+            field = value
+        }
 
     internal val listener = object : PlayerEngine.Listener {
         override fun onItemChanged(index: Int) {
@@ -209,36 +270,29 @@ class PlayerSession internal constructor(
                 // An actual pause, not a stall: start the rejoin clock.
                 pauseStartedMs = System.currentTimeMillis()
             }
-            // A live feed that stalls three times in a minute is starving,
-            // not hiccuping. Catch-up is exempt: seeking buffers legitimately,
-            // and so does a stream that has only just started — the first
-            // seconds after a tune are the buffer filling, not the feed
-            // failing, and counting them made every zap look like a fault.
+            // A live feed that starves three times in a minute can't be
+            // carried on this line at this tier. Catch-up is exempt: seeking
+            // buffers legitimately, and so does a stream that has only just
+            // started — the first seconds after a tune are the buffer
+            // filling, not the feed failing, and counting them made every
+            // zap look like a fault.
+            //
+            // Only a stall that LASTS counts, and only one that began with
+            // the buffer empty: a blip the buffer rides out is what the
+            // buffer is for, and a freeze with twenty seconds buffered is
+            // the decoder's, not the line's — hopping source for either
+            // turned a hiccup the viewer might not have noticed into a
+            // re-tune they certainly did.
             if (b && playing && !tuning && request.isLive && !request.isCatchup &&
                 System.currentTimeMillis() - lastTuneMs > STALL_GRACE_MS
             ) {
-                val now = System.currentTimeMillis()
-                stallClock += now
-                while (stallClock.isNotEmpty() && now - stallClock.first() > STALL_WINDOW_MS) {
-                    stallClock.removeFirst()
-                }
-                if (stallClock.size >= STALLS_BEFORE_HOP) {
-                    stallClock.clear()
-                    // ANOTHER SOURCE FIRST, the HLS re-wrap only as a last
-                    // resort. Both recover, but they cost different things:
-                    // another source is the same channel at another measured
-                    // tier, while .m3u8 is this provider re-muxing — which is
-                    // exactly what capped picture quality and is why live URLs
-                    // were moved to raw .ts in the first place. Reaching for
-                    // it first traded a stutter for a permanently softer
-                    // picture, and did it silently.
-                    when {
-                        swapSource() ->
-                            statusMessage = "Stream can't keep up — trying another source…"
-                        swapLiveFormat() ->
-                            statusMessage = "Stream keeps breaking — trying a steadier feed…"
-                    }
-                }
+                val starved = (engine?.bufferedAheadMs ?: 0L) < STARVED_BUFFER_MS
+                stallTimer = if (starved) scope.launch {
+                    delay(STALL_COUNTS_AFTER_MS)
+                    if (buffering && !tuning) countStall()
+                } else null
+            } else if (!b) {
+                stallTimer = null
             }
             playing = p
             buffering = b
@@ -304,14 +358,17 @@ class PlayerSession internal constructor(
      * and the scaffold keys the AndroidView on the same value so the new
      * engine also gets a fresh surface.
      */
-    internal fun createEngine(highestQuality: Boolean): PlayerEngine {
+    internal fun createEngine(
+        highestQuality: Boolean,
+        knownUhd: (String) -> Boolean = { false },
+    ): PlayerEngine {
         // Not keyed on the quality preference: ExoPlayer applies it live
         // through the track selector, and rebuilding VLC mid-stream to change
         // a construction flag would interrupt playback for a setting change.
         // VLC picks it up next time the player opens.
         val built =
             if (engineChoice == EngineChoice.VLC) VlcEngine(context, highestQuality)
-            else ExoEngine(context)
+            else ExoEngine(context, knownUhd = knownUhd)
         engine = built
         return built
     }
@@ -350,6 +407,31 @@ class PlayerSession internal constructor(
         liveFormatStage = 0
         sourceStage = 0
         stallClock.clear()
+        stallTimer = null
+    }
+
+    /** A stall has lasted long enough to count; three in a minute move the ladder. */
+    private fun countStall() {
+        val now = System.currentTimeMillis()
+        stallClock += now
+        while (stallClock.isNotEmpty() && now - stallClock.first() > STALL_WINDOW_MS) {
+            stallClock.removeFirst()
+        }
+        if (stallClock.size < STALLS_BEFORE_HOP) return
+        stallClock.clear()
+        // ANOTHER SOURCE FIRST, the HLS re-wrap only as a last resort. Both
+        // recover, but they cost different things: another source is the
+        // same channel at another measured tier, while .m3u8 is this
+        // provider re-muxing — which is exactly what capped picture quality
+        // and is why live URLs were moved to raw .ts in the first place.
+        // Reaching for it first traded a stutter for a permanently softer
+        // picture, and did it silently.
+        when {
+            swapSource() ->
+                statusMessage = "Stream can't keep up — trying another source…"
+            swapLiveFormat() ->
+                statusMessage = "Stream keeps breaking — trying a steadier feed…"
+        }
     }
 
     /**
@@ -375,9 +457,7 @@ class PlayerSession internal constructor(
         }
         liveFormatStage++
         statusMessage = "Trying a different stream format…"
-        val items = request.items.toMutableList()
-        items[idx] = items[idx].copy(url = next)
-        request = request.copy(items = items)
+        request = request.copy(items = PatchedList(request.items, idx, request.items[idx].copy(url = next)))
         return true
     }
 
@@ -397,9 +477,7 @@ class PlayerSession internal constructor(
         sourceStage++
         liveFormatStage = 0
         statusMessage = "Trying another source…"
-        val items = request.items.toMutableList()
-        items[idx] = items[idx].copy(url = next)
-        request = request.copy(items = items)
+        request = request.copy(items = PatchedList(request.items, idx, item.copy(url = next)))
         return true
     }
 
@@ -449,24 +527,48 @@ class PlayerSession internal constructor(
     // transition callback. We already know the target, and the callback lands a
     // frame or two later — long enough for the banner to appear captioned with
     // the channel you just left. The callback then confirms the same value.
+    //
+    // A single press tunes NOW. The dwell used to apply to every zap, so one
+    // CH+ sat on the old picture for 400 ms before the new stream was even
+    // asked for — and on a TV that wait is the whole difference between
+    // "changed channel" and "is it doing anything?". The dwell is for runs:
+    // once a second press lands within the dwell window the viewer is
+    // skimming, and from then on the stream opens only where the run rests,
+    // so skimming twenty channels opens one connection rather than twenty.
     fun zap(delta: Int) {
         val engine = engine ?: return
         val count = request.items.size
         if (count <= 1) return
         clearError()
-        previousIndex = engine.currentIndex
+        val now = System.currentTimeMillis()
+        val chained = pendingTuneIndex != null || now - lastZapMs < PlayerMotion.ZapDwellMs
+        lastZapMs = now
         // Chain from what's on screen: during the dwell the engine still holds
         // the channel the chain started from.
         val base = pendingTuneIndex ?: engine.currentIndex
         val target = ((base + delta) % count + count) % count
         currentIndex = target
-        pendingTuneIndex = target // the scaffold commits it after ZAP_DWELL_MS
+        bannerTick++
+        if (chained && target == engine.currentIndex) {
+            // The run stepped back onto the channel the engine already has
+            // open: nothing to commit, and re-opening it would only restart
+            // it. The tune card shows only if that stream is still coming up.
+            pendingTuneIndex = null
+            tuning = !engine.isPlaying
+            return
+        }
+        previousIndex = engine.currentIndex
         tuning = true
         videoSize = null // the old stream's resolution isn't this channel's
         videoFrameRate = null
         hdrFormat = null
         audioFormatLabel = null
-        bannerTick++
+        if (chained) {
+            pendingTuneIndex = target // the scaffold commits it after ZAP_DWELL_MS
+        } else {
+            pendingTuneIndex = null
+            engine.playAt(target)
+        }
     }
 
     /** Opens the stream a zap chain settled on; a no-op when nothing is pending. */

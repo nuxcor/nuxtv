@@ -182,8 +182,13 @@ fun GuideTab(
         liveCategoryList(bundle, allChannels, favorites, recents)
     }
     val allView by vm.allChannelsView.collectAsState()
-    val channels = remember(allChannels, categoryId, favorites, recents, allView) {
-        channelsInCategory(categoryId, allChannels, favorites, recents, allChannels = allView)
+    // A lookup, not a filter over every channel — see LiveCategoryIndex.
+    val byCategory by vm.channelsByCategory.collectAsState()
+    val channels = remember(allChannels, categoryId, favorites, recents, allView, byCategory) {
+        channelsInCategory(
+            categoryId, allChannels, favorites, recents,
+            allChannels = allView, byCategory = byCategory,
+        )
     }
     // The channel last watched, resolved against THIS list — the one the grid
     // renders. Resolving it upstream from displayChannels was wrong: the All
@@ -207,12 +212,14 @@ fun GuideTab(
     // every step. This was lost when the redesign made the guide the
     // only Live surface — chips highlighted on focus but only OK
     // filtered, which read as "the category doesn't work".
-    var focusedCategory by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(focusedCategory) {
-        val id = focusedCategory ?: return@LaunchedEffect
-        kotlinx.coroutines.delay(NuxMotion.FocusDwellMs.toLong())
-        onCategoryId(id)
-    }
+    //
+    // A MutableState handed down, never read here: the chips write it and
+    // [CategoryDwell] reads it in a scope of its own. Read in THIS scope —
+    // as a LaunchedEffect key, which is a read — every chip focus
+    // recomposed the whole tab body, strip, header and ruler included,
+    // before the dwell had even started to count.
+    val focusedCategory = remember { mutableStateOf<String?>(null) }
+    CategoryDwell(focusedCategory, onCategoryId)
     // Only a focus that follows a key press can dwell-select. Focus also
     // lands on a chip when nothing pressed anything — the shell parking on
     // the first focusable after a return from the player, Compose reseating
@@ -275,7 +282,31 @@ fun GuideTab(
             nowTick = System.currentTimeMillis()
         }
     }
-    val timelineScroll = rememberScrollState()
+    // Sized against the screen rather than the width this composable is
+    // handed, deliberately: the rail animates its width on focus, and a
+    // scale read from the live measurement would resize every cell in
+    // the grid on each frame of that animation and leave the scroll
+    // offset pointing at a different time than before.
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val dpPerMinute = remember(screenWidth) { guideDpPerMinute(screenWidth) }
+    // The same arithmetic, handed to the grid and the ruler so their first
+    // frame can window cells before the lane has been measured.
+    val laneWidth = remember(screenWidth) { guideLaneWidth(screenWidth) }
+
+    val density = LocalDensity.current
+    // Where "now minus 15 minutes" sits on the timeline, in scroll px.
+    fun nowScrollPx(): Int {
+        val nowOffsetMin = ((System.currentTimeMillis() - baseStart) / 60_000L - 15)
+            .coerceAtLeast(0)
+        return with(density) { (dpPerMinute * nowOffsetMin.toInt()).roundToPx() }
+    }
+
+    // Born at "now", not scrolled there after the first frame. Starting at
+    // zero composed every row's cells around the window's start — an hour
+    // before anything the viewer wanted — and then, one frame later, threw
+    // them away for the cells at now. The scroll below still runs for the
+    // case the saved state restores an old position.
+    val timelineScroll = rememberScrollState(initial = nowScrollPx())
     var statusMessage by remember { mutableStateOf<String?>(null) }
     // What the header describes. Focus drives it, so moving across the
     // grid reads out each programme without having to select it.
@@ -315,25 +346,21 @@ fun GuideTab(
         }
     }
 
-    // Sized against the screen rather than the width this composable is
-    // handed, deliberately: the rail animates its width on focus, and a
-    // scale read from the live measurement would resize every cell in
-    // the grid on each frame of that animation and leave the scroll
-    // offset pointing at a different time than before.
-    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-    val dpPerMinute = remember(screenWidth) { guideDpPerMinute(screenWidth) }
-
-    val density = LocalDensity.current
-    // Where "now minus 15 minutes" sits on the timeline, in scroll px.
-    fun nowScrollPx(): Int {
-        val nowOffsetMin = ((System.currentTimeMillis() - baseStart) / 60_000L - 15)
-            .coerceAtLeast(0)
-        return with(density) { (dpPerMinute * nowOffsetMin.toInt()).roundToPx() }
-    }
-
     fun jumpToNow() {
         dayOffset = 0
-        scope.launch { timelineScroll.animateScrollTo(nowScrollPx()) }
+        // Decided BEFORE the scroll: the ring's cell is hours away, so the
+        // scroll carries it out of the composed window and disposes it —
+        // focus then falls to the strip, and asking afterwards would always
+        // say the grid had nothing. A viewer who pressed BACK from the strip
+        // gets the timeline back and keeps their chip.
+        val fromGrid = gridHandle.holdsFocus()
+        scope.launch {
+            timelineScroll.animateScrollTo(nowScrollPx())
+            // Focus comes too. The timeline used to return to the present
+            // with the ring still on a cell hours away, so the header went
+            // on describing it and the next RIGHT scrolled straight back out.
+            if (fromGrid) gridHandle.focusAt(System.currentTimeMillis())
+        }
     }
 
     // Start the timeline near "now".
@@ -496,8 +523,8 @@ fun GuideTab(
                     },
                     // Locked categories still need the OK press (and
                     // its PIN prompt); dwell must not walk past a PIN.
-                    onFocus = { if (!locked && dwellAllowed()) focusedCategory = category.id },
-                    onBlur = { if (focusedCategory == category.id) focusedCategory = null },
+                    onFocus = { if (!locked && dwellAllowed()) focusedCategory.value = category.id },
+                    onBlur = { if (focusedCategory.value == category.id) focusedCategory.value = null },
                     locked = locked,
                 )
             }
@@ -507,7 +534,7 @@ fun GuideTab(
         // first channel's on-now programme, not a channel name over a void.
         // Only for the true resting state — a focused channel whose lane reads
         // "No information" must not borrow another channel's programme.
-        val restingProgram = remember(channels.firstOrNull()?.id, epgState, nowTick) {
+        val restingProgram = remember(channels.firstOrNull()?.id, guideWindow, nowTick) {
             channels.firstOrNull()?.let { first ->
                 vm.programsFor(first).firstOrNull { nowTick in it.startMs until it.endMs }
             }
@@ -530,6 +557,7 @@ fun GuideTab(
         TimeRuler(
             windowStart, windowEnd, nowTick,
             nowTick + dayOffset * 24 * 3600_000L, timelineScroll, dpPerMinute,
+            laneWidth = laneWidth,
             dayLabel = if (maxDayOffset > 0) dayLabel(baseStart, dayOffset) else null,
             // Cycles rather than clamping: one control, and the way back from
             // the last day is never a hunt for a second one that has quietly
@@ -559,16 +587,22 @@ fun GuideTab(
             programsFor = remember(vm, windowStart, windowEnd) {
                 { channel: LiveChannel -> vm.programsIn(channel, windowStart, windowEnd) }
             },
-            // The window is filled asynchronously, so a row cache keyed only
-            // on the guide would hold the empty answer it got while the query
-            // was still running.
-            programsKey = epgState to guideWindow,
+            // The window revision is what says the rows' answer changed: it
+            // is bumped after every window load, the refresh after an ingest
+            // included. Keying on the EPG state's IDENTITY as well rebuilt
+            // every row twice per refresh — once when the new state was
+            // published, again when the window it filled landed — and once
+            // per pack on a cold start. Whether a guide is loaded at all
+            // still matters, because the rows resolve channels through it;
+            // that is a Boolean, and it flips once.
+            programsKey = (epgState is ContentRepository.EpgState.Ready) to guideWindow,
             onChannelLongPress = onChannelLongPress,
             windowStart = windowStart,
             windowEnd = windowEnd,
             nowMs = nowTick,
             timelineScroll = timelineScroll,
             dpPerMinute = dpPerMinute,
+            laneWidth = laneWidth,
             onFocus = remember {
                 { channel: LiveChannel, program: EpgProgram? ->
                     focusedChannel = channel
@@ -664,8 +698,22 @@ private fun GuideHeader(
 ) {
     val timeFmt = rememberClockFormat()
     val dateFmt = remember { SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault()) }
-    val current = channel()
-    val currentProgram = program()
+    // Debounced, the way the Home hero is, so travelling rows costs the
+    // header nothing until the viewer rests. Every DOWN used to re-key the
+    // artwork on the new channel at once, and a 200×104dp request is a
+    // different Coil cache entry from the row's 56×40 logo — a disk decode
+    // and a monogram flash per row passed through. The whole description
+    // waits together, never the text for one channel over another's logo.
+    // The first answer shows immediately: a header that opens blank for
+    // 180ms reads as a header that is broken.
+    val liveChannel = channel()
+    val liveProgram = program()
+    var shown by remember { mutableStateOf(liveChannel to liveProgram) }
+    LaunchedEffect(liveChannel, liveProgram) {
+        if (shown.first != null) delay(NuxMotion.HeroDebounceMs.toLong())
+        shown = liveChannel to liveProgram
+    }
+    val (current, currentProgram) = shown
     // Read from the guide table for this one programme. The grid's cells
     // arrive without synopses on purpose — see [rememberProgramDescription].
     val synopsis = rememberProgramDescription(vm, currentProgram)
@@ -824,6 +872,34 @@ private fun GuideHeader(
                 )
             }
         }
+    }
+}
+
+/**
+ * The category strip's rest-before-select, in a scope of its own so that a
+ * chip taking focus invalidates this and nothing else.
+ *
+ * The dwell is the rail's 450ms, not the 250ms every other category strip
+ * uses, for the same reason the rail's is longer: what a rest here replaces
+ * is the whole grid — every row re-laid, every cell rebuilt, the preview
+ * re-tuned — and at 250ms a viewer travelling the strip rebuilt it on every
+ * chip they merely passed through. The guide keeps dwell at all, where the
+ * channel list might have settled for OK, because the live preview earns
+ * it: resting on Sport and seeing Sport is the point.
+ *
+ * Cancelled the moment focus leaves the chip — the strip's onBlur nulls the
+ * state, which restarts the effect with nothing to select.
+ */
+@Composable
+private fun CategoryDwell(
+    focusedCategory: androidx.compose.runtime.State<String?>,
+    onCategoryId: (String) -> Unit,
+) {
+    val id = focusedCategory.value
+    LaunchedEffect(id) {
+        if (id == null) return@LaunchedEffect
+        delay(NuxMotion.TabDwellMs.toLong())
+        onCategoryId(id)
     }
 }
 

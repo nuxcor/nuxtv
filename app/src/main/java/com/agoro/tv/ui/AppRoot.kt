@@ -1,6 +1,8 @@
 package com.agoro.tv.ui
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -97,7 +99,25 @@ fun AppRoot(vm: MainViewModel = viewModel()) {
 @Composable
 private fun NuxNavHost(vm: MainViewModel) {
     val nav: NavHostController = rememberNavController()
-    NavHost(navController = nav, startDestination = "home") {
+    // Cuts, not dissolves. NavHost's stock transition is a 700ms cross-fade
+    // in every direction, and for all 42 of those frames BOTH screens are
+    // composed and drawn through their own full-screen alpha layer — Home's
+    // shelves, posters and backdrop underneath a player that is building its
+    // engine, or a detail page loading its own art. On TV silicon a
+    // full-screen alpha layer is most of a frame budget on its own, and the
+    // video SurfaceView ignores Compose alpha anyway, so the picture popped
+    // in at full strength under a Home that was still fading. On the way
+    // back the player kept decoding under Home for the whole fade and then
+    // released its codecs on the main thread the moment Home looked done.
+    // A broadcast receiver cuts to the channel; so does this.
+    NavHost(
+        navController = nav,
+        startDestination = "home",
+        enterTransition = { EnterTransition.None },
+        exitTransition = { ExitTransition.None },
+        popEnterTransition = { EnterTransition.None },
+        popExitTransition = { ExitTransition.None },
+    ) {
         composable("home") {
             HomeScreen(
                 vm = vm,

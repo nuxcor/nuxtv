@@ -545,6 +545,11 @@ private fun OptionChips(
 /**
  * Actionable failure state. A corner toast leaves the user staring at a black
  * screen with nothing to press.
+ *
+ * The card only — the scrim under it is the scaffold's [FadingScrim]. The
+ * two used to be one full-screen box inside the scale-and-fade, which made
+ * the fade a screen-sized offscreen layer; sized to the card, the layer is
+ * a 640dp dialog.
  */
 @Composable
 internal fun PlaybackErrorCard(
@@ -561,51 +566,44 @@ internal fun PlaybackErrorCard(
 ) {
     val retryFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { retryFocus.requestFocusRetrying() }
-    Box(
+    Column(
         modifier = Modifier
-            .fillMaxSize()
-            .background(PlayerTheme.ScrimStrong)
-            .focusGroup(),
-        contentAlignment = Alignment.Center,
+            .widthIn(max = 640.dp)
+            .clip(NuxShape.Dialog)
+            .background(NuxColors.Surface)
+            .focusGroup()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(
-            modifier = Modifier
-                .widthIn(max = 640.dp)
-                .clip(NuxShape.Dialog)
-                .background(NuxColors.Surface)
-                .padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = "Can't play $title",
-                style = MaterialTheme.typography.titleLarge,
-                color = NuxColors.OnSurface,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = plainLanguage(message),
-                style = MaterialTheme.typography.bodyMedium,
-                color = NuxColors.OnSurfaceDim,
-            )
-            Spacer(Modifier.height(24.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                androidx.tv.material3.Button(
-                    onClick = onRetry,
-                    modifier = Modifier.focusRequester(retryFocus),
-                ) { Text("Retry") }
-                if (canSwapEngine) {
-                    // "Playback engine" is what the options menu calls it.
-                    androidx.tv.material3.OutlinedButton(onClick = onSwapEngine) {
-                        Text("Try other engine")
-                    }
+        Text(
+            text = "Can't play $title",
+            style = MaterialTheme.typography.titleLarge,
+            color = NuxColors.OnSurface,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = plainLanguage(message),
+            style = MaterialTheme.typography.bodyMedium,
+            color = NuxColors.OnSurfaceDim,
+        )
+        Spacer(Modifier.height(24.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            androidx.tv.material3.Button(
+                onClick = onRetry,
+                modifier = Modifier.focusRequester(retryFocus),
+            ) { Text("Retry") }
+            if (canSwapEngine) {
+                // "Playback engine" is what the options menu calls it.
+                androidx.tv.material3.OutlinedButton(onClick = onSwapEngine) {
+                    Text("Try other engine")
                 }
-                if (hasNext) {
-                    androidx.tv.material3.OutlinedButton(onClick = onNext) {
-                        Text(if (isLive) "Next channel" else "Next episode")
-                    }
-                }
-                androidx.tv.material3.OutlinedButton(onClick = onBack) { Text("Back") }
             }
+            if (hasNext) {
+                androidx.tv.material3.OutlinedButton(onClick = onNext) {
+                    Text(if (isLive) "Next channel" else "Next episode")
+                }
+            }
+            androidx.tv.material3.OutlinedButton(onClick = onBack) { Text("Back") }
         }
     }
 }

@@ -51,6 +51,9 @@ class XtreamClient(
             u = u.substringBefore("/player_api.php").substringBefore("/get.php")
             return u
         }
+
+        // Compiled once: this ran per movie, and a catalogue has 29,000.
+        private val YEAR = Regex("(19|20)\\d{2}")
     }
 
     private fun buildRequest(action: String?, extra: Map<String, String>): Request {
@@ -80,6 +83,12 @@ class XtreamClient(
      * Huge array endpoints (live/vod/series catalogs) are decoded one element
      * at a time so a 100k-entry provider never needs the whole response in
      * memory — TV boxes have tiny heaps.
+     *
+     * On [BackgroundWork], not IO: decoding 39,000 JSON objects is minutes
+     * of CPU, and an IO thread runs at the same priority as the thread
+     * drawing the screen. The catalogue is the slowest thing the app does
+     * and nothing on screen waits on it, so it is the first thing that
+     * should yield. See [BackgroundWork].
      */
     @OptIn(ExperimentalSerializationApi::class)
     private suspend fun <T : Any> callList(
@@ -94,7 +103,7 @@ class XtreamClient(
          */
         required: Boolean = true,
         map: (JsonObject) -> T?,
-    ): List<T> = withContext(Dispatchers.IO) {
+    ): List<T> = withContext(BackgroundWork.dispatcher) {
         http.newCall(buildRequest(action, emptyMap())).execute().use { resp ->
             if (!resp.isSuccessful) {
                 if (!required) return@use emptyList()
@@ -379,7 +388,7 @@ class XtreamClient(
     }
 
     private fun yearFrom(text: String?): Int? =
-        text?.let { Regex("(19|20)\\d{2}").find(it)?.value?.toIntOrNull() }
+        text?.let { YEAR.find(it)?.value?.toIntOrNull() }
 }
 
 // --- defensive JSON accessors -------------------------------------------------

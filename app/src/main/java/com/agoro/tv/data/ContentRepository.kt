@@ -40,6 +40,70 @@ internal fun renumberChannels(bundle: ContentBundle): ContentBundle {
     return if (untouched) bundle else bundle.copy(channels = numbered)
 }
 
+/** What [ContentRepository.loadEpg] should do for one request; see [planGuideRefresh]. */
+internal data class GuideRefreshPlan(
+    /** Put the on-disk guide on screen first. */
+    val publishCache: Boolean,
+    /** Download and fold the packs. */
+    val fold: Boolean,
+) {
+    companion object {
+        val NOTHING = GuideRefreshPlan(publishCache = false, fold = false)
+    }
+}
+
+/**
+ * The freshness decision for a guide request, pulled out of [ContentRepository.loadEpg]
+ * so it can be read — and tested — without a network or a database.
+ *
+ * Two clocks, and they answer different questions. [loadedAtMs] is when
+ * THIS PROCESS last settled the guide, whether by folding or by accepting
+ * the cache: it debounces the bursts of requests a start-up produces into
+ * one. [guideSavedAtMs] is how old the guide ITSELF is — the stamp of the
+ * index on disk, or the clock at the end of the fold that built it — and
+ * is the only thing a re-download should be gated on. The old code had
+ * one variable doing both jobs: it stamped the cache's age as the
+ * process's load time, so the debounce expired before it began and the
+ * second request of every launch re-downloaded thirteen packs behind a
+ * guide that was an hour old.
+ *
+ * The gate holds regardless of whether a guide is on screen. A guide that
+ * is Ready from a progressive partial whose fold then failed is unstamped —
+ * [guideSavedAtMs] is null — and folds again; a guide that is Ready from
+ * a stamp an hour old does not, no matter who asks.
+ */
+internal fun planGuideRefresh(
+    nowMs: Long,
+    /** The request is for the guide already loaded, not a switched URL. */
+    sameUrl: Boolean,
+    /** Something is on screen already. */
+    guideReady: Boolean,
+    /** When this process last settled the guide; 0 when it never has. */
+    loadedAtMs: Long,
+    /**
+     * When the guide for this URL was written — on disk, or in memory when
+     * it is the one on screen. Null when there is none, or it is unstamped.
+     */
+    guideSavedAtMs: Long?,
+    debounceMs: Long = 15 * 60_000L,
+    /** Younger than this, the guide is not re-downloaded at all. */
+    freshMs: Long = 6 * 3600_000L,
+    /** Older than this, the cache is not worth putting on screen. */
+    usableMs: Long = 48 * 3600_000L,
+): GuideRefreshPlan {
+    // A burst — content republishing, the override flow and the 6-hour
+    // loop all landing at once — is one request, not several.
+    if (guideReady && sameUrl && nowMs - loadedAtMs < debounceMs) return GuideRefreshPlan.NOTHING
+    val guideAge = guideSavedAtMs?.let { nowMs - it }
+    val publishCache = !guideReady && guideAge != null && guideAge < usableMs
+    val fresh = guideAge != null && guideAge < freshMs
+    // A fresh guide that is not the one on screen still has to be shown —
+    // which publishing the cache does — but not re-fetched. A guide on
+    // screen for ANOTHER URL is a switch, and a switch always folds.
+    val fold = !fresh || (guideReady && !sameUrl)
+    return GuideRefreshPlan(publishCache = publishCache, fold = fold)
+}
+
 class ContentRepository(context: Context) {
 
     private val store = SourceStore(context.applicationContext)
@@ -216,15 +280,39 @@ class ContentRepository(context: Context) {
 
     private val epgMutex = Mutex()
     private val publishMutex = Mutex()
+
+    /**
+     * One catalogue fetch at a time. Nothing used to stop two: [ensureLoaded]
+     * refreshed behind the cache unconditionally, the hourly loop's first
+     * [refreshIfStale] fired in the same second, and a cold start ran the
+     * whole download-clean-curate-renumber pipeline twice over, concurrently,
+     * on a box with four small cores. A quiet refresh that finds the lock
+     * taken has nothing to add — the fetch in flight will publish — so it
+     * simply leaves. An explicit load waits its turn instead: it is either a
+     * source switch, whose result the in-flight fetch will discard as the
+     * wrong source, or a viewer pressing Refresh, who asked for a fetch and
+     * gets one.
+     */
+    private val loadMutex = Mutex()
     private var lastEpgUrl: String? = null
     private var lastEpgLoadedAt: Long = 0
 
     /**
+     * When the guide now on screen was written — the stamp of the index it
+     * came from, or the clock at the end of the fold that built it. The
+     * measure [loadEpg] gates a re-download on; see [planGuideRefresh].
+     */
+    private var guideSavedAtMs: Long = 0
+
+    /**
      * Loads the active source. A cached copy of the parsed playlist is
      * published instantly for fast starts, then refreshed from the network
-     * in the background.
+     * in the background — but only when the cache has actually aged past
+     * [maxAgeMs]. The refresh used to be unconditional, which made the 12-hour
+     * rule in [refreshIfStale] a fiction: every launch re-downloaded and
+     * re-curated the whole catalogue behind a cache that was minutes old.
      */
-    suspend fun ensureLoaded() {
+    suspend fun ensureLoaded(maxAgeMs: Long = PLAYLIST_MAX_AGE_MS) {
         val source = activeSource.first() ?: run {
             _content.value = ContentState.Empty
             return
@@ -239,10 +327,22 @@ class ContentRepository(context: Context) {
             }
             loadedSourceId = source.id
             _content.value = ContentState.Ready(cached)
-            load(source, quiet = true)
+            // An M3U whose guide URL lives only in the playlist header, with
+            // no side file yet, has to be re-read whatever its age: without
+            // the header the guide cannot load at all, and a fresh cache is
+            // no comfort for a grid of "No information".
+            val guideUrlUnknown = source is PlaylistSource.M3u &&
+                source.epgUrl.isNullOrBlank() && lastM3uTvgUrl == null
+            if (guideUrlUnknown || cacheAgeMs(source.id) >= maxAgeMs) load(source, quiet = true)
         } else {
             load(source)
         }
+    }
+
+    /** Age of the persisted catalogue; effectively infinite when there is none. */
+    private suspend fun cacheAgeMs(sourceId: String): Long = withContext(Dispatchers.IO) {
+        val stamp = cacheFile(sourceId).lastModified()
+        if (stamp == 0L) Long.MAX_VALUE else System.currentTimeMillis() - stamp
     }
 
     suspend fun refresh() {
@@ -270,11 +370,7 @@ class ContentRepository(context: Context) {
      */
     suspend fun refreshIfStale(maxAgeMs: Long) {
         val source = activeSource.first() ?: return
-        val ageMs = withContext(Dispatchers.IO) {
-            val stamp = cacheFile(source.id).lastModified()
-            if (stamp == 0L) Long.MAX_VALUE else System.currentTimeMillis() - stamp
-        }
-        if (ageMs >= maxAgeMs) refreshQuiet()
+        if (cacheAgeMs(source.id) >= maxAgeMs) refreshQuiet()
     }
 
     /** Validates a new source by fully loading it, then persists it as active. */
@@ -293,7 +389,7 @@ class ContentRepository(context: Context) {
                     loadedSourceId = source.id
                     _content.value = ContentState.Ready(bundle)
                 }
-                withContext(Dispatchers.IO) { writeCache(source.id, bundle) }
+                withContext(BackgroundWork.dispatcher) { writeCache(source.id, bundle) }
                 Result.success(Unit)
             },
             onFailure = { e ->
@@ -329,7 +425,7 @@ class ContentRepository(context: Context) {
                         _content.value = ContentState.Ready(bundle)
                     }
                 }
-                withContext(Dispatchers.IO) { writeCache(source.id, bundle) }
+                withContext(BackgroundWork.dispatcher) { writeCache(source.id, bundle) }
                 Result.success(Unit)
             },
             onFailure = { e ->
@@ -356,6 +452,19 @@ class ContentRepository(context: Context) {
     }
 
     private suspend fun load(source: PlaylistSource, quiet: Boolean = false) {
+        if (quiet) {
+            if (!loadMutex.tryLock()) return
+            try {
+                loadLocked(source, quiet = true)
+            } finally {
+                loadMutex.unlock()
+            }
+        } else {
+            loadMutex.withLock { loadLocked(source, quiet = false) }
+        }
+    }
+
+    private suspend fun loadLocked(source: PlaylistSource, quiet: Boolean) {
         if (!quiet) _content.value = ContentState.Loading("Loading ${source.name}…")
         runCatching { fetch(source) }
             .onSuccess { bundle ->
@@ -372,9 +481,18 @@ class ContentRepository(context: Context) {
                     // Drop the result if the user switched sources while we fetched.
                     if (activeSource.first()?.id != source.id) return
                     loadedSourceId = source.id
-                    _content.value = ContentState.Ready(bundle)
+                    // Off the main thread, because setting a StateFlow is a
+                    // comparison first: an unchanged refresh — the common one
+                    // — is deduped by deep-equalling the new bundle against
+                    // the one on screen, 39,000 objects of it, and that ran
+                    // on Main for every refresh. StateFlow is thread-safe;
+                    // the collectors see the value on their own dispatchers
+                    // either way.
+                    withContext(BackgroundWork.dispatcher) {
+                        _content.value = ContentState.Ready(bundle)
+                    }
                 }
-                withContext(Dispatchers.IO) { writeCache(source.id, bundle) }
+                withContext(BackgroundWork.dispatcher) { writeCache(source.id, bundle) }
                 // The refresh may have just learned something the failed guide
                 // load didn't have — an url-tvg header on the first run with no
                 // side file yet — and an unchanged bundle is deduped upstream,
@@ -408,14 +526,38 @@ class ContentRepository(context: Context) {
         // category filter, and two full list rebuilds — on every cold start,
         // every hourly refresh and every resume. A multi-second silent freeze
         // that no amount of UI work could have fixed.
-        return withContext(Dispatchers.Default) {
+        //
+        // And off Dispatchers.Default too, onto the two background-priority
+        // threads — see [BackgroundWork] for why Default was still the wrong
+        // place on a four-core box.
+        val curated = withContext(BackgroundWork.dispatcher) {
             val cleaned = CategoryCleaner.clean(raw)
             val curated =
                 if (manifest == null || !manifestApplies(source, manifest)) cleaned
                 else ManifestCuration.apply(cleaned, manifest)
             renumberChannels(curated)
         }
+        // Logos are filled HERE, before anything is published or cached,
+        // rather than in a pass over the published bundle. That pass
+        // ([enrichLogos]) published its result but never persisted it, so
+        // the bundle on screen always differed from the cache in its logos,
+        // the next refresh's bundle differed from the screen the same way,
+        // and StateFlow's dedupe — the whole reason an unchanged refresh is
+        // cheap — never once fired: three to four full publishes per start,
+        // each re-deriving every row on Home. With the logos part of the
+        // bundle at build time, an unchanged catalogue is an unchanged
+        // bundle, and a refresh that learns nothing publishes nothing.
+        return enrichedOrSame(curated)
     }
+
+    /**
+     * [curated] with its missing logos filled in, or [curated] itself when
+     * there were none to fill or the index could not be had. Never throws:
+     * a logo lookup that fails is a channel without a picture, not a
+     * catalogue that failed to load.
+     */
+    private suspend fun enrichedOrSame(curated: ContentBundle): ContentBundle =
+        runCatching { logos.enrich(curated) }.getOrNull() ?: curated
 
     /** A manifest describes one provider; applying it to another would gut the library. */
     /** The curation manifest, for the few screens that read it directly. */
@@ -465,7 +607,7 @@ class ContentRepository(context: Context) {
             }
             lastM3uTvgUrl = parsed.tvgUrl
             withContext(Dispatchers.IO) { writeTvgUrl(source.id, parsed.tvgUrl) }
-            withContext(Dispatchers.Default) {
+            withContext(BackgroundWork.dispatcher) {
                 ContentClassifier.classify(parsed.entries)
             }
         }
@@ -642,16 +784,14 @@ class ContentRepository(context: Context) {
                 merger.add(one)
                 // Publish after every pack: the first one carries most of the
                 // bindings, so the grid fills within seconds of it landing
-                // instead of waiting out the whole queue.
+                // instead of waiting out the whole queue. Whether a partial
+                // is actually published — and whether the now-window is
+                // re-queried for it — is the caller's decision: with a full
+                // cached guide already on screen it publishes nothing, and
+                // re-querying the window thirteen times for a guide nobody
+                // can see yet was thirteen rebuilds of every now/next entry.
                 latest = merger.build()
-                latest?.let {
-                    onPartial(it)
-                    // The pack is committed and published; without this the
-                    // grid would show its channels with empty rows until the
-                    // whole fold finished, which is the wait progressive
-                    // publishing exists to avoid.
-                    refreshNowWindow()
-                }
+                latest?.let { onPartial(it) }
             }
         }
         if (latest == null) throw IOException("No guide pack could be loaded")
@@ -683,6 +823,20 @@ class ContentRepository(context: Context) {
         val byGuideId: Map<String, List<EpgProgram>>,
     ) {
         fun covers(from: Long, to: Long) = from >= fromMs && to <= toMs
+
+        /** How many milliseconds of [from, to] this window has rows for. */
+        fun overlapMs(from: Long, to: Long): Long =
+            (minOf(to, toMs) - maxOf(from, fromMs)).coerceAtLeast(0)
+
+        /**
+         * Whether a reader would see any difference. A re-query of the same
+         * table for a window that has moved an hour returns the same rows
+         * for the same channels — and "the same" is all the revision is for.
+         * Deep equality over a few thousand small objects is a few
+         * milliseconds; the rebuild a false bump triggers is every channel's
+         * now/next, from scratch.
+         */
+        fun sameContentAs(other: GuideWindow) = byGuideId == other.byGuideId
     }
 
     /**
@@ -705,10 +859,10 @@ class ContentRepository(context: Context) {
     private val windowLock = Mutex()
 
     /**
-     * Bumped whenever a window is loaded. Everything that caches a read of
-     * [programsFor] keys on it — the window fills after the guide publishes,
-     * so a cache keyed only on the guide would hold the empty answer it got
-     * while the query was still running.
+     * Bumped whenever a window's CONTENT changes. Everything that caches a
+     * read of [programsFor] keys on it — the window fills after the guide
+     * publishes, so a cache keyed only on the guide would hold the empty
+     * answer it got while the query was still running.
      */
     private val _guideWindowRevision = MutableStateFlow(0)
     val guideWindowRevision: StateFlow<Int> = _guideWindowRevision
@@ -718,21 +872,31 @@ class ContentRepository(context: Context) {
     private val NOW_WINDOW_AHEAD_MS = 32L * 3600 * 1000
 
     /**
+     * The guide ids worth querying: the bound ones, not every id in the
+     * guide — a feed carries channels this playlist does not, and querying
+     * for them costs rows nothing will ever draw. Before the resolution is
+     * warm, everything with a schedule is the honest answer. Null when there
+     * is no guide at all.
+     */
+    private suspend fun queryIds(): Set<String>? = withContext(Dispatchers.Default) {
+        resolveEpg()?.byChannelId?.values?.toSet()
+            ?: (_epg.value as? EpgState.Ready)?.data?.channelsWithProgrammes
+    }
+
+    /**
      * Loads the programmes for [fromMs, toMs] if they are not already
      * resident. Call from a coroutine; [programsFor] only reads what this
      * leaves behind, because it is called per channel from composition.
      */
     suspend fun ensureGuideWindow(fromMs: Long, toMs: Long) {
-        if (nowWindow?.covers(fromMs, toMs) == true) return
+        if (nowWindow?.covers(fromMs, toMs) == true) {
+            // Covered, but the clock may have walked deep into the window
+            // since it was loaded; this is the cheapest moment to notice.
+            refreshNowWindowIfDrifted()
+            return
+        }
         if (pagedWindow?.covers(fromMs, toMs) == true) return
-        // The bound ids, not every id in the guide: a feed carries channels
-        // this playlist does not, and querying for them costs rows nothing
-        // will ever draw. Before the resolution is warm, everything with a
-        // schedule is the honest answer.
-        val ids = withContext(Dispatchers.Default) {
-            resolveEpg()?.byChannelId?.values?.toSet()
-                ?: (_epg.value as? EpgState.Ready)?.data?.channelsWithProgrammes
-        } ?: return
+        val ids = queryIds() ?: return
         windowLock.withLock {
             if (nowWindow?.covers(fromMs, toMs) == true) return
             if (pagedWindow?.covers(fromMs, toMs) == true) return
@@ -745,11 +909,46 @@ class ContentRepository(context: Context) {
         }
     }
 
-    /** Reloads the now-window — after an ingest, or when now has walked out of it. */
+    /**
+     * Reloads the now-window — after an ingest, or when now has walked out
+     * of it.
+     *
+     * Queried into a local and SWAPPED under the lock. It used to null the
+     * window first and then query, so between the two every row read "No
+     * information" — and the fold called this after each of thirteen packs,
+     * so the grid blinked thirteen times on every guide refresh. The old
+     * window stays readable until the new one is ready, and the revision
+     * only moves when the rows actually differ, so an ingest that changed
+     * nothing costs the screen nothing.
+     */
     suspend fun refreshNowWindow() {
         val now = System.currentTimeMillis()
-        windowLock.withLock { nowWindow = null }
-        ensureGuideWindow(now - NOW_WINDOW_BACK_MS, now + NOW_WINDOW_AHEAD_MS)
+        val fromMs = now - NOW_WINDOW_BACK_MS
+        val toMs = now + NOW_WINDOW_AHEAD_MS
+        val ids = queryIds() ?: return
+        val loaded = withContext(Dispatchers.IO) {
+            GuideWindow(fromMs, toMs, guide.programmes(ids, fromMs, toMs))
+        }
+        windowLock.withLock {
+            val previous = nowWindow
+            nowWindow = loaded
+            if (previous == null || !previous.sameContentAs(loaded)) _guideWindowRevision.value++
+        }
+    }
+
+    /**
+     * Re-extends the now-window once the clock has used up half its
+     * headroom. Nothing else would: a guide judged fresh is not re-folded,
+     * and a fold is what used to be the only thing that moved the window —
+     * so on a box left on for a day the "hours around now" were the hours
+     * around yesterday afternoon, and the grid's forward reach had quietly
+     * shrunk to nothing.
+     */
+    suspend fun refreshNowWindowIfDrifted() {
+        val window = nowWindow ?: return
+        val now = System.currentTimeMillis()
+        val remaining = window.toMs - now
+        if (remaining < NOW_WINDOW_AHEAD_MS / 2) refreshNowWindow()
     }
 
     /**
@@ -835,46 +1034,59 @@ class ContentRepository(context: Context) {
             _epg.value = EpgState.Error("No EPG source configured for this playlist")
             return
         }
-        // One download at a time, and don't re-fetch the same guide within 15 min
-        // (content republishes — e.g. logo enrichment — would otherwise re-trigger it).
+        // One download at a time. What to do — nothing, publish the cache,
+        // fold, or both — is a pure decision in [planGuideRefresh]; the
+        // history of getting it wrong is written on that function.
         epgMutex.withLock {
-            val fresh = url == lastEpgUrl &&
-                System.currentTimeMillis() - lastEpgLoadedAt < 15 * 60_000 &&
-                _epg.value is EpgState.Ready
-            if (fresh) return@withLock
-            // The last run's merged guide, published instantly: a slightly
-            // stale grid beats minutes of spinner while a dozen packs download.
-            // Younger than the app's own 6-hour refresh cycle there is nothing
-            // to fetch at all; older, the download still runs behind it. The
-            // 48h ceiling is the guide window — beyond it the cache holds
-            // nothing that is still on air.
-            if (_epg.value !is EpgState.Ready) {
-                val cached = withContext(Dispatchers.IO) {
-                    deleteLegacyEpgCache()
-                    // Both halves have to agree: the index names the channels
-                    // and the table holds their schedule, and an index without
-                    // its table would publish a guide of empty rows.
-                    val index = readEpgIndex()?.takeIf { it.url == url }
-                    val stamp = guide.readStamp()?.takeIf { it.first == url }
-                    if (index != null && stamp != null) index else null
-                }
-                if (cached != null) {
-                    val age = System.currentTimeMillis() - cached.savedAtMs
-                    if (age < 48 * 3600_000L) {
-                        _epg.value = EpgState.Ready(cached.data)
-                        lastEpgUrl = url
-                        lastEpgLoadedAt = cached.savedAtMs
-                        refreshNowWindow()
-                        if (age < 6 * 3600_000L) return@withLock
-                    }
-                }
+            val ready = _epg.value is EpgState.Ready
+            val sameUrl = url == lastEpgUrl
+            // The last run's merged guide, read only when nothing is on
+            // screen: a slightly stale grid beats minutes of spinner while a
+            // dozen packs download. Both halves have to agree — the index
+            // names the channels and the table holds their schedule, and an
+            // index without its table would publish a guide of empty rows.
+            val cached = if (ready) null else withContext(Dispatchers.IO) {
+                deleteLegacyEpgCache()
+                val index = readEpgIndex()?.takeIf { it.url == url }
+                val stamp = guide.readStamp()?.takeIf { it.first == url }
+                if (index != null && stamp != null) index else null
+            }
+            val plan = planGuideRefresh(
+                nowMs = System.currentTimeMillis(),
+                sameUrl = sameUrl,
+                guideReady = ready,
+                loadedAtMs = lastEpgLoadedAt,
+                guideSavedAtMs = when {
+                    cached != null -> cached.savedAtMs
+                    ready && sameUrl -> guideSavedAtMs
+                    else -> null
+                },
+            )
+            if (plan.publishCache && cached != null) {
+                publishGuide(cached.data)
+                lastEpgUrl = url
+                // The clock, not the cache's own stamp. Stamping the cache's
+                // age here is what made every launch re-download the guide:
+                // the 15-minute debounce measured from a stamp up to six
+                // hours old, so the second call of every cold start — and
+                // there were always two — sailed past it into a full
+                // thirteen-pack fold behind a guide that was perfectly good.
+                lastEpgLoadedAt = System.currentTimeMillis()
+                guideSavedAtMs = cached.savedAtMs
+                refreshNowWindow()
+            }
+            if (!plan.fold) {
+                // Judged fresh, so no fold will move the window; the clock
+                // still has. See [refreshNowWindowIfDrifted].
+                refreshNowWindowIfDrifted()
+                return@withLock
             }
             // Progressive publishing is for a cold start only: with a full
             // cached guide on screen, a one-pack partial would briefly shrink
             // the grid before the fold catches back up.
             val publishPartials = _epg.value !is EpgState.Ready
             if (publishPartials) _epg.value = EpgState.Loading
-            withContext(Dispatchers.IO) {
+            withContext(BackgroundWork.dispatcher) {
                 runCatching {
                     // Several feeds merge into one guide: the manifest's ids are
                     // spread across a handful of packs, and a viewer wants one
@@ -885,7 +1097,15 @@ class ContentRepository(context: Context) {
                             stampUrl = url,
                             wantedKeys = ::wantedGuideKeys,
                         ) { partial ->
-                            if (publishPartials) _epg.value = EpgState.Ready(partial)
+                            if (publishPartials) {
+                                publishGuide(partial)
+                                // The pack is committed and published; without
+                                // this the grid would show its channels with
+                                // empty rows until the whole fold finished,
+                                // which is the wait progressive publishing
+                                // exists to avoid.
+                                refreshNowWindow()
+                            }
                         }
                     }
                     val request = Request.Builder().url(url).header("User-Agent", "Agoro/2.1").build()
@@ -923,15 +1143,19 @@ class ContentRepository(context: Context) {
                         parsed ?: throw IOException("Empty guide response")
                     }
                 }.onSuccess { data ->
-                    _epg.value = EpgState.Ready(data)
+                    publishGuide(data)
                     lastEpgUrl = url
                     lastEpgLoadedAt = System.currentTimeMillis()
+                    guideSavedAtMs = lastEpgLoadedAt
                     // Stamped only on a complete ingest — a table stamped from
                     // a half-finished download would be trusted on the next
                     // start and never re-fetched. Same reason the index is
                     // written only on a real fetch: re-stamping it when a
                     // refresh fails would disguise stale data as fresh.
                     writeEpgIndex(url, data)
+                    // Once, at the end — not once per pack. Swapped, not
+                    // blanked, so a guide that came back the same costs the
+                    // screen nothing at all.
                     refreshNowWindow()
                 }.onFailure { e ->
                     android.util.Log.w("Agoro", "EPG load failed: ${e.message}")
@@ -942,6 +1166,30 @@ class ContentRepository(context: Context) {
                 }
             }
         }
+    }
+
+    /**
+     * Publishes a guide with its channel resolution already warm.
+     *
+     * Order matters. [guideIdFor] trusts the resolution only while it is for
+     * the guide on screen; publish first and the new guide arrives with a
+     * resolution for the old one, so every row falls back to exact-id
+     * lookups — which bind a fraction of the channels — and the now-window,
+     * which is still the old one, answers for the rest with nothing. A blink
+     * of "No information" across the grid on every refresh, for the length
+     * of a resolve. Resolving BEFORE the swap means the first read of the
+     * new guide is as complete as the last read of the old one.
+     *
+     * On Default rather than [BackgroundWork]: the cache path reaches here
+     * from the view model's own scope, and a resolve over every channel is
+     * not main-thread work — but it is work the first frame of the grid is
+     * waiting on, so it does not queue behind a catalogue fetch either.
+     */
+    private suspend fun publishGuide(data: XmltvData) = withContext(Dispatchers.Default) {
+        (_content.value as? ContentState.Ready)?.bundle?.let { bundle ->
+            resolvedEpg = ResolvedEpg(bundle, data, EpgMatcher.resolve(bundle.channels, data))
+        }
+        _epg.value = EpgState.Ready(data)
     }
 
     private class ResolvedEpg(
@@ -995,13 +1243,26 @@ class ContentRepository(context: Context) {
      * Thursday's programme as what is on right now.
      */
     fun programsIn(channel: LiveChannel, fromMs: Long, toMs: Long): List<EpgProgram> {
+        val resident = nowWindow
+        val paged = pagedWindow
+        // A full cover wins; failing that, the window with the most of the
+        // span. The rule used to be full cover or nothing, and the grid asks
+        // for 29 hours ahead of a window loaded 32 hours ahead of an earlier
+        // now — so from three hours after every fetch, until something
+        // re-queried, every cell in the guide read empty for want of the
+        // last half-hour. The rows are time-stamped and the grid clips them
+        // to its span anyway, so a partial window draws the hours it has
+        // and only the uncovered tail reads as nothing.
         val window = when {
-            nowWindow?.covers(fromMs, toMs) == true -> nowWindow
-            pagedWindow?.covers(fromMs, toMs) == true -> pagedWindow
-            else -> return emptyList()
+            resident?.covers(fromMs, toMs) == true -> resident
+            paged?.covers(fromMs, toMs) == true -> paged
+            else -> listOfNotNull(resident, paged)
+                .maxByOrNull { it.overlapMs(fromMs, toMs) }
+                ?.takeIf { it.overlapMs(fromMs, toMs) > 0 }
+                ?: return emptyList()
         }
         val guideId = guideIdFor(channel) ?: return emptyList()
-        return window?.byGuideId?.get(guideId) ?: emptyList()
+        return window.byGuideId[guideId] ?: emptyList()
     }
 
     /**
@@ -1009,12 +1270,37 @@ class ContentRepository(context: Context) {
      * the tv-logos repo. Runs after manifest curation and only touches
      * channels still without art, so the build-time matches win — the live
      * name matcher resolves ~1% of this provider's names, the manifest ~55%.
+     *
+     * Normally a no-op: [fetch] fills logos before a bundle is published or
+     * cached, so there is nothing left here to find. It earns its keep twice
+     * over. A cache written before logos were part of the fetch carries none
+     * of the borrowed ones, and a warm start must publish it as it is — an
+     * index that has to be downloaded first would hold the first paint
+     * behind a GitHub request — so the fill lands here, after. And a logo
+     * index that could not be had at fetch time (a rate limit on the first
+     * run) gets another chance. Either way the result is PERSISTED: an
+     * enriched screen over an unenriched cache is exactly the mismatch that
+     * used to defeat the dedupe on every refresh.
      */
     suspend fun enrichLogos() {
         val ready = _content.value as? ContentState.Ready ?: return
         val enriched = runCatching { logos.enrich(ready.bundle) }.getOrNull() ?: return
         // Only publish if the playlist hasn't been swapped underneath us.
-        if (_content.value === ready) _content.value = ContentState.Ready(enriched)
+        val sourceId = publishMutex.withLock {
+            if (_content.value !== ready) return
+            // Off Main for the same reason as in [loadLocked]: the set is a
+            // deep compare against the bundle on screen first.
+            withContext(BackgroundWork.dispatcher) { _content.value = ContentState.Ready(enriched) }
+            loadedSourceId
+        } ?: return
+        withContext(BackgroundWork.dispatcher) {
+            // The file's mtime is the catalogue's "last refreshed" stamp
+            // ([refreshIfStale]); the logos are not a refresh and must not
+            // push the next one back by twelve hours.
+            val stamp = cacheFile(sourceId).lastModified()
+            writeCache(sourceId, enriched)
+            if (stamp != 0L) runCatching { cacheFile(sourceId).setLastModified(stamp) }
+        }
     }
 
     /** Re-adds sources from a backup and reloads the active one. */
@@ -1123,6 +1409,14 @@ class ContentRepository(context: Context) {
 
     companion object {
         fun newSourceId(): String = UUID.randomUUID().toString()
+
+        /**
+         * How old the cached catalogue may grow before a quiet refresh
+         * re-fetches it. The view model's hourly loop and [ensureLoaded]
+         * measure against the same rule, so a start-up is never a refresh
+         * the loop would have refused a minute later.
+         */
+        const val PLAYLIST_MAX_AGE_MS = 12 * 60 * 60 * 1000L
 
         const val EPGSHARE_BASE = "https://epgshare01.online/epgshare01/epg_ripper_"
         /**

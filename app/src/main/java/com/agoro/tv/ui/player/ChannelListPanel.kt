@@ -105,9 +105,14 @@ internal fun ChannelListPanel(
         )
     }
     val allView by vm.allChannelsView.collectAsState()
-    val categoryChannels = remember(categoryId, allChannels, favorites, recents, allView) {
+    // A lookup, not a filter over every channel — see LiveCategoryIndex.
+    val byCategory by vm.channelsByCategory.collectAsState()
+    val categoryChannels = remember(categoryId, allChannels, favorites, recents, allView, byCategory) {
         if (categoryId == null) emptyList()
-        else channelsInCategory(categoryId!!, allChannels, favorites, recents, allChannels = allView)
+        else channelsInCategory(
+            categoryId!!, allChannels, favorites, recents,
+            allChannels = allView, byCategory = byCategory,
+        )
     }
     val browsingCategory = categoryId != null
 

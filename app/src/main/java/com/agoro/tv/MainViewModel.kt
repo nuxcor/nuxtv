@@ -53,7 +53,7 @@ private const val BACKUP_FILE = "agoro-backup.json"
 private const val LEGACY_BACKUP_FILE = "dzidzi-backup.json"
 
 /** How old the cached catalog may grow before a quiet refresh re-fetches it. */
-private const val PLAYLIST_MAX_AGE_MS = 12 * 60 * 60 * 1000L
+private const val PLAYLIST_MAX_AGE_MS = com.agoro.tv.data.ContentRepository.PLAYLIST_MAX_AGE_MS
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -431,6 +431,141 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .flowOn(kotlinx.coroutines.Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(60_000), emptyList())
 
+    // --- Catalogue indexes ---------------------------------------------------
+    //
+    // The VOD and live catalogues, indexed once per bundle off the main
+    // thread, the way [displayChannels] already folds the channel list. The
+    // browse tabs used to do this work in composition — Home, Movies and
+    // Shows each walked the 23,000-title catalogue on every bundle publish
+    // and every return to the tab, and a category chip cost a filter over
+    // all of it. On a quad-core A53 those were the frames the viewer waited
+    // through with nothing on screen. The joins themselves live in
+    // HomeRows.kt beside their tests; this is the one place they run.
+
+    /**
+     * [displayChannels] grouped by provider category, so a category switch
+     * in Live TV is a lookup rather than a pass over every channel.
+     */
+    val channelsByCategory: StateFlow<com.agoro.tv.ui.screens.LiveCategoryIndex> =
+        displayChannels.map { com.agoro.tv.ui.screens.LiveCategoryIndex.of(it) }
+            .flowOn(kotlinx.coroutines.Dispatchers.Default)
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(60_000),
+                com.agoro.tv.ui.screens.LiveCategoryIndex.empty,
+            )
+
+    /**
+     * Reuses the last index when neither the bundle nor the lock changed.
+     * WhileSubscribed tears the combine down a minute after the last browse
+     * tab leaves, and on the next visit every upstream StateFlow replays its
+     * current value — which would rebuild an index of the very same bundle.
+     * Identity, not equality: comparing two 23,000-title bundles is the cost
+     * this exists to avoid.
+     */
+    @Volatile private var catalogIndexCache: com.agoro.tv.ui.screens.CatalogIndex? = null
+    @Volatile private var catalogIndexCachePin: String? = null
+
+    /**
+     * The open catalogue and the personal shelves over it — see
+     * [com.agoro.tv.ui.screens.CatalogIndex] and [com.agoro.tv.ui.screens.Catalog].
+     *
+     * Two stages on purpose. The index (parental filter, per-category and
+     * per-url maps, the dated titles sorted) depends only on the bundle and
+     * the lock; the shelves over it depend on resume positions, which are
+     * written every few seconds of playback. One combine would have rebuilt
+     * the whole index on every one of those writes.
+     *
+     * Null until the first index lands: the tabs draw nothing for that beat
+     * rather than a catalogue built from the previous playlist.
+     */
+    internal val catalog: StateFlow<com.agoro.tv.ui.screens.Catalog?> =
+        kotlinx.coroutines.flow.combine(
+            content,
+            kotlinx.coroutines.flow.combine(playerPrefs.parentalPin, _parentalUnlocked) { pin, unlocked ->
+                pin.takeIf { !unlocked }
+            }.distinctUntilChanged(),
+        ) { c, effectivePin ->
+            val bundle = (c as? ContentState.Ready)?.bundle ?: return@combine null
+            val cached = catalogIndexCache
+            if (cached != null && cached.bundle === bundle && catalogIndexCachePin == effectivePin) {
+                cached
+            } else {
+                com.agoro.tv.ui.screens.buildCatalogIndex(bundle) { name ->
+                    effectivePin != null && adultPattern.containsMatchIn(name)
+                }.also {
+                    catalogIndexCache = it
+                    catalogIndexCachePin = effectivePin
+                }
+            }
+        }
+            .let { index ->
+                kotlinx.coroutines.flow.combine(
+                    index, resumePositions, resumeProgress, episodeOrigins, hiddenTitles,
+                ) { idx, positions, progress, origins, hidden ->
+                    idx?.let {
+                        com.agoro.tv.ui.screens.buildCatalog(it, positions, progress, origins, hidden)
+                    }
+                }
+            }
+            .flowOn(kotlinx.coroutines.Dispatchers.Default)
+            // A minute, like displayChannels: long enough that a trip to the
+            // player and back does not rebuild the index.
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(60_000), null)
+
+    /**
+     * How long a fixture parse stays good. The parse reads kick-off times
+     * relative to the clock it was given — a slot more than a day out is
+     * dropped as noise — so one taken this morning is missing tonight's late
+     * additions by the evening. An hour keeps it honest without re-reading
+     * six thousand slots on every visit.
+     */
+    private val sportParseTtlMs = 60L * 60 * 1000
+
+    @Volatile private var sportCacheEvents: List<LiveChannel>? = null
+    @Volatile private var sportCacheSport: com.agoro.tv.data.Sport? = null
+    @Volatile private var sportCacheAtMs: Long = 0L
+    @Volatile private var sportCache: List<com.agoro.tv.data.SportsEvent>? = null
+
+    /**
+     * The Sport destination's fixtures, parsed out of the PPV slots.
+     *
+     * Parsed OFF the main thread, and kept: this reads six thousand slots,
+     * several regexes each, against every club of every league. It used to
+     * live in the tab as a produceState, which meant the parse was thrown
+     * away every time the tab left composition and redone on the next visit
+     * — and re-keyed on the events list, so a republished bundle re-ran it
+     * even when the slots had not changed. Cached by the identity of the
+     * slot list, it runs once per playlist load and once an hour after that.
+     *
+     * Null until the first parse lands; an empty list when the manifest
+     * carries no leagues.
+     */
+    val sportFixtures: StateFlow<List<com.agoro.tv.data.SportsEvent>?> =
+        kotlinx.coroutines.flow.combine(content, sport) { c, s ->
+            val bundle = (c as? ContentState.Ready)?.bundle ?: return@combine null
+            val leagues = s?.leagues.orEmpty()
+            if (leagues.isEmpty()) return@combine emptyList()
+            val now = System.currentTimeMillis()
+            val cached = sportCache
+            if (cached != null && sportCacheEvents === bundle.events && sportCacheSport === s &&
+                now - sportCacheAtMs < sportParseTtlMs
+            ) {
+                return@combine cached
+            }
+            com.agoro.tv.data.SportsParser.parseAll(
+                bundle.events.mapNotNull { ch -> ch.xtreamId?.let { it to ch.name } },
+                now, leagues, s?.ambiguous.orEmpty().toSet(),
+            ).also {
+                sportCacheEvents = bundle.events
+                sportCacheSport = s
+                sportCacheAtMs = now
+                sportCache = it
+            }
+        }
+            .flowOn(kotlinx.coroutines.Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(60_000), null)
+
     var playback by mutableStateOf<PlaybackRequest?>(null)
         private set
 
@@ -444,7 +579,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         // Before anything reads URL-keyed prefs: live URLs changed .m3u8 → .ts
         // and favorites/hidden/learned-quality keys must follow them.
         viewModelScope.launch { playerPrefs.migrateLiveUrlsToTs() }
-        viewModelScope.launch { repo.ensureLoaded() }
+        // The same age rule the hourly loop applies, so a launch is never a
+        // refresh the loop would have refused a minute later.
+        viewModelScope.launch { repo.ensureLoaded(PLAYLIST_MAX_AGE_MS) }
         // Periodic quiet playlist refresh, mirroring the EPG's 6h cycle at a
         // gentler cadence — catalogs change daily, guides hourly. Checked
         // hourly against the persisted cache age rather than delaying a full
@@ -457,13 +594,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         refreshRecordings()
-        // Reload the guide when a playlist loads or the EPG override changes,
-        // fill in missing channel logos, and keep schedules' alarms registered.
+        // Load the guide when a playlist becomes readable and whenever the
+        // playlist it belongs to changes — NOT on every publish of content.
+        // A cold start publishes the catalogue at least twice (the cache,
+        // then the refresh behind it), and each publish used to be a guide
+        // request; the repository's debounce was meant to fold those into
+        // one and, for reasons written on planGuideRefresh, did not. Keyed
+        // on the source id, the second publish of the same playlist is not
+        // a request at all. The override has its own collector below.
         viewModelScope.launch {
-            repo.content.collect {
-                if (it is ContentState.Ready) {
+            guideSourceKey().collect { sourceId ->
+                if (sourceId != null) {
+                    // Beside the guide, not after it: a cold fold holds
+                    // loadEpg for minutes, and a cache from before logos
+                    // were part of the fetch would have sat bare that long.
+                    launch { repo.enrichLogos() }
                     repo.loadEpg(playerPrefs.epgOverrideUrl.first())
-                    repo.enrichLogos()
                 }
             }
         }
@@ -498,6 +644,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    /**
+     * The id of the playlist whose catalogue is on screen, null while there
+     * is none. Distinct, so the catalogue republishing — a refresh behind
+     * the cache, a logo fill — is not a new value; only a different playlist
+     * becoming readable is.
+     */
+    private fun guideSourceKey(): kotlinx.coroutines.flow.Flow<String?> =
+        combine(repo.content, repo.activeSource) { c, source ->
+            if (c is ContentState.Ready) source?.id else null
+        }.distinctUntilChanged()
 
     fun checkForUpdates() {
         viewModelScope.launch {
@@ -946,9 +1103,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             viewModelScope, SharingStarted.Eagerly, emptyMap(),
         )
 
+    /** The tier a stream was last seen to decode at ("4K", "FHD", …), or null if never watched. */
+    fun knownTierOf(url: String): String? = knownQualitiesNow.value[url]
+
     /** Remember what a stream really decodes at, so lists stop repeating the name's lie. */
     fun recordDecodedQuality(url: String, height: Int) {
         val tier = com.agoro.tv.data.QualityTag.tierOf(height) ?: return
+        // Already known at this tier: nothing to write, and — more to the
+        // point — nothing to re-emit. A write here fans out to a JSON decode,
+        // a prefs rewrite and a full re-sort of displayChannels, so the
+        // cheapest version of that is the one that never starts.
+        if (knownQualitiesNow.value[url] == tier) return
         viewModelScope.launch { playerPrefs.setKnownQuality(url, tier) }
     }
 
@@ -1169,20 +1334,52 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun playChannels(channels: List<LiveChannel>, startIndex: Int) {
         playback = PlaybackRequest(
-            items = channels.map {
-                PlayableItem(
-                    url = it.url,
-                    title = it.displayName,
-                    subtitle = "Live",
-                    artwork = it.logo,
-                    channelId = it.id,
-                    recordUrl = it.recordUrl,
-                    fallbackUrls = it.fallbackUrls,
-                )
-            },
+            items = LiveItems(channels),
             startIndex = startIndex.coerceIn(0, (channels.size - 1).coerceAtLeast(0)),
             isLive = true,
         )
+    }
+
+    /**
+     * A channel list seen as playable items, mapped on read.
+     *
+     * OK on a channel used to map the whole list it came from into items
+     * before anything navigated — and from "All channels" that list is every
+     * channel the playlist has, thousands of them, each read through
+     * [LiveChannel.displayName], which is six regex passes the first time.
+     * A pause of most of a second between the press and the picture, spent
+     * building a playlist the player reads one entry of. The player asks by
+     * index, so that is when an entry is built; the rest never are unless
+     * the viewer actually walks to them. An entry once built is kept, so a
+     * walk that does happen — a digit tune searching the list for a channel
+     * — costs what the old eager map did, once, and nothing after.
+     *
+     * Equality is the underlying channels', never an element walk: the
+     * request lives in a Compose state that compares old and new on every
+     * assignment, and a structural compare of two lazy views would be the
+     * full map twice over — the exact cost this exists to avoid.
+     */
+    private class LiveItems(private val channels: List<LiveChannel>) : AbstractList<PlayableItem>() {
+        private val built = arrayOfNulls<PlayableItem>(channels.size)
+
+        override val size: Int get() = channels.size
+
+        override fun get(index: Int): PlayableItem = built[index] ?: channels[index].let {
+            PlayableItem(
+                url = it.url,
+                title = it.displayName,
+                subtitle = "Live",
+                artwork = it.logo,
+                channelId = it.id,
+                recordUrl = it.recordUrl,
+                fallbackUrls = it.fallbackUrls,
+            )
+        }.also { built[index] = it }
+
+        override fun equals(other: Any?): Boolean =
+            if (other is LiveItems) channels == other.channels else super.equals(other)
+
+        override fun hashCode(): Int = channels.hashCode()
     }
 
     fun playMovie(movie: Movie, startOver: Boolean = false) {

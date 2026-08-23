@@ -13,21 +13,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,8 +51,6 @@ import com.agoro.tv.ui.theme.NuxColors
 import com.agoro.tv.ui.theme.NuxFocus
 import com.agoro.tv.ui.theme.NuxShape
 import com.agoro.tv.ui.theme.Space
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -78,9 +74,6 @@ fun SportTab(
     val sport by vm.sport.collectAsState()
     val leagues = sport?.leagues.orEmpty()
     val cue = sport?.cueMinutes ?: 60
-    // Remembered so the produceState keys below stay the same instances
-    // between recompositions instead of fresh collections to compare.
-    val ambiguous = remember(sport) { sport?.ambiguous.orEmpty().toSet() }
     val leagueOrder = remember(leagues) { leagues.keys.toList() }
 
     // Before the parse, not after it. With no leagues there is nothing to look
@@ -99,25 +92,13 @@ fun SportTab(
         return
     }
 
-    // Parsed OFF the main thread, and once — not on every minute tick.
-    //
-    // This reads six thousand PPV slots, several regexes each, against every
-    // club of every league. In composition on the main thread that froze the
-    // app the moment the tab was opened on a streaming stick, and then froze
-    // it again every sixty seconds. It is time-independent work, so it belongs
-    // behind the catalogue, not behind the clock.
-    val parsed by produceState<List<SportsEvent>?>(null, bundle.events, leagues, ambiguous) {
-        // Cleared first: produceState keeps its last value across a key
-        // change, so a re-parse would otherwise go on rendering the previous
-        // catalogue's fixtures until the new ones landed.
-        value = null
-        value = withContext(Dispatchers.Default) {
-            SportsParser.parseAll(
-                bundle.events.mapNotNull { ch -> ch.xtreamId?.let { it to ch.name } },
-                System.currentTimeMillis(), leagues, ambiguous,
-            )
-        }
-    }
+    // Parsed OFF the main thread, once per playlist, and KEPT — see
+    // [MainViewModel.sportFixtures]. As a produceState here the parse was
+    // thrown away every time the tab left composition, so every visit
+    // re-read six thousand slots, several regexes each, against every club
+    // of every league; and it was keyed on the events list, so a republished
+    // bundle re-ran it even when the slots had not changed.
+    val parsed by vm.sportFixtures.collectAsState()
 
     // Null means the first parse has not landed. Saying "nothing on right now"
     // and then replacing it a second later reads as a fault, so say nothing.
@@ -127,10 +108,15 @@ fun SportTab(
     }
     // The clock lives in here, not up there. Ticking in this composable would
     // recompose the whole of SportTab every thirty seconds — the manifest
-    // collect, the produceState scope and every key it compares — so that a
-    // label could say "in 5 min". Only the part that reads the clock should
-    // answer to it.
+    // collect and the fixtures collect — so that a label could say "in 5
+    // min". Only the part that reads the clock should answer to it.
     Fixtures(parsed.orEmpty(), leagueOrder, cue, onPlay, onBrowse, vm)
+}
+
+/** One line of the fixture list: a league heading or a fixture under it. */
+private sealed interface FixtureLine {
+    data class Header(val league: String) : FixtureLine
+    data class Fixture(val league: String, val event: SportsEvent) : FixtureLine
 }
 
 @Composable
@@ -172,10 +158,19 @@ private fun Fixtures(
 
     // Grouped by league, in the manifest's own order, so the sports a viewer
     // follows sit where they were last time rather than moving with the
-    // fixture list.
-    val byLeague = remember(fixtures, leagueOrder) {
-        leagueOrder.mapNotNull { league ->
-            fixtures.filter { it.league == league }.takeIf { it.isNotEmpty() }?.let { league to it }
+    // fixture list — and FLATTENED, one lazy item per line. Each league used
+    // to be a single item holding every one of its rows in a Column, so a
+    // PPV league carrying 150 fixtures composed 150 Surfaces the moment it
+    // scrolled into view. A lazy list can only be lazy about what it is
+    // handed one at a time.
+    val lines = remember(fixtures, leagueOrder) {
+        buildList {
+            for (league in leagueOrder) {
+                val inLeague = fixtures.filter { it.league == league }
+                if (inLeague.isEmpty()) continue
+                add(FixtureLine.Header(league))
+                inLeague.forEach { add(FixtureLine.Fixture(league, it)) }
+            }
         }
     }
 
@@ -187,39 +182,60 @@ private fun Fixtures(
     // and keying on the first fixture would re-seat focus every time the
     // order changed under a 30-second tick.
     val firstRowFocus = rememberInitialFocus(Unit)
-    val firstShown = byLeague.firstOrNull()?.second?.firstOrNull()
+    // The first row ON SCREEN — fixtures.first() is the earliest kick-off,
+    // which can sit in the last league and drag the list to the bottom.
+    val firstShown = lines.indexOfFirst { it is FixtureLine.Fixture }
     val clock = rememberClockFormat()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         // Leagues need air between them; fixtures inside one belong together.
-        verticalArrangement = Arrangement.spacedBy(Space.l),
+        // Headings carry the league gap above them, rows the tight one.
         contentPadding = PaddingValues(bottom = Space.xl),
     ) {
-        items(byLeague, key = { it.first }) { (league, list) ->
-            Column {
-                SectionTitle(league)
-                // The cap lives on the container, not the rows. Put on the
-                // row itself it was ignored — the TV Surface fills whatever it
-                // is given — so the width has to be gone before it gets there.
-                Column(
-                    modifier = Modifier.widthIn(max = FixtureRowWidth),
-                    verticalArrangement = Arrangement.spacedBy(Space.xs),
-                ) {
-                    list.forEach { event ->
-                        FixtureRow(
-                            event, now, clock,
-                            // The first row ON SCREEN — fixtures.first() is
-                            // the earliest kick-off, which can sit in the
-                            // last league and drag the list to the bottom.
-                            modifier = if (event === firstShown) {
-                                Modifier.focusRequester(firstRowFocus)
-                            } else Modifier,
-                        ) {
+        itemsIndexed(
+            lines,
+            key = { _, line ->
+                when (line) {
+                    is FixtureLine.Header -> "h:${line.league}"
+                    is FixtureLine.Fixture -> "f:${line.league}:${line.event.streamId}"
+                }
+            },
+            contentType = { _, line -> line is FixtureLine.Header },
+        ) { index, line ->
+            when (line) {
+                is FixtureLine.Header -> SectionTitle(
+                    line.league,
+                    modifier = Modifier.padding(top = if (index == 0) 0.dp else Space.l),
+                )
+                is FixtureLine.Fixture -> {
+                    val event = line.event
+                    // Per row, from the tick: only the rows whose label
+                    // actually changed this minute recompose. Passing the
+                    // clock itself to every row made every row answer to it.
+                    val status = fixtureStatus(event, now, clock)
+                    // Remembered on the event by VALUE: upcoming() hands back
+                    // fresh copies each minute, and a lambda capturing a new
+                    // instance is a new lambda, which is a changed parameter,
+                    // which is a recomposed row.
+                    val play = remember(event) {
+                        {
                             vm.playEvent(event.streamId, event.alternates)
                             onPlay()
                         }
                     }
+                    FixtureRow(
+                        home = event.home,
+                        away = event.away,
+                        status = status,
+                        // Fixtures inside a league belong together; the
+                        // first one sits straight under its heading.
+                        gapAbove = if (lines[index - 1] is FixtureLine.Fixture) Space.xs else 0.dp,
+                        focus = if (index == firstShown) {
+                            Modifier.focusRequester(firstRowFocus)
+                        } else Modifier,
+                        onClick = play,
+                    )
                 }
             }
         }
@@ -242,17 +258,29 @@ private val FixtureRowWidth = 620.dp
 /** The status column, fixed so the clubs line up down the page. */
 private val StatusColumnWidth = 96.dp
 
+/**
+ * One fixture. Takes strings, not the event and the clock: every parameter
+ * here is stable and compared by value, so a row whose label did not change
+ * this minute is skipped outright.
+ */
 @Composable
 private fun FixtureRow(
-    event: SportsEvent,
-    nowMs: Long,
-    clock: SimpleDateFormat,
-    modifier: Modifier = Modifier,
+    home: String,
+    away: String,
+    /** The label to print, or null for the LIVE badge. */
+    status: String?,
+    gapAbove: androidx.compose.ui.unit.Dp,
+    /** Goes on the Surface — the node that takes focus — so a requester lands. */
+    focus: Modifier,
     onClick: () -> Unit,
 ) {
+    // The cap lives on a wrapper, not the Surface. Put on the Surface itself
+    // it was ignored — the TV Surface fills whatever it is given — so the
+    // width has to be gone before it gets there.
+    Box(modifier = Modifier.padding(top = gapAbove).widthIn(max = FixtureRowWidth)) {
     Surface(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = focus.fillMaxWidth(),
         shape = ClickableSurfaceDefaults.shape(NuxShape.Row),
         colors = ClickableSurfaceDefaults.colors(
             // Unfocused rows sit flat on the background so the focused one is
@@ -272,12 +300,9 @@ private fun FixtureRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.width(StatusColumnWidth), contentAlignment = Alignment.CenterStart) {
-                // isLive(nowMs), not the flag stamped at parse time: parsing
-                // happens once per catalogue and a match that kicks off after
-                // it would otherwise never light up.
-                if (event.isLive(nowMs)) LiveBadge() else {
+                if (status == null) LiveBadge() else {
                     Text(
-                        text = statusOf(event, nowMs, clock),
+                        text = status,
                         style = MaterialTheme.typography.labelLarge,
                         color = NuxColors.OnSurfaceDim,
                         maxLines = 1,
@@ -288,7 +313,7 @@ private fun FixtureRow(
             // common axis so a column of fixtures reads down rather than
             // ragged.
             Text(
-                text = event.home,
+                text = home,
                 style = MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.End,
                 maxLines = 1,
@@ -302,7 +327,7 @@ private fun FixtureRow(
                 modifier = Modifier.padding(horizontal = Space.m),
             )
             Text(
-                text = event.away,
+                text = away,
                 style = MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.Start,
                 maxLines = 1,
@@ -310,6 +335,7 @@ private fun FixtureRow(
                 modifier = Modifier.weight(1f),
             )
         }
+    }
     }
 }
 
@@ -333,12 +359,15 @@ private fun LiveBadge() {
 }
 
 /**
- * "LIVE" for something already running; otherwise how long until kick-off,
- * because a clock time on its own makes the viewer do the arithmetic.
+ * Null — the LIVE badge — for something already running; otherwise how long
+ * until kick-off, because a clock time on its own makes the viewer do the
+ * arithmetic. isLive(nowMs), not the flag stamped at parse time: parsing
+ * happens once per catalogue and a match that kicks off after it would
+ * otherwise never light up.
  */
-private fun statusOf(event: SportsEvent, nowMs: Long, clock: SimpleDateFormat): String {
-    val start = event.startMs ?: return "LIVE"
-    if (start <= nowMs) return "LIVE"
+private fun fixtureStatus(event: SportsEvent, nowMs: Long, clock: SimpleDateFormat): String? {
+    if (event.isLive(nowMs)) return null
+    val start = event.startMs ?: return null
     val minutes = ((start - nowMs) / 60_000).toInt()
     return when {
         minutes <= 1 -> "Starts now"

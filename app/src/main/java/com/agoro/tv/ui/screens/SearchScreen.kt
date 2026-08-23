@@ -5,10 +5,8 @@ package com.agoro.tv.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.focus.FocusRequester
 import com.agoro.tv.ui.components.requestFocusRetrying
-import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.Alignment
 import com.agoro.tv.ui.theme.Space
@@ -86,7 +84,23 @@ fun SearchTab(
     // over the results.
     var menuOrigin by remember { mutableStateOf<String?>(null) }
     val menuOriginFocus = remember { FocusRequester() }
-    val scope = rememberCoroutineScope()
+    // Focus comes back in the SAME FRAME the menu unmounts, not after a
+    // wall-clock wait. This used to delay 120ms before asking, and in that
+    // window Compose had already reseated focus on the nearest node — the
+    // query field, keyboard and all — so a quick press after closing typed
+    // into it. The request cannot be made before the menu is gone: the
+    // dialog scaffold cancels any focus exit while it stands. Armed by the
+    // dismissal (a plain holder: nothing in composition reads it) and run by
+    // the effect keyed on the menu state once the frame that removed it has
+    // applied, before the next key event can arrive. The retries are the
+    // bounded fallback for a shelf still recomposing; a hidden channel
+    // leaves the shelf, so a refusal there just means the card is gone.
+    val returnFocusPending = remember { booleanArrayOf(false) }
+    LaunchedEffect(menuChannel) {
+        if (menuChannel != null || !returnFocusPending[0]) return@LaunchedEffect
+        returnFocusPending[0] = false
+        menuOriginFocus.requestFocusRetrying(retries = 5, intervalMs = 60)
+    }
     var results by remember { mutableStateOf(MainViewModel.SearchResults()) }
     // Debounced off-main-thread search so typing stays smooth on huge playlists.
     LaunchedEffect(query, contentState, visible) {
@@ -299,14 +313,10 @@ fun SearchTab(
                 MenuAction("Hide this channel") { vm.toggleHidden(channel) },
             ),
             onDismiss = {
+                // Arm the return first, then unmount: the effect above runs
+                // in the frame the menu leaves and finds the flag set.
+                returnFocusPending[0] = true
                 menuChannel = null
-                // After the frame in which Compose reseats focus itself; a
-                // request made before loses to it. Hidden channels leave the
-                // shelf, so a refusal here just means the card is gone.
-                scope.launch {
-                    kotlinx.coroutines.delay(120)
-                    menuOriginFocus.requestFocusRetrying()
-                }
             },
         )
     }

@@ -215,16 +215,29 @@ object XmltvParser {
         // Ids worth keeping programmes for, decided as each channel is
         // declared — XMLTV declares every channel before the first
         // programme, so the set is complete by the time it is consulted.
+        //
+        // Two views of the same decision. [keepIds] is the lowercase set the
+        // matcher's keys are in; [keepByRawId] remembers the verdict under
+        // the id exactly as the feed writes it, so the programme loop — a
+        // hundred thousand iterations of which this catalogue keeps one in
+        // forty — answers with one hash lookup and no lowercased copy of
+        // the id per programme.
         val filtering = wantedIds.isNotEmpty() || wantedNameKeys.isNotEmpty()
         val keepIds = HashSet<String>()
+        val keepByRawId = HashMap<String, Boolean>()
         fun noteChannel(id: String) {
             val lower = id.lowercase()
-            if (lower in wantedIds) {
-                keepIds += lower
-                return
-            }
-            val names = channelAlts[id] ?: return
-            if (names.any { EpgMatcher.normalizeKey(it) in wantedNameKeys }) keepIds += lower
+            val kept = lower in wantedIds ||
+                channelAlts[id]?.any { EpgMatcher.normalizeKey(it) in wantedNameKeys } == true
+            if (kept) keepIds += lower
+            keepByRawId[id] = kept
+        }
+        fun keeps(channel: String): Boolean {
+            if (!filtering) return true
+            // A programme on a channel the feed never declared is decided
+            // once, on first sight, and remembered the same way.
+            return keepByRawId[channel]
+                ?: (channel.lowercase() in keepIds).also { keepByRawId[channel] = it }
         }
 
         var event = parser.eventType
@@ -234,21 +247,29 @@ object XmltvParser {
                     "channel" -> currentChannelId = parser.getAttributeValue(null, "id")?.trim()
                     "display-name" -> if (currentChannelId != null) textTarget = TextTarget.CHANNEL_NAME
                     "programme" -> {
+                        // The cheap test first. Two SimpleDateFormat parses
+                        // and a lowercase per programme, for the 39 in 40
+                        // that were about to be thrown away, was most of
+                        // what a 55 MB pack cost on a four-core box. Times
+                        // are only read for a channel this playlist shows.
                         val channel = parser.getAttributeValue(null, "channel")?.trim()
-                        val start = parseTime(parser.getAttributeValue(null, "start"))
-                        val stop = parseTime(parser.getAttributeValue(null, "stop"))
-                        programme = if (channel != null && start != null && stop != null &&
-                            stop > windowStartMs && start < windowEndMs &&
-                            (!filtering || channel.lowercase() in keepIds)
-                        ) {
-                            ProgrammeBuilder(channel, start, stop)
+                        programme = if (channel != null && keeps(channel)) {
+                            val start = parseTime(parser.getAttributeValue(null, "start"))
+                            val stop = parseTime(parser.getAttributeValue(null, "stop"))
+                            if (start != null && stop != null &&
+                                stop > windowStartMs && start < windowEndMs
+                            ) ProgrammeBuilder(channel, start, stop) else null
                         } else null
                     }
                     "title" -> if (programme != null) textTarget = TextTarget.TITLE
                     "desc" -> if (programme != null) textTarget = TextTarget.DESC
                 }
 
-                XmlPullParser.TEXT -> {
+                // Only read when something is waiting for it. parser.text
+                // materialises the node as a String, and a discarded
+                // programme's <desc> — most of the bytes in a pack — was
+                // being copied onto the heap just to be dropped.
+                XmlPullParser.TEXT -> if (textTarget != TextTarget.NONE) {
                     val text = parser.text?.trim().orEmpty()
                     if (text.isNotEmpty()) when (textTarget) {
                         TextTarget.CHANNEL_NAME ->
