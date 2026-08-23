@@ -193,7 +193,31 @@ object ManifestCuration {
         // territories that kept their own shelf must keep their suffix too —
         // stripping it would put a bare "Sports" beside the merged "Sports".
         val hasMergedShelf = liveCats.keys.any { !it.contains('|') }
-        val labelled = if (hasMergedShelf || regionsPresent.size >= 2) ordered else ordered.map { cat ->
+        // The other half of the same rule, from the other end. A territory
+        // that opens exactly ONE shelf is named by the territory alone: the
+        // genre half of "Entertainment · DSTV" distinguishes it from nothing,
+        // because there is no second DStv row to tell it apart from, and the
+        // word is already sitting three chips to its left on the merged
+        // Entertainment shelf. What the viewer is choosing there is the
+        // territory, so that is what the chip should say.
+        //
+        // Counted per territory rather than assumed: DStv is one row today
+        // because its News and Sports shelves were folded away, and a lineup
+        // that opens two again should get its suffix back without anyone
+        // remembering to come here.
+        val soleShelfRegions = regionsPresent.filter { region ->
+            liveCats.keys.count { it.contains('|') && it.substringBefore('|') == region } == 1
+        }.toSet()
+        val labelled = if (hasMergedShelf || regionsPresent.size >= 2) {
+            ordered.map { cat ->
+                val region = cat.id.substringBefore('|').takeIf { cat.id.contains('|') }
+                if (region != null && region in soleShelfRegions) {
+                    cat.copy(name = manifest.regionLabels[region] ?: region)
+                } else {
+                    cat
+                }
+            }
+        } else ordered.map { cat ->
             cat.copy(name = manifest.label(cat.id.substringAfter('|')))
         }
         return bundle.copy(

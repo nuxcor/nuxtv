@@ -144,6 +144,70 @@ class ManifestCurationTest {
     }
 
     @Test
+    fun `a territory with one shelf is named by the territory, not the genre`() {
+        // DStv's shape after News and Sports folded away: one merged shelf for
+        // the markets that share, and one row for the territory that doesn't.
+        // "Entertainment · DSTV" beside a merged "Entertainment" says the genre
+        // twice and the place once, when the place is the only thing telling
+        // them apart.
+        val m = CatalogueManifest(
+            sections = CatalogueManifest.Sections(
+                live = listOf(
+                    CatalogueManifest.Section(key = "NEWS", label = "News"),
+                    CatalogueManifest.Section(key = "ENTERTAINMENT", label = "Entertainment"),
+                ),
+            ),
+            categories = CatalogueManifest.Categories(
+                live = mapOf(
+                    "10" to CatalogueManifest.CategoryRule("NEWS", "US"),
+                    "20" to CatalogueManifest.CategoryRule("ENTERTAINMENT", "AFR"),
+                ),
+            ),
+            keptRegions = listOf("US", "AFR"),
+            mergedRegions = listOf("US"),
+            regionLabels = mapOf("US" to "United States", "AFR" to "DStv"),
+        )
+        val out = ManifestCuration.apply(
+            ContentBundle(channels = listOf(channel(1, "10"), channel(2, "20"))), m,
+        )
+        assertEquals(listOf("News", "DStv"), out.liveCategories.map { it.name })
+    }
+
+    @Test
+    fun `a territory with two shelves keeps the genre in both labels`() {
+        // The counted half of the rule: a lineup that opens two rows needs the
+        // genre back to tell them apart, without anyone remembering to.
+        val m = CatalogueManifest(
+            sections = CatalogueManifest.Sections(
+                live = listOf(
+                    CatalogueManifest.Section(key = "NEWS", label = "News"),
+                    CatalogueManifest.Section(key = "ENTERTAINMENT", label = "Entertainment"),
+                ),
+            ),
+            categories = CatalogueManifest.Categories(
+                live = mapOf(
+                    "10" to CatalogueManifest.CategoryRule("NEWS", "US"),
+                    "20" to CatalogueManifest.CategoryRule("ENTERTAINMENT", "AFR"),
+                    "30" to CatalogueManifest.CategoryRule("NEWS", "AFR"),
+                ),
+            ),
+            keptRegions = listOf("US", "AFR"),
+            mergedRegions = listOf("US"),
+            regionLabels = mapOf("US" to "United States", "AFR" to "DStv"),
+        )
+        val out = ManifestCuration.apply(
+            ContentBundle(
+                channels = listOf(channel(1, "10"), channel(2, "20"), channel(3, "30")),
+            ),
+            m,
+        )
+        assertEquals(
+            listOf("News", "News · DStv", "Entertainment · DStv"),
+            out.liveCategories.map { it.name },
+        )
+    }
+
+    @Test
     fun `a tile's own shelf beats the provider category its primary sits in`() {
         // Finding 5, the real shape. The build pass already resolves a 4K/8K
         // tier to the channel's true territory and folds the tier in as a
