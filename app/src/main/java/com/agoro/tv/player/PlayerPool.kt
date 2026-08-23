@@ -21,8 +21,10 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.upstream.CmcdConfiguration
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.text.SubtitleParser
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 
 /**
@@ -142,6 +144,50 @@ private class IptvMediaSourceFactory(
     ): MediaSource.Factory {
         progressive.setLoadErrorHandlingPolicy(policy)
         hls.setLoadErrorHandlingPolicy(policy)
+        return this
+    }
+
+    // The rest of MediaSource.Factory has default implementations that return
+    // the receiver and forward nothing. ExoPlayer only ever calls
+    // createMediaSource, so today none of these is reached — but
+    // DefaultMediaSourceFactory applies every one of them to the delegates it
+    // builds, including its HLS one, and the bare factory here would silently
+    // miss whatever it was told. They agree on the defaults at 1.8.0; the way
+    // that stops being true is a media3 upgrade changing one of them, which is
+    // the worst possible moment to discover the delegate never listened.
+    override fun setSubtitleParserFactory(
+        subtitleParserFactory: SubtitleParser.Factory,
+    ): MediaSource.Factory {
+        progressive.setSubtitleParserFactory(subtitleParserFactory)
+        hls.setSubtitleParserFactory(subtitleParserFactory)
+        return this
+    }
+
+    override fun experimentalParseSubtitlesDuringExtraction(
+        parseSubtitlesDuringExtraction: Boolean,
+    ): MediaSource.Factory {
+        progressive.experimentalParseSubtitlesDuringExtraction(parseSubtitlesDuringExtraction)
+        hls.experimentalParseSubtitlesDuringExtraction(parseSubtitlesDuringExtraction)
+        return this
+    }
+
+    override fun experimentalSetCodecsToParseWithinGopSampleDependencies(
+        codecsToParseWithinGopSampleDependencies: Int,
+    ): MediaSource.Factory {
+        progressive.experimentalSetCodecsToParseWithinGopSampleDependencies(
+            codecsToParseWithinGopSampleDependencies
+        )
+        hls.experimentalSetCodecsToParseWithinGopSampleDependencies(
+            codecsToParseWithinGopSampleDependencies
+        )
+        return this
+    }
+
+    override fun setCmcdConfigurationFactory(
+        cmcdConfigurationFactory: CmcdConfiguration.Factory,
+    ): MediaSource.Factory {
+        progressive.setCmcdConfigurationFactory(cmcdConfigurationFactory)
+        hls.setCmcdConfigurationFactory(cmcdConfigurationFactory)
         return this
     }
 }

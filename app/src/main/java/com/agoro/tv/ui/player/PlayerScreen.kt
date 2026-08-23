@@ -618,16 +618,24 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         }
     }
 
-    // A mid-stream stall earns a corner chip, and only after a grace period —
+    // A MID-STREAM stall earns a corner chip, and only after a grace period:
     // tuning has its own card, and sub-second hiccups deserve nothing.
+    //
+    // Keyed on the tune as well, and held for whatever is left of the settling
+    // window, because "not tuning" was never the same thing as "not changing
+    // channel". Tuning drops the instant the first frame lands; the buffer is
+    // still filling behind it, and that refill was announcing itself as
+    // "Buffering…" on every zap — over a picture that had just started. A
+    // stream still buffering when the window closes gets the chip, because by
+    // then it has stopped settling and started failing.
     var showBufferingChip by remember { mutableStateOf(false) }
-    LaunchedEffect(session.buffering, session.tuning) {
-        if (session.buffering && !session.tuning) {
-            delay(PlayerMotion.BufferGraceMs)
-            showBufferingChip = true
-        } else {
+    LaunchedEffect(session.buffering, session.tuning, session.tuneSerial) {
+        if (!session.buffering || session.tuning) {
             showBufferingChip = false
+            return@LaunchedEffect
         }
+        delay(maxOf(PlayerMotion.BufferGraceMs, session.settleRemainingMs))
+        showBufferingChip = true
     }
 
     // BACK closes whatever is open, and from bare playback it leaves. One

@@ -195,6 +195,24 @@ class PlayerSession internal constructor(
     /** When the current stream was asked for; see [STALL_GRACE_MS]. */
     private var lastTuneMs = System.currentTimeMillis()
 
+    /**
+     * How long is left of the window after a tune in which buffering is the
+     * buffer filling rather than the feed failing. 0 once it has passed.
+     *
+     * The stall counter has ignored this window from the start — the first
+     * seconds after a tune are the buffer filling, and counting them made
+     * every zap look like a fault. The chip that SAYS "Buffering…" was never
+     * given the same rule, so it kept announcing over a picture that was
+     * simply starting: [tuning] goes false the moment the first frame lands,
+     * and the refill behind it is what the viewer then read as a fault.
+     *
+     * One window, one meaning, read by both. A stream still buffering when it
+     * closes has stopped settling and started failing, and by then the ladder
+     * is already saying so in its own words.
+     */
+    val settleRemainingMs: Long
+        get() = (STALL_GRACE_MS - (System.currentTimeMillis() - lastTuneMs)).coerceAtLeast(0L)
+
     var errorMessage: String? by mutableStateOf(null)
     var statusMessage: String? by mutableStateOf(null)
     var positionMs: Long by mutableLongStateOf(0L)
