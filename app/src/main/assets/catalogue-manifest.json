@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-22T22:39:04+00:00",
+ "generated": "2026-08-23T14:45:00+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -6750,6 +6750,9 @@
   1853667,
   1853666,
   1853663,
+  1853654,
+  1853649,
+  1853648,
   1853643,
   1853642,
   1853641,
@@ -6872,6 +6875,7 @@
   1853526,
   1853525,
   1853524,
+  1853523,
   1853514,
   1853513,
   1853512,
@@ -7050,30 +7054,103 @@
   1853416,
   1853423,
   1853424,
+  788035,
   788037,
   788039,
+  788043,
+  788040,
   788041,
   788014,
   788013,
+  788015,
+  788016,
+  788034,
+  788033,
   788031,
+  788029,
+  788032,
+  788028,
   788025,
+  788024,
   788021,
+  788020,
+  788018,
+  788017,
+  788054,
+  788136,
+  788122,
+  788171,
+  788168,
+  788169,
   788121,
+  788124,
+  788055,
+  788104,
   788167,
   788123,
+  788144,
+  788172,
+  788145,
+  788091,
   788090,
+  788148,
+  788140,
   788173,
+  788142,
+  788103,
+  788165,
   788111,
+  788151,
   788155,
   788152,
+  788153,
+  788154,
+  787991,
+  788157,
+  788102,
+  788138,
+  788163,
+  788161,
+  788162,
+  788164,
+  788156,
   787999,
+  788135,
   788108,
+  788149,
+  788003,
+  788160,
+  788002,
+  788120,
   787995,
   787994,
   788004,
+  788097,
+  788132,
+  788130,
+  788119,
+  788089,
+  788007,
+  788118,
+  788117,
+  788116,
+  788115,
   788096,
+  788046,
+  788077,
+  788074,
+  788073,
+  788072,
+  788071,
+  788070,
+  788069,
   788112,
+  788110,
+  788095,
+  788047,
   788127,
+  788170,
+  788109,
   1991737,
   1991736,
   1991735,
@@ -7164,6 +7241,9 @@
   1991650,
   1562720,
   1853856,
+  788047,
+  1855480,
+  1853501,
   1855475,
   425871,
   1855471,
@@ -7218,6 +7298,8 @@
   1853682,
   1853683,
   152239,
+  788145,
+  1853680,
   1991730,
   1853672,
   1853670,
@@ -7230,6 +7312,8 @@
   1853507,
   1853581,
   1853387,
+  788122,
+  1853553,
   1991723,
   1853548,
   1853549,
@@ -7237,6 +7321,9 @@
   1853532,
   788014,
   1853530,
+  788034,
+  788120,
+  1853528,
   788031,
   1853524,
   1991661,
@@ -7257,8 +7344,18 @@
   1853464,
   1853455,
   1853432,
+  788033,
+  788119,
+  788032,
+  788118,
+  788017,
+  788109,
   1991705,
   788090,
+  788103,
+  788165,
+  787991,
+  788157,
   1562729,
   1562728,
   1562727,
@@ -8491,13 +8588,23 @@
   788037,
   788014,
   788013,
+  788034,
   788031,
+  788122,
   788121,
+  788145,
   788173,
+  788165,
+  788157,
   788108,
+  788120,
   787994,
   788004,
+  788119,
+  788118,
   788112,
+  788047,
+  788109,
   1991730,
   1991728,
   1991723,
@@ -16502,9 +16609,11 @@
   1853395,
   788165,
   788157,
+  788034,
+  788033,
   788009,
+  788032,
   788021,
-  788017,
   1536701,
   1536500,
   1568887,
@@ -16890,9 +16999,6 @@
   "1853655": {
    "section": "ENTERTAINMENT"
   },
-  "1853654": {
-   "section": "NEWS"
-  },
   "1853653": {
    "section": "ENTERTAINMENT"
   },
@@ -16903,12 +17009,6 @@
    "section": "ENTERTAINMENT"
   },
   "1853650": {
-   "section": "ENTERTAINMENT"
-  },
-  "1853649": {
-   "section": "ENTERTAINMENT"
-  },
-  "1853648": {
    "section": "ENTERTAINMENT"
   },
   "1853647": {
@@ -16923,37 +17023,31 @@
   "1853644": {
    "section": "ENTERTAINMENT"
   },
-  "1853523": {
-   "section": "SPORTS"
-  },
   "1853522": {
-   "section": "SPORTS"
-  },
-  "1853521": {
-   "section": "SPORTS"
-  },
-  "1853520": {
-   "section": "SPORTS"
-  },
-  "1853519": {
-   "section": "SPORTS"
-  },
-  "1853518": {
-   "section": "SPORTS"
-  },
-  "1853517": {
-   "section": "SPORTS"
-  },
-  "1853516": {
-   "section": "SPORTS"
-  },
-  "1853515": {
-   "section": "SPORTS"
-  },
-  "437450": {
    "section": "ENTERTAINMENT"
   },
-  "788035": {
+  "1853521": {
+   "section": "ENTERTAINMENT"
+  },
+  "1853520": {
+   "section": "ENTERTAINMENT"
+  },
+  "1853519": {
+   "section": "ENTERTAINMENT"
+  },
+  "1853518": {
+   "section": "ENTERTAINMENT"
+  },
+  "1853517": {
+   "section": "ENTERTAINMENT"
+  },
+  "1853516": {
+   "section": "ENTERTAINMENT"
+  },
+  "1853515": {
+   "section": "ENTERTAINMENT"
+  },
+  "437450": {
    "section": "ENTERTAINMENT"
   },
   "788036": {
@@ -16961,12 +17055,6 @@
   },
   "788038": {
    "section": "ENTERTAINMENT"
-  },
-  "788043": {
-   "section": "NEWS"
-  },
-  "788040": {
-   "section": "NEWS"
   },
   "788044": {
    "section": "MUSIC"
@@ -16986,32 +17074,11 @@
   "788012": {
    "section": "ENTERTAINMENT"
   },
-  "788015": {
-   "section": "MUSIC"
-  },
-  "788016": {
-   "section": "ENTERTAINMENT"
-  },
-  "788034": {
-   "section": "NEWS"
-  },
-  "788033": {
-   "section": "NEWS"
-  },
   "787998": {
    "section": "ENTERTAINMENT"
   },
   "788030": {
    "section": "DOCUMENTARY"
-  },
-  "788029": {
-   "section": "ENTERTAINMENT"
-  },
-  "788032": {
-   "section": "NEWS"
-  },
-  "788028": {
-   "section": "NEWS"
   },
   "788027": {
    "section": "MUSIC"
@@ -17019,40 +17086,16 @@
   "788026": {
    "section": "MOVIES"
   },
-  "788024": {
-   "section": "SPORTS"
-  },
   "788023": {
    "section": "DOCUMENTARY"
   },
   "788022": {
    "section": "ENTERTAINMENT"
   },
-  "788020": {
-   "section": "ENTERTAINMENT"
-  },
   "788019": {
    "section": "ENTERTAINMENT"
   },
-  "788018": {
-   "section": "ENTERTAINMENT"
-  },
-  "788017": {
-   "section": "ENTERTAINMENT"
-  },
-  "788054": {
-   "section": "ENTERTAINMENT"
-  },
-  "788136": {
-   "section": "ENTERTAINMENT"
-  },
-  "788122": {
-   "section": "ENTERTAINMENT"
-  },
   "788049": {
-   "section": "ENTERTAINMENT"
-  },
-  "788171": {
    "section": "ENTERTAINMENT"
   },
   "788126": {
@@ -17064,15 +17107,6 @@
   "788159": {
    "section": "ENTERTAINMENT"
   },
-  "788168": {
-   "section": "ENTERTAINMENT"
-  },
-  "788169": {
-   "section": "ENTERTAINMENT"
-  },
-  "788124": {
-   "section": "ENTERTAINMENT"
-  },
   "788008": {
    "section": "ENTERTAINMENT"
   },
@@ -17082,22 +17116,7 @@
   "788139": {
    "section": "ENTERTAINMENT"
   },
-  "788055": {
-   "section": "ENTERTAINMENT"
-  },
-  "788104": {
-   "section": "ENTERTAINMENT"
-  },
-  "788144": {
-   "section": "ENTERTAINMENT"
-  },
-  "788172": {
-   "section": "ENTERTAINMENT"
-  },
   "788150": {
-   "section": "ENTERTAINMENT"
-  },
-  "788145": {
    "section": "ENTERTAINMENT"
   },
   "788146": {
@@ -17109,67 +17128,13 @@
   "788005": {
    "section": "ENTERTAINMENT"
   },
-  "788091": {
-   "section": "ENTERTAINMENT"
-  },
-  "788148": {
-   "section": "ENTERTAINMENT"
-  },
-  "788140": {
-   "section": "NEWS"
-  },
-  "788142": {
-   "section": "ENTERTAINMENT"
-  },
-  "788103": {
-   "section": "ENTERTAINMENT"
-  },
-  "788165": {
-   "section": "ENTERTAINMENT"
-  },
-  "788151": {
-   "section": "ENTERTAINMENT"
-  },
   "788134": {
-   "section": "ENTERTAINMENT"
-  },
-  "788153": {
-   "section": "ENTERTAINMENT"
-  },
-  "788154": {
-   "section": "ENTERTAINMENT"
-  },
-  "787991": {
-   "section": "ENTERTAINMENT"
-  },
-  "788157": {
    "section": "ENTERTAINMENT"
   },
   "788133": {
    "section": "ENTERTAINMENT"
   },
-  "788102": {
-   "section": "ENTERTAINMENT"
-  },
-  "788138": {
-   "section": "NEWS"
-  },
-  "788163": {
-   "section": "ENTERTAINMENT"
-  },
   "788158": {
-   "section": "ENTERTAINMENT"
-  },
-  "788161": {
-   "section": "ENTERTAINMENT"
-  },
-  "788162": {
-   "section": "ENTERTAINMENT"
-  },
-  "788164": {
-   "section": "ENTERTAINMENT"
-  },
-  "788156": {
    "section": "ENTERTAINMENT"
   },
   "788092": {
@@ -17211,32 +17176,8 @@
   "788105": {
    "section": "ENTERTAINMENT"
   },
-  "788135": {
-   "section": "ENTERTAINMENT"
-  },
-  "788149": {
-   "section": "ENTERTAINMENT"
-  },
-  "788003": {
-   "section": "ENTERTAINMENT"
-  },
-  "788160": {
-   "section": "MUSIC"
-  },
-  "788002": {
-   "section": "ENTERTAINMENT"
-  },
   "787992": {
    "section": "ENTERTAINMENT"
-  },
-  "788120": {
-   "section": "NEWS"
-  },
-  "788097": {
-   "section": "ENTERTAINMENT"
-  },
-  "788132": {
-   "section": "NEWS"
   },
   "788006": {
    "section": "ENTERTAINMENT"
@@ -17247,12 +17188,6 @@
   "788131": {
    "section": "ENTERTAINMENT"
   },
-  "788130": {
-   "section": "NEWS"
-  },
-  "788119": {
-   "section": "NEWS"
-  },
   "788129": {
    "section": "ENTERTAINMENT"
   },
@@ -17262,25 +17197,7 @@
   "788128": {
    "section": "ENTERTAINMENT"
   },
-  "788089": {
-   "section": "ENTERTAINMENT"
-  },
-  "788007": {
-   "section": "ENTERTAINMENT"
-  },
   "788166": {
-   "section": "ENTERTAINMENT"
-  },
-  "788118": {
-   "section": "NEWS"
-  },
-  "788117": {
-   "section": "ENTERTAINMENT"
-  },
-  "788116": {
-   "section": "ENTERTAINMENT"
-  },
-  "788115": {
    "section": "ENTERTAINMENT"
   },
   "788141": {
@@ -17289,104 +17206,74 @@
   "788114": {
    "section": "ENTERTAINMENT"
   },
-  "788046": {
+  "788076": {
    "section": "ENTERTAINMENT"
   },
-  "788076": {
-   "section": "SPORTS"
-  },
-  "788077": {
-   "section": "SPORTS"
-  },
   "788079": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788060": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788085": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788088": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788080": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788068": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788067": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788066": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788065": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788064": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788063": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788062": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788061": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788086": {
-   "section": "SPORTS"
-  },
-  "788074": {
-   "section": "SPORTS"
-  },
-  "788073": {
-   "section": "SPORTS"
-  },
-  "788072": {
-   "section": "SPORTS"
-  },
-  "788071": {
-   "section": "SPORTS"
-  },
-  "788070": {
-   "section": "SPORTS"
-  },
-  "788069": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788087": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788078": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788084": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788083": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788082": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788081": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788075": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788113": {
    "section": "DOCUMENTARY"
-  },
-  "788110": {
-   "section": "ENTERTAINMENT"
-  },
-  "788095": {
-   "section": "ENTERTAINMENT"
   },
   "788137": {
    "section": "ENTERTAINMENT"
@@ -17394,31 +17281,25 @@
   "788094": {
    "section": "ENTERTAINMENT"
   },
-  "788047": {
-   "section": "ENTERTAINMENT"
-  },
   "787997": {
    "section": "ENTERTAINMENT"
   },
-  "788170": {
-   "section": "ENTERTAINMENT"
-  },
   "788001": {
-   "section": "ENTERTAINMENT"
-  },
-  "788109": {
    "section": "ENTERTAINMENT"
   },
   "788056": {
    "section": "ENTERTAINMENT"
   },
   "788058": {
-   "section": "SPORTS"
+   "section": "ENTERTAINMENT"
   },
   "788000": {
    "section": "ENTERTAINMENT"
   },
   "788125": {
+   "section": "ENTERTAINMENT"
+  },
+  "325091": {
    "section": "ENTERTAINMENT"
   }
  },
@@ -17672,15 +17553,13 @@
   "405517": "ENTERTAINMENT",
   "788044": "ENTERTAINMENT",
   "788011": "ENTERTAINMENT",
-  "788015": "ENTERTAINMENT",
   "788027": "ENTERTAINMENT",
-  "788160": "ENTERTAINMENT",
   "788113": "ENTERTAINMENT"
  },
  "brands": {
   "SuperSport": {
    "region": "AFR",
-   "section": "SPORTS",
+   "section": "ENTERTAINMENT",
    "label": "SuperSport",
    "main": [
     1853522,
@@ -17692,7 +17571,6 @@
     1853516,
     1853515,
     788076,
-    788077,
     788079,
     788060,
     788085,
@@ -17708,13 +17586,7 @@
     788064,
     788063,
     788062,
-    788061,
-    788074,
-    788073,
-    788072,
-    788071,
-    788070,
-    788069
+    788061
    ],
    "hidden_duplicates": [
     1853521,
@@ -26915,7 +26787,6 @@
   "717714": "NEWS",
   "717705": "NEWS",
   "162255": "SPORTS",
-  "788091": "SPORTS",
   "1568783": "SPORTS",
   "498738": "SPORTS",
   "1568862": "KIDS",
@@ -26968,7 +26839,6 @@
   "1991718": "KIDS",
   "1991693": "SPORTS",
   "1991683": "SPORTS",
-  "1853528": "NEWS",
   "1991673": "DOCUMENTARY"
  },
  "live_events": {
@@ -35524,12 +35394,12 @@
   "788062": "PPV",
   "788061": "PPV",
   "788086": "SPORTS",
-  "788074": "PPV",
-  "788073": "PPV",
-  "788072": "PPV",
-  "788071": "PPV",
-  "788070": "PPV",
-  "788069": "PPV",
+  "788074": "SPORTS",
+  "788073": "SPORTS",
+  "788072": "SPORTS",
+  "788071": "SPORTS",
+  "788070": "SPORTS",
+  "788069": "SPORTS",
   "788087": "SPORTS",
   "788078": "SPORTS",
   "788084": "SPORTS",
@@ -35921,7 +35791,6 @@
   "1991718": "KIDS",
   "1991693": "SPORTS",
   "1991683": "SPORTS",
-  "1853528": "NEWS",
   "1991673": "DOCUMENTARY",
   "1544268": "ENTERTAINMENT",
   "1544262": "DOCUMENTARY",
@@ -36014,7 +35883,7 @@
  "region_labels": {
   "US": "United States",
   "UK": "United Kingdom",
-  "AFR": "DSTV"
+  "AFR": "DStv"
  },
  "uk_reassign": {
   "1525694": "ENTERTAINMENT",
@@ -39112,14 +38981,6 @@
     ],
     "primary": 621641
    },
-   "universal|AFR": {
-    "section": "ENTERTAINMENT",
-    "region": "AFR",
-    "sources": [
-     788047
-    ],
-    "primary": 788047
-   },
    "gtv|AFR": {
     "section": "ENTERTAINMENT",
     "region": "AFR",
@@ -39127,14 +38988,6 @@
      788134
     ],
     "primary": 788134
-   },
-   "etv|AFR": {
-    "section": "ENTERTAINMENT",
-    "region": "AFR",
-    "sources": [
-     788145
-    ],
-    "primary": 788145
    },
    "adomtv|AFR": {
     "section": "ENTERTAINMENT",
@@ -39152,14 +39005,6 @@
     ],
     "primary": 1853651
    },
-   "africamagicfamily|AFR": {
-    "section": "ENTERTAINMENT",
-    "region": "AFR",
-    "sources": [
-     788122
-    ],
-    "primary": 788122
-   },
    "channel44|AFR": {
     "section": "ENTERTAINMENT",
     "region": "AFR",
@@ -39167,15 +39012,6 @@
      788139
     ],
     "primary": 788139
-   },
-   "newzroomafrika|AFR": {
-    "section": "NEWS",
-    "region": "AFR",
-    "sources": [
-     788034,
-     788120
-    ],
-    "primary": 788034
    },
    "tv47|AFR": {
     "section": "ENTERTAINMENT",
@@ -39185,15 +39021,6 @@
     ],
     "primary": 788137
    },
-   "parliamentaryservice|AFR": {
-    "section": "NEWS",
-    "region": "AFR",
-    "sources": [
-     788033,
-     788119
-    ],
-    "primary": 788033
-   },
    "realtime|AFR": {
     "section": "DOCUMENTARY",
     "region": "AFR",
@@ -39201,42 +39028,6 @@
      788030
     ],
     "primary": 788030
-   },
-   "russiatoday|AFR": {
-    "section": "NEWS",
-    "region": "AFR",
-    "sources": [
-     788032,
-     788118
-    ],
-    "primary": 788032
-   },
-   "wwesuperslam|AFR": {
-    "section": "ENTERTAINMENT",
-    "region": "AFR",
-    "sources": [
-     788017,
-     788109
-    ],
-    "primary": 788109
-   },
-   "flieknet|AFR": {
-    "section": "ENTERTAINMENT",
-    "region": "AFR",
-    "sources": [
-     788103,
-     788165
-    ],
-    "primary": 788103
-   },
-   "jimjam|AFR": {
-    "section": "ENTERTAINMENT",
-    "region": "AFR",
-    "sources": [
-     787991,
-     788157
-    ],
-    "primary": 787991
    },
    "powertv|AFR": {
     "section": "ENTERTAINMENT",
@@ -55254,7 +55045,117 @@
   "1527596": "SKY SPORTS 2 &",
   "1290344": "TNT SPORTS 6",
   "1069751": "TNT SPORTS ULTIMATE &",
-  "587990": "VIAPLAY SPORTS 1"
+  "587990": "VIAPLAY SPORTS 1",
+  "1853665": "3ABN FRANCAIS",
+  "1853664": "3ABN INTERNATIONAL",
+  "1853662": "ADOM TV",
+  "1853661": "ADOME TV",
+  "1853660": "BEN",
+  "1853659": "GH CANADA TV",
+  "1853658": "GH ONE TV",
+  "1853657": "GHANA BROADCASTING",
+  "1853656": "GHANA KESSBEN TV",
+  "1853655": "GTV GOV TV",
+  "1853653": "JOY PRIME",
+  "1853652": "KESSBEN TV",
+  "1853651": "METRO TV",
+  "1853650": "MFM",
+  "1853647": "OGYABA",
+  "1853646": "ROCK TV",
+  "1853645": "ROYAL TV",
+  "1853644": "STUDIO1 TV",
+  "1853522": "SUPERSPORT FOOTBALL PLUS",
+  "1853521": "SUPERSPORT LA LIGA",
+  "1853520": "SUPERSPORT MAXIMO",
+  "1853519": "SUPERSPORT MOTORSPORT",
+  "1853518": "SUPERSPORT PREMIER LEAGUE",
+  "1853517": "SUPERSPORT VARIETY 1",
+  "1853516": "SUPERSPORT VARIETY 2",
+  "1853515": "SUPERSPORT VARIETY 4",
+  "788036": "AFRICA MAGIC EPIC HD",
+  "788038": "BAY TV HD",
+  "788044": "DUMISA HD",
+  "788045": "EMMANUEL TV HD",
+  "788048": "EMOVIES EXTRA HD",
+  "788010": "M-NET PLUS 1 HD",
+  "788011": "MINDSET HD",
+  "788012": "MOJALOVE HD",
+  "787998": "PEARL MAGIC PRIME",
+  "788030": "REAL TIME HD",
+  "788027": "SPICE TV HD",
+  "788026": "STAR LIFE HD",
+  "788023": "THE HOME CHANNEL HD",
+  "788022": "TNT AFRICA HD",
+  "788019": "TV MALL HD",
+  "788049": "AFRICA MAGIC HAUSA",
+  "788126": "AIT",
+  "788093": "AKWAABA MAGIC",
+  "788159": "AKWAABA MAGIC ABUSUA",
+  "788008": "CAPE TOWN TV HD",
+  "787996": "CHANNEL 10",
+  "788139": "CHANNEL 44",
+  "788150": "E.TV EXTRA HD",
+  "788146": "EMMANUEL TV HD",
+  "788147": "EMOVIES HD",
+  "788005": "ENCA HD",
+  "788134": "GTV",
+  "788133": "KBN TV",
+  "788158": "KYKNET HD",
+  "788092": "M NET HD",
+  "788106": "M NET MOVIES 1 HD",
+  "788057": "M-NET EAST",
+  "788101": "M-NET MOVIES 1",
+  "788100": "M-NET MOVIES 2",
+  "788099": "M-NET MOVIES 3",
+  "788098": "M-NET MOVIES 4",
+  "788051": "M-NET MOVIES PREMIERE AFRICA",
+  "788053": "M-NET MOVIES TOM CRUISE",
+  "788050": "M-NET MOVIES ZONE",
+  "788052": "M-NET WEST",
+  "832231": "MAGIC YORUBA",
+  "788105": "MAISHA MAGIC POA",
+  "787992": "NETWORK TV",
+  "788006": "OBN TV OROMIA HD",
+  "787993": "ONE GOSPEL",
+  "788131": "ONEZED",
+  "788129": "POWER TV",
+  "788009": "POWER TV HD",
+  "788128": "PRIME TV",
+  "788166": "ROK",
+  "788141": "SALT TV",
+  "788114": "SOUNDCITY HD",
+  "788076": "SUPERSPORT BLITZ HD",
+  "788079": "SUPERSPORT FOOTBALL FHD",
+  "788060": "SUPERSPORT GOLF",
+  "788085": "SUPERSPORT GRANDSTAND HD",
+  "788088": "SUPERSPORT LIGA HD",
+  "788080": "SUPERSPORT MOTORSPORT HD",
+  "788068": "SUPERSPORT OTT 1",
+  "788067": "SUPERSPORT OTT 2",
+  "788066": "SUPERSPORT OTT 3",
+  "788065": "SUPERSPORT OTT 4",
+  "788064": "SUPERSPORT OTT 5",
+  "788063": "SUPERSPORT OTT 6",
+  "788062": "SUPERSPORT OTT 7",
+  "788061": "SUPERSPORT OTT 8",
+  "788086": "SUPERSPORT PL HD",
+  "788087": "SUPERSPORT PSL HD",
+  "788078": "SUPERSPORT RUGBY HD",
+  "788084": "SUPERSPORT VARIETY 1 HD",
+  "788083": "SUPERSPORT VARIETY 2 HD",
+  "788082": "SUPERSPORT VARIETY 3 HD",
+  "788081": "SUPERSPORT VARIETY 4 HD",
+  "788075": "SUPERSPORTS ACTION HD",
+  "788113": "THE HOME CHANNEL HD",
+  "788137": "TV47",
+  "788094": "TVN AFRICA",
+  "787997": "UPENDO TV",
+  "788001": "WASAFI TV",
+  "788056": "YADAH TV",
+  "788058": "ZA SUPER SPORTS RUGBY FHD",
+  "788000": "ZEE WORLD",
+  "788125": "ZNBC2",
+  "325091": "SUPERSPORT TENNIS"
  },
  "vod_display_name": {},
  "vod_name_rules": {
@@ -62131,7 +62032,7 @@
   "movies_with_genre": 0,
   "live_tiles_after_collapse": 6506,
   "live_tiles_collapsed": 3140,
-  "collapse_groups": 164,
+  "collapse_groups": 155,
   "collapse_needs_review": 1,
   "dropped_region_streams": 2894,
   "religion_streams": 41,
@@ -62153,10 +62054,10 @@
   "uk_locals_dropped": 176,
   "uk_reassigned": 36,
   "uk_regional_collapsed": 70,
-  "afr_kept": 187,
-  "afr_dropped": 849,
+  "afr_kept": 111,
+  "afr_dropped": 946,
   "afr_usuk_duplicates": 25,
-  "name_section_overrides": 1155,
+  "name_section_overrides": 1154,
   "entertainment_fixes": {
    "-> LOCALS": 227,
    "-> NEWS": 163,
@@ -62166,7 +62067,7 @@
    "-> MUSIC": 54,
    "junk": 2
   },
-  "entertainment_suffix_dupes": 83,
+  "entertainment_suffix_dupes": 85,
   "entertainment_trimmed": 306,
   "entertainment_kept": {
    "US": 96,
@@ -62204,7 +62105,7 @@
    "show_channel": 18
   },
   "replay_feeds_dropped": 719,
-  "section_canonicalised": 59,
+  "section_canonicalised": 57,
   "brand_groups": 10,
   "brand_dupes_dropped": 3,
   "rsn_dupes_dropped": 2,
@@ -62212,7 +62113,7 @@
   "region_fixed": 118,
   "misfiled_us_locals": 1,
   "sections_merged": 8,
-  "tiles_resectioned": 123,
+  "tiles_resectioned": 121,
   "epg_bound": 919,
   "logo_bound": 4386,
   "live_event_channels": 7847,
@@ -62220,10 +62121,14 @@
   "sd_dropped": 252,
   "dgo_dropped": 312,
   "tiers_measured": 2192,
-  "exact_duplicates_dropped": 215,
+  "exact_duplicates_dropped": 225,
   "movie_genre_vocab": 0,
   "movies_with_genre_ids": 0,
   "vod_dupes_dropped": 5273,
+  "afr_news_dropped": 14,
+  "afr_named_dropped": 63,
+  "afr_late_assigned": 1,
+  "afr_prefix_stripped": 110,
   "vod_display_names": 0,
   "series_display_names": 5,
   "series_genre_vocab": 20

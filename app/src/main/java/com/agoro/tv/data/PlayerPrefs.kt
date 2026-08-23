@@ -22,8 +22,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 
-enum class EngineChoice { EXO, VLC }
-
 @kotlinx.serialization.Serializable
 data class ScheduledRecording(
     val id: String,
@@ -73,11 +71,10 @@ private const val ARTWORK_FLUSH_MS = 2_000L
 /** A screenful of answers is written without waiting out the pause. */
 private const val ARTWORK_BATCH = 24
 
-/** Player-related preferences: default engine and VOD resume positions. */
+/** Player-related preferences: VOD resume positions, learned stream facts, viewer choices. */
 class PlayerPrefs(private val context: Context) {
 
     private val json = Json { ignoreUnknownKeys = true }
-    private val engineKey = stringPreferencesKey("engine")
     private val positionsKey = stringPreferencesKey("resume_positions")
     private val favoritesKey = stringPreferencesKey("favorite_channels")
     private val schedulesKey = stringPreferencesKey("scheduled_recordings")
@@ -99,6 +96,7 @@ class PlayerPrefs(private val context: Context) {
     private val keyHintsVersionKey = stringPreferencesKey("key_hints_version")
     private val menuHintSeenKey = stringPreferencesKey("menu_hint_seen")
     private val knownQualitiesKey = stringPreferencesKey("known_qualities")
+    private val knownHdrKey = stringPreferencesKey("known_hdr")
     private val guidePreviewModeKey = stringPreferencesKey("guide_preview_mode")
     private val liveTsMigratedKey = stringPreferencesKey("live_ts_migrated")
     private val episodeOriginsKey = stringPreferencesKey("episode_origins")
@@ -136,6 +134,7 @@ class PlayerPrefs(private val context: Context) {
     }
 
     private val knownQualitiesSlot = JsonSlot<Map<String, String>>(emptyMap()) { json.decodeFromString(it) }
+    private val knownHdrSlot = JsonSlot<Map<String, String>>(emptyMap()) { json.decodeFromString(it) }
     private val episodeOriginsSlot = JsonSlot<Map<String, String>>(emptyMap()) { json.decodeFromString(it) }
     private val artworkSlot = JsonSlot<Map<String, ArtEntry>>(emptyMap()) { json.decodeFromString(it) }
     private val resumePositionsSlot = JsonSlot<Map<String, Long>>(emptyMap()) { json.decodeFromString(it) }
@@ -206,6 +205,38 @@ class PlayerPrefs(private val context: Context) {
                 if (map.size > 500) map.entries.drop(map.size - 500).associate { it.toPair() }
                 else map
             prefs[knownQualitiesKey] = json.encodeToString(trimmed)
+        }
+    }
+
+    /**
+     * Real decoded HDR flavour per stream URL ("HDR10", "HLG", …), learned
+     * during playback, absent for streams last seen in SDR.
+     *
+     * Kept apart from [knownQualities] rather than folded into its tier
+     * because the tier is a height and HDR is not: a 1080p HLG channel — the
+     * commonest shape of HDR in IPTV — has nothing a resolution tier can
+     * record. What it buys is the first frame: a stream already known to be
+     * HDR opens on the tunnelled decoder instead of re-initialising onto it
+     * once the format arrives, which is a black beat the viewer sees on every
+     * first visit of every session. Newest 500 kept, as with qualities.
+     */
+    val knownHdr: Flow<Map<String, String>> = context.playerDataStore.data.map { prefs ->
+        knownHdrSlot.read(prefs[knownHdrKey])
+    }.flowOn(Dispatchers.Default)
+
+    /** @param type null for a stream that decoded SDR, which drops any stale entry. */
+    suspend fun setKnownHdr(url: String, type: String?) {
+        context.playerDataStore.edit { prefs ->
+            val map = prefs[knownHdrKey]?.let {
+                runCatching { json.decodeFromString<LinkedHashMap<String, String>>(it) }.getOrNull()
+            } ?: LinkedHashMap()
+            if (map[url] == type) return@edit
+            map.remove(url) // re-inserting moves the entry to the newest slot
+            if (type != null) map[url] = type
+            val trimmed =
+                if (map.size > 500) map.entries.drop(map.size - 500).associate { it.toPair() }
+                else map
+            prefs[knownHdrKey] = json.encodeToString(trimmed)
         }
     }
 
@@ -317,14 +348,6 @@ class PlayerPrefs(private val context: Context) {
                 }
             }
         }
-    }
-
-    val engine: Flow<EngineChoice> = context.playerDataStore.data.map { prefs ->
-        runCatching { EngineChoice.valueOf(prefs[engineKey] ?: "EXO") }.getOrDefault(EngineChoice.EXO)
-    }
-
-    suspend fun setEngine(choice: EngineChoice) {
-        context.playerDataStore.edit { it[engineKey] = choice.name }
     }
 
     private suspend fun positions(): MutableMap<String, Long> =
@@ -702,7 +725,6 @@ class PlayerPrefs(private val context: Context) {
     data class Backup(
         val favorites: Set<String> = emptySet(),
         val hidden: Set<String> = emptySet(),
-        val engine: String = "EXO",
         val epgOverrideUrl: String? = null,
         // Retained so backups written before the key was bundled still restore.
         // Nothing reads the restored value — the key comes from BuildConfig now.
@@ -730,7 +752,6 @@ class PlayerPrefs(private val context: Context) {
             hidden = prefs[hiddenKey]?.let {
                 runCatching { json.decodeFromString<Set<String>>(it) }.getOrNull()
             } ?: emptySet(),
-            engine = prefs[engineKey] ?: "EXO",
             epgOverrideUrl = prefs[epgOverrideKey],
             tmdbKey = prefs[tmdbKeyKey],
             mergeDuplicates = prefs[mergeDupesKey] != "false",
@@ -756,7 +777,6 @@ class PlayerPrefs(private val context: Context) {
         context.playerDataStore.edit { prefs ->
             prefs[favoritesKey] = json.encodeToString(backup.favorites)
             prefs[hiddenKey] = json.encodeToString(backup.hidden)
-            prefs[engineKey] = backup.engine
             backup.epgOverrideUrl?.let { prefs[epgOverrideKey] = it } ?: prefs.remove(epgOverrideKey)
             backup.tmdbKey?.let { prefs[tmdbKeyKey] = it } ?: prefs.remove(tmdbKeyKey)
             prefs[mergeDupesKey] = backup.mergeDuplicates.toString()

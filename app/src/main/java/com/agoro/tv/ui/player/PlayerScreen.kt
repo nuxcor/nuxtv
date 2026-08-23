@@ -45,6 +45,8 @@ import com.agoro.tv.MainViewModel
 import com.agoro.tv.data.LiveChannel
 import com.agoro.tv.data.PlayerPrefs
 import com.agoro.tv.player.DisplayModeSwitcher
+import com.agoro.tv.player.HdrType
+import com.agoro.tv.player.WindowColorMode
 import com.agoro.tv.player.findActivity
 import com.agoro.tv.ui.components.requestFocusRetrying
 import com.agoro.tv.ui.theme.NuxColors
@@ -153,7 +155,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         }
     }
 
-    val defaultEngine by vm.engine.collectAsState()
     val qualityPref by vm.videoQuality.collectAsState()
     val activeRecording by vm.activeRecording.collectAsState()
     val favorites by vm.favorites.collectAsState()
@@ -163,15 +164,14 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             context = context,
             scope = scope,
             initialRequest = request,
-            initialEngine = defaultEngine,
             onSaveResume = vm::saveResumePosition,
         )
     }
     // A replacement playlist re-primes the session the way the old screen's
-    // remember(request) resets did — and returns the engine to the user's
-    // default choice.
+    // remember(request) resets did — and returns the decode profile to the
+    // fast one.
     remember(request) {
-        session.onRequest(request, defaultEngine)
+        session.onRequest(request)
         true
     }
 
@@ -179,11 +179,19 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     val channel: LiveChannel? = item?.channelId?.let { vm.channelById(it) }
     val isVod = !request.isLive
 
-    // Engine lives for as long as engineChoice does; swapping recreates it.
-    val engine = remember(session.engineChoice) {
-        // A channel the app has seen decode at 4K tunnels from its first
-        // frame; anything else starts on the ordinary path. See TunnelPolicy.
-        session.createEngine(qualityPref == 1, knownUhd = { url -> vm.knownTierOf(url) == "4K" })
+    // Engine lives until something asks for a rebuild; see engineGeneration.
+    val engine = remember(session.engineGeneration) {
+        // A channel the app has seen decode at 4K OR in HDR tunnels from its
+        // first frame; anything else starts on the ordinary path. HDR has to
+        // count separately from the tier: an HLG feed at 1080p is ordinary in
+        // IPTV, and a resolution tier can never record it — so without this
+        // every HDR stream spent its opening seconds untunnelled and then
+        // re-initialised the decoder in front of the viewer. See TunnelPolicy.
+        session.createEngine(
+            deservesTunnel = { url ->
+                vm.knownTierOf(url) == "4K" || vm.knownHdrOf(url) != null
+            },
+        )
     }
     DisposableEffect(engine) {
         engine.listener = session.listener
@@ -253,6 +261,23 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         vm.recordDecodedQuality(url, height)
     }
 
+    // And which streams decode HDR, so the next visit opens straight onto the
+    // tunnelled decoder. Learned separately from the tier above, which is
+    // live-only because it feeds the channel lists — HDR matters just as much
+    // on a film, and is keyed on a height that cannot express it. Recorded
+    // once settled, SDR included, so a channel the provider has moved off HDR
+    // stops claiming the tunnel.
+    val learnedHdr = remember { mutableMapOf<String, HdrType?>() }
+    LaunchedEffect(session.tuneSerial, engine) {
+        val url = request.items.getOrNull(session.currentIndex)?.url ?: return@LaunchedEffect
+        snapshotFlow { session.videoSize?.second ?: 0 }.first { it > 0 }
+        delay(QUALITY_LEARN_SETTLE_MS)
+        val hdr = engine.hdrType
+        if (learnedHdr.containsKey(url) && learnedHdr[url] == hdr) return@LaunchedEffect
+        learnedHdr[url] = hdr
+        vm.recordDecodedHdr(url, hdr)
+    }
+
     // Ask the TV for a mode that suits the stream — the panel's own refresh
     // and, where the output is smaller than the picture, its resolution.
     // Skipped in PiP: the window is a thumbnail there, and a mode change to
@@ -271,7 +296,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     }
     var resolutionMatchedForTune by remember { mutableIntStateOf(-1) }
     LaunchedEffect(
-        displayModes, session.tuneSerial, session.videoSize?.second, session.videoFrameRate, inPip,
+        displayModes, session.tuneSerial, session.videoSize?.second, session.videoFrameRate,
+        session.hdrType, inPip,
     ) {
         val switcher = displayModes ?: return@LaunchedEffect
         if (inPip) return@LaunchedEffect
@@ -283,9 +309,32 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         delay(DISPLAY_MODE_SETTLE_MS)
         val tune = session.tuneSerial
         runCatching {
-            switcher.apply(height, frameRate, allowResolutionChange = resolutionMatchedForTune != tune)
+            // Read from the engine, not from the polled copy: the poll drops
+            // to a 5s cadence with the chrome down, and a mode chosen from a
+            // stale "this is SDR" is exactly the pin that costs the viewer HDR.
+            switcher.apply(
+                height,
+                frameRate,
+                hdr = engine.hdrType,
+                allowResolutionChange = resolutionMatchedForTune != tune,
+            )
         }
         resolutionMatchedForTune = tune
+    }
+
+    // The other half of the same job: tell the window it is carrying HDR, for
+    // the boxes that switch their output on the foreground window's declared
+    // colour mode rather than on the decoder's buffers. Cleared on the way out
+    // — unlike the display mode, this costs nothing to put back, and leaving
+    // it set would make every SDR screen behind the player pay for it.
+    val windowColor = remember(context) {
+        context.findActivity()?.let { WindowColorMode(it) }
+    }
+    DisposableEffect(windowColor) {
+        onDispose { windowColor?.set(false) }
+    }
+    LaunchedEffect(windowColor, session.hdrType, inPip) {
+        windowColor?.set(session.hdrType != null && !inPip)
     }
 
     // Keep the activity's PiP params fresh so API 31+ auto-enters on HOME
@@ -373,7 +422,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             session.durationMs = engine.durationMs
             session.videoSize = engine.videoResolution
             session.videoFrameRate = engine.videoFrameRate
-            session.hdrFormat = engine.hdrFormat
+            session.hdrType = engine.hdrType
             session.audioFormatLabel = engine.audioFormatLabel
             val chromeUp = session.layer == PlayerLayer.Controls ||
                 session.layer == PlayerLayer.ChannelList ||
@@ -569,16 +618,24 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         }
     }
 
-    // A mid-stream stall earns a corner chip, and only after a grace period —
+    // A MID-STREAM stall earns a corner chip, and only after a grace period:
     // tuning has its own card, and sub-second hiccups deserve nothing.
+    //
+    // Keyed on the tune as well, and held for whatever is left of the settling
+    // window, because "not tuning" was never the same thing as "not changing
+    // channel". Tuning drops the instant the first frame lands; the buffer is
+    // still filling behind it, and that refill was announcing itself as
+    // "Buffering…" on every zap — over a picture that had just started. A
+    // stream still buffering when the window closes gets the chip, because by
+    // then it has stopped settling and started failing.
     var showBufferingChip by remember { mutableStateOf(false) }
-    LaunchedEffect(session.buffering, session.tuning) {
-        if (session.buffering && !session.tuning) {
-            delay(PlayerMotion.BufferGraceMs)
-            showBufferingChip = true
-        } else {
+    LaunchedEffect(session.buffering, session.tuning, session.tuneSerial) {
+        if (!session.buffering || session.tuning) {
             showBufferingChip = false
+            return@LaunchedEffect
         }
+        delay(maxOf(PlayerMotion.BufferGraceMs, session.settleRemainingMs))
+        showBufferingChip = true
     }
 
     // BACK closes whatever is open, and from bare playback it leaves. One
@@ -724,7 +781,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 result.consumed
             }
     ) {
-        // key() forces a fresh surface when the engine is swapped — AndroidView's
+        // key() forces a fresh surface when the engine is rebuilt — AndroidView's
         // factory runs once per node, so without this the new engine would render
         // into a view that was already released (black screen after fallback).
         //
@@ -733,7 +790,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         // guide fills the rest. A scrim over fullscreen video was tried first
         // and read as "playback stopped"; broadcast guides embed the picture.
         val guideVideoInset = session.layer == PlayerLayer.Guide && request.isLive && !inPip
-        androidx.compose.runtime.key(session.engineChoice) {
+        androidx.compose.runtime.key(session.engineGeneration) {
             AndroidView(
                 modifier = if (guideVideoInset) {
                     Modifier
@@ -794,7 +851,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 title = item?.title.orEmpty(),
                 subtitle = item?.subtitle,
                 resolution = session.videoSize,
-                hdrFormat = session.hdrFormat,
+                hdrFormat = session.hdrType?.label,
                 audioFormatLabel = session.audioFormatLabel,
             )
         }
@@ -826,7 +883,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     channel = channel,
                     isLive = request.isLive,
                     resolution = session.videoSize,
-                    hdrFormat = session.hdrFormat,
+                    hdrFormat = session.hdrType?.label,
                     audioFormatLabel = session.audioFormatLabel,
                     isRecording = recordingThis,
                     // Only while the controls are down: with them open the
@@ -904,11 +961,11 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             PlaybackErrorCard(
                 title = item?.title.orEmpty(),
                 message = lastError,
-                canSwapEngine = true,
+                canRetryTolerant = session.canRetryTolerant,
                 hasNext = request.items.size > 1,
                 isLive = request.isLive,
                 onRetry = { session.retryAfterError() },
-                onSwapEngine = { session.swapEngineAfterError() },
+                onRetryTolerant = { session.retryTolerant() },
                 onNext = { session.zap(+1) },
                 onBack = onExit,
             )
@@ -1029,7 +1086,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 isRecording = recordingThis,
                 hasCatchup = request.isLive && (channel?.archiveDays ?: 0) > 0,
                 aspectLabel = ASPECT_LABELS.getOrElse(session.scaleMode) { ASPECT_LABELS[0] },
-                engineName = engine.name,
                 sleepLabel = if (session.sleepChoiceMinutes == 0) "Off"
                 else "${session.sleepChoiceMinutes}m",
                 canHide = request.isLive && channel != null,
@@ -1038,7 +1094,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 onCatchup = { session.layer = PlayerLayer.Catchup },
                 onTracks = { session.layer = PlayerLayer.Tracks },
                 onAspectCycle = { applyAspect((session.scaleMode + 1) % ASPECT_LABELS.size) },
-                onEngineSwap = { session.swapEngine() },
                 onSleepCycle = {
                     val index = SLEEP_CHOICES.indexOf(session.sleepChoiceMinutes)
                         .coerceAtLeast(0)

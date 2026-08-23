@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Subtitles
-import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -63,7 +62,6 @@ internal fun ChannelOptionsMenu(
     isRecording: Boolean,
     hasCatchup: Boolean,
     aspectLabel: String,
-    engineName: String,
     sleepLabel: String,
     canHide: Boolean,
     onFavoriteToggle: () -> Unit,
@@ -71,7 +69,6 @@ internal fun ChannelOptionsMenu(
     onCatchup: () -> Unit,
     onTracks: () -> Unit,
     onAspectCycle: () -> Unit,
-    onEngineSwap: () -> Unit,
     onSleepCycle: () -> Unit,
     onHide: () -> Unit,
     onDismiss: () -> Unit,
@@ -151,14 +148,6 @@ internal fun ChannelOptionsMenu(
                             label = "Aspect ratio",
                             value = aspectLabel,
                             onClick = onAspectCycle,
-                        )
-                    }
-                    item(key = "engine") {
-                        OptionRow(
-                            icon = Icons.Default.SwapHoriz,
-                            label = "Playback engine",
-                            value = engineName,
-                            onClick = onEngineSwap,
                         )
                     }
                     item(key = "sleep") {

@@ -47,7 +47,6 @@ import com.agoro.tv.BuildConfig
 import com.agoro.tv.MainViewModel
 import com.agoro.tv.data.ContentBundle
 import com.agoro.tv.data.ContentState
-import com.agoro.tv.data.EngineChoice
 import com.agoro.tv.data.PlaylistSource
 import com.agoro.tv.data.UpdateManager
 import com.agoro.tv.ui.components.ConfirmDialog
@@ -77,7 +76,6 @@ internal fun SettingsTab(
 ) {
     val sources by vm.sources.collectAsState()
     val active by vm.activeSource.collectAsState()
-    val engine by vm.engine.collectAsState()
     val epgOverride by vm.epgOverrideUrl.collectAsState()
     val contentState by vm.content.collectAsState()
 
@@ -388,16 +386,6 @@ internal fun SettingsTab(
                 options = listOf("Provider order", "A–Z", "Best quality first"),
                 selectedIndex = order,
                 onSelect = { vm.setChannelOrder(it) },
-            )
-        }
-
-        item(key = "engine") {
-            val engines = remember { EngineChoice.entries.toList() }
-            SettingsChoiceRow(
-                title = "Default player engine",
-                options = engines.map { if (it == EngineChoice.EXO) "ExoPlayer" else "VLC" },
-                selectedIndex = engines.indexOf(engine).coerceAtLeast(0),
-                onSelect = { vm.setEngine(engines[it]) },
             )
         }
 

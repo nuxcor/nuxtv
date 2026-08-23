@@ -12,7 +12,6 @@ import com.agoro.tv.data.Category
 import com.agoro.tv.data.ContentBundle
 import com.agoro.tv.data.ContentRepository
 import com.agoro.tv.data.ContentState
-import com.agoro.tv.data.EngineChoice
 import com.agoro.tv.data.EpgProgram
 import com.agoro.tv.data.Episode
 import com.agoro.tv.data.LiveChannel
@@ -77,8 +76,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     val content: StateFlow<ContentState> = repo.content
 
-    val engine: StateFlow<EngineChoice> = playerPrefs.engine
-        .stateIn(viewModelScope, SharingStarted.Eagerly, EngineChoice.EXO)
 
     val favorites: StateFlow<Set<String>> = playerPrefs.favorites
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
@@ -944,7 +941,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun removeSource(id: String) = viewModelScope.launch { repo.removeSource(id) }
 
-    fun setEngine(choice: EngineChoice) = viewModelScope.launch { playerPrefs.setEngine(choice) }
 
     // --- lookups --------------------------------------------------------------
 
@@ -1115,6 +1111,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         // cheapest version of that is the one that never starts.
         if (knownQualitiesNow.value[url] == tier) return
         viewModelScope.launch { playerPrefs.setKnownQuality(url, tier) }
+    }
+
+    /** Latest learned HDR flavours, for the synchronous read the engine needs. */
+    private val knownHdrNow: StateFlow<Map<String, String>> =
+        playerPrefs.knownHdr.stateIn(
+            viewModelScope, SharingStarted.Eagerly, emptyMap(),
+        )
+
+    /** The HDR flavour a stream was last seen to decode with, or null if SDR or never watched. */
+    fun knownHdrOf(url: String): com.agoro.tv.player.HdrType? =
+        com.agoro.tv.player.HdrType.byName(knownHdrNow.value[url])
+
+    /**
+     * Remember whether a stream decodes HDR, so its next visit opens straight
+     * onto the tunnelled decoder rather than switching to it after the first
+     * frame. Unlike [recordDecodedQuality] this records SDR too — a channel
+     * the provider has moved off HDR must stop claiming the tunnel.
+     */
+    fun recordDecodedHdr(url: String, hdr: com.agoro.tv.player.HdrType?) {
+        if (knownHdrNow.value[url] == hdr?.name) return
+        viewModelScope.launch { playerPrefs.setKnownHdr(url, hdr?.name) }
     }
 
     fun toggleFavorite(channel: LiveChannel) {

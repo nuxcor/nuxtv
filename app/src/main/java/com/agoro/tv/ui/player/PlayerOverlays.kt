@@ -41,7 +41,6 @@ import androidx.tv.material3.Text
 import com.agoro.tv.MainViewModel
 import com.agoro.tv.data.EpgProgram
 import com.agoro.tv.data.LiveChannel
-import com.agoro.tv.player.ExoEngine
 import com.agoro.tv.player.PlayerEngine
 import com.agoro.tv.player.Track
 import com.agoro.tv.ui.components.requestFocusRetrying
@@ -260,9 +259,8 @@ internal fun TracksOverlay(
     var text by remember { mutableStateOf(engine.textTracks()) }
     var video by remember { mutableStateOf(engine.videoTracks()) }
     var decoded by remember { mutableStateOf(engine.videoResolution) }
-    // Only ExoPlayer exposes a bitrate ladder; VLC resolves it internally.
     var forcingHighest by remember {
-        mutableStateOf((engine as? ExoEngine)?.isForcingHighest ?: false)
+        mutableStateOf(engine.isForcingHighest)
     }
     val initialFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { initialFocus.requestFocusRetrying() }
@@ -283,7 +281,7 @@ internal fun TracksOverlay(
         audio = engine.audioTracks()
         text = engine.textTracks()
         video = engine.videoTracks()
-        forcingHighest = (engine as? ExoEngine)?.isForcingHighest ?: false
+        forcingHighest = engine.isForcingHighest
     }
 
     Box(
@@ -555,12 +553,12 @@ private fun OptionChips(
 internal fun PlaybackErrorCard(
     title: String,
     message: String,
-    canSwapEngine: Boolean,
+    canRetryTolerant: Boolean,
     hasNext: Boolean,
     /** Names the Next button: a channel on live, an episode in a box set. */
     isLive: Boolean = true,
     onRetry: () -> Unit,
-    onSwapEngine: () -> Unit,
+    onRetryTolerant: () -> Unit,
     onNext: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -592,10 +590,13 @@ internal fun PlaybackErrorCard(
                 onClick = onRetry,
                 modifier = Modifier.focusRequester(retryFocus),
             ) { Text("Retry") }
-            if (canSwapEngine) {
-                // "Playback engine" is what the options menu calls it.
-                androidx.tv.material3.OutlinedButton(onClick = onSwapEngine) {
-                    Text("Try other engine")
+            if (canRetryTolerant) {
+                // Says what it does, not which component does it. The viewer
+                // has no model of demuxers and decoders, but "software" they
+                // know — and it sets the right expectation about the picture
+                // they may get back.
+                androidx.tv.material3.OutlinedButton(onClick = onRetryTolerant) {
+                    Text("Try software decoding")
                 }
             }
             if (hasNext) {
@@ -617,7 +618,7 @@ private fun plainLanguage(raw: String): String = when {
     raw.contains("TIMEOUT", true) || raw.contains("UNSPECIFIED_IO", true) ->
         "The stream didn't respond. This is usually the provider or the network."
     raw.contains("DECODER", true) || raw.contains("DECODING", true) ->
-        "This TV couldn't decode the stream. Try the other engine."
+        "This TV's hardware couldn't decode the stream."
     // Already a sentence from the engine's own rewrite; make sure it reads
     // as one (a period, no stray capital mid-line).
     else -> raw.trim().trimEnd('.').let { if (it.isEmpty()) "The stream stopped." else "$it." }

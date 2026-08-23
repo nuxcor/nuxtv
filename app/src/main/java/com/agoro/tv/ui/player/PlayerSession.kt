@@ -6,11 +6,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.agoro.tv.data.EngineChoice
 import com.agoro.tv.data.PlaybackRequest
+import com.agoro.tv.player.DecodeProfile
 import com.agoro.tv.player.ExoEngine
+import com.agoro.tv.player.HdrType
 import com.agoro.tv.player.PlayerEngine
-import com.agoro.tv.player.VlcEngine
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -82,7 +82,6 @@ class PlayerSession internal constructor(
     private val context: Context,
     private val scope: CoroutineScope,
     initialRequest: PlaybackRequest,
-    initialEngine: EngineChoice,
     private val onSaveResume: (url: String, positionMs: Long, durationMs: Long) -> Unit,
 ) {
     companion object {
@@ -128,10 +127,24 @@ class PlayerSession internal constructor(
     var request: PlaybackRequest by mutableStateOf(initialRequest)
         private set
 
-    var engineChoice: EngineChoice by mutableStateOf(initialEngine)
+    /**
+     * How forgiving the engine is built; see [DecodeProfile]. Only the failure
+     * ladder and the error card move it, and [onRequest] puts it back — a
+     * verdict on one stream is not a verdict on the next.
+     */
+    var decodeProfile: DecodeProfile by mutableStateOf(DecodeProfile.FAST)
         private set
 
-    /** The engine currently rendering; swapped whole on [engineChoice] change. */
+    /**
+     * Bumped whenever the engine must be rebuilt from scratch. The scaffold
+     * remembers the engine on this and keys the AndroidView on it too, so a
+     * rebuild also gets a fresh surface — the old one belongs to a player that
+     * has been handed back to the pool.
+     */
+    var engineGeneration: Int by mutableIntStateOf(0)
+        private set
+
+    /** The engine currently rendering; swapped whole on an [engineGeneration] bump. */
     var engine: PlayerEngine? by mutableStateOf(null)
         private set
 
@@ -182,6 +195,24 @@ class PlayerSession internal constructor(
     /** When the current stream was asked for; see [STALL_GRACE_MS]. */
     private var lastTuneMs = System.currentTimeMillis()
 
+    /**
+     * How long is left of the window after a tune in which buffering is the
+     * buffer filling rather than the feed failing. 0 once it has passed.
+     *
+     * The stall counter has ignored this window from the start — the first
+     * seconds after a tune are the buffer filling, and counting them made
+     * every zap look like a fault. The chip that SAYS "Buffering…" was never
+     * given the same rule, so it kept announcing over a picture that was
+     * simply starting: [tuning] goes false the moment the first frame lands,
+     * and the refill behind it is what the viewer then read as a fault.
+     *
+     * One window, one meaning, read by both. A stream still buffering when it
+     * closes has stopped settling and started failing, and by then the ladder
+     * is already saying so in its own words.
+     */
+    val settleRemainingMs: Long
+        get() = (STALL_GRACE_MS - (System.currentTimeMillis() - lastTuneMs)).coerceAtLeast(0L)
+
     var errorMessage: String? by mutableStateOf(null)
     var statusMessage: String? by mutableStateOf(null)
     var positionMs: Long by mutableLongStateOf(0L)
@@ -191,8 +222,9 @@ class PlayerSession internal constructor(
     /** Decoded frame rate, polled alongside [videoSize] for display matching. */
     var videoFrameRate: Float? by mutableStateOf(null)
 
-    /** Decoded HDR flavour and audio format, for the stream's badges. */
-    var hdrFormat: String? by mutableStateOf(null)
+    /** Decoded HDR flavour and audio format, for the stream's badges — and, for
+     * the HDR one, for the display's output mode and the window's colour mode. */
+    var hdrType: HdrType? by mutableStateOf(null)
     var audioFormatLabel: String? by mutableStateOf(null)
 
     var bannerTick: Int by mutableIntStateOf(0)
@@ -254,9 +286,9 @@ class PlayerSession internal constructor(
     internal val listener = object : PlayerEngine.Listener {
         override fun onItemChanged(index: Int) {
             // A genuinely new item restarts the failure ladder; the same index
-            // arrives again on every reconnect (VLC re-announces it from
-            // playAt), and resetting then would let a dead stream swap
-            // engines forever.
+            // arrives again on every reconnect (the engine re-announces it
+            // from playAt), and resetting then would let a dead stream
+            // reconnect forever.
             if (index != ladderItemIndex) resetLadder(index)
             currentIndex = index
             clearError()
@@ -298,7 +330,7 @@ class PlayerSession internal constructor(
             buffering = b
         }
 
-        override fun onError(message: String) {
+        override fun onError(message: String, decodeFault: Boolean) {
             // The 500ms position poll only runs while chrome is visible, so
             // session.positionMs can be minutes stale here. Capture the live
             // position before any recovery path recreates the engine, or a
@@ -320,12 +352,23 @@ class PlayerSession internal constructor(
                 // on a stream that is not coming back.
                 request.isLive && swapSource() -> Unit
 
-                // No engine hopping: an error retries on the SAME engine the
-                // viewer chose. The old "try the other player once" ladder
-                // silently landed people on VLC — which has no track
-                // selection and its own quality profile — for everything a
-                // flaky provider hiccuped on, and the two players rendering
-                // differently read as random quality changes.
+                // The mux or the codec is what's wrong, and that fails the
+                // same way every time — so re-open on the forgiving demuxer
+                // and the software decoders BEFORE spending the slow same-URL
+                // retries, exactly as a wrong container format does above.
+                // This is where "try the other engine" used to point, and it
+                // reaches further than that swap did: only a fault the profile
+                // can actually address gets here, so a 404 or a dead line is
+                // never offered software decoding as false hope. The ladder
+                // resets on the way through, so the retries below still run
+                // afterwards — on the tolerant engine.
+                decodeFault && canRetryTolerant -> retryTolerant()
+
+                // Reconnect on the same player. The old ladder hopped to VLC
+                // for anything a flaky provider hiccuped on, which silently
+                // landed people on a player with no track selection and its
+                // own quality profile — and two players rendering differently
+                // read as random quality changes.
                 // VOD included: the engine swap used to be VOD's only recovery
                 // path, so dropping the swap without this left films dying on
                 // the first hiccup.
@@ -353,22 +396,13 @@ class PlayerSession internal constructor(
     }
 
     /**
-     * Builds the engine for the current [engineChoice]. Called from a
-     * `remember(engineChoice)` block so a choice swap creates a fresh engine —
+     * Builds the engine for the current [decodeProfile]. Called from a
+     * `remember(engineGeneration)` block so a rebuild creates a fresh engine —
      * and the scaffold keys the AndroidView on the same value so the new
      * engine also gets a fresh surface.
      */
-    internal fun createEngine(
-        highestQuality: Boolean,
-        knownUhd: (String) -> Boolean = { false },
-    ): PlayerEngine {
-        // Not keyed on the quality preference: ExoPlayer applies it live
-        // through the track selector, and rebuilding VLC mid-stream to change
-        // a construction flag would interrupt playback for a setting change.
-        // VLC picks it up next time the player opens.
-        val built =
-            if (engineChoice == EngineChoice.VLC) VlcEngine(context, highestQuality)
-            else ExoEngine(context, knownUhd = knownUhd)
+    internal fun createEngine(deservesTunnel: (String) -> Boolean = { false }): PlayerEngine {
+        val built = ExoEngine(context, deservesTunnel = deservesTunnel, profile = decodeProfile)
         engine = built
         return built
     }
@@ -386,10 +420,10 @@ class PlayerSession internal constructor(
 
     /**
      * A replacement playlist (mini-guide category pick, grid-guide tune,
-     * catch-up). The engine preference resets to the user's default: an
-     * automatic fallback was a verdict on one stream, not on the app.
+     * catch-up). The decode profile resets to the fast one: a fallback was a
+     * verdict on one stream, not on the app.
      */
-    internal fun onRequest(request: PlaybackRequest, defaultEngine: EngineChoice) {
+    internal fun onRequest(request: PlaybackRequest) {
         if (this.request === request) return
         this.request = request
         currentIndex = request.startIndex.coerceIn(0, (request.items.size - 1).coerceAtLeast(0))
@@ -398,7 +432,7 @@ class PlayerSession internal constructor(
         tuning = true
         resetLadder(currentIndex)
         clearError()
-        engineChoice = defaultEngine
+        rebuildOn(DecodeProfile.FAST)
     }
 
     private fun resetLadder(index: Int) {
@@ -489,7 +523,7 @@ class PlayerSession internal constructor(
     /**
      * A tune that never resolved either way. The engine reported no error, so
      * the ladder above never ran; this hands the viewer the same error card
-     * (Retry / Swap engine) rather than leaving the tune spinner up.
+     * (Retry / software decoding) rather than leaving the tune spinner up.
      */
     fun failTuning(reason: String) {
         tuning = false
@@ -561,7 +595,7 @@ class PlayerSession internal constructor(
         tuning = true
         videoSize = null // the old stream's resolution isn't this channel's
         videoFrameRate = null
-        hdrFormat = null
+        hdrType = null
         audioFormatLabel = null
         if (chained) {
             pendingTuneIndex = target // the scaffold commits it after ZAP_DWELL_MS
@@ -589,7 +623,7 @@ class PlayerSession internal constructor(
         engine.playAt(index)
         videoSize = null
         videoFrameRate = null
-        hdrFormat = null
+        hdrType = null
         audioFormatLabel = null
         bannerTick++
     }
@@ -612,13 +646,42 @@ class PlayerSession internal constructor(
         }
     }
 
-    /** The manual engine toggle from the controls. */
-    fun swapEngine() {
-        val engine = engine ?: return
-        positionMs = engine.positionMs // survive the swap
-        engineChoice =
-            if (engineChoice == EngineChoice.EXO) EngineChoice.VLC else EngineChoice.EXO
+    /**
+     * Rebuilds the engine on [profile], carrying the playhead across. A no-op
+     * when it is already there, so a second press of the error card's button
+     * doesn't restart a stream that is already trying its best.
+     */
+    private fun rebuildOn(profile: DecodeProfile) {
+        if (profile == decodeProfile) return
+        engine?.let { live ->
+            // The 500ms position poll only runs while the chrome is up, so the
+            // session's copy can be minutes stale; ask the engine.
+            if (!request.isLive && !request.isCatchup && live.positionMs > 0) {
+                positionMs = live.positionMs
+            }
+        }
+        decodeProfile = profile
+        engineGeneration++
     }
+
+    /**
+     * Re-opens the current stream with the demuxer and decoders that forgive
+     * most; see [DecodeProfile]. This is what the error card offers and what
+     * the ladder reaches for on a decode failure — the replacement for the old
+     * swap to libVLC, and unlike that swap it keeps track selection, the HDR
+     * badge, tunnelling and the media session.
+     */
+    fun retryTolerant() {
+        if (!canRetryTolerant) return
+        clearError()
+        resetLadder(currentIndex)
+        tuning = true
+        statusMessage = "Trying software decoding…"
+        rebuildOn(DecodeProfile.TOLERANT)
+    }
+
+    /** Whether [retryTolerant] has anywhere left to go. */
+    val canRetryTolerant: Boolean get() = decodeProfile == DecodeProfile.FAST
 
     /** Retry the current item after an error, with a fresh ladder. */
     fun retryAfterError() {
@@ -628,14 +691,4 @@ class PlayerSession internal constructor(
         tuning = true
     }
 
-    fun swapEngineAfterError() {
-        engine?.let { live ->
-            if (!request.isLive && !request.isCatchup && live.positionMs > 0) {
-                positionMs = live.positionMs
-            }
-        }
-        clearError()
-        engineChoice =
-            if (engineChoice == EngineChoice.EXO) EngineChoice.VLC else EngineChoice.EXO
-    }
 }

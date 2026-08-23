@@ -41,12 +41,14 @@ internal object TunnelPolicy {
     }
 
     /**
-     * @param knownUhd what the app learned about this stream on earlier
-     * visits (persisted decoded tier), so a 4K channel tunnels from its
-     * first frame rather than after it.
+     * @param knownDeserving what the app learned about this stream on earlier
+     * visits — a persisted 4K tier or a persisted HDR flavour — so a channel
+     * that has earned the tunnel gets it from its first frame rather than
+     * after it. HDR has to be part of that and not just resolution: a 1080p
+     * HLG feed is the commonest HDR in IPTV and no tier will ever record it.
      */
-    fun wantsTunnel(url: String, knownUhd: Boolean): Boolean =
-        !refusedByDevice && (knownUhd || url in deserving)
+    fun wantsTunnel(url: String, knownDeserving: Boolean): Boolean =
+        !refusedByDevice && (knownDeserving || url in deserving)
 
     /** Test seam. */
     internal fun reset() {

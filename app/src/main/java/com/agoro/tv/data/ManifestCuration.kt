@@ -166,19 +166,29 @@ object ManifestCuration {
         // locals grouped by market. See [orderChannels].
         orderChannels(channels, manifest)
 
-        // Sections render in the manifest's order, not discovery order. A
-        // region-less shelf sorts by its section like any other rather than
-        // being flung to the end: "SPORTS" has no '|', so asking for the
-        // region ahead of it returned the whole key, matched no territory,
-        // and scored 99.
+        // Genre first, territory second. Sections render in the manifest's
+        // order, not discovery order; a region-less shelf sorts by its section
+        // like any other rather than being flung to the end ("SPORTS" has no
+        // '|', so asking for the region ahead of it returned the whole key,
+        // matched no territory, and scored 99).
+        //
+        // Territory used to be the primary key, which sent every shelf a
+        // territory kept for itself to the end of the strip — DStv landed past
+        // Streaming Networks and 24/7, rows a viewer reaches for far less
+        // often. What the strip reads as is genres, so a territory's row
+        // belongs beside the genre it holds: DStv sits directly after the
+        // merged Entertainment it is the counterpart to. kept_regions still
+        // decides the order among territories, as the ORDERED list it is
+        // documented to be — it is now the tie-break within a genre rather
+        // than the top-level grouping.
         val ordered = liveCats.values.sortedWith(
             compareBy(
+                { manifest.sectionOrder.indexOf(it.id.substringAfter('|')).takeIf { i -> i >= 0 } ?: 99 },
                 { cat ->
                     val region = cat.id.substringBefore('|').takeIf { cat.id.contains('|') }
                     if (region == null) 0 else manifest.keptRegions.indexOf(region)
                         .takeIf { i -> i >= 0 } ?: 99
                 },
-                { manifest.sectionOrder.indexOf(it.id.substringAfter('|')).takeIf { i -> i >= 0 } ?: 99 },
             )
         )
         // The region suffix earns its place only when this viewer's catalogue
@@ -193,7 +203,31 @@ object ManifestCuration {
         // territories that kept their own shelf must keep their suffix too —
         // stripping it would put a bare "Sports" beside the merged "Sports".
         val hasMergedShelf = liveCats.keys.any { !it.contains('|') }
-        val labelled = if (hasMergedShelf || regionsPresent.size >= 2) ordered else ordered.map { cat ->
+        // The other half of the same rule, from the other end. A territory
+        // that opens exactly ONE shelf is named by the territory alone: the
+        // genre half of "Entertainment · DSTV" distinguishes it from nothing,
+        // because there is no second DStv row to tell it apart from, and the
+        // word is already sitting three chips to its left on the merged
+        // Entertainment shelf. What the viewer is choosing there is the
+        // territory, so that is what the chip should say.
+        //
+        // Counted per territory rather than assumed: DStv is one row today
+        // because its News and Sports shelves were folded away, and a lineup
+        // that opens two again should get its suffix back without anyone
+        // remembering to come here.
+        val soleShelfRegions = regionsPresent.filter { region ->
+            liveCats.keys.count { it.contains('|') && it.substringBefore('|') == region } == 1
+        }.toSet()
+        val labelled = if (hasMergedShelf || regionsPresent.size >= 2) {
+            ordered.map { cat ->
+                val region = cat.id.substringBefore('|').takeIf { cat.id.contains('|') }
+                if (region != null && region in soleShelfRegions) {
+                    cat.copy(name = manifest.regionLabels[region] ?: region)
+                } else {
+                    cat
+                }
+            }
+        } else ordered.map { cat ->
             cat.copy(name = manifest.label(cat.id.substringAfter('|')))
         }
         return bundle.copy(

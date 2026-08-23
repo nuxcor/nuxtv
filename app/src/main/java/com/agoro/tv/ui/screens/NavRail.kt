@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SportsSoccer
+import androidx.compose.material.icons.filled.SystemUpdateAlt
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.runtime.Composable
@@ -103,12 +104,18 @@ internal fun NavRail(
     railFocus: FocusRequester,
     onRailFocusChanged: (Boolean) -> Unit,
     /**
-     * Marks the Settings item with a small dot — an update is waiting there.
-     * The app never interrupts playback or browsing over an update, so this
-     * dot is the entire nudge; Settings itself carries the version and the
-     * install button.
+     * What the update row under Settings should say, or null when there is
+     * nothing to offer and the row does not exist.
+     *
+     * This replaced a dot on the Settings icon. The dot was the entire nudge
+     * and it pointed at a screen rather than at the thing — a viewer who saw
+     * it had to know that a mark on a gear meant a new version, then go and
+     * find it. A row that says "Update to 2.34.0" says both, and it costs
+     * nothing when there is no update because then it is not there. Still
+     * never interrupts: it waits in the drawer, it does not open one.
      */
-    settingsBadge: Boolean = false,
+    updateLabel: String? = null,
+    onUpdate: () -> Unit = {},
 ) {
     // Always the labeled form: the rail only exists while summoned now, and
     // a drawer that arrives icons-first and then widens reads as two
@@ -126,7 +133,12 @@ internal fun NavRail(
     // move outright on some devices), and a fixed vertical list needs no
     // geometry — the next item is an index, not a direction.
     val items = remember { HomeTab.entries.filterNot { it == HomeTab.Search } }
-    val itemFocus = remember { items.map { FocusRequester() } }
+    // One spare, always allocated. Sizing this to the rows actually shown
+    // would rebuild every requester the moment a background update check came
+    // back, and the rebuilt one the viewer was standing on no longer points
+    // at the row holding focus.
+    val itemFocus = remember { List(items.size + 1) { FocusRequester() } }
+    val lastIndex = items.lastIndex + if (updateLabel != null) 1 else 0
     var focusedIndex by remember { mutableStateOf(0) }
 
     Column(
@@ -145,7 +157,7 @@ internal fun NavRail(
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
                     Key.DirectionDown -> {
-                        itemFocus[(focusedIndex + 1).coerceAtMost(items.lastIndex)]
+                        itemFocus[(focusedIndex + 1).coerceAtMost(lastIndex)]
                             .requestFocus(); true
                     }
                     Key.DirectionUp -> {
@@ -197,10 +209,10 @@ internal fun NavRail(
             val holdsFocus = item == selected ||
                 (selected == HomeTab.Search && item == HomeTab.Home)
             RailItem(
-                item = item,
+                label = item.label,
+                icon = item.icon,
                 selected = item == selected,
                 expanded = expanded,
-                badge = settingsBadge && item == HomeTab.Settings,
                 onClick = { onSelect(item) },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -209,17 +221,41 @@ internal fun NavRail(
                     .onFocusChanged { if (it.isFocused) focusedIndex = index },
             )
         }
+        // Below Settings, and only while there is something to install. Never
+        // "selected" — it is an action, not a destination, and marking it the
+        // way a tab is marked would say the viewer is somewhere they are not.
+        if (updateLabel != null) {
+            RailItem(
+                label = updateLabel,
+                icon = Icons.Default.SystemUpdateAlt,
+                selected = false,
+                expanded = expanded,
+                accent = true,
+                onClick = onUpdate,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(itemFocus[items.size])
+                    .onFocusChanged { if (it.isFocused) focusedIndex = items.size },
+            )
+        }
     }
 }
 
 @Composable
 private fun RailItem(
-    item: HomeTab,
+    label: String,
+    icon: ImageVector,
     selected: Boolean,
     expanded: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier.fillMaxWidth(),
-    badge: Boolean = false,
+    /**
+     * Teal rather than the rail's usual dim grey. The same colour Settings
+     * uses for "an update is available", and deliberately not gold: gold is
+     * the selected tab, and a second gold row would read as two tabs open at
+     * once.
+     */
+    accent: Boolean = false,
 ) {
     Surface(
         onClick = onClick,
@@ -228,11 +264,19 @@ private fun RailItem(
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) NuxColors.SelectedContainer else Color.Transparent,
             focusedContainerColor = NuxColors.SurfaceRaised,
-            contentColor = if (selected) NuxColors.Primary else NuxColors.OnSurfaceDim,
+            contentColor = when {
+                selected -> NuxColors.Primary
+                accent -> NuxColors.Secondary
+                else -> NuxColors.OnSurfaceDim
+            },
             // Gold survives focus: the drawer opens WITH focus on the current
             // tab, and with white-on-focus the viewer couldn't tell which tab
             // they were on until they moved off it.
-            focusedContentColor = if (selected) NuxColors.Primary else NuxColors.OnSurface,
+            focusedContentColor = when {
+                selected -> NuxColors.Primary
+                accent -> NuxColors.Secondary
+                else -> NuxColors.OnSurface
+            },
         ),
         scale = ClickableSurfaceDefaults.scale(
             focusedScale = NuxFocus.RowScale,
@@ -261,33 +305,14 @@ private fun RailItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Icon(
-                item.icon,
-                contentDescription = item.label,
-                modifier = Modifier
-                    .size(22.dp)
-                    // Drawn, not laid out, like the selection bar — the icon
-                    // never shifts. Secondary, not gold: teal already means
-                    // "an update is available" in Settings' own copy, and
-                    // gold here would read as a second selected tab. Sits
-                    // just off the icon's corner so the gear stays whole.
-                    .drawBehind {
-                        if (badge) {
-                            drawCircle(
-                                color = NuxColors.Secondary,
-                                radius = 3.dp.toPx(),
-                                center = Offset(size.width + 1.dp.toPx(), (-1).dp.toPx()),
-                            )
-                        }
-                    },
-            )
+            Icon(icon, contentDescription = label, modifier = Modifier.size(22.dp))
             AnimatedVisibility(
                 visible = expanded,
                 enter = fadeIn(tween(160, delayMillis = 120)),
                 exit = fadeOut(tween(80)),
             ) {
                 Text(
-                    text = item.label,
+                    text = label,
                     style = MaterialTheme.typography.labelLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Clip,
