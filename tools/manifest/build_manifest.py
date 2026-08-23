@@ -937,13 +937,84 @@ AFR_GENRE = [
     ('DOCUMENTARY', r'\bDOCU|\bNAT ?GEO|\bDISCOVERY\b|\bHISTORY\b|\bREAL TIME\b'
                     r'|\bTRAVEL\b|\bHOME CHANNEL\b|\bMINDSET\b'),
 ]
+# The genre pass above is still what reads a DStv channel's name, but two of
+# its answers no longer become shelves of their own.
+#
+# News goes entirely. The row was ten channels: four global feeds (CGTN,
+# Russia Today) and three parliament channels that are not a service anyone
+# tunes to, beside SABC News, Newzroom Afrika, CNBC Africa, eTV News and KTN
+# News. The News shelf this package leads with is already the place a viewer
+# looks for news, and a second one behind a territory was a second answer to a
+# question that had one.
+#
+# Sport folds into Entertainment, so DStv opens as a single row. SuperSport is
+# thirty of the thirty-one, and it keeps its brand grouping — the named
+# channels then one "more" entry — it just sits inside Entertainment now.
+AFR_DROP_GENRE = {'NEWS'}
+AFR_FOLD_GENRE = {'SPORTS'}
 _catname = {c['category_id']: asc(c['category_name'])
             for c in json.load(open('get_live_categories.json'))}
 
+# Channels the DStv shelf does not carry, named one by one rather than pattern
+# matched, because the rule behind them is editorial and no regex holds it.
+#
+# Three groups, decided 2026-08-23:
+#  - The international feeds DStv passes through (BBC Lifestyle, BBC UKTV,
+#    Deutsche Welle, RAI Italia, RTP Internacional, TV5 Monde Afrique, BVN,
+#    JimJam, KIX, Studio Universal, Universal TV, Etoonz, ESPN 1,
+#    E! Entertainment, NDTV247, MTA Africa, TV Mundial, WWE Superslam,
+#    Channel O, Family TV). A viewer reaching this shelf is reaching for
+#    African television; these are neither that nor unique to it.
+#  - The South African lineup (SABC 1-3, e.tv, the Mzansi and kykNET
+#    channels, 1 Magic, Cine Magic, Novela Magic, Africa Magic Family and
+#    Showcase, Vuzu, Flieknet, GauTV, Ignition, Tshwane, 1 KZN). Not a market
+#    this package serves.
+#  - Horse racing (Racing 240, Tellytrack) and SuperSport Cricket.
+#
+# Extended the same day: Mzansi Magic Music went with the rest of the Mzansi
+# channels and MTV Music 24 with the rest of the international feeds — both
+# had only survived the first pass by sitting in Music rather than
+# Entertainment. Abol TV, Lesotho TV, Mambo Moto and Obice TV followed.
+#
+# SuperSport Play 1-6 went too, and for a reason worth recording: all six
+# matched the same guide id (supersportgrandstand.za) because no schedule of
+# their own could be found, so every one of them displayed SuperSport
+# Grandstand's listings rather than the fixture it was actually carrying. Six
+# channels showing another channel's programme is worse than six channels
+# absent, and the OTT feeds beside them carry the same overflow with guide
+# data that is genuinely theirs.
+#
+# Matched on the name with the bundle prefix AND the quality word removed, so
+# a tile whose sources are spelled "FLIEKNET" and "FLIEKNET HD" loses both —
+# dropping only the one the tile happens to be named after would leave the
+# other behind as the tile's new primary.
+AFR_DROP_NAMES = {
+    '1 KZN', '1 MAGIC', 'ABOL TV', 'AFRICA MAGIC FAMILY',
+    'AFRICA MAGIC SHOWCASE', 'BBC LIFESTYLE', 'BBC UKTV', 'BVN',
+    'CHANNEL O', 'CINE MAGIC', 'DEUTSCHE WELLE',
+    'E! ENTERTAINMENT TELEVISION', 'E.TV', 'ESPN 1', 'ETOONZ', 'FAMILY TV',
+    'FLIEKNET', 'GAUTV', 'IGNITION', 'ITV NETWORKS', 'JIMJAM', 'KIX',
+    'KYKNET & KIE', 'KYKNET KWARANTYN', 'KYKNET LEKKER!', 'KYKNET NOU!',
+    'LESOTHO TV', 'MAMBO MOTO', 'MTA AFRICA', 'MTV MUSIC 24',
+    'MZANSI BIOSKOP', 'MZANSI MAGIC', 'MZANSI MAGIC MUSIC', 'MZANSI WETHU',
+    'NDTV247', 'NOVELA MAGIC', 'OBICE TV', 'RACING 240', 'RAI ITALIA',
+    'RTP INTERNACIONAL', 'SABC 1', 'SABC 2', 'SABC 3', 'STUDIO UNIVERSAL',
+    'SUPERSPORT CRICKET', 'SUPERSPORT PLAY 1', 'SUPERSPORT PLAY 2',
+    'SUPERSPORT PLAY 3', 'SUPERSPORT PLAY 4', 'SUPERSPORT PLAY 5',
+    'SUPERSPORT PLAY 6', 'TELLYTRACK', 'TSHWANE TV', 'TV MUNDIAL',
+    'TV5 MONDE AFRIQUE', 'UNIVERSAL TV', 'VUZU', 'WWE SUPERSLAM',
+}
+
+def _afr_key(n):
+    return re.sub(r'\s+', ' ', QUAL.sub(' ', SPFX.sub('', asc(n)))).strip(' -:|.').strip().upper()
+
 def _afr_section(n):
+    """The DStv shelf a channel resolves to, or None to drop it outright."""
     u = asc(n).upper()
     for k, p in AFR_GENRE:
-        if re.search(p, u): return k
+        if re.search(p, u):
+            if k in AFR_DROP_GENRE: return None
+            return 'ENTERTAINMENT' if k in AFR_FOLD_GENRE else k
     return 'ENTERTAINMENT'
 
 _usuk_keys = set()
@@ -952,7 +1023,7 @@ for st in ls:
     if c and c['region'] in ('US', 'UK'):
         _usuk_keys.add(channel_key(st['name']))
 
-afr_drop, afr_assign, afr_dupes = [], {}, []
+afr_drop, afr_assign, afr_dupes, afr_news, afr_named = [], {}, [], [], []
 for st in ls:
     c = cat_live.get(str(st.get('category_id')))
     if not c or c['region'] != 'AFR': continue
@@ -964,7 +1035,12 @@ for st in ls:
         afr_drop.append(st['stream_id']); continue
     if channel_key(st['name']) in _usuk_keys:
         afr_dupes.append(st['stream_id']); afr_drop.append(st['stream_id']); continue
-    afr_assign[str(st['stream_id'])] = {"section": _afr_section(st['name'])}
+    if _afr_key(st['name']) in AFR_DROP_NAMES:
+        afr_named.append(st['stream_id']); afr_drop.append(st['stream_id']); continue
+    _sec = _afr_section(st['name'])
+    if _sec is None:
+        afr_news.append(st['stream_id']); afr_drop.append(st['stream_id']); continue
+    afr_assign[str(st['stream_id'])] = {"section": _sec}
 
 # collapse ran before this filter, so sweep the tiles it made
 for _key in [k for k, t in collapse.items() if t['region'] == 'AFR']:
@@ -1464,7 +1540,7 @@ def _rsn_market(n):
 # event feeds. Group them so the tail collapses behind one "more" entry instead
 # of filling the row with near-identical tiles.
 BRANDS = [
- {"name":"SuperSport", "region":"AFR", "section":"SPORTS",
+ {"name":"SuperSport", "region":"AFR", "section":"ENTERTAINMENT",
   "match": r'\bSUPER ?SPORTS?\b',
   "alias": {"supersportpl":"supersportpremierleague", "supersportliga":"supersportlaliga"},
   "overflow": r'\b(OTT|PLAY)\s*\d+\b'},
@@ -2301,6 +2377,48 @@ for _t in collapse.values():
     if _best != _clean_label(_nm.get(_t['primary'], '')):
         display_name[str(_t['primary'])] = _best
 
+# A channel whose territory is corrected to AFR *after* the DStv pass ran
+# never entered afr_assign, so nothing folded its section into Entertainment
+# and nothing took its bundle prefix off. One did: "US: SUPERSPORT TENNIS",
+# which the provider files under a US sports category and the name-based
+# REGION_FIX below moves to AFR. The result was a whole "Sports - DSTV" shelf
+# opened for a single channel, and that channel sitting on the DStv row still
+# calling itself US — the exact shape the shelf comment warns about, where
+# three tier-filed channels were once enough to put a bare "Sports" tab beside
+# the real one.
+#
+# The region corrections only exist by this point in the build, which is why
+# this sweep cannot live beside the rest of the DStv handling above.
+afr_late = 0
+for st in ls:
+    _sid = str(st['stream_id'])
+    if _sid in afr_assign or st['stream_id'] in _dropset: continue
+    if region_fix.get(_sid) != 'AFR': continue
+    if _afr_key(st['name']) in AFR_DROP_NAMES:
+        _all_drops.append(st['stream_id']); continue
+    afr_assign[_sid] = {"section": "ENTERTAINMENT"}
+    afr_late += 1
+
+# The DStv shelf carries no prefix. The provider ships these under three of
+# them — DSTV:, GHA: and UGA: — which is bookkeeping about which bundle a
+# channel arrived in, not part of any channel's name; the shelf is already
+# labelled DStv, so the prefix said it a second time and the two minority
+# prefixes said something else again on channels that belong to the same row.
+#
+# Last, and composed rather than clobbering: the collapse pass above may have
+# already chosen the fullest of several provider spellings for a folded tile,
+# and that judgement is worth more than the raw name. Only the prefix comes
+# off — quality words stay, because they are part of how the provider
+# distinguishes two feeds and the app has its own badge for what a stream
+# actually decodes at.
+_afr_renamed = 0
+for _sid in afr_assign:
+    _cur = display_name.get(_sid) or asc(_nm.get(int(_sid), ''))
+    _stripped = re.sub(r'\s+', ' ', SPFX.sub('', _cur)).strip(' -:|.').strip()
+    if _stripped and _stripped != _cur:
+        display_name[_sid] = _stripped
+        _afr_renamed += 1
+
 # How early a fixture may appear, in minutes. An hour ahead of kick-off, which
 # also covers the catalogue refresh: slot names only change when the catalogue
 # is re-fetched, so a shorter cue would let a match start before it is listed.
@@ -2474,6 +2592,10 @@ manifest = {
         "movie_genre_vocab": len(vocab),
         "movies_with_genre_ids": len(movie_genres),
         "vod_dupes_dropped": len(vod_drop),
+        "afr_news_dropped": len(afr_news),
+        "afr_named_dropped": len(afr_named),
+        "afr_late_assigned": afr_late,
+        "afr_prefix_stripped": _afr_renamed,
         "vod_display_names": len(vod_display),
         "series_display_names": len(series_display),
         "series_genre_vocab": len([g for g,n in sgen.items() if n>=GENRE_MIN]),
