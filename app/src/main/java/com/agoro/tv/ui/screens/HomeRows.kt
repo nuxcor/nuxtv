@@ -178,13 +178,48 @@ internal class CatalogIndex(
      */
     val moviesByCategory: Map<String, List<Movie>>,
     val seriesByCategory: Map<String, List<Series>>,
-    /** The dated titles, newest first — the "Recently added" category in full. */
+    /**
+     * The titles added recently AND released recently, newest first — the
+     * "Recently added" category in full; see [isRecentRelease] for why the
+     * second half is there.
+     */
     val newMovies: List<Movie>,
     val newSeries: List<Series>,
 )
 
+/**
+ * How many years back a release still reads as new: this year and last.
+ *
+ * A film from late last year reaches streaming this year; anything older
+ * reaching the row is the panel's doing, not the studio's.
+ */
+internal const val RECENT_RELEASE_YEARS = 1
+
+/**
+ * Whether a title's release year is recent enough for "Recently added".
+ *
+ * The provider's `added` is the panel's import time, not the film's release.
+ * A provider bulk-importing a back-catalogue dates a thousand 1990s films
+ * today, and a row ordered on `added` alone then reads "Recently added:
+ * Speed, Twister, Ghostbusters II" — which is not what anyone opening that
+ * row wanted to know. So the row asks both questions: added recently, and
+ * released this year or last. A title with no year at all is out too — an
+ * unscraped import is exactly the shape of a bulk dump, and "new" cannot be
+ * claimed for a title that cannot say when it is from.
+ *
+ * The cost is honest: a genuinely new addition of an old classic, or a new
+ * season landing on a long-running show (series carry the show's year, not
+ * the season's), stays out of this one row. Both are still in their
+ * categories, in search, and in Continue watching once played.
+ */
+internal fun isRecentRelease(year: Int?, nowYear: Int): Boolean =
+    year != null && year >= nowYear - RECENT_RELEASE_YEARS
+
+internal fun currentYear(): Int = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+
 internal fun buildCatalogIndex(
     bundle: ContentBundle,
+    nowYear: Int = currentYear(),
     isLockedCategory: (String) -> Boolean,
 ): CatalogIndex {
     val lockedMovieIds = bundle.movieCategories
@@ -216,7 +251,7 @@ internal fun buildCatalogIndex(
         movieByUrl[movie.url] = movie
         val category = movie.categoryId?.takeIf { it in knownMovieCategories } ?: VOD_MORE
         moviesByCategory.getOrPut(category) { ArrayList() }.add(movie)
-        if (movie.addedMs != null) newMovies.add(movie)
+        if (movie.addedMs != null && isRecentRelease(movie.year, nowYear)) newMovies.add(movie)
     }
     // Stable: titles the provider dated identically keep playlist order.
     newMovies.sortByDescending { it.addedMs }
@@ -229,7 +264,7 @@ internal fun buildCatalogIndex(
         seriesById[show.id] = show
         val category = show.categoryId?.takeIf { it in knownSeriesCategories } ?: VOD_MORE
         seriesByCategory.getOrPut(category) { ArrayList() }.add(show)
-        if (show.addedMs != null) newSeries.add(show)
+        if (show.addedMs != null && isRecentRelease(show.year, nowYear)) newSeries.add(show)
     }
     newSeries.sortByDescending { it.addedMs }
 
