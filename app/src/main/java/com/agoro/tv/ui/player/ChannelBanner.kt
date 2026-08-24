@@ -40,6 +40,7 @@ import com.agoro.tv.ui.theme.NuxColors
 import com.agoro.tv.ui.theme.NuxShape
 import java.util.Date
 import kotlinx.coroutines.delay
+import com.agoro.tv.data.isFavorite
 
 /**
  * TiviMate-style channel banner on the bottom gradient: logo on the left,
@@ -135,7 +136,7 @@ internal fun ChannelBanner(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (channel != null && channel.url in favorites) {
+                if (channel != null && channel.isFavorite(favorites)) {
                     Text("★", style = MaterialTheme.typography.titleSmall, color = NuxColors.Primary)
                 }
             }

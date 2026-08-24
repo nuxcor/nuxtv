@@ -79,6 +79,7 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.agoro.tv.data.answersTo
 
 /**
  * Budget on a 960x540dp TV canvas, measured on device rather than estimated:
@@ -206,7 +207,10 @@ fun GuideTab(
     val lastTuned by vm.lastTunedUrl.collectAsState()
     val lastPlayedChannelId = remember(lastTuned, recents, channels) {
         (lastTuned ?: recents.firstOrNull())
-            ?.let { url -> channels.firstOrNull { it.url == url }?.id }
+            // answersTo, not url ==: the feed the viewer tuned is often the
+            // one that lost a merge, and comparing urls left entry falling
+            // back to the top of the guide - see [LiveChannel.answersTo].
+            ?.let { url -> channels.firstOrNull { it.answersTo(url) }?.id }
     }
 
     // No dwell-to-select any more. Resting on a chip to switch category was
@@ -369,8 +373,17 @@ fun GuideTab(
     BackHandler(enabled = awayFromNow) { jumpToNow() }
 
     // The grid's focus entry — see GuideGridHandle. Every downward route into
-    // the grid goes through it: geometric search from the day chip finds no
-    // candidate on device and the unconsumed DOWN falls back above the grid.
+    // the grid goes through it: geometric search from the strip or the day
+    // chip finds no candidate on device and the unconsumed DOWN falls back to
+    // the first chip, ping-ponging focus above a grid it can never enter.
+    fun Modifier.downIntoGrid(): Modifier = onPreviewKeyEvent { event ->
+        if (event.type == KeyEventType.KeyDown &&
+            event.key.nativeKeyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
+        ) {
+            scope.launch { gridHandle.focusAnchor() }
+            true
+        } else false
+    }
     gridHandle.beforePlayImpl = { preview.release() }
     // Digits tune from anywhere in the tab — the strip and the day chip
     // included. Collected here (preview phase runs ancestors first, so this
@@ -399,17 +412,86 @@ fun GuideTab(
             GuideNoticeBar(notice = it)
             Spacer(Modifier.height(10.dp))
         }
-        // The day the grid is showing. One chip that NAMES the day, behind a
-        // calendar icon that marks it as a different kind of control, and it
-        // is gone entirely when the guide has only today to show rather than
-        // sitting there inert.
+        // The strip stays, and the panel is an ADDITION to it.
         //
-        // The row of category chips that used to sit beside it is gone; the
-        // categories live in [GuideCategoryPanel] now, one LEFT press from any
-        // row. A control that could only be reached from row 0 was furthest
-        // from precisely the viewer who needed it — the one deep in a long
-        // category — and it cost the top ~50dp of every guide screen to say so.
+        // Removing it was the wrong trade. The panel is reachable only from
+        // the channel column, and entry focus lands on a PROGRAMME CELL - so
+        // with the strip gone there was no verified route to a category at
+        // all, on a screen I could not test. A second way in is a worse design
+        // than one; an unreachable control is not a design at all.
+        //
+        // Dwell-select does NOT come back with it: the panel selects on OK,
+        // and two category controls disagreeing about whether resting counts
+        // as choosing is exactly the inconsistency that reads as a bug.
+        val chipsFocus = remember { androidx.compose.ui.focus.FocusRequester() }
         val dayFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+        // The territory is the GROUP, not a property of each chip. Spelling it
+        // into every label made the strip read "News · United Kingdom, Sports ·
+        // United Kingdom, Locals & Networks · United Kingdom…" — nineteen chips
+        // repeating four words nineteen times, where the eye is trying to find
+        // a section. Named once per run, the chips carry only what differs.
+        val strip = remember(categories) { groupByRegion(categories) }
+        androidx.compose.foundation.lazy.LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            // DOWN mirrors UP's route: strip → day chip when one is showing,
+            // else straight into the grid. Intercepted, not left to geometry —
+            // only the leftmost chips even have the day chip below them, and
+            // from the rest DOWN found nothing and bounced back to chip one.
+            modifier = Modifier
+                .padding(bottom = 10.dp)
+                // The requester lives on the ROW, not on a chip.
+                //
+                // It used to be attached to the first chip, on the reasoning
+                // that the first chip is always composed. In a LazyRow it is
+                // not: scroll the strip a few chips right and that item is
+                // disposed, while `dayUp` and `upFromTopRow` still redirect
+                // UP to its requester — and resolving a redirect to a
+                // detached requester THROWS. That is the crash behind
+                // "the app froze and went back to the Google TV home
+                // screen": browse the strip sideways, then press UP.
+                //
+                // On the row it is always attached, and focusRestorer returns
+                // focus to the chip that had it rather than snapping back to
+                // chip one, which in a nineteen-chip strip lost your place
+                // every time you came up from the grid.
+                .focusRequester(chipsFocus)
+                .focusRestorer()
+                .then(
+                    if (maxDayOffset > 0) {
+                        Modifier.onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown &&
+                                event.key.nativeKeyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
+                            ) {
+                                scope.launch { dayFocus.requestFocusRetrying() }
+                                true
+                            } else false
+                        }
+                    } else Modifier.downIntoGrid()
+                ),
+        ) {
+            itemsIndexed(strip, key = { _, e -> e.key }) { index, entry ->
+                if (entry is StripEntry.Group) {
+                    RegionGroupLabel(entry.label)
+                    return@itemsIndexed
+                }
+                val category = (entry as StripEntry.Chip).category
+                val locked = category.id in lockedIds
+                CategoryItem(
+                    name = entry.label,
+                    selected = category.id == categoryId,
+                    onClick = {
+                        if (locked) {
+                            pinPendingCategory = category.id
+                            pinPromptOpen = true
+                        } else onCategoryId(category.id)
+                    },
+                    // Locked categories still need the OK press (and
+                    // its PIN prompt); dwell must not walk past a PIN.
+                    locked = locked,
+                )
+            }
+        }
 
         // What the header describes before anything in the grid has focus: the
         // first channel's on-now programme, not a channel name over a void.
@@ -447,6 +529,7 @@ fun GuideTab(
                 { dayOffset = if (dayOffset >= maxDayOffset) 0 else dayOffset + 1 }
             } else null,
             dayFocus = dayFocus,
+            dayUp = chipsFocus,
             onDayDown = { scope.launch { gridHandle.focusAnchor() } },
         )
 
@@ -457,7 +540,7 @@ fun GuideTab(
             digitState = digitState,
             // UP from the grid meets the day control first — it sits directly
             // above — and UP again reaches the category strip.
-            upFromTopRow = if (maxDayOffset > 0) dayFocus else null,
+            upFromTopRow = if (maxDayOffset > 0) dayFocus else chipsFocus,
             onOpenCategories = { categoryPanelOpen = true },
             channels = channels,
             // Remembered, not rebuilt per composition: an unstable lambda
@@ -496,7 +579,14 @@ fun GuideTab(
                 // many on a line that allows two, and the stream
                 // refused is the one the viewer just asked for.
                 preview.release()
-                vm.playChannels(channels, channels.indexOf(channel))
+                // By id, never by value. LiveChannel is a data class, so
+                // indexOf compares every field - fallbackUrls included, and
+                // those change as the catalogue learns each stream's real
+                // quality and re-merges. The captured channel then stops
+                // matching its own entry, indexOf returns -1, and startIndex
+                // coerces to 0: the player opens at the top of the list and
+                // zaps from there, whatever the viewer actually chose.
+                vm.playChannels(channels, channels.indexOfFirst { it.id == channel.id }.coerceAtLeast(0))
                 onPlay()
             },
             onCatchup = { channel, program ->

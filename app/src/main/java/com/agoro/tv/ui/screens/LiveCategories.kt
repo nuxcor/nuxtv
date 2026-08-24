@@ -3,6 +3,8 @@ package com.agoro.tv.ui.screens
 import com.agoro.tv.data.Category
 import com.agoro.tv.data.ContentBundle
 import com.agoro.tv.data.LiveChannel
+import com.agoro.tv.data.answersTo
+import com.agoro.tv.data.isFavorite
 
 /**
  * The category vocabulary of Live TV, in one place because it has two views.
@@ -40,7 +42,9 @@ internal fun liveCategoryList(
     // the player's list, the player's guide - to hold a handful of channels
     // the viewer lands among anyway. [CATEGORY_FAVORITES] stays: Home's row
     // resolves through the same function.
-    if (channels.any { it.url in recents }) {
+    // Gated the same way the category itself resolves. Checking url alone
+    // hid the chip while [channelsInCategory] would have filled it.
+    if (channels.any { ch -> recents.any { ch.answersTo(it) } }) {
         add(Category(id = CATEGORY_RECENT, name = "Recent"))
     }
     addAll(bundle.liveCategories)
@@ -93,9 +97,7 @@ internal fun channelsInCategory(
     // by url alone, a favourite silently disappeared the moment the catalogue
     // learned one of its siblings was the better feed, and the viewer's own
     // shelf emptied for a reason nothing on screen could explain.
-    CATEGORY_FAVORITES -> channels.filter { ch ->
-        ch.url in favorites || ch.fallbackUrls.any { it in favorites }
-    }
+    CATEGORY_FAVORITES -> channels.filter { it.isFavorite(favorites) }
     CATEGORY_RECENT -> {
         // Index the channels once: recents is capped small, but the channel
         // list routinely runs to thousands and this is recomputed on every
