@@ -193,6 +193,25 @@ data class ContentBundle(
      * was doing there for.
      */
     val cleaned: Boolean = false,
+
+    /**
+     * The [CatalogueManifest.generated] stamp of the manifest that curated
+     * this bundle, or null for one built without a manifest or cached before
+     * this field existed.
+     *
+     * The cache holds the FINISHED model — shelves already resolved, channels
+     * already assigned to them, names already cleaned — and it lives in
+     * filesDir, which an app update does not clear. So a release that changes
+     * the curation shipped a new manifest into an app that went on publishing
+     * the old manifest's OUTPUT from disk, for as long as the catalogue cache
+     * stayed young. Shelves that had been merged came back; channels that had
+     * been dropped came back with them.
+     *
+     * [cleaned] is the same idea one layer down and was the precedent: a
+     * bundle has to say what produced it, or a warm start and a network load
+     * disagree about what the same catalogue is called.
+     */
+    val manifestStamp: String? = null,
 ) {
     val isEmpty: Boolean
         get() = channels.isEmpty() && movies.isEmpty() && series.isEmpty()

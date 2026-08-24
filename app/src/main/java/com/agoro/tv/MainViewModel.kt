@@ -629,17 +629,48 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             delay(3_000)
             _accountInfo.value = repo.accountInfo()
         }
-        // Silent update check shortly after launch. Never stomps an
-        // in-progress manual check/download.
+        // Silent update check shortly after launch, and again every few hours
+        // for as long as the process lives.
+        //
+        // It used to run exactly once. A TV box is not a phone: it is left on,
+        // and this app's process routinely outlives several releases — so a
+        // version published an hour after launch was invisible until something
+        // killed the app, which on a box that is never swiped away could be
+        // days. The check is one HEAD request that reads a redirect header, so
+        // repeating it costs close to nothing.
         viewModelScope.launch {
-            delay(8_000)
-            val result = updateManager.check()
-            if (result is com.agoro.tv.data.UpdateManager.State.Available &&
-                _updateState.value is com.agoro.tv.data.UpdateManager.State.Idle
-            ) {
-                _updateState.value = result
+            delay(UPDATE_FIRST_CHECK_MS)
+            while (true) {
+                val result = updateManager.check()
+                if (result is com.agoro.tv.data.UpdateManager.State.Available &&
+                    _updateState.value.acceptsSilentUpdate()
+                ) {
+                    _updateState.value = result
+                }
+                delay(UPDATE_RECHECK_MS)
             }
         }
+    }
+
+    /**
+     * Whether a silent check may write over this state.
+     *
+     * Idle is the untouched one. UpToDate and Error have to be here too, and
+     * their absence was the second half of the same bug: a MANUAL check from
+     * Settings leaves one of them behind, and the old guard read anything but
+     * Idle as "busy" — so pressing "Check for updates" once, on a box with no
+     * update yet, permanently silenced every later check in that process.
+     *
+     * Checking, Downloading and Ready are the states that mean something is
+     * genuinely in flight or waiting on the viewer, and those are never
+     * disturbed. Available is left alone as well: it already says what this
+     * would say.
+     */
+    private fun com.agoro.tv.data.UpdateManager.State.acceptsSilentUpdate(): Boolean = when (this) {
+        is com.agoro.tv.data.UpdateManager.State.Idle,
+        is com.agoro.tv.data.UpdateManager.State.UpToDate,
+        is com.agoro.tv.data.UpdateManager.State.Error -> true
+        else -> false
     }
 
     /**
@@ -661,6 +692,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private companion object {
+        /** Long enough to stay clear of the catalogue fetch that start-up is really for. */
+        const val UPDATE_FIRST_CHECK_MS = 8_000L
+
+        /**
+         * Three hours. Eight checks a day on a box left on, which surfaces a
+         * release within an afternoon of it landing without anyone thinking
+         * about it. Shorter buys responsiveness nobody asked for; the manual
+         * button in Settings is there for the moment someone does.
+         */
+        const val UPDATE_RECHECK_MS = 3L * 60 * 60 * 1000
+
         const val INSTALL_BLOCKED =
             "Couldn't start the installer — allow \"install unknown apps\" for Agoro, then press Install"
     }

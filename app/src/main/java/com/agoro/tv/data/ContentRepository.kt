@@ -123,8 +123,23 @@ class ContentRepository(context: Context) {
     private fun cacheFile(sourceId: String) =
         java.io.File(appContext.filesDir, "bundle-$sourceId.json".replace("$sourceId", sourceId))
 
+    /**
+     * The cached bundle for [sourceId], or null when there isn't one worth
+     * publishing.
+     *
+     * @param manifestStamp what the CURRENT manifest is stamped with. A cache
+     * curated by a different one is refused outright rather than shown and
+     * quietly corrected later: it is the finished model, so its shelves and
+     * its dropped channels cannot be re-derived from it — only rebuilt. That
+     * costs a cold load on the launch after a curation change, which is once,
+     * against shelves that were otherwise wrong until the catalogue aged out.
+     *
+     * Null stamps on either side mean "don't know", never "different": a
+     * manifest that failed to load, or a source it does not describe, must not
+     * throw away a good cache.
+     */
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-    private fun readCache(sourceId: String): ContentBundle? = runCatching {
+    private fun readCache(sourceId: String, manifestStamp: String? = null): ContentBundle? = runCatching {
         cacheFile(sourceId).takeIf { it.exists() }?.inputStream()?.buffered()?.use { stream ->
             bundleJson.decodeFromStream<ContentBundle>(stream)
         }
@@ -133,7 +148,12 @@ class ContentRepository(context: Context) {
         // written since say so and are left alone — re-cleaning a curated
         // bundle rewrites its shelf labels, so cache and network disagreed
         // about what the same catalogue is called. See [ContentBundle.cleaned].
-    }.getOrNull()?.let { if (it.cleaned) it else CategoryCleaner.clean(it) }
+    }.getOrNull()
+        ?.takeIf { bundle ->
+            manifestStamp == null || bundle.manifestStamp == null ||
+                bundle.manifestStamp == manifestStamp
+        }
+        ?.let { if (it.cleaned) it else CategoryCleaner.clean(it) }
         ?.let(::renumberChannels)
 
     /**
@@ -318,7 +338,8 @@ class ContentRepository(context: Context) {
             return
         }
         if (source.id == loadedSourceId && _content.value is ContentState.Ready) return
-        val cached = withContext(Dispatchers.IO) { readCache(source.id) }
+        val currentStamp = manifests.load()?.takeIf { manifestApplies(source, it) }?.generated
+        val cached = withContext(Dispatchers.IO) { readCache(source.id, currentStamp) }
         if (cached != null && !cached.isEmpty) {
             // Restored before the bundle is published, because publishing is
             // what triggers the guide load that needs it.
@@ -532,10 +553,15 @@ class ContentRepository(context: Context) {
         // place on a four-core box.
         val curated = withContext(BackgroundWork.dispatcher) {
             val cleaned = CategoryCleaner.clean(raw)
+            val applies = manifest != null && manifestApplies(source, manifest)
             val curated =
-                if (manifest == null || !manifestApplies(source, manifest)) cleaned
-                else ManifestCuration.apply(cleaned, manifest)
-            renumberChannels(curated)
+                if (!applies) cleaned else ManifestCuration.apply(cleaned, manifest!!)
+            // Stamped with the manifest that did the work, so a warm start can
+            // tell whether the shelves on disk were decided by the manifest
+            // this build now carries. See [ContentBundle.manifestStamp].
+            renumberChannels(curated).copy(
+                manifestStamp = if (applies) manifest!!.generated else null,
+            )
         }
         // Logos are filled HERE, before anything is published or cached,
         // rather than in a pass over the published bundle. That pass
