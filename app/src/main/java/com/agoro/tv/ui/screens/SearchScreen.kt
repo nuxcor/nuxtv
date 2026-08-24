@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -135,17 +138,73 @@ fun SearchTab(
         // the query field takes focus on arrival instead of stranding it
         // wherever the pill's departure dropped it.
         val fieldFocus = com.agoro.tv.ui.components.rememberInitialFocus(Unit)
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            label = { androidx.compose.material3.Text("Search channels, movies and shows") },
-            singleLine = true,
-            modifier = Modifier
-                .fillMaxWidth()
-                .focusRequester(fieldFocus)
-                .dpadFieldNavigation(),
-            colors = NuxFieldDefaults.colors(),
-        )
+
+        // Voice is the only humane way to type on a remote: the alternative is
+        // walking a D-pad around a grid of letters. Handed to the system
+        // recogniser rather than run in-process, so the app holds no
+        // RECORD_AUDIO and the prompt is the one the viewer already knows.
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val voiceIntent = remember {
+            android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(
+                    android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                    android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+                )
+                putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Say a channel, film or show")
+            }
+        }
+        // Offered only where something can answer it. Plenty of TV boxes ship
+        // without a recogniser, and a mic that opens nothing is worse than no
+        // mic: it is a control the viewer has to learn is broken.
+        val canSpeak = remember {
+            runCatching {
+                voiceIntent.resolveActivity(context.packageManager) != null
+            }.getOrDefault(false)
+        }
+        val speech = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            val said = result.data
+                ?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)
+                ?.firstOrNull()
+                ?.trim()
+                .orEmpty()
+            // A cancelled prompt returns nothing: leave what was typed alone
+            // rather than clearing the field the viewer may have been editing.
+            if (said.isNotEmpty()) query = said
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Space.s),
+        ) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { androidx.compose.material3.Text("Search channels, movies and shows") },
+                singleLine = true,
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(fieldFocus)
+                    .dpadFieldNavigation(),
+                colors = NuxFieldDefaults.colors(),
+            )
+            if (canSpeak) {
+                androidx.tv.material3.OutlinedButton(
+                    onClick = {
+                        // Never let a missing or broken recogniser take the
+                        // screen down; the field still works without it.
+                        runCatching { speech.launch(voiceIntent) }
+                    },
+                ) {
+                    androidx.compose.material3.Icon(
+                        Icons.Default.Mic,
+                        contentDescription = "Search by voice",
+                    )
+                }
+            }
+        }
         Spacer(Modifier.height(20.dp))
 
         val empty = results.channels.isEmpty() && results.movies.isEmpty() &&
