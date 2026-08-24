@@ -1,13 +1,30 @@
 <resources>
+    <!--
+      One black, everywhere. The app used three within a second of launch: the
+      splash field #0E0D0C, this window's pure #000000 behind it, and the page
+      itself at #0B0A09. Nothing on screen changed at those seams — only the
+      shade did, twice, which on a panel that resolves near-blacks reads as a
+      flicker on every cold start. NuxColors.Background is the page, so the
+      window under it is the page too.
+    -->
     <style name="Theme.NuxTV" parent="@android:style/Theme.NoTitleBar.Fullscreen">
-        <item name="android:windowBackground">@android:color/black</item>
-        <item name="android:colorBackground">@android:color/black</item>
+        <item name="android:windowBackground">@color/page</item>
+        <item name="android:colorBackground">@color/page</item>
     </style>
 
-    <style name="Theme.NuxTV.Splash" parent="Theme.SplashScreen.IconBackground">
-        <item name="windowSplashScreenBackground">#0E0D0C</item>
+    <!--
+      Theme.SplashScreen, NOT .IconBackground: that parent fills a circle
+      behind the mark, and a disc one shade off the field it sits on reads as
+      a ring around the logo rather than as anything intended. The platform
+      masks the icon to a circle either way — the disc was the only part that
+      was a choice, and the mark drops onto the field without it.
+
+      ic_splash's 0.84 scale still earns its place: the mask is the platform's
+      and is there whether or not anything is drawn under it.
+    -->
+    <style name="Theme.NuxTV.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/page</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash</item>
-        <item name="windowSplashScreenIconBackgroundColor">#1A1816</item>
         <item name="postSplashScreenTheme">@style/Theme.NuxTV</item>
     </style>
 </resources>

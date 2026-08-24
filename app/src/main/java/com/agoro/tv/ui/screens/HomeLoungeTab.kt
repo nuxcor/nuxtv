@@ -112,7 +112,7 @@ private sealed interface HomeMenu {
         val index: Int,
     ) : HomeMenu
 
-    data class ResumedMovie(val movie: Movie, val progress: Float?) : HomeMenu
+    data class ResumedMovie(val movie: Movie) : HomeMenu
     data class ResumedSeries(val series: Series) : HomeMenu
 
     /** A catalogue poster on Home — Movies, Shows, Recently added. */
@@ -699,7 +699,7 @@ fun HomeLoungeTab(
                                 is ContinueCard.MovieCard -> MoviePoster(
                                     card.movie, row, rowIndex, index, card.progress,
                                     onLongClick = {
-                                        menu = HomeMenu.ResumedMovie(card.movie, card.progress)
+                                        menu = HomeMenu.ResumedMovie(card.movie)
                                     },
                                 )
                                 is ContinueCard.SeriesCard -> SeriesPoster(
@@ -891,14 +891,21 @@ private fun HomeContextMenu(
             )
         }
 
+        // The two Continue watching menus read alike, because the shelf shows
+        // one kind of thing: something part-watched. Details for what it is,
+        // Clear progress to take it off the shelf. Resume and Start over used
+        // to sit here for films and could not for shows — which episode a
+        // series card means is a question only the detail screen can answer —
+        // so the same hold on two neighbouring cards offered different
+        // actions. Details reaches Resume/Start over in one more press, and
+        // OK on the card goes straight there.
         is HomeMenu.ResumedMovie -> ContextMenu(
             title = menu.movie.name,
             actions = listOf(
-                MenuAction("Resume") { vm.playMovie(menu.movie); onPlay() },
-                MenuAction("Start over") { vm.playMovie(menu.movie, startOver = true); onPlay() },
+                MenuAction("Details") { onOpenMovie(menu.movie) },
                 // Destructive only in the sense that it cannot be undone from
                 // here; nothing is deleted but the bookmark.
-                MenuAction("Remove from Continue watching", destructive = true) {
+                MenuAction("Clear progress", destructive = true) {
                     onRemove()
                     vm.forgetResume(menu.movie.url)
                 },
@@ -910,7 +917,7 @@ private fun HomeContextMenu(
             title = menu.movie.name,
             actions = listOf(
                 MenuAction("Play") { vm.playMovie(menu.movie); onPlay() },
-                MenuAction("More info") { onOpenMovie(menu.movie) },
+                MenuAction("Details") { onOpenMovie(menu.movie) },
                 // Home only. The film keeps its place in Movies and in search,
                 // and Settings offers these back in one go.
                 MenuAction("Not interested", destructive = true) {
@@ -926,7 +933,7 @@ private fun HomeContextMenu(
             actions = listOf(
                 // No "Play": which episode that means lives on the series
                 // screen, the same reason Continue watching does not offer it.
-                MenuAction("Open series") { onOpenSeries(menu.series) },
+                MenuAction("Details") { onOpenSeries(menu.series) },
                 MenuAction("Not interested", destructive = true) {
                     onRemove()
                     vm.hideFromHome("s:${menu.series.id}")
@@ -938,11 +945,8 @@ private fun HomeContextMenu(
         is HomeMenu.ResumedSeries -> ContextMenu(
             title = menu.series.name,
             actions = listOf(
-                // No "Resume" here: which episode that means lives on the
-                // series screen, which is also where "Start over" would have
-                // to ask. Sending the viewer there is the honest answer.
-                MenuAction("Open series") { onOpenSeries(menu.series) },
-                MenuAction("Remove from Continue watching", destructive = true) {
+                MenuAction("Details") { onOpenSeries(menu.series) },
+                MenuAction("Clear progress", destructive = true) {
                     onRemove()
                     vm.forgetSeriesResume(menu.series)
                 },

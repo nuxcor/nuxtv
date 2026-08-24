@@ -1,0 +1,10 @@
+<resources>
+    <!--
+      The page, as a resource so the window, the splash field and Compose can
+      all name the same black instead of three that merely look alike. Must
+      track NuxColors.Background in ui/theme/Theme.kt — that is the one the
+      app actually draws with, and this is what sits behind it before Compose
+      has drawn anything at all.
+    -->
+    <color name="page">#0B0A09</color>
+</resources>
