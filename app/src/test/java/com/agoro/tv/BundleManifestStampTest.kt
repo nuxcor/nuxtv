@@ -20,7 +20,7 @@ class BundleManifestStampTest {
 
     /** The rule readCache applies, kept in one place so the test states it once. */
     private fun accepts(cacheStamp: String?, currentStamp: String?): Boolean =
-        currentStamp == null || cacheStamp == null || cacheStamp == currentStamp
+        currentStamp == null || cacheStamp == currentStamp
 
     @Test
     fun `a cache curated by the manifest in hand is used`() {
@@ -35,11 +35,19 @@ class BundleManifestStampTest {
     }
 
     @Test
-    fun `an unknown stamp on either side is not treated as different`() {
-        // A manifest that failed to load, a source it does not describe, or a
-        // cache written before the field existed. None of those is a reason to
-        // throw away a good catalogue and pay a cold reload.
-        assertEquals(true, accepts(null, "2026-08-23T14:45:00+00:00"))
+    fun `an unstamped cache is refused, because that is the upgrade case`() {
+        // THE regression. Every cache written before the field existed is
+        // unstamped, so reading null as "don't know" meant the version that
+        // added this check helped only the devices that never needed it. An
+        // unstamped cache was built by a manifest this build cannot identify.
+        assertEquals(false, accepts(null, "2026-08-23T14:45:00+00:00"))
+    }
+
+    @Test
+    fun `an unknown CURRENT stamp keeps whatever is cached`() {
+        // A manifest that failed to load, or a source it does not describe.
+        // Neither is a reason to throw away a good catalogue and pay a cold
+        // reload for it.
         assertEquals(true, accepts("2026-08-23T14:45:00+00:00", null))
         assertEquals(true, accepts(null, null))
     }

@@ -134,9 +134,17 @@ class ContentRepository(context: Context) {
      * costs a cold load on the launch after a curation change, which is once,
      * against shelves that were otherwise wrong until the catalogue aged out.
      *
-     * Null stamps on either side mean "don't know", never "different": a
+     * A null on the CURRENT side means "don't know" and keeps the cache: a
      * manifest that failed to load, or a source it does not describe, must not
-     * throw away a good cache.
+     * throw away a good catalogue.
+     *
+     * A null on the CACHE side is the opposite, and reading it as "don't know"
+     * was the whole bug in the first attempt at this. Every cache written
+     * before the field existed is unstamped — so the version that added the
+     * check skipped precisely the installs it was written for, and shipped a
+     * fix that could only ever help devices that did not need it. An unstamped
+     * cache was built by a manifest this build cannot identify, which is the
+     * definition of the case being guarded, so it is refused.
      */
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     private fun readCache(sourceId: String, manifestStamp: String? = null): ContentBundle? = runCatching {
@@ -149,10 +157,7 @@ class ContentRepository(context: Context) {
         // bundle rewrites its shelf labels, so cache and network disagreed
         // about what the same catalogue is called. See [ContentBundle.cleaned].
     }.getOrNull()
-        ?.takeIf { bundle ->
-            manifestStamp == null || bundle.manifestStamp == null ||
-                bundle.manifestStamp == manifestStamp
-        }
+        ?.takeIf { bundle -> manifestStamp == null || bundle.manifestStamp == manifestStamp }
         ?.let { if (it.cleaned) it else CategoryCleaner.clean(it) }
         ?.let(::renumberChannels)
 
