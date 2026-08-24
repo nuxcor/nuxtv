@@ -12,6 +12,8 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -140,6 +142,70 @@ class ExoEngine(
     /** True between a READY-and-playing report and the next state change. */
     private var wasPlaying = false
 
+    /**
+     * The output's refusal of an AudioTrack, held until either the track
+     * opens after all or [sinkStallCheck] decides it never will.
+     *
+     * A refused AudioTrack is not always an error the player reports. media3
+     * keeps the refusal to itself and retries for 200ms, and on 1.9 through
+     * 1.11 a release-count leak (androidx/media #3338) can leave that retry
+     * waiting forever: no error, no audio, the audio renderer never ready,
+     * and so a player that sits in BUFFERING with a full buffer for as long
+     * as the viewer will watch it. The sink does say what happened — every
+     * failed attempt reaches [AnalyticsListener.onAudioSinkError] — so that
+     * word is kept, and if playback has still not started a few seconds
+     * later the refusal is reported as the error it was, which puts it on
+     * the same rung a thrown one lands on; see [AudioOutputPolicy].
+     */
+    private var sinkRefusal: Exception? = null
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val sinkStallCheck = Runnable {
+        val refusal = sinkRefusal ?: return@Runnable
+        if (released) return@Runnable
+        // Still waiting on a renderer with playback asked for: the refusal
+        // was final. Anything else — playing, paused, ended — means the
+        // track opened after all, or something else is the matter.
+        if (player.playbackState != Player.STATE_BUFFERING || !player.playWhenReady) {
+            clearSinkRefusal()
+            return@Runnable
+        }
+        android.util.Log.w("Agoro", "Audio output refused the track and playback never started", refusal)
+        clearSinkRefusal()
+        listener?.onError(
+            humanError("ERROR_CODE_AUDIO_TRACK_INIT_FAILED"),
+            decodeFault = false,
+            audioFault = true,
+        )
+    }
+
+    private fun clearSinkRefusal() {
+        sinkRefusal = null
+        mainHandler.removeCallbacks(sinkStallCheck)
+    }
+
+    private val analyticsListener = object : AnalyticsListener {
+        override fun onAudioSinkError(eventTime: AnalyticsListener.EventTime, audioSinkError: Exception) {
+            // Only the output refusing to open or take the track. A timestamp
+            // discontinuity is also reported here, and that is a statement
+            // about the stream, which the sink resyncs itself.
+            if (audioSinkError !is AudioSink.InitializationException &&
+                audioSinkError !is AudioSink.WriteException
+            ) return
+            if (sinkRefusal != null) return
+            sinkRefusal = audioSinkError
+            mainHandler.postDelayed(sinkStallCheck, SINK_STALL_GRACE_MS)
+        }
+
+        override fun onAudioTrackInitialized(
+            eventTime: AnalyticsListener.EventTime,
+            audioTrackConfig: AudioSink.AudioTrackConfig,
+        ) {
+            // The retry took: the refusal was the transient kind the sink's
+            // own retry window exists for.
+            clearSinkRefusal()
+        }
+    }
+
     init {
         // From the DEFAULTS, not buildUponParameters(): the selector came back
         // from the pool carrying the last visit's overrides — a pinned rung,
@@ -192,10 +258,28 @@ class ExoEngine(
         val url = items.getOrNull(index)?.url ?: return
         if (format.height < 2000 && hdrTypeOf(format) == null) return
         TunnelPolicy.remember(url)
-        if (main && !TunnelPolicy.refusedByDevice) setTunnelling(true)
+        if (tunnelAllowed()) setTunnelling(true)
     }
 
+    /**
+     * Whether this player may tunnel at all. An output that has refused an
+     * AudioTrack is not offered the tunnelled variant of the next one: the
+     * tunnel hands the audio to the same HAL, with the AV-sync flag on top,
+     * and on the boxes that refuse passthrough that is the second thing they
+     * refuse. See [AudioOutputPolicy].
+     */
+    private fun tunnelAllowed(): Boolean =
+        main && !TunnelPolicy.refusedByDevice && !AudioOutputPolicy.pcmOnly
+
     private companion object {
+        /**
+         * How long a refused AudioTrack may go without playback starting
+         * before the refusal is taken as final. The sink's own retry lasts
+         * 200ms; the leak that swallows it lasts forever, and OwnTV's
+         * watchdog for the same fault settles on six seconds of no audio.
+         */
+        const val SINK_STALL_GRACE_MS = 6_000L
+
         /**
          * How long after a renderer reconfiguration its own rebuffer is
          * ignored: switching the tunnel on or off, or a track change, empties
@@ -253,15 +337,25 @@ class ExoEngine(
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            // A thrown error reaches the ladder by itself; the watchdog is
+            // for the refusal that never throws.
+            clearSinkRefusal()
+            // The card gets words; the log gets the cause chain. For an
+            // audio-output refusal that chain holds the one line that says
+            // why — the AudioTrack Config(rate, channel mask, encoding,
+            // buffer) the platform turned down — and nothing else does.
+            android.util.Log.w("Agoro", "Playback error ${error.errorCodeName}", error)
             listener?.onError(
                 humanError(error.errorCodeName),
                 decodeFault = isDecodeFault(error.errorCodeName),
+                audioFault = isAudioOutputFault(error.errorCodeName),
             )
         }
     }
 
     init {
         player.addListener(playerListener)
+        player.addAnalyticsListener(analyticsListener)
     }
 
     // Only the real player gets a media session: the muted guide preview
@@ -362,10 +456,11 @@ class ExoEngine(
     private fun playAt(index: Int, startPositionMs: Long) {
         if (released || index !in items.indices) return
         this.index = index
+        clearSinkRefusal()
         val item = items[index]
         // Decided before the decoder opens, so a stream that deserves the
         // tunnel gets it without a re-initialisation after the first frame.
-        setTunnelling(main && TunnelPolicy.wantsTunnel(item.url, deservesTunnel(item.url)))
+        setTunnelling(tunnelAllowed() && TunnelPolicy.wantsTunnel(item.url, deservesTunnel(item.url)))
         player.setMediaItem(
             MediaItem.Builder()
                 .setUri(item.url)
@@ -399,8 +494,10 @@ class ExoEngine(
         if (released) return
         released = true
         listener = null
+        clearSinkRefusal()
         mediaSession?.release()
         player.removeListener(playerListener)
+        player.removeAnalyticsListener(analyticsListener)
         playerView?.player = null
         playerView = null
         PlayerPool.giveBack(lease)
@@ -591,6 +688,27 @@ internal fun isDecodeFault(errorCodeName: String): Boolean = when (errorCodeName
 }
 
 /**
+ * Whether this failure is the audio output's — the platform refusing to
+ * create or feed the AudioTrack the player asked for.
+ *
+ * Distinct from a decode fault on purpose: the stream was read and the
+ * decoder was fine, it is the sink that was wrong, and software decoders
+ * would ask the same sink for the same track. What changes it is rebuilding
+ * the player with passthrough and tunnelling off, so the FFmpeg decoder turns
+ * the Dolby into PCM before the platform sees it; see [AudioOutputPolicy].
+ * The write-failed pair is included because on a live HDMI route it is the
+ * same refusal arriving a moment later — a passthrough track invalidated by
+ * a renegotiation (androidx/media #7042), which a PCM track survives.
+ */
+internal fun isAudioOutputFault(errorCodeName: String): Boolean = when (errorCodeName) {
+    "ERROR_CODE_AUDIO_TRACK_INIT_FAILED",
+    "ERROR_CODE_AUDIO_TRACK_WRITE_FAILED",
+    "ERROR_CODE_AUDIO_TRACK_OFFLOAD_INIT_FAILED",
+    "ERROR_CODE_AUDIO_TRACK_OFFLOAD_WRITE_FAILED" -> true
+    else -> false
+}
+
+/**
  * ExoPlayer's error constant, said in words a viewer can act on.
  *
  * The raw name went straight to the error card, so a dead stream announced
@@ -612,6 +730,10 @@ internal fun humanError(errorCodeName: String): String = when (errorCodeName) {
     "ERROR_CODE_DECODER_INIT_FAILED",
     "ERROR_CODE_DECODING_FORMAT_UNSUPPORTED",
     "ERROR_CODE_DECODER_QUERY_FAILED" -> "this device can't decode this stream"
+    "ERROR_CODE_AUDIO_TRACK_INIT_FAILED",
+    "ERROR_CODE_AUDIO_TRACK_WRITE_FAILED",
+    "ERROR_CODE_AUDIO_TRACK_OFFLOAD_INIT_FAILED",
+    "ERROR_CODE_AUDIO_TRACK_OFFLOAD_WRITE_FAILED" -> "your TV refused this audio format"
     "ERROR_CODE_DRM_UNSPECIFIED",
     "ERROR_CODE_DRM_SCHEME_UNSUPPORTED",
     "ERROR_CODE_DRM_PROVISIONING_FAILED",

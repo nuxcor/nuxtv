@@ -231,7 +231,12 @@ interface PlayerEngine {
          * [DecodeProfile.TOLERANT]; a 404 or a dropped line will fail exactly
          * the same way however forgiving the demuxer is, and offering software
          * decoding for one wastes the viewer's time on a promise it can't keep.
+         * @param audioFault true when the platform refused the AudioTrack the
+         * player asked for — the output turning down a passthrough encoding
+         * or a tunnelled track it had advertised. The stream and the decoders
+         * are fine; only the sink is wrong, and only rebuilding the player on
+         * a PCM-only sink changes anything. See [AudioOutputPolicy].
          */
-        fun onError(message: String, decodeFault: Boolean)
+        fun onError(message: String, decodeFault: Boolean, audioFault: Boolean = false)
     }
 }

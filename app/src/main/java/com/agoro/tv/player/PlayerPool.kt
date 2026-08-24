@@ -14,6 +14,9 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.AudioTrackAudioOutputProvider
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.drm.DrmSessionManagerProvider
 import androidx.media3.exoplayer.hls.DefaultHlsExtractorFactory
 import androidx.media3.exoplayer.hls.HlsMediaSource
@@ -293,12 +296,19 @@ object PlayerPool {
      * that alignment is a coincidence of the current call sites, and the next
      * silent-but-focus-taking player (or the reverse) would inherit the wrong
      * selector with no compile error and no crash, only silence.
+     *
+     * [pcmOnly] is [AudioOutputPolicy.pcmOnly] as it stood when the player
+     * was built. The sink is fixed at build time, so a player built while
+     * passthrough was still trusted keeps offering it for as long as it
+     * lives — and an idle one lent out after the output has refused a track
+     * would hand the viewer the very failure the latch exists to end.
      */
     internal data class Slot(
         val main: Boolean,
         val profile: DecodeProfile,
         val live: Boolean,
         val silent: Boolean,
+        val pcmOnly: Boolean,
     )
 
     /** One borrowed player and the selector it was built with. */
@@ -348,7 +358,7 @@ object PlayerPool {
         live: Boolean = true,
         silent: Boolean = false,
     ): Lease {
-        val slot = Slot(main, profile, live, silent)
+        val slot = Slot(main, profile, live, silent, pcmOnly = AudioOutputPolicy.pcmOnly)
         idle.remove(slot)?.let { return it }
         return build(context.applicationContext, slot)
     }
@@ -372,26 +382,44 @@ object PlayerPool {
             evictBeyondCap(keep = lease.slot)
         } else {
             // A second instance for the same slot only exists across a swap's
-            // overlap. Releasing it is the blocking call this pool exists to
-            // avoid, so the builder caps how long it may block.
-            player.release()
+            // overlap. Nothing keeps it; see releaseLater for why not now.
+            releaseLater(player)
         }
     }
+
+    /**
+     * Releases a player that has just been stopped — but not yet.
+     *
+     * stop() hands the player's AudioTrack to media3's release thread, which
+     * reports back to the playback thread once the track is gone; release()
+     * quits that thread. Called back to back, the report finds no thread to
+     * land on, and on media3 1.9 through 1.11 that lost report leaves a
+     * process-wide "release pending" count stuck above zero (androidx/media
+     * #3338; fixed on main after 1.11.0). The count gates every AudioTrack
+     * retry in the process: from then on a track that fails to open is never
+     * retried and never reported, which is a film that buffers silently for
+     * ever. A second on the main thread is more than the release needs to
+     * finish and report, and it also takes the blocking release() off the
+     * path that handed the player back — which is what the pool was for.
+     */
+    private fun releaseLater(player: ExoPlayer) {
+        mainHandler.postDelayed({ player.release() }, DEFERRED_RELEASE_MS)
+    }
+
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private const val DEFERRED_RELEASE_MS = 1_000L
 
     /**
      * Frees idle players beyond [MAX_IDLE], oldest first, never the one just
      * handed back — that is the one the next borrow is most likely to want.
      *
-     * This blocks, which is what the pool exists to avoid; it does it HERE, on
-     * the way out of a player, rather than on the way into one. A viewer
-     * leaving a film can afford the decoders coming down. A viewer changing
-     * channel cannot, and does not have to: the slot they just released is the
-     * one kept.
+     * The victim was stopped when it came back, which may have been a moment
+     * ago on a fast ladder, so it goes through [releaseLater] like any other.
      */
     private fun evictBeyondCap(keep: Slot) {
         if (idle.size <= MAX_IDLE) return
         val victims = idle.keys.filterNot { it == keep }.take(idle.size - MAX_IDLE)
-        for (slot in victims) idle.remove(slot)?.player?.release()
+        for (slot in victims) idle.remove(slot)?.player?.let(::releaseLater)
     }
 
     /**
@@ -413,7 +441,9 @@ object PlayerPool {
             // seconds: the recovery ladder can't run until this fires, and
             // every second here is a second of frozen picture first.
             .setReadTimeoutMs(8_000)
-        val renderers = DefaultRenderersFactory(context)
+        // The same factory either way; only its audio sink differs once the
+        // output has been caught refusing a track. See PcmOnlyRenderersFactory.
+        val renderers = (if (slot.pcmOnly) PcmOnlyRenderersFactory(context) else DefaultRenderersFactory(context))
             // ON, not PREFER: hardware decoders first, software only as a
             // fallback. PREFER puts software ahead of MediaCodec, which drops
             // frames on TV silicon the moment a decoder extension is present.
@@ -464,4 +494,41 @@ object PlayerPool {
             .build()
         return Lease(player, trackSelector, slot)
     }
+}
+
+/**
+ * A [DefaultRenderersFactory] whose audio sink believes the device can play
+ * 16-bit PCM and nothing else — no encoded passthrough, whatever the HDMI
+ * EDID says.
+ *
+ * `MediaCodecAudioRenderer` asks the sink what it supports before choosing
+ * between passthrough and decoding, so capping the sink is what actually
+ * removes the bitstream path; a track-selection constraint would not, since
+ * the selector still picks a 5.1 Dolby track when it is the only one. With
+ * passthrough gone the renderer falls back to a platform decoder for the
+ * format where one exists, and otherwise to the bundled FFmpeg decoder —
+ * which is what [DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON] is for,
+ * and the only AC-3/E-AC-3/DTS/TrueHD decoder on a box whose hardware lacks
+ * one. Multichannel PCM is still allowed: AudioFlinger mixes it down to
+ * whatever the output is, which is the one thing it reliably does.
+ *
+ * The capabilities are pinned by giving the output provider no Context —
+ * the media3 1.11 way. The older `setAudioCapabilities` is deprecated
+ * precisely because the Context-taking sink builder installs its own
+ * capabilities receiver and ignores it; the provider without a Context
+ * installs none and keeps `DEFAULT_AUDIO_CAPABILITIES`. Built only when
+ * [AudioOutputPolicy.pcmOnly] is set; see there for why.
+ */
+@OptIn(UnstableApi::class)
+private class PcmOnlyRenderersFactory(context: Context) : DefaultRenderersFactory(context) {
+    override fun buildAudioSink(
+        context: Context,
+        enableFloatOutput: Boolean,
+        enableAudioOutputPlaybackParams: Boolean,
+    ): AudioSink =
+        DefaultAudioSink.Builder(context)
+            .setAudioOutputProvider(AudioTrackAudioOutputProvider.Builder(/* context = */ null).build())
+            .setEnableFloatOutput(enableFloatOutput)
+            .setEnableAudioOutputPlaybackParameters(enableAudioOutputPlaybackParams)
+            .build()
 }
