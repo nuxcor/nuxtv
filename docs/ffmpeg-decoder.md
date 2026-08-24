@@ -18,8 +18,21 @@ The AAR is 1.6 MB and carries `libffmpegJNI.so` for `arm64-v8a` and
 
 ## Rebuilding
 
-Needs the NDK version this project already pins (`27.1.12297006`) and CMake
-3.21+. Both come from the Android SDK.
+Needs CMake 3.21+ and **the NDK media3 itself asks for at the target version**,
+which is not necessarily the one this app pins. 1.8.0 built with
+`27.1.12297006`; 1.11.0 wants `28.2.13676358` and its Gradle build downloads it
+unprompted. Check before starting, and check free disk with it: a fresh NDK is
+several GB, the two clones and the FFmpeg build are another ~1.5 GB, and a run
+that fills the disk fails deep inside Gradle with a cascade of lock errors that
+say nothing about space.
+
+Everything else below is version-drifted too, so read it against the tag you
+are building:
+
+* **1.11.0 moved the module to the Kotlin DSL.** The `abiFilters` snippet goes
+  in `build.gradle.kts`, not `build.gradle`, and reads
+  `abiFilters += listOf("armeabi-v7a", "arm64-v8a")`.
+* **1.11.0 bumped media3's own wrapper to Gradle 9.1**, which wants JDK 17+.
 
 ```bash
 # 1. Sources, at the media3 version in gradle/libs.versions.toml.
@@ -32,11 +45,15 @@ ln -sfn "$(cd ../../../../../../ffmpeg && pwd)" ffmpeg
 # 2. Trim the stock script to the ABIs we ship (it also builds x86/x86_64).
 head -n 104 build_ffmpeg.sh > build_ffmpeg_arm.sh && chmod +x build_ffmpeg_arm.sh
 
-# 3. Build. ANDROID_ABI must be 21 — media3's own minSdk, NOT this app's 23.
+# 3. Build. The first argument is FFMPEG_MODULE_PATH, and the script appends
+#    `/jni/ffmpeg` to it — so it is `src/main`, one level up from here, not
+#    `src`. Passing `../..` sends it looking in `src/jni/ffmpeg`, which does
+#    not exist, and the build dies on a cd before compiling anything.
+#    ANDROID_ABI must be 21 — media3's own minSdk, NOT this app's 23.
 #    Building at 23 links against a libc that the module's 21 target does not
 #    export, and the JNI link fails on an undefined `stderr`.
 ./build_ffmpeg_arm.sh \
-  "$(cd ../.. && pwd)" \
+  "$(cd .. && pwd)" \
   "$HOME/Library/Android/sdk/ndk/27.1.12297006" \
   darwin-x86_64 \
   21 \
