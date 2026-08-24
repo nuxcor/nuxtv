@@ -352,7 +352,10 @@ class PlayerSession internal constructor(
                 // process — the latch says no the second time, and the rungs
                 // below take over. See AudioOutputPolicy.
                 fault == PlaybackFault.AUDIO_OUTPUT && AudioOutputPolicy.latch(message) ->
-                    retryRebuilt("Your TV refused this audio format — decoding it in the app…")
+                    // Calm on purpose: it is automatic, it is once, and it
+                    // ends in sound. The reason is on the card if it does
+                    // not, and in the log either way.
+                    retryRebuilt("Adjusting audio for your TV…")
 
                 // Decoded audio whose timestamps keep jumping: the engine
                 // raises this once, when its latch turns, so the rebuild is
