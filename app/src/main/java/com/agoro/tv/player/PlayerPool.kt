@@ -308,7 +308,31 @@ object PlayerPool {
         internal val slot: Slot,
     )
 
-    private val idle = HashMap<Slot, Lease>()
+    /**
+     * How many idle players may be kept alive at once, across ALL slots.
+     *
+     * There was no cap. One instance per slot, released only by [drain] when
+     * the activity finished — which on a session that watched live, opened a
+     * film, and hit the recovery profile once meant five ExoPlayers alive at
+     * the same time, plus the one actually playing. stop() does not release a
+     * player; the instance stays and so does its audio session, and a box has
+     * a finite number of those. The one that fails is never the one that took
+     * them: it is the next stream to ask, which is "AudioTrack init failed" on
+     * a film with the guide and two dead profiles still holding sessions
+     * behind it.
+     *
+     * One is enough for what the pool is FOR. The blocking release it exists
+     * to keep off the hot path is the one between a zap and the next channel,
+     * or across a profile swap — both of which hand back and re-borrow the
+     * same slot immediately, and the most recently returned player is the one
+     * that serves them. Anything older is a session held on the chance it is
+     * wanted again.
+     */
+    private const val MAX_IDLE = 1
+
+    // Insertion-ordered, so eviction can take the OLDEST rather than whatever
+    // a hash iteration happens to yield first.
+    private val idle = LinkedHashMap<Slot, Lease>()
 
     /**
      * @param main True for the player the viewer watches on: takes audio
@@ -345,12 +369,29 @@ object PlayerPool {
         player.clearVideoSurface()
         if (idle[lease.slot] == null) {
             idle[lease.slot] = lease
+            evictBeyondCap(keep = lease.slot)
         } else {
             // A second instance for the same slot only exists across a swap's
             // overlap. Releasing it is the blocking call this pool exists to
             // avoid, so the builder caps how long it may block.
             player.release()
         }
+    }
+
+    /**
+     * Frees idle players beyond [MAX_IDLE], oldest first, never the one just
+     * handed back — that is the one the next borrow is most likely to want.
+     *
+     * This blocks, which is what the pool exists to avoid; it does it HERE, on
+     * the way out of a player, rather than on the way into one. A viewer
+     * leaving a film can afford the decoders coming down. A viewer changing
+     * channel cannot, and does not have to: the slot they just released is the
+     * one kept.
+     */
+    private fun evictBeyondCap(keep: Slot) {
+        if (idle.size <= MAX_IDLE) return
+        val victims = idle.keys.filterNot { it == keep }.take(idle.size - MAX_IDLE)
+        for (slot in victims) idle.remove(slot)?.player?.release()
     }
 
     /**
