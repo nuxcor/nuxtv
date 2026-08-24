@@ -282,7 +282,24 @@ private fun loadControlFor(live: Boolean): DefaultLoadControl =
 object PlayerPool {
 
     /** What makes two players non-interchangeable; see the class comment. */
-    internal data class Slot(val main: Boolean, val profile: DecodeProfile, val live: Boolean)
+    /**
+     * [silent] is part of the key, not a property of the borrower.
+     *
+     * A silent player has audio disabled in its track selector, and handing
+     * one to a viewer is a film that plays with no sound and nothing on screen
+     * to explain it. Today [main] happens to separate them — the only silent
+     * borrower is the guide preview, which is also the only one that declines
+     * audio focus — so this is belt and braces. It is worth the field anyway:
+     * that alignment is a coincidence of the current call sites, and the next
+     * silent-but-focus-taking player (or the reverse) would inherit the wrong
+     * selector with no compile error and no crash, only silence.
+     */
+    internal data class Slot(
+        val main: Boolean,
+        val profile: DecodeProfile,
+        val live: Boolean,
+        val silent: Boolean,
+    )
 
     /** One borrowed player and the selector it was built with. */
     class Lease internal constructor(
@@ -298,14 +315,16 @@ object PlayerPool {
      * focus, pauses when headphones unplug, may use tunnelled decoding. False
      * for the guide's silent preview, which must do none of those.
      * @param profile How forgiving to build it; see [DecodeProfile].
+     * @param silent Built with audio decoding switched off; see [Slot].
      */
     fun borrow(
         context: Context,
         main: Boolean,
         profile: DecodeProfile = DecodeProfile.FAST,
         live: Boolean = true,
+        silent: Boolean = false,
     ): Lease {
-        val slot = Slot(main, profile, live)
+        val slot = Slot(main, profile, live, silent)
         idle.remove(slot)?.let { return it }
         return build(context.applicationContext, slot)
     }
