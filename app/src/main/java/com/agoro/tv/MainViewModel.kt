@@ -118,9 +118,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val recentChannels: StateFlow<List<String>> = playerPrefs.recentChannels
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val epgOverrideUrl: StateFlow<String?> = playerPrefs.epgOverrideUrl
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
-
     val resumePositions: StateFlow<Map<String, Long>> = playerPrefs.resumePositions
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
@@ -146,18 +143,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     val parentalPin: StateFlow<String?> = playerPrefs.parentalPin
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
-
-    val mergeDuplicates: StateFlow<Boolean> = playerPrefs.mergeDuplicates
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
-
-    fun setMergeDuplicates(enabled: Boolean) =
-        viewModelScope.launch { playerPrefs.setMergeDuplicates(enabled) }
-
-    /** 0 = provider order, 1 = A–Z, 2 = quality first. */
-    val channelOrder: StateFlow<Int> = playerPrefs.channelOrder
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
-
-    fun setChannelOrder(mode: Int) = viewModelScope.launch { playerPrefs.setChannelOrder(mode) }
 
     val videoQuality: StateFlow<Int> = playerPrefs.videoQuality
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
@@ -341,8 +326,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /**
-     * Channels after hidden/parental filtering and optional duplicate merging,
-     * computed off the main thread instead of inside composition.
+     * Channels after hidden/parental filtering and duplicate merging, computed
+     * off the main thread instead of inside composition.
+     *
+     * Merging and provider order are not choices. The manifest has already
+     * collapsed the variants it knows about and dropped SD outright; what
+     * reaches here is whatever a raw M3U or an un-manifested source still
+     * ships twice over, and nobody wants that listed four times. Provider
+     * order is the numbering the guide and the number keys are built on, so
+     * an alphabetical or quality sort would leave channel 101 in the middle
+     * of the list.
      */
     val displayChannels: StateFlow<List<LiveChannel>> =
         kotlinx.coroutines.flow.combine(
@@ -354,48 +347,32 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // flight while a grid scrolls) rebuilt the entire channel list,
             // twice, at ~8 regex per channel. None of these values changed.
             playerPrefs.hidden.distinctUntilChanged(),
-            playerPrefs.mergeDuplicates.distinctUntilChanged(),
-            // Folded into one source so the unlock is something this combine can
-            // see; the typed combine overloads stop at five flows.
+            // Folded into one source so the unlock is something this combine
+            // can see.
             kotlinx.coroutines.flow.combine(playerPrefs.parentalPin, _parentalUnlocked) { pin, unlocked ->
                 pin.takeIf { !unlocked }
             }.distinctUntilChanged(),
-            playerPrefs.channelOrder.distinctUntilChanged(),
-        ) { c, hiddenSet, merge, effectivePin, order ->
+        ) { c, hiddenSet, effectivePin ->
             val bundle = (c as? ContentState.Ready)?.bundle
-                ?: return@combine Triple(emptyList<LiveChannel>(), false, 0)
+                ?: return@combine emptyList<LiveChannel>()
             val lockedIds = if (effectivePin != null) {
                 bundle.liveCategories.filter { isLockedCategory(it.name) }.map { it.id }.toSet()
             } else emptySet()
-            val visible = bundle.channels
+            bundle.channels
                 .filterNot { it.url in hiddenSet }
                 .filterNot { it.categoryId in lockedIds }
-            Triple(visible, merge, order)
         }
-            // Separate combine: the typed overloads stop at five flows. The
-            // decoded-quality overlay runs before merge/sort so duplicate
-            // merging and the quality ordering act on the truth, not on
-            // whatever tag the provider typed into the stream name.
-            .combine(playerPrefs.knownQualities.distinctUntilChanged()) { (visible, merge, order), known ->
+            // Separate combine, and the decoded-quality overlay runs BEFORE
+            // the merge: which variant is best has to be decided on the truth,
+            // not on whatever tag the provider typed into the stream name.
+            .combine(playerPrefs.knownQualities.distinctUntilChanged()) { visible, known ->
                 val corrected =
                     if (known.isEmpty()) visible
                     else visible.map { ch ->
                         val real = known[ch.url]
                         if (real == null || real == ch.quality) ch else ch.copy(quality = real)
                     }
-                val merged =
-                    if (merge) {
-                        com.agoro.tv.data.QualityTag.mergeBestQuality(corrected, known.keys)
-                    } else corrected
-                when (order) {
-                    1 -> merged.sortedBy { it.name.lowercase() }
-                    2 -> merged.sortedWith(
-                        compareByDescending<LiveChannel> {
-                            com.agoro.tv.data.QualityTag.rank(it.quality)
-                        }.thenBy { it.name.lowercase() }
-                    )
-                    else -> merged
-                }
+                com.agoro.tv.data.QualityTag.mergeBestQuality(corrected, known.keys)
             }
             .flowOn(kotlinx.coroutines.Dispatchers.Default)
             // Long enough to outlast navigation. At 5s a trip between tabs
@@ -418,9 +395,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * quality, which re-emits, which re-merged the entire catalogue mid-zap.
      */
     val allChannelsView: StateFlow<List<LiveChannel>> =
-        displayChannels.combine(playerPrefs.mergeDuplicates.distinctUntilChanged()) { channels, merge ->
-            if (!merge) channels
-            else com.agoro.tv.data.QualityTag.mergeBestQuality(
+        displayChannels.map { channels ->
+            com.agoro.tv.data.QualityTag.mergeBestQuality(
                 channels,
                 keyOf = { com.agoro.tv.data.EpgMatcher.normalizeKey(it.name) },
             )
@@ -598,7 +574,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         // request; the repository's debounce was meant to fold those into
         // one and, for reasons written on planGuideRefresh, did not. Keyed
         // on the source id, the second publish of the same playlist is not
-        // a request at all. The override has its own collector below.
+        // a request at all.
         viewModelScope.launch {
             guideSourceKey().collect { sourceId ->
                 if (sourceId != null) {
@@ -606,20 +582,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     // loadEpg for minutes, and a cache from before logos
                     // were part of the fetch would have sat bare that long.
                     launch { repo.enrichLogos() }
-                    repo.loadEpg(playerPrefs.epgOverrideUrl.first())
+                    repo.loadEpg()
                 }
-            }
-        }
-        viewModelScope.launch {
-            playerPrefs.epgOverrideUrl.drop(1).collect { override ->
-                if (content.value is ContentState.Ready) repo.loadEpg(override)
             }
         }
         // Auto-refresh the guide every 6 hours while the app is running.
         viewModelScope.launch {
             while (true) {
                 delay(6L * 3600 * 1000)
-                if (content.value is ContentState.Ready) repo.loadEpg(playerPrefs.epgOverrideUrl.first())
+                if (content.value is ContentState.Ready) repo.loadEpg()
             }
         }
         viewModelScope.launch {
@@ -741,9 +712,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
-
-    fun setEpgOverrideUrl(url: String?) = viewModelScope.launch { playerPrefs.setEpgOverrideUrl(url) }
-
 
     fun setParentalPin(pin: String?) = viewModelScope.launch { playerPrefs.setParentalPin(pin) }
 
@@ -888,7 +856,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // which carries most of the bindings — usually has too.
             val epgJob = launch {
                 runCatching {
-                    repo.loadEpg(playerPrefs.epgOverrideUrl.first(), sourceHint = source)
+                    repo.loadEpg(sourceHint = source)
                 }
             }
             val outcome =
@@ -929,16 +897,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         MutableStateFlow<com.agoro.tv.data.XtreamClient.AccountInfo?>(null)
     val accountInfo: StateFlow<com.agoro.tv.data.XtreamClient.AccountInfo?> = _accountInfo
 
-    val frameStatsOverlay: StateFlow<Boolean> = playerPrefs.frameStatsOverlay
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
-
-    fun setFrameStatsOverlay(on: Boolean) {
-        viewModelScope.launch { playerPrefs.setFrameStatsOverlay(on) }
-    }
-
-    val guidePreviewMode: StateFlow<String> = playerPrefs.guidePreviewMode
-        .stateIn(viewModelScope, SharingStarted.Eagerly, "auto")
-
     /** Starts true so the drawer hint never flashes for installs that saw it. */
     val menuHintSeen: StateFlow<Boolean> = playerPrefs.menuHintSeen
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
@@ -948,32 +906,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Auto keeps the preview on. "Connections" meter simultaneous STREAMS,
-     * not logins — and while the guide is open nothing else is streaming, so
-     * even a single-stream plan has its slot free; the guide releases the
-     * preview before fullscreen opens, and this held up against a real
-     * 1-connection line. The one thing that genuinely occupies the slot is
-     * an active recording, so auto yields to it — unless the plan has a
-     * second connection to spare. The manual Off stays for panels that
-     * dislike the churn; On stays for middlemen (IPTVEditor) whose cosmetic
-     * max_connections misreports the real plan.
+     * The preview is on, and yields to a recording. "Connections" meter
+     * simultaneous STREAMS, not logins — and while the guide is open nothing
+     * else is streaming, so even a single-stream plan has its slot free; the
+     * guide releases the preview before fullscreen opens, and this held up
+     * against a real 1-connection line. The one thing that genuinely occupies
+     * the slot is an active recording, so the preview stands down for it —
+     * unless the plan has a second connection to spare.
+     *
+     * This was Auto/On/Off. Off was a preference for a thing that costs
+     * nothing when it is free and stops on its own when it isn't, and On was
+     * the same as Auto except that it would take a recording's only stream —
+     * an option whose whole content was "break my recording".
      */
     val guidePreview: StateFlow<Boolean> =
         combine(
-            playerPrefs.guidePreviewMode,
             accountInfo,
             com.agoro.tv.recording.RecordingManager.active,
-        ) { mode, account, recording ->
-            when (mode) {
-                "on" -> true
-                "off" -> false
-                else -> recording == null || (account?.maxConnections ?: 1) >= 2
-            }
+        ) { account, recording ->
+            recording == null || (account?.maxConnections ?: 1) >= 2
         }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
-
-    fun setGuidePreviewMode(mode: String) {
-        viewModelScope.launch { playerPrefs.setGuidePreviewMode(mode) }
-    }
 
     fun refreshAccountInfo() {
         viewModelScope.launch { _accountInfo.value = repo.accountInfo() }
