@@ -87,6 +87,13 @@ class ExoEngine(
      * "try the other engine" swap to libVLC.
      */
     private val profile: DecodeProfile = DecodeProfile.FAST,
+    /**
+     * Whether this engine will be handed live streams. Known here rather than
+     * at [prepare] because it decides how the underlying player buffers, and
+     * that is fixed when the player is built; see loadControlFor. Defaults to
+     * live, which is what the guide's preview is.
+     */
+    isLive: Boolean = true,
 ) : PlayerEngine {
 
     override val name = if (profile == DecodeProfile.TOLERANT) "ExoPlayer (software)" else "ExoPlayer"
@@ -94,7 +101,8 @@ class ExoEngine(
     override var onTransportPlay: (() -> Unit)? = null
     override var onTransportPause: (() -> Unit)? = null
 
-    private val lease = PlayerPool.borrow(context, main = requestAudioFocus, profile = profile)
+    private val lease =
+        PlayerPool.borrow(context, main = requestAudioFocus, profile = profile, live = isLive)
     private val player: ExoPlayer get() = lease.player
     private val trackSelector: DefaultTrackSelector get() = lease.trackSelector
 
