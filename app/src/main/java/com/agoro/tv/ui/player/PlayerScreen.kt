@@ -618,8 +618,17 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         }
     }
 
-    // A MID-STREAM stall earns a corner chip, and only after a grace period:
-    // tuning has its own card, and sub-second hiccups deserve nothing.
+    // A mid-stream stall on LIVE earns a corner chip, and only after a grace
+    // period: tuning has its own card, and sub-second hiccups deserve nothing.
+    //
+    // Live only. On a film the chip was announcing every pause the buffer took
+    // to refill, and a film refills far more often than a channel does —
+    // playback is not racing a live edge, so a stall is a wait rather than a
+    // fault, and one that resolves itself with no viewer decision attached to
+    // it. Naming it made an ordinary pause look like a failure. Live keeps the
+    // chip because there the stall IS the fault: the feed is running away from
+    // the player, and the recovery ladder is about to do something visible
+    // about it.
     //
     // Keyed on the tune as well, and held for whatever is left of the settling
     // window, because "not tuning" was never the same thing as "not changing
@@ -629,8 +638,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     // stream still buffering when the window closes gets the chip, because by
     // then it has stopped settling and started failing.
     var showBufferingChip by remember { mutableStateOf(false) }
-    LaunchedEffect(session.buffering, session.tuning, session.tuneSerial) {
-        if (!session.buffering || session.tuning) {
+    LaunchedEffect(session.buffering, session.tuning, session.tuneSerial, request.isLive) {
+        if (!request.isLive || !session.buffering || session.tuning) {
             showBufferingChip = false
             return@LaunchedEffect
         }

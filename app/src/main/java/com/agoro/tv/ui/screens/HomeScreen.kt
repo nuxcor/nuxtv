@@ -335,9 +335,12 @@ fun HomeScreen(
     // Top-right, above everything: the readout has to survive the drawer and
     // any pane that opens over the content, or it stops measuring exactly
     // when the viewer is doing the thing that feels slow.
-    val showFrameStats by vm.frameStatsOverlay.collectAsState()
+    // Debug builds only. It used to be a Settings row that asked the viewer
+    // to read frame times back to me — an instrument parked where someone had
+    // come to pick a channel order. The measurement still only means anything
+    // on real hardware, so a debug build is how it gets taken.
     com.agoro.tv.ui.components.FrameStatsOverlay(
-        enabled = showFrameStats,
+        enabled = com.agoro.tv.BuildConfig.DEBUG,
         modifier = Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 4.dp),
     )
     val updateState by vm.updateState.collectAsState()

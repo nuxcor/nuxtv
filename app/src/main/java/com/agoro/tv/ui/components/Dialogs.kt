@@ -28,12 +28,51 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.agoro.tv.ui.theme.NuxColors
 import com.agoro.tv.ui.theme.NuxMotion
 import com.agoro.tv.ui.theme.NuxShape
 import com.agoro.tv.ui.theme.Space
+
+/** What OK does to the keycodes androidx.tv's Surface acts on: 23, 66, 160. */
+private val CenterKeys = intArrayOf(
+    android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+    android.view.KeyEvent.KEYCODE_ENTER,
+    android.view.KeyEvent.KEYCODE_NUMPAD_ENTER,
+)
+
+/** [dialogCenterKey]'s verdict on one OK event. */
+internal enum class DialogCenterKey { Arm, Swallow, Pass }
+
+/**
+ * Whether a dialog may let the focused action see this OK event yet.
+ *
+ * A dialog opened by a LONG press is focused while OK is still held down, so
+ * the release lands on the action the dialog has just focused. androidx.tv's
+ * Surface fires onClick on the key-UP and suppresses it only when the SAME
+ * surface saw the long press — which a menu row composed a moment ago never
+ * did. Every long-press menu in the app therefore ran its first action the
+ * instant the viewer let go: a hold on a Continue watching card opened the
+ * menu and left for the series before it could be read. The player already
+ * acts on the release for exactly this reason; dialogs had no such guard.
+ *
+ * So a dialog is deaf to OK until it has seen a press of its own — a key-down
+ * at repeat 0. What comes before that (the tail of the hold's repeats, and
+ * its release) belongs to the card behind the scrim and is swallowed.
+ */
+internal fun dialogCenterKey(
+    isKeyDown: Boolean,
+    repeatCount: Int,
+    armed: Boolean,
+): DialogCenterKey = when {
+    armed -> DialogCenterKey.Pass
+    isKeyDown && repeatCount == 0 -> DialogCenterKey.Arm
+    else -> DialogCenterKey.Swallow
+}
 
 /**
  * The one dialog chrome: scrim, dialog-radius panel, stroke, padding — with the
@@ -51,6 +90,10 @@ fun DialogScaffold(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     BackHandler(onBack = onDismiss)
+    // Set by the first OK press this dialog owns; see [dialogCenterKey]. A
+    // plain holder: nothing in composition reads it, and arming it must not
+    // invalidate anything.
+    val centerArmed = remember { booleanArrayOf(false) }
     // One-shot entrance; exits are instant because the caller removes the
     // dialog from composition (animating that would need state the callers
     // don't have — not worth the plumbing on a 10-foot UI).
@@ -70,6 +113,23 @@ fun DialogScaffold(
             // clock does.
             .drawBehind {
                 drawRect(NuxColors.Scrim.copy(alpha = NuxColors.Scrim.alpha * progress.value))
+            }
+            // Before the focus group, so it previews every key on its way
+            // down to the action that has focus.
+            .onPreviewKeyEvent { event ->
+                val native = event.nativeKeyEvent
+                if (native.keyCode !in CenterKeys) return@onPreviewKeyEvent false
+                when (
+                    dialogCenterKey(
+                        isKeyDown = event.type == KeyEventType.KeyDown,
+                        repeatCount = native.repeatCount,
+                        armed = centerArmed[0],
+                    )
+                ) {
+                    DialogCenterKey.Arm -> { centerArmed[0] = true; false }
+                    DialogCenterKey.Swallow -> true
+                    DialogCenterKey.Pass -> false
+                }
             }
             // A focus group alone does not contain the D-pad: when nothing
             // inside the panel lies in the pressed direction, Compose's

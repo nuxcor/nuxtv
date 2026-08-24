@@ -402,7 +402,15 @@ class PlayerSession internal constructor(
      * engine also gets a fresh surface.
      */
     internal fun createEngine(deservesTunnel: (String) -> Boolean = { false }): PlayerEngine {
-        val built = ExoEngine(context, deservesTunnel = deservesTunnel, profile = decodeProfile)
+        // isLive decides how the player buffers, and a film wants a different
+        // shape from a channel — see loadControlFor. A profile swap rebuilds
+        // the engine, so this is re-read then too.
+        val built = ExoEngine(
+            context,
+            deservesTunnel = deservesTunnel,
+            profile = decodeProfile,
+            isLive = request.isLive,
+        )
         engine = built
         return built
     }

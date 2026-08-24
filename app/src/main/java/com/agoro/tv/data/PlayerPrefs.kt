@@ -80,11 +80,8 @@ class PlayerPrefs(private val context: Context) {
     private val schedulesKey = stringPreferencesKey("scheduled_recordings")
     private val hiddenKey = stringPreferencesKey("hidden_channels")
     private val hiddenTitlesKey = stringPreferencesKey("hidden_titles")
-    private val epgOverrideKey = stringPreferencesKey("epg_override_url")
     private val tmdbKeyKey = stringPreferencesKey("tmdb_api_key")
     private val pinKey = stringPreferencesKey("parental_pin")
-    private val mergeDupesKey = stringPreferencesKey("merge_duplicate_channels")
-    private val channelOrderKey = stringPreferencesKey("channel_order")
     private val durationsKey = stringPreferencesKey("resume_durations")
     private val videoQualityKey = stringPreferencesKey("video_quality")
     private val recentChannelsKey = stringPreferencesKey("recent_channels")
@@ -97,11 +94,9 @@ class PlayerPrefs(private val context: Context) {
     private val menuHintSeenKey = stringPreferencesKey("menu_hint_seen")
     private val knownQualitiesKey = stringPreferencesKey("known_qualities")
     private val knownHdrKey = stringPreferencesKey("known_hdr")
-    private val guidePreviewModeKey = stringPreferencesKey("guide_preview_mode")
     private val liveTsMigratedKey = stringPreferencesKey("live_ts_migrated")
     private val episodeOriginsKey = stringPreferencesKey("episode_origins")
     private val artworkKey = stringPreferencesKey("tmdb_artwork")
-    private val frameStatsKey = stringPreferencesKey("frame_stats_overlay")
 
     /**
      * One decode per distinct blob, shared by every collector.
@@ -532,69 +527,7 @@ class PlayerPrefs(private val context: Context) {
         context.playerDataStore.edit { prefs -> prefs.remove(hiddenTitlesKey) }
     }
 
-    // --- EPG override + TMDB key ----------------------------------------------
-
-    val epgOverrideUrl: Flow<String?> = context.playerDataStore.data.map { prefs ->
-        prefs[epgOverrideKey]?.takeIf { it.isNotBlank() }
-    }
-
-    suspend fun setEpgOverrideUrl(url: String?) {
-        context.playerDataStore.edit { prefs ->
-            if (url.isNullOrBlank()) prefs.remove(epgOverrideKey) else prefs[epgOverrideKey] = url.trim()
-        }
-    }
-
-    /**
-     * When on, SD/HD/FHD variants of the same channel collapse to the best
-     * one. Defaults ON: raw provider playlists ship the same channel three
-     * and four times over, and a first run that lists them all reads as a
-     * broken app rather than as a setting waiting to be found. Anyone who
-     * wants every variant can still say so, and that choice persists.
-     */
-    val mergeDuplicates: Flow<Boolean> = context.playerDataStore.data.map { prefs ->
-        prefs[mergeDupesKey] != "false"
-    }
-
-    suspend fun setMergeDuplicates(enabled: Boolean) {
-        context.playerDataStore.edit { it[mergeDupesKey] = enabled.toString() }
-    }
-
-    /**
-     * "auto" (default) = preview on when the account reports a spare
-     * connection; "on"/"off" override it — playlist middlemen (IPTVEditor)
-     * report a cosmetic max_connections of 1, which would pin auto off for
-     * accounts that genuinely allow more.
-     */
-    /**
-     * The on-screen frame-time readout. Off by default and deliberately not
-     * hidden behind a gesture: "not fluid" is a mood, "p95 210ms in the
-     * guide" is a fact, and the viewer's own box is the only place the
-     * measurement means anything.
-     */
-    val frameStatsOverlay: Flow<Boolean> = context.playerDataStore.data.map { prefs ->
-        prefs[frameStatsKey] == "1"
-    }
-
-    suspend fun setFrameStatsOverlay(on: Boolean) {
-        context.playerDataStore.edit { it[frameStatsKey] = if (on) "1" else "0" }
-    }
-
-    val guidePreviewMode: Flow<String> = context.playerDataStore.data.map { prefs ->
-        prefs[guidePreviewModeKey] ?: "auto"
-    }
-
-    suspend fun setGuidePreviewMode(mode: String) {
-        context.playerDataStore.edit { it[guidePreviewModeKey] = mode }
-    }
-
-    /** 0 = provider order, 1 = A-Z, 2 = quality first. */
-    val channelOrder: Flow<Int> = context.playerDataStore.data.map { prefs ->
-        prefs[channelOrderKey]?.toIntOrNull() ?: 0
-    }
-
-    suspend fun setChannelOrder(mode: Int) {
-        context.playerDataStore.edit { it[channelOrderKey] = mode.toString() }
-    }
+    // --- TMDB key -------------------------------------------------------------
 
     /**
      * 0 = adapt to bandwidth, 1 = always the top rung. Adapting is the default
@@ -725,14 +658,9 @@ class PlayerPrefs(private val context: Context) {
     data class Backup(
         val favorites: Set<String> = emptySet(),
         val hidden: Set<String> = emptySet(),
-        val epgOverrideUrl: String? = null,
         // Retained so backups written before the key was bundled still restore.
         // Nothing reads the restored value — the key comes from BuildConfig now.
         val tmdbKey: String? = null,
-        // Matches the live default, so a backup that predates the key
-        // restores to merging rather than silently turning it off.
-        val mergeDuplicates: Boolean = true,
-        val channelOrder: Int = 0,
         val schedules: List<ScheduledRecording> = emptyList(),
         val sources: List<PlaylistSource> = emptyList(),
         // Defaulted so backups written before these existed still restore.
@@ -752,10 +680,7 @@ class PlayerPrefs(private val context: Context) {
             hidden = prefs[hiddenKey]?.let {
                 runCatching { json.decodeFromString<Set<String>>(it) }.getOrNull()
             } ?: emptySet(),
-            epgOverrideUrl = prefs[epgOverrideKey],
             tmdbKey = prefs[tmdbKeyKey],
-            mergeDuplicates = prefs[mergeDupesKey] != "false",
-            channelOrder = prefs[channelOrderKey]?.toIntOrNull() ?: 0,
             schedules = prefs[schedulesKey]?.let {
                 runCatching { json.decodeFromString<List<ScheduledRecording>>(it) }.getOrNull()
             } ?: emptyList(),
@@ -777,10 +702,7 @@ class PlayerPrefs(private val context: Context) {
         context.playerDataStore.edit { prefs ->
             prefs[favoritesKey] = json.encodeToString(backup.favorites)
             prefs[hiddenKey] = json.encodeToString(backup.hidden)
-            backup.epgOverrideUrl?.let { prefs[epgOverrideKey] = it } ?: prefs.remove(epgOverrideKey)
             backup.tmdbKey?.let { prefs[tmdbKeyKey] = it } ?: prefs.remove(tmdbKeyKey)
-            prefs[mergeDupesKey] = backup.mergeDuplicates.toString()
-            prefs[channelOrderKey] = backup.channelOrder.toString()
             prefs[schedulesKey] = json.encodeToString(backup.schedules)
             prefs[aspectModeKey] = backup.aspectMode.toString()
             prefs[aspectOverridesKey] = json.encodeToString(backup.aspectOverrides)

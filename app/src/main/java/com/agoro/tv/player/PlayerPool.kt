@@ -193,6 +193,50 @@ private class IptvMediaSourceFactory(
 }
 
 /**
+ * How much to buffer, and how long to wait before resuming after a stall.
+ *
+ * Two shapes, because live and a film are not the same problem and one set of
+ * numbers had been serving both — the live one, since that is what they were
+ * measured against.
+ *
+ * LIVE is unchanged and deliberately deep. The panel delivers a live stream at
+ * three to three and a half times real time, so six seconds of media costs
+ * about two seconds of wall clock, and the cushion is what stops a dip from
+ * becoming a source hop and a black screen mid-match.
+ *
+ * VOD is where that reasoning stops being true. A film is served at roughly
+ * real time, so the SAME six seconds costs six seconds of frozen picture on
+ * every hiccup — three times the price for a cushion that buys less, because a
+ * film has no live edge to fall off and re-stalling is only another short
+ * wait. It resumes on two seconds instead.
+ *
+ * The byte cap is the other half, and it matters most on the weakest boxes.
+ * `prioritizeTimeOverSizeThresholds` buffers by TIME and ignores
+ * DEFAULT_VIDEO_BUFFER_SIZE (125 MB) entirely — which live can afford at 11
+ * Mbit/s, where 25 seconds is about 34 MB, and a 40 Mbit/s 4K film cannot: 60
+ * seconds of it is roughly 300 MB held in the allocator. On a cheap TV box
+ * that is not a buffer, it is garbage collection, and GC pauses read to a
+ * viewer as exactly the stutter the deep buffer was meant to prevent. VOD
+ * keeps the cap, so the buffer stays deep in seconds where the bitrate is
+ * modest and gives way to memory where it is not.
+ */
+@OptIn(UnstableApi::class)
+private fun loadControlFor(live: Boolean): DefaultLoadControl =
+    DefaultLoadControl.Builder()
+        .setBufferDurationsMs(
+            /* minBufferMs = */ if (live) 25_000 else 20_000,
+            /* maxBufferMs = */ if (live) 60_000 else 50_000,
+            // 2.5s to start on live: 1.5s made channel changes feel quicker
+            // but began playback on a thinner buffer, so a marginal connection
+            // re-stalled seconds later. A film is opened once, deliberately,
+            // and a second of start-up is cheaper there than a stall later.
+            /* bufferForPlaybackMs = */ 2_500,
+            /* bufferForPlaybackAfterRebufferMs = */ if (live) 6_000 else 2_000,
+        )
+        .setPrioritizeTimeOverSizeThresholds(live)
+        .build()
+
+/**
  * Process-lifetime ExoPlayer instances that [ExoEngine] borrows instead of
  * building and releasing its own.
  *
@@ -226,7 +270,7 @@ private class IptvMediaSourceFactory(
 object PlayerPool {
 
     /** What makes two players non-interchangeable; see the class comment. */
-    internal data class Slot(val main: Boolean, val profile: DecodeProfile)
+    internal data class Slot(val main: Boolean, val profile: DecodeProfile, val live: Boolean)
 
     /** One borrowed player and the selector it was built with. */
     class Lease internal constructor(
@@ -247,8 +291,9 @@ object PlayerPool {
         context: Context,
         main: Boolean,
         profile: DecodeProfile = DecodeProfile.FAST,
+        live: Boolean = true,
     ): Lease {
-        val slot = Slot(main, profile)
+        val slot = Slot(main, profile, live)
         idle.remove(slot)?.let { return it }
         return build(context.applicationContext, slot)
     }
@@ -326,52 +371,7 @@ object PlayerPool {
         val player = ExoPlayer.Builder(context, renderers)
             .setMediaSourceFactory(IptvMediaSourceFactory(dataSourceFactory, slot.profile))
             .setTrackSelector(trackSelector)
-            .setLoadControl(
-                DefaultLoadControl.Builder()
-                    // IPTV feeds are bursty. A deeper buffer rides out the
-                    // provider hiccups that otherwise read as "bad quality".
-                    .setBufferDurationsMs(
-                        // 25s of headroom, not 15: this is what a hiccup is
-                        // spent from, and a line that jitters for three
-                        // seconds should cost the viewer nothing rather than
-                        // a visible hole. Memory is the trade, and a TV box
-                        // can hold 25s of one stream.
-                        /* minBufferMs = */ 25_000,
-                        /* maxBufferMs = */ 60_000,
-                        // Stock 2.5s to start. 1.5s made channel changes feel
-                        // quicker but began playback on a thinner buffer, so a
-                        // marginal connection re-stalled seconds later — a
-                        // stall costs far more than the second it saved.
-                        /* bufferForPlaybackMs = */ 2_500,
-                        // Deeper after a stall than at start — coming back on
-                        // the same thin buffer that just failed invites a
-                        // rebuffer loop.
-                        //
-                        // This was 3s, on the reasoning that a live panel
-                        // feeds in real time so the buffer refills in real
-                        // time, making a deeper threshold a proportionally
-                        // longer hole. Measured against the panel, that is
-                        // simply not true: Sky Sports Main Event is an 11
-                        // Mbit/s stream delivered at three to three and a half
-                        // times real time.
-                        //
-                        // The threshold is a depth of buffered MEDIA, not a
-                        // wall-clock wait: six seconds means six seconds of
-                        // playback held back, twice what three did. What the
-                        // 3x delivery changes is the price — reaching six
-                        // seconds of media takes about two seconds of real
-                        // time, so the deeper cushion costs roughly one second
-                        // more than the shallower one did, not three.
-                        //
-                        // Which matters more than it sounds: the alternative
-                        // to cushion is hopping to another source, and that
-                        // costs a black screen mid-match. Riding the dip out
-                        // invisibly beats recovering from it visibly.
-                        /* bufferForPlaybackAfterRebufferMs = */ 6_000,
-                    )
-                    .setPrioritizeTimeOverSizeThresholds(true)
-                    .build()
-            )
+            .setLoadControl(loadControlFor(slot.live))
             // Proper audio-focus citizenship: request focus as media playback
             // and pause when headphones unplug, instead of talking over
             // whatever was already playing.

@@ -134,9 +134,17 @@ class ContentRepository(context: Context) {
      * costs a cold load on the launch after a curation change, which is once,
      * against shelves that were otherwise wrong until the catalogue aged out.
      *
-     * Null stamps on either side mean "don't know", never "different": a
+     * A null on the CURRENT side means "don't know" and keeps the cache: a
      * manifest that failed to load, or a source it does not describe, must not
-     * throw away a good cache.
+     * throw away a good catalogue.
+     *
+     * A null on the CACHE side is the opposite, and reading it as "don't know"
+     * was the whole bug in the first attempt at this. Every cache written
+     * before the field existed is unstamped — so the version that added the
+     * check skipped precisely the installs it was written for, and shipped a
+     * fix that could only ever help devices that did not need it. An unstamped
+     * cache was built by a manifest this build cannot identify, which is the
+     * definition of the case being guarded, so it is refused.
      */
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     private fun readCache(sourceId: String, manifestStamp: String? = null): ContentBundle? = runCatching {
@@ -149,10 +157,7 @@ class ContentRepository(context: Context) {
         // bundle rewrites its shelf labels, so cache and network disagreed
         // about what the same catalogue is called. See [ContentBundle.cleaned].
     }.getOrNull()
-        ?.takeIf { bundle ->
-            manifestStamp == null || bundle.manifestStamp == null ||
-                bundle.manifestStamp == manifestStamp
-        }
+        ?.takeIf { bundle -> manifestStamp == null || bundle.manifestStamp == manifestStamp }
         ?.let { if (it.cleaned) it else CategoryCleaner.clean(it) }
         ?.let(::renumberChannels)
 
@@ -292,9 +297,6 @@ class ContentRepository(context: Context) {
     /** url-tvg header value from the last M3U load. */
     @Volatile
     private var lastM3uTvgUrl: String? = null
-
-    /** What the last guide request was asked to prefer, for repo-initiated retries. */
-    private var lastEpgOverride: String? = null
 
     private var loadedSourceId: String? = null
 
@@ -519,7 +521,7 @@ class ContentRepository(context: Context) {
                 // side file yet — and an unchanged bundle is deduped upstream,
                 // so nobody else will retry. Freshness inside loadEpg keeps
                 // this from re-downloading a guide that is already Ready.
-                if (_epg.value !is EpgState.Ready) loadEpg(lastEpgOverride)
+                if (_epg.value !is EpgState.Ready) loadEpg()
             }
             .onFailure { e ->
                 android.util.Log.w("Agoro", "Playlist load failed: ${e.message}")
@@ -1029,7 +1031,6 @@ class ContentRepository(context: Context) {
      * pack) wins; otherwise Xtream's xmltv.php or the M3U url-tvg/epgUrl.
      */
     suspend fun loadEpg(
-        overrideUrl: String? = null,
         /**
          * Lets login start the guide BEFORE the source is stored: the
          * manifest path needs no credentials and no catalog, so the packs
@@ -1037,17 +1038,22 @@ class ContentRepository(context: Context) {
          */
         sourceHint: PlaylistSource? = null,
     ) {
-        lastEpgOverride = overrideUrl
         val source = sourceHint ?: activeSource.first() ?: return
-        // A manifest names the guide feeds its channel ids came from. Without
-        // them the ids resolve to nothing and every row reads "No information",
-        // so they take precedence over the provider's own guide — which is
-        // where they'd otherwise land, and which this provider fills sparsely.
-        val manifestFeeds = if (overrideUrl.isNullOrBlank()) manifestGuideUrls(source) else emptyList()
-        val urls = when {
-            !overrideUrl.isNullOrBlank() -> listOf(overrideUrl)
-            manifestFeeds.isNotEmpty() -> manifestFeeds
-            else -> listOfNotNull(
+        // A manifest names the guide feeds its channel ids came from, and it
+        // is the whole answer where it applies: the ids in [channelMap] were
+        // resolved at build time against those specific feeds, and the packs
+        // are chosen by how many of THIS catalogue's channels each one
+        // answers. Without them the ids resolve to nothing and every row
+        // reads "No information", so they take precedence over the
+        // provider's own guide — which this provider fills sparsely.
+        //
+        // There is no viewer override any more. It used to win over this,
+        // which meant picking a country pack in Settings swapped a dozen
+        // ranked feeds for a single file — always a downgrade on a build the
+        // manifest covers, and offered as though it were a preference.
+        val manifestFeeds = manifestGuideUrls(source)
+        val urls = manifestFeeds.ifEmpty {
+            listOfNotNull(
                 when (source) {
                     is PlaylistSource.Xtream -> xtreamClient(source).xmltvUrl
                     is PlaylistSource.M3u ->
