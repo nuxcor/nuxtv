@@ -2,27 +2,37 @@ package com.agoro.tv.player
 
 import android.content.Context
 import android.net.Uri
+import android.os.Handler
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.AudioTrackAudioOutputProvider
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.drm.DrmSessionManagerProvider
 import androidx.media3.exoplayer.hls.DefaultHlsExtractorFactory
 import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.CmcdConfiguration
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
+import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
+import androidx.media3.exoplayer.video.VideoRendererEventListener
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.text.SubtitleParser
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
@@ -293,12 +303,23 @@ object PlayerPool {
      * that alignment is a coincidence of the current call sites, and the next
      * silent-but-focus-taking player (or the reverse) would inherit the wrong
      * selector with no compile error and no crash, only silence.
+     *
+     * [pcmOnly], [smoothPts] and [reinitVideo] are the output latches —
+     * [AudioOutputPolicy], [VideoOutputPolicy] — as they stood when the
+     * player was built. Sink and renderers are fixed at build time, so a
+     * player built while passthrough was still trusted keeps offering it for
+     * as long as it lives, and an idle one lent out after the output has
+     * refused a track would hand the viewer the very failure the latch
+     * exists to end.
      */
     internal data class Slot(
         val main: Boolean,
         val profile: DecodeProfile,
         val live: Boolean,
         val silent: Boolean,
+        val pcmOnly: Boolean,
+        val smoothPts: Boolean,
+        val reinitVideo: Boolean,
     )
 
     /** One borrowed player and the selector it was built with. */
@@ -348,7 +369,12 @@ object PlayerPool {
         live: Boolean = true,
         silent: Boolean = false,
     ): Lease {
-        val slot = Slot(main, profile, live, silent)
+        val slot = Slot(
+            main, profile, live, silent,
+            pcmOnly = AudioOutputPolicy.pcmOnly,
+            smoothPts = AudioOutputPolicy.smoothTimestamps,
+            reinitVideo = VideoOutputPolicy.reinitOnly,
+        )
         idle.remove(slot)?.let { return it }
         return build(context.applicationContext, slot)
     }
@@ -372,26 +398,44 @@ object PlayerPool {
             evictBeyondCap(keep = lease.slot)
         } else {
             // A second instance for the same slot only exists across a swap's
-            // overlap. Releasing it is the blocking call this pool exists to
-            // avoid, so the builder caps how long it may block.
-            player.release()
+            // overlap. Nothing keeps it; see releaseLater for why not now.
+            releaseLater(player)
         }
     }
+
+    /**
+     * Releases a player that has just been stopped — but not yet.
+     *
+     * stop() hands the player's AudioTrack to media3's release thread, which
+     * reports back to the playback thread once the track is gone; release()
+     * quits that thread. Called back to back, the report finds no thread to
+     * land on, and on media3 1.9 through 1.11 that lost report leaves a
+     * process-wide "release pending" count stuck above zero (androidx/media
+     * #3338; fixed on main after 1.11.0). The count gates every AudioTrack
+     * retry in the process: from then on a track that fails to open is never
+     * retried and never reported, which is a film that buffers silently for
+     * ever. A second on the main thread is more than the release needs to
+     * finish and report, and it also takes the blocking release() off the
+     * path that handed the player back — which is what the pool was for.
+     */
+    private fun releaseLater(player: ExoPlayer) {
+        mainHandler.postDelayed({ player.release() }, DEFERRED_RELEASE_MS)
+    }
+
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private const val DEFERRED_RELEASE_MS = 1_000L
 
     /**
      * Frees idle players beyond [MAX_IDLE], oldest first, never the one just
      * handed back — that is the one the next borrow is most likely to want.
      *
-     * This blocks, which is what the pool exists to avoid; it does it HERE, on
-     * the way out of a player, rather than on the way into one. A viewer
-     * leaving a film can afford the decoders coming down. A viewer changing
-     * channel cannot, and does not have to: the slot they just released is the
-     * one kept.
+     * The victim was stopped when it came back, which may have been a moment
+     * ago on a fast ladder, so it goes through [releaseLater] like any other.
      */
     private fun evictBeyondCap(keep: Slot) {
         if (idle.size <= MAX_IDLE) return
         val victims = idle.keys.filterNot { it == keep }.take(idle.size - MAX_IDLE)
-        for (slot in victims) idle.remove(slot)?.player?.release()
+        for (slot in victims) idle.remove(slot)?.player?.let(::releaseLater)
     }
 
     /**
@@ -413,7 +457,8 @@ object PlayerPool {
             // seconds: the recovery ladder can't run until this fires, and
             // every second here is a second of frozen picture first.
             .setReadTimeoutMs(8_000)
-        val renderers = DefaultRenderersFactory(context)
+        // Stock until an output latch says otherwise; see AgoroRenderersFactory.
+        val renderers = AgoroRenderersFactory(context, slot)
             // ON, not PREFER: hardware decoders first, software only as a
             // fallback. PREFER puts software ahead of MediaCodec, which drops
             // frames on TV silicon the moment a decoder extension is present.
@@ -464,4 +509,108 @@ object PlayerPool {
             .build()
         return Lease(player, trackSelector, slot)
     }
+}
+
+/**
+ * The stock [DefaultRenderersFactory] until an output latch says otherwise.
+ *
+ * [PlayerPool.Slot.pcmOnly] — a sink that believes the device can play 16-bit
+ * PCM and nothing else, whatever the HDMI EDID says. `MediaCodecAudioRenderer`
+ * asks the sink what it supports before choosing between passthrough and
+ * decoding, so capping the sink is what actually removes the bitstream path;
+ * a track-selection constraint would not, since the selector still picks a
+ * 5.1 Dolby track when it is the only one. With passthrough gone the renderer
+ * falls back to a platform decoder for the format where one exists, and
+ * otherwise to the bundled FFmpeg decoder — which is what
+ * [DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON] is for, and the only
+ * AC-3/E-AC-3/DTS/TrueHD decoder on a box whose hardware lacks one.
+ * Multichannel PCM is still allowed: AudioFlinger mixes it down to whatever
+ * the output is, which is the one thing it reliably does. The capabilities
+ * are pinned by giving the output provider no Context — the media3 1.11 way;
+ * the older `setAudioCapabilities` is deprecated precisely because the
+ * Context-taking sink builder installs its own capabilities receiver and
+ * ignores it. See [AudioOutputPolicy].
+ *
+ * [PlayerPool.Slot.smoothPts] — the sink wrapped in [PtsSmoothingAudioSink].
+ *
+ * [PlayerPool.Slot.reinitVideo] — the stock video renderer swapped for one
+ * that never reuses a codec across streams and always re-initialises on a
+ * new surface; see [VideoOutputPolicy]. Built the way the stock factory
+ * builds its own, from the same builder.
+ */
+@OptIn(UnstableApi::class)
+private class AgoroRenderersFactory(
+    context: Context,
+    private val slot: PlayerPool.Slot,
+) : DefaultRenderersFactory(context) {
+
+    override fun buildAudioSink(
+        context: Context,
+        enableFloatOutput: Boolean,
+        enableAudioOutputPlaybackParams: Boolean,
+    ): AudioSink {
+        val builder = DefaultAudioSink.Builder(context)
+            .setEnableFloatOutput(enableFloatOutput)
+            .setEnableAudioOutputPlaybackParameters(enableAudioOutputPlaybackParams)
+        if (slot.pcmOnly) {
+            builder.setAudioOutputProvider(AudioTrackAudioOutputProvider.Builder(/* context = */ null).build())
+        }
+        val sink = builder.build()
+        return if (slot.smoothPts) PtsSmoothingAudioSink(sink) else sink
+    }
+
+    override fun buildVideoRenderers(
+        context: Context,
+        extensionRendererMode: Int,
+        mediaCodecSelector: MediaCodecSelector,
+        enableDecoderFallback: Boolean,
+        eventHandler: Handler,
+        eventListener: VideoRendererEventListener,
+        allowedVideoJoiningTimeMs: Long,
+        out: ArrayList<Renderer>,
+    ) {
+        val first = out.size
+        super.buildVideoRenderers(
+            context, extensionRendererMode, mediaCodecSelector, enableDecoderFallback,
+            eventHandler, eventListener, allowedVideoJoiningTimeMs, out,
+        )
+        if (!slot.reinitVideo) return
+        // The stock factory puts its MediaCodecVideoRenderer first and any
+        // extension renderers after it; only the first is ours to replace.
+        if (out.getOrNull(first)?.javaClass != MediaCodecVideoRenderer::class.java) return
+        out[first] = ReinitVideoRenderer(
+            MediaCodecVideoRenderer.Builder(context)
+                .setCodecAdapterFactory(codecAdapterFactory)
+                .setMediaCodecSelector(mediaCodecSelector)
+                .setAllowedJoiningTimeMs(allowedVideoJoiningTimeMs)
+                .setEnableDecoderFallback(enableDecoderFallback)
+                .setEventHandler(eventHandler)
+                .setEventListener(eventListener)
+                .setMaxDroppedFramesToNotify(DefaultRenderersFactory.MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY),
+        )
+    }
+}
+
+/**
+ * A video renderer that re-creates its codec for every stream and every new
+ * surface, for the decoders that come out of a flush-and-reuse decoding but
+ * not drawing; see [VideoOutputPolicy].
+ */
+@OptIn(UnstableApi::class)
+private class ReinitVideoRenderer(builder: MediaCodecVideoRenderer.Builder) : MediaCodecVideoRenderer(builder) {
+    override fun canReuseCodec(
+        codecInfo: MediaCodecInfo,
+        oldFormat: Format,
+        newFormat: Format,
+        isAdaptiveFormatChange: Boolean,
+    ): DecoderReuseEvaluation =
+        DecoderReuseEvaluation(
+            codecInfo.name,
+            oldFormat,
+            newFormat,
+            DecoderReuseEvaluation.REUSE_RESULT_NO,
+            DecoderReuseEvaluation.DISCARD_REASON_APP_OVERRIDE,
+        )
+
+    override fun codecNeedsSetOutputSurfaceWorkaround(name: String): Boolean = true
 }

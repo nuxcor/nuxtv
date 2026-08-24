@@ -225,13 +225,12 @@ interface PlayerEngine {
         fun onItemChanged(index: Int)
         fun onPlayingChanged(playing: Boolean, buffering: Boolean)
         /**
-         * @param decodeFault true when the stream arrived but could not be
-         * read or decoded — a malformed container, an unsupported profile, a
-         * decoder that refused to start. Only those are worth re-opening on
-         * [DecodeProfile.TOLERANT]; a 404 or a dropped line will fail exactly
-         * the same way however forgiving the demuxer is, and offering software
-         * decoding for one wastes the viewer's time on a promise it can't keep.
+         * @param message the reason, in words a viewer can act on.
+         * @param fault whose fault it was, which is what picks the rung; see
+         * [PlaybackFault]. A 404 must never be offered software decoding, a
+         * refused AudioTrack must never be offered another URL: each rung
+         * changes one thing, and the fault says which thing was wrong.
          */
-        fun onError(message: String, decodeFault: Boolean)
+        fun onError(message: String, fault: PlaybackFault)
     }
 }
