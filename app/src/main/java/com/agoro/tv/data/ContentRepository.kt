@@ -396,10 +396,33 @@ class ContentRepository(context: Context) {
         if (cacheAgeMs(source.id) >= maxAgeMs) refreshQuiet()
     }
 
+    /**
+     * What a full-screen loading state may call the source, or null when it
+     * has no business naming it at all.
+     *
+     * On a branded build nothing here is a name the viewer chose: login never
+     * asks for one, so [PlaylistSource.name] falls through to the server's
+     * bare hostname, and the first thing the app said on every cold start was
+     * the panel's FQDN. Settings already refuses to show that — it hides the
+     * source list outright and runs the host through displayHost() — but the
+     * loading states, which every launch passes through, never got the same
+     * treatment. Where the app IS the provider the viewer knows who they are
+     * connecting to; where sources are managed by hand the name is real
+     * information, typed by the viewer, and there may be several to tell apart.
+     */
+    private fun PlaylistSource.displayName(): String? =
+        name.takeIf { com.agoro.tv.BuildConfig.PROVIDER_HOST.isBlank() }
+
+    private fun PlaylistSource.connectingMessage(): String =
+        displayName()?.let { "Connecting to $it…" } ?: "Connecting…"
+
+    private fun PlaylistSource.loadingMessage(): String =
+        displayName()?.let { "Loading $it…" } ?: "Loading your library…"
+
     /** Validates a new source by fully loading it, then persists it as active. */
     suspend fun validateAndAdd(source: PlaylistSource): Result<Unit> {
         val previous = _content.value
-        _content.value = ContentState.Loading("Connecting to ${source.name}…")
+        _content.value = ContentState.Loading(source.connectingMessage())
         val result = runCatching {
             val bundle = fetch(source)
             if (bundle.isEmpty) throw IOException("The playlist loaded but contains no content.")
@@ -433,7 +456,7 @@ class ContentRepository(context: Context) {
     suspend fun validateAndUpdate(source: PlaylistSource): Result<Unit> {
         val isActive = activeSource.first()?.id == source.id
         val previous = _content.value
-        if (isActive) _content.value = ContentState.Loading("Connecting to ${source.name}…")
+        if (isActive) _content.value = ContentState.Loading(source.connectingMessage())
         val result = runCatching {
             val bundle = fetch(source)
             if (bundle.isEmpty) throw IOException("The playlist loaded but contains no content.")
@@ -488,7 +511,7 @@ class ContentRepository(context: Context) {
     }
 
     private suspend fun loadLocked(source: PlaylistSource, quiet: Boolean) {
-        if (!quiet) _content.value = ContentState.Loading("Loading ${source.name}…")
+        if (!quiet) _content.value = ContentState.Loading(source.loadingMessage())
         runCatching { fetch(source) }
             .onSuccess { bundle ->
                 if (bundle.isEmpty) {
