@@ -57,19 +57,43 @@ class LiveCategoriesTest {
     }
 
     @Test
+    fun `a starred feed survives being merged away`() {
+        // The list reaching Favorites is already merged, so the variant the
+        // viewer starred is frequently not in it — it lost, and lives on as
+        // one of the winner's fallbackUrls. Read by url alone the favourite
+        // vanished the moment the catalogue learned a sibling was better.
+        val winner = LiveChannel(
+            id = "b", name = "CNN 4K", logo = null, url = "http://x/b", categoryId = "news",
+            fallbackUrls = listOf("http://x/a"),
+        )
+        val favs = channelsInCategory(
+            CATEGORY_FAVORITES, listOf(winner), setOf("http://x/a"), emptyList(),
+        )
+        assertEquals(listOf("b"), favs.map { it.id })
+
+        // And the same for a channel watched under a url since folded away.
+        val recent = channelsInCategory(
+            CATEGORY_RECENT, listOf(winner), emptySet(), listOf("http://x/a"),
+        )
+        assertEquals(listOf("b"), recent.map { it.id })
+    }
+
+    @Test
     fun `shortcuts are hidden until they hold something`() {
         // No browse-everything shelf in front of them: the curated territories
         // cover the catalogue, and the tab was a rung the viewer stepped over.
         val bare = liveCategoryList(bundle, channels, favorites = emptySet(), recents = emptyList())
         assertEquals(listOf("sport", "news"), bare.map { it.id })
 
+        // Favorites is NOT among them, however many are starred: Home opens
+        // on a Favorites shelf, and a second door cost a permanent chip on
+        // every live surface.
         val withBoth = liveCategoryList(
             bundle, channels,
             favorites = setOf("http://x/1"),
             recents = listOf("http://x/2"),
         )
-        assertEquals(listOf(CATEGORY_RECENT, CATEGORY_FAVORITES, "sport", "news"),
-            withBoth.map { it.id })
+        assertEquals(listOf(CATEGORY_RECENT, "sport", "news"), withBoth.map { it.id })
     }
 
     @Test

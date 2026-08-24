@@ -35,11 +35,13 @@ internal fun liveCategoryList(
     favorites: Set<String>,
     recents: List<String>,
 ): List<Category> = buildList {
+    // No Favorites chip here. Home already opens on a Favorites shelf, and a
+    // second way in cost a permanent chip on every live surface - the guide,
+    // the player's list, the player's guide - to hold a handful of channels
+    // the viewer lands among anyway. [CATEGORY_FAVORITES] stays: Home's row
+    // resolves through the same function.
     if (channels.any { it.url in recents }) {
         add(Category(id = CATEGORY_RECENT, name = "Recent"))
-    }
-    if (channels.any { it.url in favorites }) {
-        add(Category(id = CATEGORY_FAVORITES, name = "★ Favorites"))
     }
     addAll(bundle.liveCategories)
 }
@@ -85,13 +87,27 @@ internal fun channelsInCategory(
     // The unmerged list for one frame beats an empty grid that the entry
     // focus tick then fires against.
     CATEGORY_ALL -> allChannels.ifEmpty { channels }
-    CATEGORY_FAVORITES -> channels.filter { it.url in favorites }
+    // Matched on the fallbacks too, not the url alone. [channels] arrives
+    // MERGED, so the variant a viewer starred is frequently not in it - it
+    // lost to a better one and was folded into that tile's fallbackUrls. Read
+    // by url alone, a favourite silently disappeared the moment the catalogue
+    // learned one of its siblings was the better feed, and the viewer's own
+    // shelf emptied for a reason nothing on screen could explain.
+    CATEGORY_FAVORITES -> channels.filter { ch ->
+        ch.url in favorites || ch.fallbackUrls.any { it in favorites }
+    }
     CATEGORY_RECENT -> {
         // Index the channels once: recents is capped small, but the channel
         // list routinely runs to thousands and this is recomputed on every
-        // change to either.
-        val byUrl = channels.associateBy { it.url }
-        recents.mapNotNull { byUrl[it] }
+        // change to either. Every url a tile answers to is a key, so a
+        // watched feed that has since been folded away still resolves.
+        // Not putIfAbsent: that is an API 24 default method and minSdk is 23.
+        val byUrl = HashMap<String, LiveChannel>(channels.size * 2)
+        for (ch in channels) {
+            if (ch.url !in byUrl) byUrl[ch.url] = ch
+            for (alt in ch.fallbackUrls) if (alt !in byUrl) byUrl[alt] = ch
+        }
+        recents.mapNotNull { byUrl[it] }.distinctBy { it.id }
     }
     else ->
         if (byCategory != null && byCategory.channels === channels) {
