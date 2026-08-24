@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-23T14:45:00+00:00",
+ "generated": "2026-08-24T14:34:57+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -2797,6 +2797,7 @@
   498794,
   498793,
   498791,
+  498790,
   498611,
   498788,
   498787,
@@ -3128,6 +3129,7 @@
   498318,
   498316,
   498315,
+  498313,
   574201,
   498314,
   498312,
@@ -7519,7 +7521,6 @@
   1290252,
   1290251,
   1290250,
-  595835,
   588033,
   588032,
   588030,
@@ -8073,12 +8074,24 @@
   654923,
   1853744,
   1853513,
+  1536800,
+  1536799,
   1536599,
   1536554,
+  436544,
   325890,
   325888,
   325898,
+  324951,
+  324939,
+  324952,
+  324936,
+  324938,
+  324933,
+  324937,
+  324934,
   437220,
+  576995,
   1476256,
   1476224,
   1820218,
@@ -8143,24 +8156,35 @@
   325005,
   325004,
   325040,
+  325041,
+  325042,
+  324969,
   325085,
   325068,
   1824605,
   325045,
   325069,
+  1975723,
   325071,
   325065,
   325063,
   325064,
   325066,
+  325061,
   325062,
   325070,
+  325052,
   325034,
   828142,
   828139,
   828141,
   437221,
+  325051,
+  1965755,
   325036,
+  751663,
+  751664,
+  1283834,
   2044651,
   2044652,
   2044650,
@@ -8210,6 +8234,7 @@
   500453,
   500449,
   746363,
+  336320,
   706429,
   498629,
   813889,
@@ -8367,6 +8392,34 @@
   610835,
   1476223,
   1820195,
+  1536533,
+  324919,
+  325067,
+  325000,
+  324999,
+  324997,
+  325032,
+  324996,
+  324998,
+  324995,
+  162154,
+  162151,
+  832052,
+  434023,
+  434024,
+  434025,
+  434026,
+  325060,
+  325091,
+  595835,
+  595834,
+  595833,
+  1232964,
+  1232963,
+  1232962,
+  1232961,
+  1232960,
+  1232959,
   1991719,
   1855441,
   788037,
@@ -16958,8 +17011,6 @@
   1853521,
   1853518,
   788078,
-  324938,
-  324937,
   1568576,
   1568790,
   828139,
@@ -17298,9 +17349,6 @@
   },
   "788125": {
    "section": "ENTERTAINMENT"
-  },
-  "325091": {
-   "section": "ENTERTAINMENT"
   }
  },
  "region_fix": {
@@ -17600,8 +17648,7 @@
    "section": "SPORTS",
    "label": "Tennis Channel",
    "main": [
-    324994,
-    325091
+    324994
    ],
    "overflow": [
     488431,
@@ -17669,16 +17716,8 @@
    "region": "US",
    "section": "SPORTS",
    "label": "Pac-12",
-   "main": [
-    325032
-   ],
-   "overflow": [
-    325000,
-    324999,
-    324996,
-    324998,
-    324995
-   ],
+   "main": [],
+   "overflow": [],
    "hidden_duplicates": [],
    "overflow_destination": "PPV"
   },
@@ -17686,9 +17725,7 @@
    "region": "US",
    "section": "SPORTS",
    "label": "YES Network",
-   "main": [
-    325041
-   ],
+   "main": [],
    "overflow": [],
    "hidden_duplicates": [],
    "overflow_destination": "PPV"
@@ -26786,7 +26823,6 @@
   "484449": "NEWS",
   "717714": "NEWS",
   "717705": "NEWS",
-  "162255": "SPORTS",
   "1568783": "SPORTS",
   "498738": "SPORTS",
   "1568862": "KIDS",
@@ -35729,6 +35765,8 @@
   "325915": "ENTERTAINMENT",
   "1537369": "ENTERTAINMENT",
   "414196": "ENTERTAINMENT",
+  "1562526": "ENTERTAINMENT",
+  "162255": "ENTERTAINMENT",
   "484449": "NEWS",
   "717714": "NEWS",
   "717705": "NEWS",
@@ -35736,7 +35774,6 @@
   "325839": "ENTERTAINMENT",
   "1568724": "DOCUMENTARY",
   "162385": "DOCUMENTARY",
-  "162255": "SPORTS",
   "1568783": "SPORTS",
   "498738": "SPORTS",
   "1568862": "KIDS",
@@ -35836,11 +35873,6 @@
   "325057": "PPV",
   "325056": "PPV",
   "325055": "PPV",
-  "325000": "PPV",
-  "324999": "PPV",
-  "324996": "PPV",
-  "324998": "PPV",
-  "324995": "PPV",
   "325031": "PPV",
   "325030": "PPV",
   "325029": "PPV",
@@ -37537,7 +37569,7 @@
     "primary": 1562527
    },
    "skywitness|UK": {
-    "section": "SPORTS",
+    "section": "ENTERTAINMENT",
     "region": "UK",
     "sources": [
      1562526,
@@ -37726,6 +37758,7 @@
      717698,
      1536959,
      1525693,
+     162143,
      717702
     ],
     "primary": 717698
@@ -38477,9 +38510,10 @@
     "sources": [
      1820022,
      1820472,
+     325003,
      325001
     ],
-    "primary": 325001
+    "primary": 325003
    },
    "foxsport1|US": {
     "section": "SPORTS",
@@ -38523,6 +38557,15 @@
     ],
     "primary": 325023
    },
+   "espn|US": {
+    "section": "SPORTS",
+    "region": "US",
+    "sources": [
+     437219,
+     325020
+    ],
+    "primary": 437219
+   },
    "goltv|US": {
     "section": "SPORTS",
     "region": "US",
@@ -38540,16 +38583,6 @@
      325092
     ],
     "primary": 324994
-   },
-   "bbcworldnews|US": {
-    "section": "NEWS",
-    "region": "US",
-    "sources": [
-     498790,
-     498313,
-     162143
-    ],
-    "primary": 498790
    },
    "laliga|UK": {
     "section": "SPORTS",
@@ -38919,11 +38952,12 @@
     "sources": [
      1290298,
      1290224,
-     588055
+     588055,
+     588059
     ],
     "primary": 1290298
    },
-   "beinsprts1english|UK": {
+   "beinsport1english|UK": {
     "section": "SPORTS",
     "region": "UK",
     "sources": [
@@ -38932,7 +38966,7 @@
     ],
     "primary": 588048
    },
-   "beinsprts2english|UK": {
+   "beinsport2english|UK": {
     "section": "SPORTS",
     "region": "UK",
     "sources": [
@@ -55006,10 +55040,8 @@
   "1586981": "UNIVISION (WXTV) NEW YORK",
   "620130": "KTLA (KTLA) LOS ANGELES",
   "1555784": "WHDH (WHDH) BOSTON",
-  "1544239": "SKY SPORTS MAIN EVENT &",
-  "1562537": "SKY SPORTS NEWS HQ",
+  "1562537": "SKY SPORTS NEWS",
   "1562534": "SKY SPORTS ACTION",
-  "1527595": "SKY SPORTS F1 &",
   "1562532": "SKY SPORTS GOLF",
   "1562531": "SKY SPORTS MIX",
   "1562528": "SKY SPORTS RACING",
@@ -55023,6 +55055,7 @@
   "1562519": "PREMIER SPORTS 2",
   "325778": "AMC +",
   "414042": "BBC EARTH",
+  "717698": "BBC NEWS",
   "325904": "BLOOMBERG TV+",
   "1536940": "BOUNCE XL",
   "1536659": "LAW & CRIME NETWORK",
@@ -55036,16 +55069,19 @@
   "325815": "LIFE TIME",
   "324923": "FOX NEWS CHANNEL",
   "7334": "NICK JR",
-  "325001": "NBC GOLF CHANNEL (H)",
+  "325003": "GOLF CHANNEL",
   "324994": "TENNIS CHANNEL",
   "1537434": "LALIGA TV",
   "1537405": "TALK TV",
   "1527619": "SKY SPORTS +",
-  "1527597": "SKY SPORTS 1 &",
-  "1527596": "SKY SPORTS 2 &",
   "1290344": "TNT SPORTS 6",
-  "1069751": "TNT SPORTS ULTIMATE &",
+  "1069751": "TNT SPORTS ULTIMATE",
+  "1290298": "MANCHESTER UNITED",
   "587990": "VIAPLAY SPORTS 1",
+  "437219": "ESPN",
+  "648290": "CBS SPORTS GOLAZO NETWORK",
+  "325906": "FANDUEL TV",
+  "325907": "FANDUEL RACING",
   "1853665": "3ABN FRANCAIS",
   "1853664": "3ABN INTERNATIONAL",
   "1853662": "ADOM TV",
@@ -55154,8 +55190,7 @@
   "788056": "YADAH TV",
   "788058": "ZA SUPER SPORTS RUGBY FHD",
   "788000": "ZEE WORLD",
-  "788125": "ZNBC2",
-  "325091": "SUPERSPORT TENNIS"
+  "788125": "ZNBC2"
  },
  "vod_display_name": {},
  "vod_name_rules": {
@@ -62030,14 +62065,14 @@
   "movie_categories": 67,
   "unresolved_live_categories": 0,
   "movies_with_genre": 0,
-  "live_tiles_after_collapse": 6506,
-  "live_tiles_collapsed": 3140,
+  "live_tiles_after_collapse": 6451,
+  "live_tiles_collapsed": 3144,
   "collapse_groups": 155,
   "collapse_needs_review": 1,
-  "dropped_region_streams": 2894,
+  "dropped_region_streams": 2896,
   "religion_streams": 41,
   "telemundo_streams": 96,
-  "regional_sport_streams": 137,
+  "regional_sport_streams": 161,
   "us_regional_news_streams": 64,
   "sport_clubs_derived": {
    "Premier League": 21
@@ -62054,10 +62089,10 @@
   "uk_locals_dropped": 176,
   "uk_reassigned": 36,
   "uk_regional_collapsed": 70,
-  "afr_kept": 111,
+  "afr_kept": 110,
   "afr_dropped": 946,
   "afr_usuk_duplicates": 25,
-  "name_section_overrides": 1154,
+  "name_section_overrides": 1150,
   "entertainment_fixes": {
    "-> LOCALS": 227,
    "-> NEWS": 163,
@@ -62071,7 +62106,7 @@
   "entertainment_trimmed": 306,
   "entertainment_kept": {
    "US": 96,
-   "UK": 68
+   "UK": 69
   },
   "news_fixes": {
    "trimmed": 35,
@@ -62105,10 +62140,10 @@
    "show_channel": 18
   },
   "replay_feeds_dropped": 719,
-  "section_canonicalised": 57,
+  "section_canonicalised": 56,
   "brand_groups": 10,
   "brand_dupes_dropped": 3,
-  "rsn_dupes_dropped": 2,
+  "rsn_dupes_dropped": 0,
   "alias_dupes_dropped": 6,
   "region_fixed": 118,
   "misfiled_us_locals": 1,
@@ -62118,7 +62153,7 @@
   "logo_bound": 4386,
   "live_event_channels": 7847,
   "live_event_groups": 14,
-  "sd_dropped": 252,
+  "sd_dropped": 251,
   "dgo_dropped": 312,
   "tiers_measured": 2192,
   "exact_duplicates_dropped": 225,
@@ -62127,8 +62162,8 @@
   "vod_dupes_dropped": 5273,
   "afr_news_dropped": 14,
   "afr_named_dropped": 63,
-  "afr_late_assigned": 1,
-  "afr_prefix_stripped": 110,
+  "afr_late_assigned": 0,
+  "afr_prefix_stripped": 109,
   "vod_display_names": 0,
   "series_display_names": 5,
   "series_genre_vocab": 20
