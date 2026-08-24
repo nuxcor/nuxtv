@@ -62,8 +62,8 @@ android {
         applicationId = "com.agoro.tv"
         minSdk = 23
         targetSdk = 36
-        versionCode = 108
-        versionName = "2.34.14"
+        versionCode = 109
+        versionName = "2.34.15"
 
         buildConfigField("String", "TMDB_API_KEY", buildConfigString(tmdbApiKey))
         buildConfigField("String", "PROVIDER_HOST", buildConfigString(providerHost))
@@ -177,7 +177,7 @@ dependencies {
     // which on IPTV is the difference between a channel with sound and one
     // without. DefaultRenderersFactory finds it reflectively, so nothing has
     // to reference it in code. See docs/ffmpeg-decoder.md to rebuild.
-    implementation(files("libs/media3-decoder-ffmpeg-1.8.0.aar"))
+    implementation(files("libs/media3-decoder-ffmpeg-1.11.0.aar"))
     implementation(libs.media3.session)
 
     implementation(libs.coil.compose)
