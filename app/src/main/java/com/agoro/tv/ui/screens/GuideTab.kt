@@ -1050,8 +1050,15 @@ internal fun groupByRegion(categories: List<Category>): List<StripEntry> = build
     var lastRegion: String? = null
     categories.forEach { category ->
         val region = category.id.substringBefore('|').takeIf { category.id.contains('|') }
-        val shelf = if (region != null) category.name.substringBefore(SHELF_SEPARATOR) else category.name
-        if (region != null && region != lastRegion) {
+        // A territory that opens exactly one shelf is labelled by the
+        // territory alone, so its name carries no separator to split on — the
+        // chip already says "DStv" and a heading above it would say it twice.
+        // The separator is what makes a heading worth having: it means the
+        // name has a genre half to show once the territory has been lifted
+        // out of it.
+        val suffixed = region != null && category.name.contains(SHELF_SEPARATOR)
+        val shelf = if (suffixed) category.name.substringBefore(SHELF_SEPARATOR) else category.name
+        if (region != null && region != lastRegion && suffixed) {
             // Keyed on the category that OPENS the run: unique by construction,
             // and unlike the region it stays unique when a region recurs.
             add(StripEntry.Group(regionHeading(region, category.name), "__group__${category.id}"))
