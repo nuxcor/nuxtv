@@ -1,5 +1,14 @@
 package com.agoro.tv.player
 
+import android.content.Context
+import android.media.AudioFormat
+import android.media.AudioTrack
+import androidx.annotation.OptIn
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.audio.AudioCapabilities
+
 /**
  * Whether this process has caught the device's audio output refusing what it
  * advertised — and so decodes every audio track to PCM in the app from then on.
@@ -25,6 +34,12 @@ package com.agoro.tv.player
  * same reason. No setting: a viewer cannot be asked which of their TV's audio
  * paths works, and the failure answers it. See [TunnelPolicy], which is the
  * same shape of decision for the video side.
+ *
+ * The failure is also asked for BEFORE any film, by [probe]: the first Dolby
+ * film of every launch used to pay the refusal on screen — a banner, a
+ * rebuild, a few seconds of black — before the latch turned. Kodi's sink
+ * settles the same question by opening the AudioTrack at start-up and
+ * trusting what happens rather than what was advertised; so does this.
  */
 internal object AudioOutputPolicy {
     /** True once the output has refused a track; every player built after this decodes to PCM. */
@@ -83,6 +98,92 @@ internal object AudioOutputPolicy {
 
     const val DISCONTINUITY_LIMIT = 3
     const val DISCONTINUITY_WINDOW_MS = 60_000L
+
+    /**
+     * The bitstream encodings films carry, and the ones a PCM-only output
+     * most often claims and then refuses. DTS and TrueHD are left to the
+     * rung: refusing one of those says less about the output than about the
+     * format, and a latch that turned on it would take AC-3 passthrough away
+     * from a box that plays it perfectly.
+     */
+    private val probeEncodings = listOf(C.ENCODING_AC3, C.ENCODING_E_AC3)
+
+    private const val PROBE_SAMPLE_RATE = 48_000
+    private const val PROBE_BUFFER_BYTES = 64 * 1024
+
+    /**
+     * Asks the platform which of [probeEncodings] it advertises for
+     * passthrough, opens an AudioTrack for each — the request the player
+     * would make for a 5.1 film — and latches PCM the moment one is refused.
+     * Milliseconds, off the main thread, once per process: the same "retry
+     * passthrough on the next start" that mpv does, answered before the
+     * first frame instead of during it. A refusal the probe cannot see — a
+     * tunnelled track, a write that fails mid-film — is still the rung's.
+     */
+    @OptIn(UnstableApi::class)
+    fun probe(context: Context) {
+        if (pcmOnly) return
+        val attributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
+        val advertised = runCatching {
+            val capabilities = AudioCapabilities.getCapabilities(
+                context.applicationContext, attributes, /* routedDevice = */ null, emptyList(),
+            )
+            probeEncodings.filter { capabilities.supportsEncoding(it) }
+        }.getOrElse { emptyList() }
+        val refused = passthroughVerdict(advertised) { canOpen(it) }
+        android.util.Log.i(
+            "Agoro",
+            "Passthrough probe: advertised=${advertised.map(::encodingName)} " +
+                "refused=${refused?.let(::encodingName) ?: "none"}",
+        )
+        if (refused != null) {
+            latch("probe: the platform advertised ${encodingName(refused)} passthrough and refused the AudioTrack")
+        }
+    }
+
+    /** The first advertised encoding the output will not open, or null when it opens them all. */
+    internal fun passthroughVerdict(advertised: List<Int>, opens: (Int) -> Boolean): Int? =
+        advertised.firstOrNull { !opens(it) }
+
+    /**
+     * Whether the platform will create — not play — a passthrough track for
+     * [encoding], shaped as the player shapes one for a 5.1 film. The
+     * refusals this box has shown arrive here: `UnsupportedOperationException`
+     * ("Cannot create AudioTrack") from the builder, or a track that comes
+     * back uninitialised.
+     */
+    private fun canOpen(encoding: Int): Boolean = try {
+        val track = AudioTrack.Builder()
+            .setAudioAttributes(
+                android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MOVIE)
+                    .build(),
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(encoding)
+                    .setSampleRate(PROBE_SAMPLE_RATE)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_5POINT1)
+                    .build(),
+            )
+            .setBufferSizeInBytes(PROBE_BUFFER_BYTES)
+            .build()
+        val initialised = track.state == AudioTrack.STATE_INITIALIZED
+        track.release()
+        initialised
+    } catch (e: Exception) {
+        false
+    }
+
+    private fun encodingName(encoding: Int): String = when (encoding) {
+        C.ENCODING_AC3 -> "AC-3"
+        C.ENCODING_E_AC3 -> "E-AC-3"
+        else -> "encoding $encoding"
+    }
 
     /** Test seam. */
     @Synchronized

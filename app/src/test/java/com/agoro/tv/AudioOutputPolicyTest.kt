@@ -30,6 +30,21 @@ class AudioOutputPolicyTest {
     }
 
     @Test
+    fun `the probe latches on the first advertised encoding the output will not open`() {
+        val ac3 = androidx.media3.common.C.ENCODING_AC3
+        val eac3 = androidx.media3.common.C.ENCODING_E_AC3
+        // Nothing advertised: nothing to refuse, nothing to latch.
+        assertNull(AudioOutputPolicy.passthroughVerdict(emptyList()) { true })
+        // Everything advertised opens: the platform told the truth.
+        assertNull(AudioOutputPolicy.passthroughVerdict(listOf(ac3, eac3)) { true })
+        // The first refusal is the verdict; the rest are not asked.
+        val asked = mutableListOf<Int>()
+        assertEquals(eac3, AudioOutputPolicy.passthroughVerdict(listOf(ac3, eac3)) { asked += it; it != eac3 })
+        assertEquals(listOf(ac3, eac3), asked)
+        assertEquals(ac3, AudioOutputPolicy.passthroughVerdict(listOf(ac3, eac3)) { false })
+    }
+
+    @Test
     fun `a refusal on the PCM player is not answered with another rebuild`() {
         // PCM did not fix it, so the ladder must fall through to its ordinary
         // retries and the error card rather than loop on rebuilds.
