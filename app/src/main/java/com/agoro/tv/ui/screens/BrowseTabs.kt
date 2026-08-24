@@ -144,10 +144,11 @@ internal const val VOD_MORE = "__more__"
 private const val VOD_NEW_LABEL = "Recently added"
 
 /**
- * Newest-first by the provider's own `added`/`last_modified`. Home carries a
- * twenty-card shelf of the same thing; this is where the rest of it lives,
- * because "what's new" is the one question a catalogue of 20,000 films cannot
- * answer from an alphabetical grid.
+ * Newest-first by the provider's own `added`/`last_modified`, held to titles
+ * released this year or last — see `isRecentRelease` for why a panel's import
+ * date alone is not enough. Home carries a twenty-card shelf of the same
+ * thing; this is where the rest of it lives, because "what's new" is the one
+ * question a catalogue of 20,000 films cannot answer from an alphabetical grid.
  */
 private const val VOD_NEW = "__new__"
 

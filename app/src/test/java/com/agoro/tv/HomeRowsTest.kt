@@ -16,6 +16,7 @@ import com.agoro.tv.ui.screens.buildCatalogIndex
 import com.agoro.tv.ui.screens.buildContinueWatching
 import com.agoro.tv.ui.screens.buildRecentlyAdded
 import com.agoro.tv.ui.screens.channelHero
+import com.agoro.tv.ui.screens.isRecentRelease
 import com.agoro.tv.ui.screens.ratingChip
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -175,9 +176,50 @@ class HomeRowsTest {
 
     // --- Recently added --------------------------------------------------------
 
-    private fun dated(id: String, addedMs: Long) = movie(id).copy(addedMs = addedMs)
+    /** The year the tests run in; dated titles are released in it unless told otherwise. */
+    private val thisYear = 2026
 
-    private fun datedSeries(id: String, addedMs: Long) = series(id).copy(addedMs = addedMs)
+    private fun dated(id: String, addedMs: Long, year: Int? = thisYear) =
+        movie(id).copy(addedMs = addedMs, year = year)
+
+    private fun datedSeries(id: String, addedMs: Long, year: Int? = thisYear) =
+        series(id).copy(addedMs = addedMs, year = year)
+
+    @Test
+    fun `this year and last are recent, older and unknown are not`() {
+        assertTrue(isRecentRelease(2026, nowYear = 2026))
+        assertTrue(isRecentRelease(2025, nowYear = 2026))
+        assertFalse(isRecentRelease(2024, nowYear = 2026))
+        assertFalse(isRecentRelease(1994, nowYear = 2026))
+        assertFalse(isRecentRelease(null, nowYear = 2026))
+    }
+
+    @Test
+    fun `a back-catalogue import dated today is not recently added`() {
+        // The panel imported its 1990s shelf this morning: every title
+        // carries today's `added`. Only the actual new releases may claim
+        // the row, and a title that cannot say its year cannot claim it.
+        val today = 1_700_000_000_000L
+        val movies = listOf(
+            dated("speed", today, year = 1994),
+            dated("new", today - 1, year = 2026),
+            dated("lastYear", today - 2, year = 2025),
+            dated("unscraped", today, year = null),
+            dated("old", today, year = 2019),
+        )
+        val shows = listOf(
+            datedSeries("friends", today, year = 1994),
+            datedSeries("newShow", today - 1, year = 2026),
+        )
+        val index = buildCatalogIndex(ContentBundle(movies = movies, series = shows), nowYear = 2026) { false }
+        assertEquals(listOf("new", "lastYear"), index.newMovies.map { it.id })
+        assertEquals(listOf("newShow"), index.newSeries.map { it.id })
+        // The row and the tab category read from the same lists, so both agree.
+        val row = buildRecentlyAdded(index.newMovies, index.newSeries, minimum = 1)
+        assertEquals(listOf("new", "newShow", "lastYear"), row.map {
+            when (it) { is CatalogCard.MovieCard -> it.movie.id; is CatalogCard.SeriesCard -> it.series.id }
+        })
+    }
 
     @Test
     fun `recently added is newest first across movies and series`() {
@@ -231,7 +273,7 @@ class HomeRowsTest {
         // unsorted walk, and the cap must still hold.
         val movies = (1..30).map { dated("m$it", it.toLong()) }.shuffled(java.util.Random(7))
         val shows = (1..30).map { datedSeries("s$it", it.toLong() + 100) }.shuffled(java.util.Random(9))
-        val index = buildCatalogIndex(ContentBundle(movies = movies, series = shows)) { false }
+        val index = buildCatalogIndex(ContentBundle(movies = movies, series = shows), nowYear = thisYear) { false }
         val fromIndex = buildRecentlyAdded(index.newMovies, index.newSeries)
         val fromLists = buildRecentlyAdded(movies, shows)
         assertEquals(fromLists, fromIndex)
