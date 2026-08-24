@@ -24,6 +24,36 @@ class GuideStripKeyTest {
      * collided.
      */
     @Test
+    fun `a territory named by itself gets a chip and no heading above it`() {
+        // DStv holds one shelf, so ManifestCuration labels it "DStv" with no
+        // genre half. A heading would then read "DStv" directly above a chip
+        // reading "DStv".
+        val entries = groupByRegion(
+            listOf(
+                Category(id = "ENTERTAINMENT", name = "Entertainment"),
+                Category(id = "AFR|ENTERTAINMENT", name = "DStv"),
+                Category(id = "STREAMING", name = "Streaming Networks"),
+            )
+        )
+        assertEquals(
+            listOf("Entertainment", "DStv", "Streaming Networks"),
+            entries.map { it.label },
+        )
+    }
+
+    @Test
+    fun `a suffixed territory still gets its heading`() {
+        val entries = groupByRegion(
+            listOf(
+                Category(id = "NEWS", name = "News"),
+                Category(id = "AFR|NEWS", name = "News · DStv"),
+                Category(id = "AFR|SPORTS", name = "Sports · DStv"),
+            )
+        )
+        assertEquals(listOf("News", "DStv", "News", "Sports"), entries.map { it.label })
+    }
+
+    @Test
     fun `a region that appears twice does not reuse a key`() {
         val k = keys("US|NEWS", "UK|NEWS", "US|SPORTS")
         assertEquals("every strip key must be unique: $k", k.size, k.toSet().size)

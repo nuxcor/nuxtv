@@ -1360,9 +1360,50 @@ class ContentRepository(context: Context) {
     suspend fun artworkFor(kind: String, title: String, year: Int?, tmdbKey: String): ArtEntry? =
         runCatching { TmdbClient(http, tmdbKey).art(kind, title, year) }.getOrNull()
 
+    /**
+     * The name cleaner the bundle uses, or null when it must not be applied.
+     *
+     * Same gate as the catalogue: a manifest describes ONE provider, and
+     * running another's episode titles through its prefix rules would strip
+     * whatever happened to look like one.
+     */
+    private suspend fun episodeNameCleaner(): ManifestCuration.VodNameCleaner? {
+        val source = activeSource.first() ?: return null
+        val manifest = manifests.load() ?: return null
+        if (!manifestApplies(source, manifest)) return null
+        return manifest.vodNameRules?.let { ManifestCuration.VodNameCleaner(it) }
+    }
+
+    /**
+     * Episode titles carry the same bundle prefixes the show titles do —
+     * "4K-NF - ", "EN - ", "DSC+ - " — because they come off the same panel.
+     * The curation pass cleans movies and series where it builds the bundle,
+     * but episodes are fetched per show, lazily, long after that pass has run,
+     * so nothing had ever cleaned them: a show correctly listed as "Ransom
+     * Canyon" opened onto episodes still announcing which bundle they shipped
+     * in.
+     *
+     * A cleaned title that comes back blank is discarded rather than shown —
+     * an episode named only by its prefix is better left saying what the
+     * provider said than saying nothing at all.
+     */
+    private fun List<Episode>.cleanTitles(
+        cleaner: ManifestCuration.VodNameCleaner?,
+    ): List<Episode> {
+        if (cleaner == null) return this
+        return map { episode ->
+            val cleaned = cleaner.clean(episode.title)
+            if (cleaned.isNotBlank() && cleaned != episode.title) {
+                episode.copy(title = cleaned)
+            } else {
+                episode
+            }
+        }
+    }
+
     /** Episodes for [series]; empty = the provider has none, null = the fetch failed. */
     suspend fun episodesFor(series: Series): List<Episode>? {
-        series.episodes?.let { return it }
+        series.episodes?.let { return it.cleanTitles(episodeNameCleaner()) }
         val source = activeSource.first() as? PlaylistSource.Xtream ?: return emptyList()
         // Caches written before the xtreamId field existed deserialize it as
         // null, which made every series "No episodes found" until a successful
@@ -1372,7 +1413,7 @@ class ContentRepository(context: Context) {
             ?: series.id.removePrefix("series:").toIntOrNull()
             ?: return emptyList()
         return try {
-            xtreamClient(source).seriesEpisodes(id)
+            xtreamClient(source).seriesEpisodes(id).cleanTitles(episodeNameCleaner())
         } catch (e: kotlinx.coroutines.CancellationException) {
             // runCatching here used to swallow cancellation too, which latched
             // an empty list into the detail screen with no way to retry.
