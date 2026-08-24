@@ -420,32 +420,7 @@ fun GuideTab(
             },
     ) {
         notice?.let {
-            // Resolved here, and remembered: the suggestion reads every
-            // channel name in the playlist, and this used to rebuild that
-            // whole list on every recomposition of the guide.
-            val matchFailure = (it as? GuideNotice.Missing)?.matchFailure == true
-            val pack = remember(bundle, matchFailure) {
-                suggestedEpgPacks(
-                    categoryNames = bundle.liveCategories.map { c -> c.name },
-                    channelNames = if (matchFailure) bundle.channels.map { c -> c.name }
-                    else emptyList(),
-                ).firstOrNull()
-            }
-            GuideNoticeBar(
-                notice = it,
-                pack = pack,
-                onPick = { cc ->
-                    vm.setEpgOverrideUrl(epgshareUrl(cc))
-                    // The bar — and the button focus is on — unmounts the
-                    // moment the load starts; land in the grid instead of
-                    // leaving the next press to reseat focus blind.
-                    scope.launch {
-                        delay(120)
-                        gridHandle.focusAnchor()
-                    }
-                },
-                onOpenSettings = onOpenSettings,
-            )
+            GuideNoticeBar(notice = it)
             Spacer(Modifier.height(10.dp))
         }
         // Category filter, and the day the grid is showing. Two axes, so
@@ -937,13 +912,7 @@ internal sealed interface GuideNotice {
  * and the thing they came to watch.
  */
 @Composable
-private fun GuideNoticeBar(
-    notice: GuideNotice,
-    /** Best-guess country pack for this playlist, or null when nothing hints at one. */
-    pack: String?,
-    onPick: (String) -> Unit,
-    onOpenSettings: () -> Unit,
-) {
+private fun GuideNoticeBar(notice: GuideNotice) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -981,20 +950,10 @@ private fun GuideNoticeBar(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        // One button, not a rank of seven country codes. The app already knows
-        // which pack fits — suggestedEpgPacks reads it off the playlist's own
-        // categories and channel-name tags — so asking the viewer to choose
-        // was the app declining to decide. When nothing hints at a country
-        // there is no honest guess to offer, and Settings owns the full list.
-        if (pack != null) {
-            androidx.tv.material3.OutlinedButton(onClick = { onPick(pack) }) {
-                Text("Use free $pack guide", style = MaterialTheme.typography.labelMedium)
-            }
-        } else {
-            androidx.tv.material3.OutlinedButton(onClick = onOpenSettings) {
-                Text("Choose a guide", style = MaterialTheme.typography.labelMedium)
-            }
-        }
+        // No button. The guide comes from the manifest, which resolved these
+        // channels' ids against the feeds it names — a country pack chosen
+        // here would replace that whole fold with one file. This bar reports;
+        // fixing a thin guide is a manifest job.
     }
 }
 

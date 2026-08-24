@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CalendarViewWeek
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Movie
@@ -76,7 +75,6 @@ internal fun SettingsTab(
 ) {
     val sources by vm.sources.collectAsState()
     val active by vm.activeSource.collectAsState()
-    val epgOverride by vm.epgOverrideUrl.collectAsState()
     val contentState by vm.content.collectAsState()
 
     // The library reads null for the duration of a load. Holding the last one
@@ -91,7 +89,6 @@ internal fun SettingsTab(
     // Text entry happens in dialogs, not inline: a focused TextField on TV
     // opens the keyboard on its own, so a field in the scroll path grabs the
     // remote every time you D-pad past it.
-    var epgDialogOpen by remember { mutableStateOf(false) }
     var pinDialogOpen by remember { mutableStateOf(false) }
     var pinGateOpen by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
@@ -329,115 +326,6 @@ internal fun SettingsTab(
             }
         }
 
-        item(key = "duplicates") {
-            val mergeDupes by vm.mergeDuplicates.collectAsState()
-            SettingsChoiceRow(
-                title = "Duplicate channels",
-                description = "Merge SD/HD/FHD variants of the same channel and keep the best quality.",
-                options = listOf("Show all", "Best quality only"),
-                selectedIndex = if (mergeDupes) 1 else 0,
-                onSelect = { vm.setMergeDuplicates(it == 1) },
-            )
-        }
-
-        item(key = "frame-stats") {
-            val on by vm.frameStatsOverlay.collectAsState()
-            SettingsChoiceRow(
-                title = "Performance readout",
-                description = "Shows measured frame times in the corner. " +
-                    "Turn it on, travel the guide, and report the numbers — " +
-                    "\"not fluid\" can't be fixed, p95 210ms can.",
-                options = listOf("Off", "On"),
-                selectedIndex = if (on) 1 else 0,
-                onSelect = { vm.setFrameStatsOverlay(it == 1) },
-            )
-        }
-
-        item(key = "guide-preview") {
-            val mode by vm.guidePreviewMode.collectAsState()
-            SettingsChoiceRow(
-                title = "Guide preview",
-                description = "Plays the focused channel muted in the guide's corner. " +
-                    "Auto keeps it on, pausing only while a recording is using " +
-                    "your plan's only stream.",
-                options = listOf("Auto", "On", "Off"),
-                selectedIndex = when (mode) {
-                    "on" -> 1
-                    "off" -> 2
-                    else -> 0
-                },
-                onSelect = {
-                    vm.setGuidePreviewMode(
-                        when (it) {
-                            1 -> "on"
-                            2 -> "off"
-                            else -> "auto"
-                        }
-                    )
-                },
-            )
-        }
-
-        item(key = "order") {
-            val order by vm.channelOrder.collectAsState()
-            SettingsChoiceRow(
-                title = "Channel order",
-                description = "How Live TV lists channels within a category.",
-                options = listOf("Provider order", "A–Z", "Best quality first"),
-                selectedIndex = order,
-                onSelect = { vm.setChannelOrder(it) },
-            )
-        }
-
-        item(key = "epg") {
-            val epgOptions = remember { listOf("Auto") + EPGSHARE_PACKS }
-            // Live coverage readout: the honest number behind "does my guide
-            // work", visible where the guide is chosen.
-            val coverage by vm.guideCoverage.collectAsState()
-            val coverageLine =
-                if (coverage.total > 0 && coverage.lastProgramEndMs != Long.MAX_VALUE) {
-                    " Current guide covers ${coverage.matched} of ${coverage.total} channels."
-                } else ""
-            SettingsChoiceRow(
-                title = "EPG source",
-                description = "Auto uses your playlist's guide; pick an epgshare01 pack or " +
-                    "paste any XMLTV URL. Guides refresh every 6 hours." + coverageLine,
-                divider = true,
-                options = epgOptions,
-                selectedIndex = when {
-                    epgOverride.isNullOrBlank() -> 0
-                    else -> EPGSHARE_PACKS.indexOfFirst { epgshareUrl(it) == epgOverride }
-                        .let { if (it >= 0) it + 1 else -1 }
-                },
-                onSelect = { index ->
-                    if (index == 0) {
-                        vm.setEpgOverrideUrl(null)
-                        statusMessage = "EPG source: playlist default"
-                    } else {
-                        val cc = EPGSHARE_PACKS[index - 1]
-                        vm.setEpgOverrideUrl(epgshareUrl(cc))
-                        statusMessage = "EPG source: epgshare01 $cc pack"
-                    }
-                },
-            ) {
-                Spacer(Modifier.height(Space.s))
-                val custom = epgOverride
-                    ?.takeIf { url -> url.isNotBlank() && EPGSHARE_PACKS.none { epgshareUrl(it) == url } }
-                WideItem(
-                    title = "Custom XMLTV URL",
-                    subtitle = custom ?: "Not set — the playlist's own guide is used",
-                    leading = {
-                        Icon(
-                            Icons.Default.CalendarViewWeek,
-                            contentDescription = null,
-                            tint = if (custom != null) NuxColors.Primary else NuxColors.OnSurfaceDim,
-                        )
-                    },
-                    onClick = { epgDialogOpen = true },
-                )
-            }
-        }
-
         item(key = "parental") {
             // Says what it actually does. "Restricted categories" implied a
             // set the viewer had chosen; it is detected from the category
@@ -582,20 +470,6 @@ internal fun SettingsTab(
     // item: an item near the bottom only composes once scrolled to, so a
     // confirmation living there never appeared for actions triggered from
     // the top of the screen — Remove playlist silently did nothing.)
-    if (epgDialogOpen) {
-        TextInputDialog(
-            title = "Custom XMLTV URL",
-            message = "Optional. Leave this unset and the guide from your playlist is used.",
-            initialValue = epgOverride.orEmpty(),
-            label = "XMLTV URL",
-            onConfirm = { entered ->
-                vm.setEpgOverrideUrl(entered)
-                statusMessage = if (entered.isBlank()) "EPG source: playlist default"
-                else "EPG source updated"
-            },
-            onDismiss = { epgDialogOpen = false },
-        )
-    }
     if (pinGateOpen) {
         com.agoro.tv.ui.components.PinPrompt(
             onSubmit = { entered ->
