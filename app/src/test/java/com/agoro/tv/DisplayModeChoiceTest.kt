@@ -8,6 +8,7 @@ import com.agoro.tv.player.HdrType
 import com.agoro.tv.player.OutputMode
 import com.agoro.tv.player.chooseMode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -49,6 +50,24 @@ class DisplayModeChoiceTest {
         allowResolutionChange = allowResolutionChange,
         pinned = pinned,
     )
+
+    @Test
+    fun `no frame rate is no reason to change the refresh`() {
+        // A stream that has not reported its rate used to skip the
+        // "no better than what's running" test and pin whatever sat nearest
+        // the current refresh — a mode change on no evidence, and a mode
+        // change is an HDMI renegotiation the picture pays for.
+        // mode 1 is 1080p60; a 1080p stream of unknown rate has nothing to gain.
+        assertNull(choose(current = 1, height = 1080, frameRate = null))
+    }
+
+    @Test
+    fun `no frame rate still allows a resolution change`() {
+        // The resolution IS evidence: a 4K stream on a 1080p output has
+        // something to gain whatever its frame rate turns out to be.
+        // mode 1 is 1080p60; a 2160-high stream still earns the bigger mode.
+        assertNotNull(choose(current = 1, height = 2160, frameRate = null))
+    }
 
     @Test
     fun `an SDR stream still gets the lowest clean refresh`() {

@@ -228,10 +228,19 @@ internal fun chooseMode(
     // A mode that is no better than the one running is not worth a blackout —
     // unless the one running can't carry the stream's HDR, which is the whole
     // reason to move.
+    //
+    // The frame-rate clause used to require one, which meant a stream that had
+    // not reported its rate skipped this test entirely and pinned whatever sat
+    // nearest the current refresh. That is a mode change made on no evidence,
+    // and a mode change is an HDMI renegotiation: the box re-signals, and a
+    // panel that comes back on a different RGB range renders everything after
+    // it slightly too bright or too dark — on live and on films alike, because
+    // the pin is never cleared. Without a frame rate there is nothing here
+    // worth a blackout for; only a resolution or an HDR carrier is.
     if ((carry == null || current.carries(carry)) &&
         best.height == current.height &&
-        frameRate != null && frameRate > 0f &&
-        judder(current.refreshRate, frameRate) <= JUDDER_TOLERANCE
+        (frameRate == null || frameRate <= 0f ||
+            judder(current.refreshRate, frameRate) <= JUDDER_TOLERANCE)
     ) return null
 
     return best.modeId
