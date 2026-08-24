@@ -200,6 +200,9 @@ class ExoEngine(
     private var videoArmed = false
     private var firstFrameDrawn = false
 
+    /** The surface went away (screensaver, background); the next one must draw again to count. */
+    private var surfaceLost = false
+
     private val underruns = ArrayDeque<Long>()
 
     private fun resetWatchdog() {
@@ -208,6 +211,7 @@ class ExoEngine(
         audioDecoderName = null
         videoArmed = false
         firstFrameDrawn = false
+        surfaceLost = false
         underruns.clear()
         mainHandler.removeCallbacks(outputCheck)
     }
@@ -232,7 +236,11 @@ class ExoEngine(
                 android.util.Log.w("Agoro", "Audio format accepted but position never advanced in ${OUTPUT_GRACE_MS}ms")
                 listener?.onError("your TV played this audio format as silence", PlaybackFault.AUDIO_OUTPUT)
             }
-            videoArmed && !firstFrameDrawn -> {
+            // Not while tunnelled: there the HAL draws, and media3 only learns
+            // of the first frame through the vendor's onFrameRendered callback,
+            // which some boxes never send (androidx/media #1169). A tunnelled
+            // decoder that truly freezes is TunnelPolicy's case, not this one.
+            videoArmed && !firstFrameDrawn && !tunnelling -> {
                 if (VideoOutputPolicy.reinitOnly) {
                     android.util.Log.w("Agoro", "Video still not drawing on a re-initialised decoder; leaving playback alone")
                     return@Runnable
@@ -274,7 +282,10 @@ class ExoEngine(
                     // are the stream's own and are not second-guessed.
                     val jumpMs = (audioSinkError.actualPresentationTimeUs - audioSinkError.expectedPresentationTimeUs) / 1000
                     android.util.Log.i("Agoro", "Audio timestamp jumped ${jumpMs}ms (decoder=${audioDecoderName ?: "passthrough"})")
-                    if (!main || !audioDecodedInApp) return
+                    // Live only: the decoder's clock is a live-TS problem, and a
+                    // VOD file whose audio has real gaps must keep its gaps, or
+                    // its sound would drift from its picture by their sum.
+                    if (!main || !live || !audioDecodedInApp) return
                     if (AudioOutputPolicy.noteDiscontinuity(android.os.SystemClock.elapsedRealtime())) {
                         listener?.onError("the audio timing keeps jumping", PlaybackFault.AUDIO_TIMING)
                     }
@@ -315,6 +326,10 @@ class ExoEngine(
             // keeps cutting out" was impossible to confirm from a log.
             android.util.Log.w("Agoro", "Audio underrun: buffer=${bufferSize}B/${bufferSizeMs}ms, ${elapsedSinceLastFeedMs}ms since last feed")
             if (!main) return
+            // Only the ones the sink cannot blame on the line: the player had
+            // seconds in hand and the track still ran dry. A starving stream
+            // underruns too, and that is the stall ladder's case.
+            if (player.totalBufferedDuration < UNDERRUN_BUFFERED_MS) return
             val now = android.os.SystemClock.elapsedRealtime()
             underruns.addLast(now)
             while (underruns.isNotEmpty() && now - underruns.first() > UNDERRUN_WINDOW_MS) underruns.removeFirst()
@@ -348,10 +363,16 @@ class ExoEngine(
         }
 
         override fun onSurfaceSizeChanged(eventTime: AnalyticsListener.EventTime, width: Int, height: Int) {
-            // A new surface — the screensaver handing it back — is where
-            // the reuse-broken decoders go black; the frame has to be drawn
-            // again to count.
-            if (width > 0 && height > 0) {
+            // A surface handed back after being taken away — the screensaver,
+            // the app going to the background — is where the reuse-broken
+            // decoders go black, and media3 reports the first frame afresh
+            // for a NEW surface, so it has to be drawn again to count. A
+            // resize of the same surface reports no new first frame, and
+            // must not be mistaken for one.
+            if (width == 0 || height == 0) {
+                surfaceLost = true
+            } else if (surfaceLost) {
+                surfaceLost = false
                 firstFrameDrawn = false
                 scheduleOutputCheck()
             }
@@ -452,6 +473,9 @@ class ExoEngine(
         /** Underruns inside [UNDERRUN_WINDOW_MS] that mean the sink is starving, not hiccuping. */
         const val UNDERRUN_LIMIT = 4
         const val UNDERRUN_WINDOW_MS = 10_000L
+
+        /** Buffered media below which an underrun is the line's doing, not the sink's. */
+        const val UNDERRUN_BUFFERED_MS = 2_000L
 
         /**
          * How long after a renderer reconfiguration its own rebuffer is
