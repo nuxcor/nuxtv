@@ -9,6 +9,8 @@ import androidx.compose.runtime.setValue
 import com.agoro.tv.data.PlaybackRequest
 import com.agoro.tv.player.AudioOutputPolicy
 import com.agoro.tv.player.DecodeProfile
+import com.agoro.tv.player.PlaybackFault
+import com.agoro.tv.player.VideoOutputPolicy
 import com.agoro.tv.player.ExoEngine
 import com.agoro.tv.player.HdrType
 import com.agoro.tv.player.PlayerEngine
@@ -331,7 +333,7 @@ class PlayerSession internal constructor(
             buffering = b
         }
 
-        override fun onError(message: String, decodeFault: Boolean, audioFault: Boolean) {
+        override fun onError(message: String, fault: PlaybackFault) {
             // The 500ms position poll only runs while chrome is visible, so
             // session.positionMs can be minutes stale here. Capture the live
             // position before any recovery path recreates the engine, or a
@@ -349,7 +351,20 @@ class PlayerSession internal constructor(
                 // for the same track, so it goes first, and it goes once per
                 // process — the latch says no the second time, and the rungs
                 // below take over. See AudioOutputPolicy.
-                audioFault && AudioOutputPolicy.latch(message) -> retryPcmAudio()
+                fault == PlaybackFault.AUDIO_OUTPUT && AudioOutputPolicy.latch(message) ->
+                    retryRebuilt("Your TV refused this audio format — decoding it in the app…")
+
+                // Decoded audio whose timestamps keep jumping: the engine
+                // raises this once, when its latch turns, so the rebuild is
+                // unconditional. See PtsSmoother.
+                fault == PlaybackFault.AUDIO_TIMING ->
+                    retryRebuilt("Smoothing the audio timing…")
+
+                // A video decoder that runs but never draws: rebuild on one
+                // that re-initialises instead of reusing. Same shape, same
+                // once-per-process latch. See VideoOutputPolicy.
+                fault == PlaybackFault.VIDEO_OUTPUT && VideoOutputPolicy.latch(message) ->
+                    retryRebuilt("Restarting the video decoder…")
 
                 // Wrong container format fails instantly and identically on
                 // every retry — step through the other Xtream live formats
@@ -372,7 +387,7 @@ class PlayerSession internal constructor(
                 // never offered software decoding as false hope. The ladder
                 // resets on the way through, so the retries below still run
                 // afterwards — on the tolerant engine.
-                decodeFault && canRetryTolerant -> retryTolerant()
+                fault == PlaybackFault.DECODE && canRetryTolerant -> retryTolerant()
 
                 // Reconnect on the same player. The old ladder hopped to VLC
                 // for anything a flaky provider hiccuped on, which silently
@@ -382,7 +397,10 @@ class PlayerSession internal constructor(
                 // VOD included: the engine swap used to be VOD's only recovery
                 // path, so dropping the swap without this left films dying on
                 // the first hiccup.
-                retriesLeft > 0 -> {
+                // Not for a provider that has said no in words: a rejected
+                // login or a stream it no longer carries fails identically
+                // on every reconnect, and the wait is the whole cost.
+                fault != PlaybackFault.PERMANENT && retriesLeft > 0 -> {
                     // Backing off: the first reconnect is quick, the second
                     // gives a struggling provider room to breathe.
                     val attempt = RETRIES_PER_ITEM - retriesLeft
@@ -705,18 +723,18 @@ class PlayerSession internal constructor(
     }
 
     /**
-     * Re-opens the current stream on a player that decodes its audio to PCM
-     * in the app instead of handing the encoded track to the TV; see
-     * [AudioOutputPolicy], which has already been latched by the time this
-     * runs, so the pool builds the new engine on the PCM-only sink. Same
-     * profile, same playhead, same ladder from the top — the retries below
-     * still run afterwards, on the PCM player.
+     * Re-opens the current stream on a freshly built player. The output
+     * latch that asked for this — [AudioOutputPolicy], [VideoOutputPolicy] —
+     * has already turned by the time it runs, so the pool builds the new
+     * engine on the changed sink or renderer. Same profile, same playhead,
+     * same ladder from the top: the retries still run afterwards, on the
+     * rebuilt player.
      */
-    private fun retryPcmAudio() {
+    private fun retryRebuilt(status: String) {
         clearError()
         resetLadder(currentIndex)
         tuning = true
-        statusMessage = "Your TV refused this audio format — decoding it in the app…"
+        statusMessage = status
         rebuildEngine()
     }
 

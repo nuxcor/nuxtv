@@ -4,6 +4,7 @@ import android.content.Context
 import android.view.View
 import androidx.annotation.OptIn
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
@@ -11,6 +12,8 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.HttpDataSource
+import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
@@ -171,12 +174,82 @@ class ExoEngine(
         }
         android.util.Log.w("Agoro", "Audio output refused the track and playback never started", refusal)
         clearSinkRefusal()
-        listener?.onError(
-            humanError("ERROR_CODE_AUDIO_TRACK_INIT_FAILED"),
-            decodeFault = false,
-            audioFault = true,
-        )
+        listener?.onError(humanError("ERROR_CODE_AUDIO_TRACK_INIT_FAILED"), PlaybackFault.AUDIO_OUTPUT)
     }
+
+    // --- output watchdog ---------------------------------------------------
+    //
+    // The three failures a viewer meets as "picture but no sound", "sound
+    // keeps cutting out" and "sound but a black screen" throw nothing:
+    // the platform accepted the track or the decoder and simply does not
+    // deliver. OwnTV's watchdog is the model — detection in order of
+    // confidence, from the sink's own word down to "armed but never
+    // advancing" — and each verdict lands on the rung that changes the
+    // component at fault, once per process; a latch already set means the
+    // rebuild did not fix it, and playing on beats a card over a playing
+    // picture.
+
+    /** A format reached the audio sink; sound has (not) yet left the device. */
+    private var audioArmed = false
+    private var audioAdvancing = false
+
+    /** Which decoder is feeding the sink, or null when the TV is decoding (passthrough). */
+    private var audioDecoderName: String? = null
+
+    /** A format reached the video decoder; a frame has (not) yet been drawn. */
+    private var videoArmed = false
+    private var firstFrameDrawn = false
+
+    private val underruns = ArrayDeque<Long>()
+
+    private fun resetWatchdog() {
+        audioArmed = false
+        audioAdvancing = false
+        audioDecoderName = null
+        videoArmed = false
+        firstFrameDrawn = false
+        underruns.clear()
+        mainHandler.removeCallbacks(outputCheck)
+    }
+
+    /** (Re)starts the grace clock; only playing time counts, so it is armed by playing. */
+    private fun scheduleOutputCheck() {
+        mainHandler.removeCallbacks(outputCheck)
+        if (main && !released && player.isPlaying) mainHandler.postDelayed(outputCheck, OUTPUT_GRACE_MS)
+    }
+
+    private val outputCheck = Runnable {
+        if (released || !main || !player.isPlaying) return@Runnable
+        when {
+            audioArmed && !audioAdvancing -> {
+                // The output took the format and produced silence. With the
+                // PCM sink already in place there is nothing left to change,
+                // and a playing picture is not traded for a card.
+                if (AudioOutputPolicy.pcmOnly) {
+                    android.util.Log.w("Agoro", "Audio still silent on the PCM sink; leaving playback alone")
+                    return@Runnable
+                }
+                android.util.Log.w("Agoro", "Audio format accepted but position never advanced in ${OUTPUT_GRACE_MS}ms")
+                listener?.onError("your TV played this audio format as silence", PlaybackFault.AUDIO_OUTPUT)
+            }
+            videoArmed && !firstFrameDrawn -> {
+                if (VideoOutputPolicy.reinitOnly) {
+                    android.util.Log.w("Agoro", "Video still not drawing on a re-initialised decoder; leaving playback alone")
+                    return@Runnable
+                }
+                android.util.Log.w("Agoro", "Video decoder running but no frame drawn in ${OUTPUT_GRACE_MS}ms")
+                listener?.onError("your TV's video decoder stopped drawing", PlaybackFault.VIDEO_OUTPUT)
+            }
+        }
+    }
+
+    /** Whether the sink is being fed decoded PCM, as opposed to the TV decoding a bitstream. */
+    private val audioDecodedInApp: Boolean
+        get() {
+            val name = audioDecoderName ?: return false
+            return !name.startsWith("audio.raw", ignoreCase = true) &&
+                !name.startsWith("audio.passthrough", ignoreCase = true)
+        }
 
     private fun clearSinkRefusal() {
         sinkRefusal = null
@@ -185,15 +258,103 @@ class ExoEngine(
 
     private val analyticsListener = object : AnalyticsListener {
         override fun onAudioSinkError(eventTime: AnalyticsListener.EventTime, audioSinkError: Exception) {
-            // Only the output refusing to open or take the track. A timestamp
-            // discontinuity is also reported here, and that is a statement
-            // about the stream, which the sink resyncs itself.
-            if (audioSinkError !is AudioSink.InitializationException &&
-                audioSinkError !is AudioSink.WriteException
-            ) return
-            if (sinkRefusal != null) return
-            sinkRefusal = audioSinkError
-            mainHandler.postDelayed(sinkStallCheck, SINK_STALL_GRACE_MS)
+            when (audioSinkError) {
+                is AudioSink.InitializationException, is AudioSink.WriteException -> {
+                    // The output refusing to open or take the track.
+                    if (sinkRefusal != null) return
+                    sinkRefusal = audioSinkError
+                    mainHandler.postDelayed(sinkStallCheck, SINK_STALL_GRACE_MS)
+                }
+                is AudioSink.UnexpectedDiscontinuityException -> {
+                    // A statement about the timestamps, which the sink
+                    // answers by re-anchoring its clock — a skip the viewer
+                    // sees. One is a splice. Several a minute on decoded
+                    // audio is the decoder's clock, and worth a sink that
+                    // smooths it; see PtsSmoother. Passthrough timestamps
+                    // are the stream's own and are not second-guessed.
+                    val jumpMs = (audioSinkError.actualPresentationTimeUs - audioSinkError.expectedPresentationTimeUs) / 1000
+                    android.util.Log.i("Agoro", "Audio timestamp jumped ${jumpMs}ms (decoder=${audioDecoderName ?: "passthrough"})")
+                    if (!main || !audioDecodedInApp) return
+                    if (AudioOutputPolicy.noteDiscontinuity(android.os.SystemClock.elapsedRealtime())) {
+                        listener?.onError("the audio timing keeps jumping", PlaybackFault.AUDIO_TIMING)
+                    }
+                }
+            }
+        }
+
+        override fun onAudioInputFormatChanged(
+            eventTime: AnalyticsListener.EventTime,
+            format: Format,
+            decoderReuseEvaluation: DecoderReuseEvaluation?,
+        ) {
+            audioArmed = true
+            audioAdvancing = false
+            scheduleOutputCheck()
+        }
+
+        override fun onAudioDecoderInitialized(
+            eventTime: AnalyticsListener.EventTime,
+            decoderName: String,
+            initializedTimestampMs: Long,
+            initializationDurationMs: Long,
+        ) {
+            audioDecoderName = decoderName
+        }
+
+        override fun onAudioPositionAdvancing(eventTime: AnalyticsListener.EventTime, playoutStartSystemTimeMs: Long) {
+            audioAdvancing = true
+        }
+
+        override fun onAudioUnderrun(
+            eventTime: AnalyticsListener.EventTime,
+            bufferSize: Int,
+            bufferSizeMs: Long,
+            elapsedSinceLastFeedMs: Long,
+        ) {
+            // One line each: healthy playback produces none, and "sound
+            // keeps cutting out" was impossible to confirm from a log.
+            android.util.Log.w("Agoro", "Audio underrun: buffer=${bufferSize}B/${bufferSizeMs}ms, ${elapsedSinceLastFeedMs}ms since last feed")
+            if (!main) return
+            val now = android.os.SystemClock.elapsedRealtime()
+            underruns.addLast(now)
+            while (underruns.isNotEmpty() && now - underruns.first() > UNDERRUN_WINDOW_MS) underruns.removeFirst()
+            if (underruns.size < UNDERRUN_LIMIT) return
+            underruns.clear()
+            if (AudioOutputPolicy.pcmOnly) {
+                android.util.Log.w("Agoro", "Audio still underrunning on the PCM sink; leaving playback alone")
+                return
+            }
+            listener?.onError("the audio output keeps dropping out", PlaybackFault.AUDIO_OUTPUT)
+        }
+
+        override fun onVideoInputFormatChanged(
+            eventTime: AnalyticsListener.EventTime,
+            format: Format,
+            decoderReuseEvaluation: DecoderReuseEvaluation?,
+        ) {
+            videoArmed = true
+            firstFrameDrawn = false
+            scheduleOutputCheck()
+            // Whether the catalogue carries the one Dolby Vision profile
+            // media3 has no base-layer fallback for (dvhe.07) is a question
+            // only the box can answer; this is how it answers.
+            if (format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION) {
+                android.util.Log.i("Agoro", "Dolby Vision video: codecs=${format.codecs} ${format.width}x${format.height}")
+            }
+        }
+
+        override fun onRenderedFirstFrame(eventTime: AnalyticsListener.EventTime, output: Any, renderTimeMs: Long) {
+            firstFrameDrawn = true
+        }
+
+        override fun onSurfaceSizeChanged(eventTime: AnalyticsListener.EventTime, width: Int, height: Int) {
+            // A new surface — the screensaver handing it back — is where
+            // the reuse-broken decoders go black; the frame has to be drawn
+            // again to count.
+            if (width > 0 && height > 0) {
+                firstFrameDrawn = false
+                scheduleOutputCheck()
+            }
         }
 
         override fun onAudioTrackInitialized(
@@ -281,6 +442,18 @@ class ExoEngine(
         const val SINK_STALL_GRACE_MS = 6_000L
 
         /**
+         * Playing time an accepted format may go without sound leaving the
+         * device, or a frame reaching the screen, before the output is the
+         * verdict. Playing time, not wall clock: a channel that spends eight
+         * seconds buffering has not failed at anything. OwnTV's figure.
+         */
+        const val OUTPUT_GRACE_MS = 6_000L
+
+        /** Underruns inside [UNDERRUN_WINDOW_MS] that mean the sink is starving, not hiccuping. */
+        const val UNDERRUN_LIMIT = 4
+        const val UNDERRUN_WINDOW_MS = 10_000L
+
+        /**
          * How long after a renderer reconfiguration its own rebuffer is
          * ignored: switching the tunnel on or off, or a track change, empties
          * and refills the decoder with a full buffer behind it, which is the
@@ -323,13 +496,14 @@ class ExoEngine(
             // clean end of stream, and with the category as its playlist it
             // used to answer that by quietly advancing to the next channel.
             when {
-                live -> listener?.onError("The stream ended unexpectedly", decodeFault = false)
+                live -> listener?.onError("The stream ended unexpectedly", PlaybackFault.TRANSIENT)
                 index < items.size - 1 -> playAt(index + 1)
             }
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             wasPlaying = isPlaying
+            if (isPlaying) scheduleOutputCheck() else mainHandler.removeCallbacks(outputCheck)
             listener?.onPlayingChanged(
                 playing = isPlaying,
                 buffering = player.playbackState == Player.STATE_BUFFERING,
@@ -345,10 +519,10 @@ class ExoEngine(
             // why — the AudioTrack Config(rate, channel mask, encoding,
             // buffer) the platform turned down — and nothing else does.
             android.util.Log.w("Agoro", "Playback error ${error.errorCodeName}", error)
+            val httpStatus = httpStatusOf(error)
             listener?.onError(
-                humanError(error.errorCodeName),
-                decodeFault = isDecodeFault(error.errorCodeName),
-                audioFault = isAudioOutputFault(error.errorCodeName),
+                humanError(error.errorCodeName, httpStatus),
+                faultOf(error.errorCodeName, httpStatus),
             )
         }
     }
@@ -457,6 +631,7 @@ class ExoEngine(
         if (released || index !in items.indices) return
         this.index = index
         clearSinkRefusal()
+        resetWatchdog()
         val item = items[index]
         // Decided before the decoder opens, so a stream that deserves the
         // tunnel gets it without a re-initialisation after the first frame.
@@ -495,6 +670,7 @@ class ExoEngine(
         released = true
         listener = null
         clearSinkRefusal()
+        resetWatchdog()
         mediaSession?.release()
         player.removeListener(playerListener)
         player.removeAnalyticsListener(analyticsListener)
@@ -716,7 +892,24 @@ internal fun isAudioOutputFault(errorCodeName: String): Boolean = when (errorCod
  * the remote. Unmapped codes keep the tidied constant so a bug report still
  * carries something specific.
  */
-internal fun humanError(errorCodeName: String): String = when (errorCodeName) {
+internal fun humanError(errorCodeName: String, httpStatus: Int? = null): String {
+    if (errorCodeName == "ERROR_CODE_IO_BAD_HTTP_STATUS" && httpStatus != null) {
+        httpReason(httpStatus)?.let { return it }
+    }
+    return humanErrorForCode(errorCodeName)
+}
+
+/** The provider's HTTP status from the cause chain, when the failure was its answer. */
+internal fun httpStatusOf(error: Throwable): Int? {
+    var cause: Throwable? = error
+    while (cause != null) {
+        if (cause is HttpDataSource.InvalidResponseCodeException) return cause.responseCode
+        cause = cause.cause
+    }
+    return null
+}
+
+private fun humanErrorForCode(errorCodeName: String): String = when (errorCodeName) {
     "ERROR_CODE_IO_BAD_HTTP_STATUS",
     "ERROR_CODE_IO_FILE_NOT_FOUND" -> "your provider didn't return this stream"
     "ERROR_CODE_IO_NETWORK_CONNECTION_FAILED",

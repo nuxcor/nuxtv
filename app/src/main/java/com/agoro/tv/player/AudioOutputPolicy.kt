@@ -52,10 +52,44 @@ internal object AudioOutputPolicy {
         return true
     }
 
+    /**
+     * True once decoded audio has shown the sink enough spurious timestamp
+     * jumps; every player built after this smooths them. See [PtsSmoother].
+     */
+    @Volatile
+    var smoothTimestamps: Boolean = false
+        private set
+
+    private val discontinuities = ArrayDeque<Long>()
+
+    /**
+     * Notes one sink-reported discontinuity on decoded audio. True when this
+     * one turned the latch — [DISCONTINUITY_LIMIT] inside
+     * [DISCONTINUITY_WINDOW_MS] — which is the caller's cue to rebuild. One
+     * is a splice; several a minute is the decoder's clock, not the stream's.
+     */
+    @Synchronized
+    fun noteDiscontinuity(nowMs: Long): Boolean {
+        if (smoothTimestamps) return false
+        discontinuities.addLast(nowMs)
+        while (discontinuities.isNotEmpty() && nowMs - discontinuities.first() > DISCONTINUITY_WINDOW_MS) {
+            discontinuities.removeFirst()
+        }
+        if (discontinuities.size < DISCONTINUITY_LIMIT) return false
+        smoothTimestamps = true
+        discontinuities.clear()
+        return true
+    }
+
+    const val DISCONTINUITY_LIMIT = 3
+    const val DISCONTINUITY_WINDOW_MS = 60_000L
+
     /** Test seam. */
     @Synchronized
     internal fun reset() {
         pcmOnly = false
         reason = null
+        smoothTimestamps = false
+        discontinuities.clear()
     }
 }
