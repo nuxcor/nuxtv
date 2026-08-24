@@ -174,6 +174,10 @@ class ExoEngine(
         }
         android.util.Log.w("Agoro", "Audio output refused the track and playback never started", refusal)
         clearSinkRefusal()
+        // Untunnelling re-selects the tracks and re-creates the AudioTrack on
+        // the ordinary path; the player never left BUFFERING, so nothing else
+        // needs restarting.
+        if (refuseTunnelIfPcmRefused()) return@Runnable
         listener?.onError(humanError("ERROR_CODE_AUDIO_TRACK_INIT_FAILED"), PlaybackFault.AUDIO_OUTPUT)
     }
 
@@ -444,14 +448,31 @@ class ExoEngine(
     }
 
     /**
-     * Whether this player may tunnel at all. An output that has refused an
-     * AudioTrack is not offered the tunnelled variant of the next one: the
-     * tunnel hands the audio to the same HAL, with the AV-sync flag on top,
-     * and on the boxes that refuse passthrough that is the second thing they
-     * refuse. See [AudioOutputPolicy].
+     * Whether this player may tunnel at all. Not tied to [AudioOutputPolicy]:
+     * it was, on the theory that an output refusing passthrough would refuse
+     * the tunnelled track next — but a PCM track into a tunnelled AudioTrack
+     * is the path every AAC channel took before the latch existed, and with
+     * the probe latching PCM at launch the veto quietly took the tunnel away
+     * from every 4K/HDR channel on the boxes that need it most. If the
+     * tunnelled PCM track IS refused, [refuseTunnelIfPcmRefused] answers
+     * that, once, for the process.
      */
-    private fun tunnelAllowed(): Boolean =
-        main && !TunnelPolicy.refusedByDevice && !AudioOutputPolicy.pcmOnly
+    private fun tunnelAllowed(): Boolean = main && !TunnelPolicy.refusedByDevice
+
+    /**
+     * A refusal on the PCM sink while tunnelled is the tunnel's doing — there
+     * is no bitstream left to blame — so the device is marked as refusing
+     * the tunnel and the selector asked for the ordinary path, which
+     * re-creates the track untunnelled. True when that was the case and has
+     * been handled; false when the refusal is someone else's.
+     */
+    private fun refuseTunnelIfPcmRefused(): Boolean {
+        if (!tunnelling || !AudioOutputPolicy.pcmOnly) return false
+        android.util.Log.w("Agoro", "PCM track refused while tunnelled; tunnelling off for this device")
+        TunnelPolicy.refuse()
+        setTunnelling(false)
+        return true
+    }
 
     private companion object {
         /**
@@ -544,10 +565,14 @@ class ExoEngine(
             // buffer) the platform turned down — and nothing else does.
             android.util.Log.w("Agoro", "Playback error ${error.errorCodeName}", error)
             val httpStatus = httpStatusOf(error)
-            listener?.onError(
-                humanError(error.errorCodeName, httpStatus),
-                faultOf(error.errorCodeName, httpStatus),
-            )
+            val fault = faultOf(error.errorCodeName, httpStatus)
+            // A thrown refusal leaves the player idle, so the untunnelled
+            // retry has to re-open the item — live at the edge, VOD where it was.
+            if (fault == PlaybackFault.AUDIO_OUTPUT && refuseTunnelIfPcmRefused()) {
+                playAt(index, if (live) 0L else player.currentPosition.coerceAtLeast(0L))
+                return
+            }
+            listener?.onError(humanError(error.errorCodeName, httpStatus), fault)
         }
     }
 
