@@ -54,6 +54,7 @@ import com.agoro.tv.ui.components.shelfRingRoom
 import com.agoro.tv.ui.components.SectionTitle
 import com.agoro.tv.ui.components.WideItem
 import com.agoro.tv.ui.theme.NuxColors
+import com.agoro.tv.data.isFavorite
 
 @Composable
 fun SearchTab(
@@ -357,12 +358,14 @@ fun SearchTab(
     )
     }
     menuChannel?.let { channel ->
-        val isFav = channel.url in favorites
+        val isFav = channel.isFavorite(favorites)
         ContextMenu(
             title = channel.displayName,
             actions = listOf(
                 MenuAction("Play") {
-                    val index = results.channels.indexOf(channel).coerceAtLeast(0)
+                    // By id: value equality on LiveChannel drifts with the
+                    // merge's fallbackUrls - see GuideTab.
+                    val index = results.channels.indexOfFirst { it.id == channel.id }.coerceAtLeast(0)
                     vm.playChannels(results.channels, index)
                     onPlay()
                 },

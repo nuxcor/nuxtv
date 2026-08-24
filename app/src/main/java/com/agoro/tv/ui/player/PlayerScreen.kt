@@ -53,6 +53,7 @@ import com.agoro.tv.ui.theme.NuxColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import com.agoro.tv.data.isFavorite
 
 /** Bump when the key map changes so the banner hints re-teach once. */
 private const val KEY_HINTS_VERSION = 3
@@ -1090,7 +1091,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             ChannelOptionsMenu(
                 channelName = channel?.displayName ?: item?.title.orEmpty(),
                 isFavoritable = request.isLive && channel != null,
-                isFavorite = channel != null && channel.url in favorites,
+                isFavorite = channel != null && channel.isFavorite(favorites),
                 canRecord = request.isLive && item?.recordUrl != null,
                 isRecording = recordingThis,
                 hasCatchup = request.isLive && (channel?.archiveDays ?: 0) > 0,

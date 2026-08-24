@@ -91,6 +91,26 @@ data class EpgProgram(
     val hasArchive: Boolean,
 )
 
+/**
+ * Whether this tile is the one that answers for [url].
+ *
+ * A tile stands for every feed it collapsed, so its own url is only one of the
+ * addresses it responds to. Anything holding a url the viewer chose earlier —
+ * a favourite, a recent, the channel last tuned — must ask this rather than
+ * compare [LiveChannel.url], because the feed they chose is frequently the one
+ * that LOST a merge and now lives in [fallbackUrls]. Comparing urls directly
+ * made those references silently stop resolving the moment the catalogue
+ * learned a sibling was the better feed: favourites vanished off their shelf,
+ * and the guide stopped opening on the channel you were just watching and fell
+ * back to the top of the list instead.
+ */
+fun LiveChannel.answersTo(url: String): Boolean =
+    this.url == url || url in fallbackUrls
+
+/** Whether any feed this tile answers for has been starred. */
+fun LiveChannel.isFavorite(favorites: Set<String>): Boolean =
+    url in favorites || fallbackUrls.any { it in favorites }
+
 @Serializable
 data class Movie(
     val id: String,

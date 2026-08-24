@@ -61,6 +61,7 @@ import com.agoro.tv.ui.theme.NuxColors
 import com.agoro.tv.ui.theme.NuxFocus
 import com.agoro.tv.ui.theme.NuxShape
 import kotlinx.coroutines.delay
+import com.agoro.tv.data.isFavorite
 
 // --- channel-number jump ------------------------------------------------------
 
@@ -277,7 +278,9 @@ internal fun LiveTab(
     }
     fun playFromHost(channel: LiveChannel) {
         gridHandle.beforePlay()
-        vm.playChannels(channels, channels.indexOf(channel).coerceAtLeast(0))
+        // By id - see the note in GuideTab: value equality drifts as the
+        // merge learns qualities, and a miss silently starts at channel one.
+        vm.playChannels(channels, channels.indexOfFirst { it.id == channel.id }.coerceAtLeast(0))
         onPlay()
     }
     GuideTab(
@@ -351,7 +354,7 @@ internal fun LiveTab(
         )
     }
     menuChannel?.let { channel ->
-        val isFav = channel.url in favorites
+        val isFav = channel.isFavorite(favorites)
         // Counted the way the schedule sheet counts, which is not the same as
         // "has any programmes at all": the parsed window keeps 30 hours of
         // finished ones, while the sheet lists only what has yet to end.

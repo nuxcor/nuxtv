@@ -84,6 +84,7 @@ import com.agoro.tv.ui.theme.NuxShape
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import com.agoro.tv.data.isFavorite
 
 /**
  * The landing screen: what you were watching, what you starred, where you
@@ -867,7 +868,7 @@ private fun HomeContextMenu(
 ) {
     when (menu) {
         is HomeMenu.Channel -> {
-            val isFav = menu.channel.url in favorites
+            val isFav = menu.channel.isFavorite(favorites)
             ContextMenu(
                 title = menu.channel.displayName,
                 actions = listOf(
