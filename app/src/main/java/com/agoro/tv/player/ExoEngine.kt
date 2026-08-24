@@ -73,6 +73,17 @@ class ExoEngine(
     context: Context,
     requestAudioFocus: Boolean = true,
     /**
+     * Decode no audio at all. For the guide preview, which is a muted
+     * thumbnail: muting only sets volume to zero, so the AudioTrack, the audio
+     * decoder and a codec stay allocated and keep running, rendering silence.
+     * With the preview no longer optional it re-prepares that pipeline on
+     * every channel a viewer rests on, and a box that runs out of audio
+     * sessions fails the NEXT stream to ask - "AudioTrack init failed" on a
+     * film, from a thumbnail three screens away. Disabling the track type
+     * frees the lot; the preview has never had anything to say.
+     */
+    private val silent: Boolean = false,
+    /**
      * Whether the app already knows this stream decodes at 4K or in HDR, from
      * a previous visit. Lets such a channel tunnel from its first frame
      * instead of re-initialising the decoder after it — which is a black beat
@@ -145,6 +156,7 @@ class ExoEngine(
             // unless the stream is 4K/HDR, and off for good on a device whose
             // tunnelled decoder has frozen. See TunnelPolicy.
             .setTunnelingEnabled(false)
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, silent)
             .build()
     }
 

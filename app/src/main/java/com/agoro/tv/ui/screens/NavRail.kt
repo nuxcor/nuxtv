@@ -314,8 +314,15 @@ private fun RailItem(
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Clip,
+                    // Two lines, and ELLIPSIS rather than Clip. The rail is
+                    // 190dp wide with a 22dp icon in front, which does not fit
+                    // "Update to 2.34.11" on one line - and clipped mid-word it
+                    // read as a row labelled "Update To", the version the row
+                    // exists to name being the half that got cut. The nav
+                    // labels are all one short word and are unaffected; only
+                    // the update row ever needs the second line.
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }

@@ -131,9 +131,18 @@ object QualityTag {
             // Best first, so the ladder's first step down is the smallest one
             // that still helps. Any fallbacks the winner already carried (the
             // manifest's own alternates) keep their place at the head.
+            // Ordered the way the winner was chosen, and for the same reason:
+            // a MEASURED tier beats a claimed one at equal rank. Sorting on
+            // rank alone put a stream tagged FHD that decodes at 480p above a
+            // feed proven to be 1080, so the first step down the recovery
+            // ladder could land on the worst picture of the set - the ladder
+            // trusting exactly the label the merge above refuses to trust.
             val alternates = variants.asSequence()
                 .filter { it.url != winner.url }
-                .sortedByDescending { rank(it.quality) }
+                .sortedWith(
+                    compareByDescending<LiveChannel> { rank(it.quality) }
+                        .thenByDescending { it.url in measured }
+                )
                 .map { it.url }
             winner.copy(fallbackUrls = (winner.fallbackUrls + alternates).distinct())
         }

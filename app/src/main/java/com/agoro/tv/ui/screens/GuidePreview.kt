@@ -92,7 +92,11 @@ fun rememberGuidePreview(): GuidePreviewController {
         GuidePreviewController {
             // requestAudioFocus = false: a muted preview must never steal
             // audio focus or transport keys from whatever is actually playing.
-            ExoEngine(context, requestAudioFocus = false)
+            // silent = true: and it must not DECODE audio either - see the
+            // parameter's note. Muting left a full audio pipeline running per
+            // previewed channel, which is a box's audio sessions spent on
+            // silence and the next real stream failing to init one.
+            ExoEngine(context, requestAudioFocus = false, silent = true)
         }
     }
     DisposableEffect(controller) { onDispose { controller.release() } }
