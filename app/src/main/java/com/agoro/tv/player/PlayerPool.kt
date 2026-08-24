@@ -231,7 +231,19 @@ private fun loadControlFor(live: Boolean): DefaultLoadControl =
             // re-stalled seconds later. A film is opened once, deliberately,
             // and a second of start-up is cheaper there than a stall later.
             /* bufferForPlaybackMs = */ 2_500,
-            /* bufferForPlaybackAfterRebufferMs = */ if (live) 6_000 else 2_000,
+            // 2.5s on live too. This was 6s, on the reasoning that the panel
+            // serves a channel at three to three and a half times real time,
+            // so six seconds of media costs about two of wall clock. That
+            // holds only while the panel is actually running ahead. When it
+            // serves at or near 1x - a loaded panel, a middleman re-streaming,
+            // a marginal line - six seconds of media costs six seconds of
+            // frozen picture, and the player will not resume until it has
+            // them. It resumes, falls behind, and waits six seconds again:
+            // the stall loop trips three-in-sixty, which hops the source and
+            // then runs out of ladder. That is the same trade a film was
+            // losing before it got its own numbers, and live loses it worse,
+            // because live is the one with a recovery ladder to exhaust.
+            /* bufferForPlaybackAfterRebufferMs = */ 2_500,
         )
         .setPrioritizeTimeOverSizeThresholds(live)
         .build()

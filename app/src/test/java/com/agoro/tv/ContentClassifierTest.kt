@@ -139,6 +139,43 @@ class QualityMergeTest {
     }
 
     @org.junit.Test
+    fun `a merged variant survives as a fallback source`() {
+        // The lighter feeds are what the player steps down to when the line
+        // cannot carry the best one. Dropping them turned a merge into a
+        // deletion and left a mid-programme stall with nowhere to go.
+        val merged = com.agoro.tv.data.QualityTag.mergeBestQuality(
+            listOf(ch("CNN HD"), ch("CNN 4K"), ch("CNN FHD"))
+        )
+        org.junit.Assert.assertEquals(1, merged.size)
+        org.junit.Assert.assertEquals("CNN 4K", merged[0].name)
+        // Best first, so the first step down is the smallest one that helps.
+        org.junit.Assert.assertEquals(
+            listOf("CNN FHD", "CNN HD"),
+            merged[0].fallbackUrls,
+        )
+    }
+
+    @org.junit.Test
+    fun `manifest fallbacks keep their place ahead of merged ones`() {
+        val winner = ch("CNN 4K").copy(fallbackUrls = listOf("manifest-alt"))
+        val merged = com.agoro.tv.data.QualityTag.mergeBestQuality(
+            listOf(winner, ch("CNN HD"))
+        )
+        org.junit.Assert.assertEquals(
+            listOf("manifest-alt", "CNN HD"),
+            merged[0].fallbackUrls,
+        )
+    }
+
+    @org.junit.Test
+    fun `a channel with no duplicates is returned untouched`() {
+        val only = ch("BBC One")
+        val merged = com.agoro.tv.data.QualityTag.mergeBestQuality(listOf(only))
+        org.junit.Assert.assertSame(only, merged[0])
+        org.junit.Assert.assertTrue(merged[0].fallbackUrls.isEmpty())
+    }
+
+    @org.junit.Test
     fun `on equal rank a measured variant beats a name-tagged one`() {
         // Both claim FHD; only the second has actually decoded at FHD.
         val claimed = ch("CNN FHD")

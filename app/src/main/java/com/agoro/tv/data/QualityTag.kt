@@ -73,7 +73,19 @@ object QualityTag {
 
     /**
      * Collapses duplicate channels (same base name) down to the best-quality
-     * variant, keeping the original order of first appearance.
+     * variant, keeping the original order of first appearance. The variants it
+     * collapses are kept on the survivor as [LiveChannel.fallbackUrls], best
+     * quality first.
+     *
+     * Keeping them is the whole difference between a merge and a deletion.
+     * [com.agoro.tv.ui.player.PlayerSession] recovers a starving stream by
+     * stepping down that list — its contract is that collapsing a channel
+     * "keeps the rest as fallbackUrls" — and the manifest's own collapse has
+     * always done so. This one did not: it picked a winner and dropped the
+     * losers on the floor. So the merge handed the viewer the HEAVIEST feed of
+     * every duplicated channel and, in the same act, destroyed the lighter
+     * feeds the ladder would have stepped down to when the line could not
+     * carry it. A stall mid-programme then had nowhere to go.
      *
      * [measured] holds the URLs whose quality was learned from actual decoded
      * playback rather than the stream's name. On equal rank the measured
@@ -94,20 +106,37 @@ object QualityTag {
             "${channel.categoryId}|${EpgMatcher.normalizeKey(channel.name)}"
         },
     ): List<LiveChannel> {
-        val best = LinkedHashMap<String, LiveChannel>()
+        // Grouped rather than reduced: the losers are the payload now, not
+        // waste. LinkedHashMap still fixes output order to each key's first
+        // appearance, which is what "keeping the original order" meant.
+        val groups = LinkedHashMap<String, MutableList<LiveChannel>>()
         for (channel in channels) {
-            val key = keyOf(channel)
-            val current = best[key]
-            val challengerRank = rank(channel.quality)
-            val holderRank = current?.let { rank(it.quality) } ?: -1
-            val wins = current == null || challengerRank > holderRank ||
-                (
-                    challengerRank == holderRank &&
-                        channel.url in measured && current.url !in measured
-                    )
-            if (wins) best[key] = channel
+            groups.getOrPut(keyOf(channel)) { mutableListOf() }.add(channel)
         }
-        return best.values.toList()
+        return groups.values.map { variants ->
+            // The overwhelming majority of keys hold exactly one channel, and
+            // this runs over the whole catalogue: no copy, no sort, no alloc.
+            if (variants.size == 1) return@map variants[0]
+            var winner = variants[0]
+            for (challenger in variants) {
+                val challengerRank = rank(challenger.quality)
+                val holderRank = rank(winner.quality)
+                val wins = challengerRank > holderRank ||
+                    (
+                        challengerRank == holderRank &&
+                            challenger.url in measured && winner.url !in measured
+                        )
+                if (wins) winner = challenger
+            }
+            // Best first, so the ladder's first step down is the smallest one
+            // that still helps. Any fallbacks the winner already carried (the
+            // manifest's own alternates) keep their place at the head.
+            val alternates = variants.asSequence()
+                .filter { it.url != winner.url }
+                .sortedByDescending { rank(it.quality) }
+                .map { it.url }
+            winner.copy(fallbackUrls = (winner.fallbackUrls + alternates).distinct())
+        }
     }
 
     /** Tier alone for a decoded height — the language the app's badges speak. */

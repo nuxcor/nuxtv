@@ -473,6 +473,13 @@ class PlayerSession internal constructor(
                 statusMessage = "Stream can't keep up — trying another source…"
             swapLiveFormat() ->
                 statusMessage = "Stream keeps breaking — trying a steadier feed…"
+            // Both ladders spent. Without this the when did nothing at all:
+            // the stall counter went on firing into a branch that could no
+            // longer act, so the picture froze and the app said nothing —
+            // "it buffers, then it stops". Say so, and let the retries below
+            // keep working the same source; a line that recovers on its own
+            // then plays again instead of sitting dead behind a full buffer.
+            else -> statusMessage = "This feed keeps stalling — no other source to try."
         }
     }
 

@@ -40,7 +40,18 @@ def canon_genre(g):
     g = g.strip()
     return GENRE_SYNONYM.get(g, g)
 
-def asc(s): return ''.join(c for c in s if ord(c) < 128).strip()
+# Decorative glyphs standing in for a LETTER, folded back before the strip
+# below deletes them. "BEIN SP<ball>RTS 1 ENGLISH" was reaching the shelf as
+# "BEIN SPRTS 1 ENGLISH": asc() removed the ball and took the O with it, so the
+# channel was misspelled everywhere and matched nothing by name.
+GLYPH_LETTER = {
+    '\u26bd': 'O', '\u26be': 'O', '\U0001f3c0': 'O', '\U0001f3c8': 'O',
+    '\u2b50': '*', '\u25c9': '', '\u25cf': '',
+}
+def asc(s):
+    for g, ch in GLYPH_LETTER.items():
+        s = s.replace(g, ch)
+    return ''.join(c for c in s if ord(c) < 128).strip()
 
 # ---------------------------------------------------------------- hand-mapping
 # categories the automatic classifier could not place, resolved by inspection
@@ -269,6 +280,16 @@ CHANNEL_ALIAS = {
     'skysportpl': 'skysportpremierleague',
     'skysportprimelige': 'skysportpremierleague',
     'skysportnewshq': 'skysportnews',          # "HQ" was dropped in 2019
+    # BBC World News and the BBC News Channel merged in April 2023: the
+    # international feed simply became BBC News. Two tiles for one channel,
+    # and no probe can see it — both decode, at 1080 and 720.
+    'bbcworldnews': 'bbcnews',
+    # The club's channel is MUTV; the panel also ships it spelled out.
+    'manchesterunited': 'mutv',
+    # "ESPN USA" is ESPN. The panel carries both spellings of the same feed.
+    'espnusa': 'espn',
+    # Golf Channel is NBC's, and the panel names it both ways.
+    'golfchannel': 'nbcgolf',
     'skysportmainevents': 'skysportmainevent',  # stray plural
     'skysportckreckt': 'skysportcricket',       # provider typo
     # One channel, two house styles.
@@ -394,20 +415,42 @@ TELEMUNDO = re.compile(r'\bTELEMUNDO\d*\b', re.I)
 RSN_BRAND = re.compile(r"""\b(
     BALLY\s+SPORTS | AT&?T\s+SPORTSNET | ROOT\s+SPORTS | MARQUEE\s+SPORTS |
     NESN | YES\s+NETWORK | ALTITUDE\s+SPORTS | SPECTRUM\s+SPORTSNET |
-    MSG\s*(SPORTSNET|2|\+)? | SNY | MASN | MIDCO\s+SPORTS | SWX
+    MSG\s*(SPORTSNET|2|\+)? | SNY | MASN | MIDCO\s+SPORTS | SWX |
+    # Comcast SportsNet became NBC Sports Regional in 2017; the panel still
+    # ships six of them under the retired name, so the brand never matched.
+    CSN |
+    # MASN with the double S the panel actually spells it with.
+    MASSN |
+    # Bally Sports renamed to FanDuel Sports Network in Oct 2024. The rule
+    # above still says BALLY SPORTS, so the rename walked the whole brand out
+    # of the net; FANDUEL is added to RSN_MARKET too, for the market-named ones.
+    FANDUEL\s+SPORTS |
+    # RSNs launched after this list was written.
+    MONUMENTAL\s+SPORTS | SPACE\s+CITY | CHICAGO\s+SPORTS\s+NETWORK |
+    # Spelled as one word, so \bFOX\s+SPORTS\b cannot reach it.
+    SPORTSTIME | FOX\s+SPORTS\s+YES |
+    # A single team's own channel is the RSN argument in its purest form:
+    # one club, one market, blacked out everywhere else.
+    ANGELS\s+BROADCAST | ABTV
 )\b""", re.I | re.X)
 
 # Brands with a national feed AND regional ones. Condemned only when a market
 # name follows: "FOX SPORTS 1" is national and stays, "FOX SPORTS OHIO" does
 # not. The market list is deliberately explicit rather than "any word" —
 # guessing here deletes national sport.
-RSN_MARKET = re.compile(r"""\b(FOX\s+SPORTS|NBC\s+SPORTS|SPORTSNET)\b[^|]*?\b(
+RSN_MARKET = re.compile(r"""\b(FOX\s+SPORTS|NBC\s+SPORTS|SPORTSNET|FANDUEL)\b[^|]*?\b(
     SOUTHEAST | SOUTHWEST | MIDWEST | NORTHWEST | NORTH | SOUTH | WEST | EAST |
     OHIO | DETROIT | FLORIDA | ARIZONA | SUN | INDIANA | WISCONSIN | TENNESSEE |
     KANSAS\s+CITY | OKLAHOMA | NEW\s+ORLEANS | SAN\s+DIEGO | CAROLINAS? |
     CINCINNATI | GREAT\s+LAKES | PITTSBURGH | BOSTON | CHICAGO | PHILADELPHIA |
     WASHINGTON | CALIFORNIA | BAY\s+AREA | NEW\s+ENGLAND | ROCKY\s+MOUNTAIN |
-    PRIME\s+TICKET | SOCAL | UTAH | NEW\s+YORK | MINNESOTA | MISSOURI | TEXAS
+    PRIME\s+TICKET | SOCAL | UTAH | NEW\s+YORK | MINNESOTA | MISSOURI | TEXAS |
+    # The panel's own misspelling. NBC SPORTS PHILADELFIA sat on the national
+    # shelf for want of one letter — a market list is only as good as the
+    # spellings the provider happens to use.
+    PHILADELFIA |
+    # SPORTSNET LA DODGERS / LAKERS: the brand was listed, the market was not.
+    LA | LOS\s+ANGELES
 )\b""", re.I | re.X)
 
 # Canada ships the same three kinds of clutter the other territories did:
@@ -490,7 +533,39 @@ US_REGIONAL_NEWS = re.compile(
     r'|\bNEWS ?12\b'
     r'|\bSPECTRUM NEWS\b|\bSPECTRUM BAY NEWS\b|\bBAY NEWS ?9\b', re.I)
 
+# Broadcasters that have stopped producing. Nothing measurable marks these as
+# dead — both probed at 1080, because the feed still decodes; what it carries
+# now is RT International, the same picture as the surviving RT NEWS. RT
+# America shut down in March 2022 and RT UK's Ofcom licence was revoked the
+# same month, so the names promise two channels that no longer exist. This is
+# the one duplicate class no rule can infer: not a quality variant, not a
+# cross-region copy (that pass already took UK RT NEWS, leaving US 325903),
+# just three names for one feed. A regex, not stream ids — the panel
+# renumbers, and the reason has to survive the renumbering.
+DEFUNCT_FEED = re.compile(
+    r'\bRT\s+(AMERICA|UK)\b'
+    # NBCSN closed on 31 December 2021, and the panel carries it twice.
+    r'|\bNBC\s*SN\b|\bNBC\s+SPORTS\s+NETWORK\b'
+    # Pac-12 Network went dark in June 2024 when the conference dissolved.
+    r'|\bPAC\s*-?\s*12\b',
+    re.I)
+
+# A territory we do not serve, shelved in a category of one we do. The region
+# drop reads the CATEGORY, so a Canadian or Australian feed filed under US| or
+# UK| walks straight past it. TSN 1-5 were named in the Canada removal as "not
+# a market this package serves" and four are still here under US; the beIN AU
+# feeds are Australian; SuperSport is South African and already holds a
+# 21-channel shelf on AFR, so a stray copy on US Sports is only clutter.
+MISFILED_TERRITORY = re.compile(r'\bTSN\s+SPORT\b|\bBEIN\s+SP(?:OR)?TS?\s+AU\b', re.I)
+
+# Named for removal: BFBS is British Forces Broadcasting, six tiles of
+# forces-only programming; the other two are unidentifiable from their names
+# and nothing on the shelf explains what they carry.
+UNWANTED_SPORT = re.compile(r'\bBFBS\b|\bZ\s*CLASSIC\b|\bSPORT\s*STAK\b', re.I)
+
 telemundo_drop, rsn_drop, ca_drop, us_news_drop = [], [], [], []
+misfiled_territory = []
+defunct_drop = []
 for s in ls:
     if s['stream_id'] in junkset: continue
     c = cat_live.get(str(s.get('category_id')))
@@ -520,6 +595,17 @@ for s in ls:
     # the national news shelf beside CNN and the networks.
     if US_REGIONAL_NEWS.search(asc(s['name'])):
         us_news_drop.append(s['stream_id']); continue
+    if DEFUNCT_FEED.search(asc(s['name'])):
+        defunct_drop.append(s['stream_id']); continue
+    # Anchored to the start of the NAME, not searched anywhere in it: PPV
+    # listings carry "South Africa v New Zealand: SuperSport Coverage", which
+    # is a fixture being broadcast, not the channel being duplicated.
+    if UNWANTED_SPORT.search(asc(s['name'])):
+        misfiled_territory.append(s['stream_id']); continue
+    if MISFILED_TERRITORY.search(asc(s['name'])) or (
+            re.match(r'^\s*[A-Za-z0-9]{2,5}\s*:\s*SUPERSPORT\b', asc(s['name']), re.I)
+            and c.get('region') != 'AFR'):
+        misfiled_territory.append(s['stream_id']); continue
     # PPV event slots are not channels. "NCAAF 06: FOX" reduces to the key
     # "fox" once the prefix comes off, which put a college-football slot into
     # the FOX tile — and, once the real feeds were trimmed, at the FRONT of
@@ -1150,7 +1236,7 @@ _PN = re.compile(r'^[A-Z0-9]{2,5}\s*:\s*')
 # good "US: A&E HD" stayed condemned as its duplicate.
 _gone = junkset | set(dropped_region) | set(go_drop) | set(sd_all_drop) \
         | set(religion_drop) | set(telemundo_drop) | set(rsn_drop) | set(ca_drop) \
-           | set(us_news_drop) \
+           | set(us_news_drop) | set(defunct_drop) | set(misfiled_territory) \
         | set(locals_dropped) | set(locals_extra_drop)
 for st in ls:
     sid = st['stream_id']
@@ -1214,6 +1300,22 @@ for st in ls:
 # Empty since Canada left KEEP_REGIONS — it was the only territory that
 # contributed a subset of its sections. Kept as the hook, not as a rule.
 REGION_SECTIONS = {}
+
+# Sky Witness is general entertainment - crime drama - and the panel files it
+# on a sports shelf. A section correction, not a drop: the channel is fine, the
+# shelf is wrong.
+MANUAL_SECTION = {
+    '1562526': 'ENTERTAINMENT',
+    '162255':  'ENTERTAINMENT',
+}
+name_section.update(MANUAL_SECTION)
+# The tiles were built before this map existed, and a tile's own section is
+# authoritative in the app - correcting only name_section would move the
+# channel everywhere except the shelf it actually renders on.
+for _t in collapse.values():
+    _ms = MANUAL_SECTION.get(str(_t['primary']))
+    if _ms:
+        _t['section'] = _ms
 
 def _final_section(sid, default):
     sid = str(sid)
@@ -1606,7 +1708,7 @@ brands_out, brand_dupe = {}, []
 _dropped = set(junk) | set(dropped_region) | set(locals_dropped) | set(locals_extra_drop) \
            | set(uk_locals_drop) | set(afr_drop) | set(sd_all_drop) | set(go_drop) \
            | set(religion_drop) | set(telemundo_drop) | set(rsn_drop) | set(ca_drop) \
-           | set(us_news_drop) \
+           | set(us_news_drop) | set(defunct_drop) | set(misfiled_territory) \
            | set(exact_dupe_drop) \
            | set(junk_sweep) | set(region_section_drop) | set(clean_drop) | set(pass2_drop) \
            | set(replay_drop)
@@ -2092,6 +2194,7 @@ _drop_lists = [
     ('sd_all_drop', sd_all_drop), ('go_drop', go_drop),
     ('religion_drop', religion_drop), ('telemundo_drop', telemundo_drop),
     ('rsn_drop', rsn_drop), ('ca_drop', ca_drop), ('us_news_drop', us_news_drop),
+    ('defunct_drop', defunct_drop), ('misfiled_territory', misfiled_territory),
     ('cross_region_dupe', cross_region_dupe),
     ('exact_dupe_drop', exact_dupe_drop), ('junk_sweep', junk_sweep),
     ('region_section_drop', region_section_drop), ('clean_drop', clean_drop),
@@ -2108,8 +2211,18 @@ _all_drops = [sid for _, lst in _drop_lists for sid in lst]
 # exact-duplicate pass, so the fold left the country's most-watched channel
 # with no feed at all. The same guard the region drop already applies to
 # collapse members, applied to the tiles this pass builds.
+# ...except a REGION drop, which is not a dedup accident to be undone but a
+# decision that the territory is not sold. Canada came out on 2026-08-22 and
+# one feed walked back in through this line: CA: BBC WORLD NEWS was its tile's
+# primary, so the guard un-dropped it, and it shipped as the only Canadian
+# channel left in the catalogue — 1 of 6,817 — on a tile keyed |US. Letting
+# the drop stand costs the tile nothing, because effectivePrimary promotes the
+# best surviving source; the guard is only needed where every member of a
+# group was caught for being a duplicate of the others.
+_region_gone = set(dropped_region)
 _all_drops = [sid for sid in _all_drops
-              if sid not in {t['primary'] for t in uk_collapse.values()}]
+              if sid in _region_gone
+              or sid not in {t['primary'] for t in uk_collapse.values()}]
 _dropset = set(_all_drops)
 dead_tiles = 0
 for _tset in (collapse, metro_tiles):
@@ -2329,7 +2442,8 @@ NUMBERED = re.compile(r'\b(?:ABC|CBS|NBC|FOX|CW|PBS|TELEMUNDO|UNIVISION)\s*(\d{1
 
 def _clean_label(n):
     n = QUAL.sub('', SPFX.sub('', asc(n)))
-    return re.sub(r'\s+', ' ', n).strip(' -:|.').strip()
+    n = re.sub(r'\s+', ' ', n).strip(' -:|.,&').strip()
+    return re.sub(r'\s+&$', '', n).strip()
 
 display_name = {}
 
@@ -2376,6 +2490,42 @@ for _t in collapse.values():
     _best = max(_cands, key=lambda c: (len(c), _cands.count(c)))
     if _best != _clean_label(_nm.get(_t['primary'], '')):
         display_name[str(_t['primary'])] = _best
+
+# Renames the longest-wins rule cannot see. That rule assumes the fullest
+# spelling is the channel's name and the short ones are abbreviations, which
+# holds for "PRIME: MLB" vs "MLB NETWORK" and fails for a RETIRED name: BBC
+# World News is not a longer way of saying BBC News, it is what the channel
+# stopped being called when the two merged in April 2023. Left to the rule the
+# folded tile shipped labelled "BBC WORLD NEWS" — the dead name winning on
+# length alone. Keyed on the collapse key, not a stream id, so it survives the
+# panel renumbering.
+TILE_LABEL = {
+    'bbcnews': 'BBC NEWS',
+    # Folded with GOLF CHANNEL: the channel is called Golf Channel, "NBC GOLF"
+    # is only the parent's name for it.
+    'nbcgolf': 'GOLF CHANNEL',
+    # Folded with "ESPN USA", which is longer and would otherwise win.
+    'espn': 'ESPN',
+    # "HQ" was dropped in 2019. The alias already folds the two feeds; without
+    # this the retired spelling still wins the label for being longer.
+    'skysportnews': 'SKY SPORTS NEWS',
+}
+
+# Per-stream name corrections for channels that never form a tile, so the
+# longest-wins rule above never sees them. Provider spellings, and renames the
+# provider has not caught up with.
+STREAM_LABEL = {
+    # The panel misspells Golazo.
+    '648290': 'CBS SPORTS GOLAZO NETWORK',
+    # TVG became FanDuel TV in 2022, and TVG2 became FanDuel Racing.
+    '325906': 'FANDUEL TV',
+    '325907': 'FANDUEL RACING',
+}
+for _k, _t in collapse.items():
+    _forced = TILE_LABEL.get(_k.split('|')[0])
+    if _forced:
+        display_name[str(_t['primary'])] = _forced
+display_name.update(STREAM_LABEL)
 
 # A channel whose territory is corrected to AFR *after* the DStv pass ran
 # never entered afr_assign, so nothing folded its section into Entertainment

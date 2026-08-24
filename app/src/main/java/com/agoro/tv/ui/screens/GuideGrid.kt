@@ -507,6 +507,12 @@ internal fun GuideGrid(
      * to the host's controls row (category chips) instead.
      */
     upFromTopRow: FocusRequester? = null,
+    /**
+     * LEFT out of the channel column. Null where there is nowhere to go —
+     * the player's guide overlay has no category panel — and LEFT there keeps
+     * its old meaning.
+     */
+    onOpenCategories: (() -> Unit)? = null,
     onChannelLongPress: (LiveChannel) -> Unit = {},
     listState: LazyListState = rememberLazyListState(
         prefetchStrategy = remember { GuideRowPrefetchStrategy() },
@@ -783,6 +789,17 @@ internal fun GuideGrid(
                         } else {
                             moveFocusVertically(-1)
                         }
+                    // LEFT out of the channel column — the leftmost thing in
+                    // the grid — opens the category panel. focusedIsCell is
+                    // false only there, so a LEFT anywhere in the timeline
+                    // still walks programmes. Unhandled when no panel is
+                    // offered (the player's guide overlay), where LEFT keeps
+                    // falling through to the drawer as before.
+                    AndroidKeyEvent.KEYCODE_DPAD_LEFT ->
+                        if (!gridFocus.focusedIsCell && onOpenCategories != null) {
+                            onOpenCategories()
+                            true
+                        } else false
                     AndroidKeyEvent.KEYCODE_CHANNEL_UP -> pageChannels(+1)
                     AndroidKeyEvent.KEYCODE_CHANNEL_DOWN -> pageChannels(-1)
                     in AndroidKeyEvent.KEYCODE_0..AndroidKeyEvent.KEYCODE_9 -> {

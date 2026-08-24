@@ -102,9 +102,6 @@ private val HEADER_HEIGHT = 104.dp
  * overlay; this file is the browse host — header, category row, day paging and
  * the preview plumbing.
  *
- * [leading] is drawn as the first item of the control row — the view switch
- * belongs there rather than above the grid, where it would cost the height of a
- * channel row on a screen that only has four.
  */
 @Composable
 fun GuideTab(
@@ -114,7 +111,6 @@ fun GuideTab(
     onPlay: () -> Unit,
     categoryId: String,
     onCategoryId: (String) -> Unit,
-    leading: @Composable () -> Unit = {},
     /** Long-press on a channel cell — the host hangs its context menu here. */
     onChannelLongPress: (LiveChannel) -> Unit = {},
     /** Escape hatch offered when the playlist has no live channels at all. */
@@ -168,6 +164,7 @@ fun GuideTab(
     val pin by vm.parentalPin.collectAsState()
     val unlocked by vm.parentalUnlocked.collectAsState()
     var pinPromptOpen by remember { mutableStateOf(false) }
+    var categoryPanelOpen by remember { mutableStateOf(false) }
     // The category the PIN was asked for. Unlocking used to close the prompt
     // and leave the viewer on the category they came from — a typed PIN
     // that opened nothing.
@@ -181,6 +178,12 @@ fun GuideTab(
     val categories = remember(bundle, favorites, recents, allChannels) {
         liveCategoryList(bundle, allChannels, favorites, recents)
     }
+    // The territory is the GROUP, not a property of each name. Spelled into
+    // every label the list read "News · United Kingdom, Sports · United
+    // Kingdom…" — the same four words nineteen times where the eye is trying
+    // to find a section. Named once per run, the entries carry only what
+    // differs.
+    val strip = remember(categories) { groupByRegion(categories) }
     val allView by vm.allChannelsView.collectAsState()
     // A lookup, not a filter over every channel — see LiveCategoryIndex.
     val byCategory by vm.channelsByCategory.collectAsState()
@@ -206,28 +209,11 @@ fun GuideTab(
             ?.let { url -> channels.firstOrNull { it.url == url }?.id }
     }
 
-    // Same rest-before-select rule as every other category surface
-    // (nav rail, Movies/Series columns): resting on a chip selects it,
-    // debounced so travelling the row doesn't rebuild the grid on
-    // every step. This was lost when the redesign made the guide the
-    // only Live surface — chips highlighted on focus but only OK
-    // filtered, which read as "the category doesn't work".
-    //
-    // A MutableState handed down, never read here: the chips write it and
-    // [CategoryDwell] reads it in a scope of its own. Read in THIS scope —
-    // as a LaunchedEffect key, which is a read — every chip focus
-    // recomposed the whole tab body, strip, header and ruler included,
-    // before the dwell had even started to count.
-    val focusedCategory = remember { mutableStateOf<String?>(null) }
-    CategoryDwell(focusedCategory, onCategoryId)
-    // Only a focus that follows a key press can dwell-select. Focus also
-    // lands on a chip when nothing pressed anything — the shell parking on
-    // the first focusable after a return from the player, Compose reseating
-    // focus after an overlay closes — and the entry redirect into the grid
-    // is not always faster than the dwell, so those arrivals switched the
-    // category out from under the viewer.
-    var lastKeyDownMs by remember { mutableStateOf(0L) }
-    fun dwellAllowed() = android.os.SystemClock.uptimeMillis() - lastKeyDownMs < 1_000
+    // No dwell-to-select any more. Resting on a chip to switch category was
+    // right for a strip you travelled THROUGH on your way to the grid; the
+    // panel is opened on purpose, closes on the choice, and a list you scroll
+    // to find something must not act on every name you pass over on the way.
+    // OK selects, and nothing else does.
     if (allChannels.isEmpty()) {
         StatusPane(
             title = "No live channels",
@@ -313,10 +299,11 @@ fun GuideTab(
     var focusedProgram by remember { mutableStateOf<EpgProgram?>(null) }
     var focusedChannel by remember { mutableStateOf<LiveChannel?>(null) }
 
-    // Muted video for whatever channel focus rests on. Off unless the
-    // viewer turned it on: it holds one of the provider's concurrent
-    // connections for as long as it runs. Moving along a row costs
-    // nothing — the channel is unchanged, so nothing re-prepares.
+    // Muted video for whatever channel focus rests on. It holds one of the
+    // provider's concurrent connections for as long as it runs, which is why
+    // it stands down for a recording on a single-stream plan — there is no
+    // longer a switch for it, so that gate is the whole of the policy. Moving
+    // along a row costs nothing: the channel is unchanged, nothing re-prepares.
     val previewEnabled by vm.guidePreview.collectAsState()
     val preview = rememberGuidePreview()
     GuidePreviewEffect(
@@ -382,19 +369,9 @@ fun GuideTab(
     BackHandler(enabled = awayFromNow) { jumpToNow() }
 
     // The grid's focus entry — see GuideGridHandle. Every downward route into
-    // the grid goes through it: geometric search from the strip or the day
-    // chip finds no candidate on device and the unconsumed DOWN falls back to
-    // the first chip, ping-ponging focus above a grid it can never enter.
+    // the grid goes through it: geometric search from the day chip finds no
+    // candidate on device and the unconsumed DOWN falls back above the grid.
     gridHandle.beforePlayImpl = { preview.release() }
-    fun Modifier.downIntoGrid(): Modifier = onPreviewKeyEvent { event ->
-        if (event.type == KeyEventType.KeyDown &&
-            event.key.nativeKeyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
-        ) {
-            scope.launch { gridHandle.focusAnchor() }
-            true
-        } else false
-    }
-
     // Digits tune from anywhere in the tab — the strip and the day chip
     // included. Collected here (preview phase runs ancestors first, so this
     // is THE collector while the grid is hosted here); the grid executes the
@@ -411,7 +388,6 @@ fun GuideTab(
             .spendGutter(Space.gutter - Space.gutterGrid)
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                lastKeyDownMs = android.os.SystemClock.uptimeMillis()
                 val code = event.key.nativeKeyCode
                 if (code in android.view.KeyEvent.KEYCODE_0..android.view.KeyEvent.KEYCODE_9) {
                     digitState.value += (code - android.view.KeyEvent.KEYCODE_0).toString()
@@ -423,85 +399,17 @@ fun GuideTab(
             GuideNoticeBar(notice = it)
             Spacer(Modifier.height(10.dp))
         }
-        // Category filter, and the day the grid is showing. Two axes, so
-        // the day reads as a day: a pair of bare chevrons at the head of a
-        // row of category names said nothing about what they moved — they
-        // could as easily have scrolled the categories themselves. One chip
-        // that NAMES the day, behind a calendar icon that marks it as a
-        // different kind of control, and it is gone entirely when the guide
-        // has only today to show rather than sitting there inert.
-        val chipsFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+        // The day the grid is showing. One chip that NAMES the day, behind a
+        // calendar icon that marks it as a different kind of control, and it
+        // is gone entirely when the guide has only today to show rather than
+        // sitting there inert.
+        //
+        // The row of category chips that used to sit beside it is gone; the
+        // categories live in [GuideCategoryPanel] now, one LEFT press from any
+        // row. A control that could only be reached from row 0 was furthest
+        // from precisely the viewer who needed it — the one deep in a long
+        // category — and it cost the top ~50dp of every guide screen to say so.
         val dayFocus = remember { androidx.compose.ui.focus.FocusRequester() }
-        // The territory is the GROUP, not a property of each chip. Spelling it
-        // into every label made the strip read "News · United Kingdom, Sports ·
-        // United Kingdom, Locals & Networks · United Kingdom…" — nineteen chips
-        // repeating four words nineteen times, where the eye is trying to find
-        // a section. Named once per run, the chips carry only what differs.
-        val strip = remember(categories) { groupByRegion(categories) }
-        androidx.compose.foundation.lazy.LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            // DOWN mirrors UP's route: strip → day chip when one is showing,
-            // else straight into the grid. Intercepted, not left to geometry —
-            // only the leftmost chips even have the day chip below them, and
-            // from the rest DOWN found nothing and bounced back to chip one.
-            modifier = Modifier
-                .padding(bottom = 10.dp)
-                // The requester lives on the ROW, not on a chip.
-                //
-                // It used to be attached to the first chip, on the reasoning
-                // that the first chip is always composed. In a LazyRow it is
-                // not: scroll the strip a few chips right and that item is
-                // disposed, while `dayUp` and `upFromTopRow` still redirect
-                // UP to its requester — and resolving a redirect to a
-                // detached requester THROWS. That is the crash behind
-                // "the app froze and went back to the Google TV home
-                // screen": browse the strip sideways, then press UP.
-                //
-                // On the row it is always attached, and focusRestorer returns
-                // focus to the chip that had it rather than snapping back to
-                // chip one, which in a nineteen-chip strip lost your place
-                // every time you came up from the grid.
-                .focusRequester(chipsFocus)
-                .focusRestorer()
-                .then(
-                    if (maxDayOffset > 0) {
-                        Modifier.onPreviewKeyEvent { event ->
-                            if (event.type == KeyEventType.KeyDown &&
-                                event.key.nativeKeyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
-                            ) {
-                                scope.launch { dayFocus.requestFocusRetrying() }
-                                true
-                            } else false
-                        }
-                    } else Modifier.downIntoGrid()
-                ),
-        ) {
-            item(key = "__leading__") { leading() }
-            itemsIndexed(strip, key = { _, e -> e.key }) { index, entry ->
-                if (entry is StripEntry.Group) {
-                    RegionGroupLabel(entry.label)
-                    return@itemsIndexed
-                }
-                val category = (entry as StripEntry.Chip).category
-                val locked = category.id in lockedIds
-                CategoryItem(
-                    name = entry.label,
-                    selected = category.id == categoryId,
-                    onClick = {
-                        if (locked) {
-                            pinPendingCategory = category.id
-                            pinPromptOpen = true
-                        } else onCategoryId(category.id)
-                    },
-                    // Locked categories still need the OK press (and
-                    // its PIN prompt); dwell must not walk past a PIN.
-                    onFocus = { if (!locked && dwellAllowed()) focusedCategory.value = category.id },
-                    onBlur = { if (focusedCategory.value == category.id) focusedCategory.value = null },
-                    locked = locked,
-                )
-            }
-        }
 
         // What the header describes before anything in the grid has focus: the
         // first channel's on-now programme, not a channel name over a void.
@@ -539,7 +447,6 @@ fun GuideTab(
                 { dayOffset = if (dayOffset >= maxDayOffset) 0 else dayOffset + 1 }
             } else null,
             dayFocus = dayFocus,
-            dayUp = chipsFocus,
             onDayDown = { scope.launch { gridHandle.focusAnchor() } },
         )
 
@@ -550,7 +457,8 @@ fun GuideTab(
             digitState = digitState,
             // UP from the grid meets the day control first — it sits directly
             // above — and UP again reaches the category strip.
-            upFromTopRow = if (maxDayOffset > 0) dayFocus else chipsFocus,
+            upFromTopRow = if (maxDayOffset > 0) dayFocus else null,
+            onOpenCategories = { categoryPanelOpen = true },
             channels = channels,
             // Remembered, not rebuilt per composition: an unstable lambda
             // is a changed parameter, and a changed parameter recomposes
@@ -622,6 +530,24 @@ fun GuideTab(
             .align(Alignment.BottomEnd)
             .padding(bottom = Space.m, end = Space.m),
     )
+    if (categoryPanelOpen) {
+        GuideCategoryPanel(
+            entries = strip,
+            selectedId = categoryId,
+            lockedIds = lockedIds,
+            onSelect = { onCategoryId(it.id) },
+            onLocked = { pinPendingCategory = it.id; pinPromptOpen = true },
+            // Focus goes back to the grid explicitly. Left to the geometric
+            // search it lands wherever the panel used to be, which is over
+            // the channel column of whatever row happens to be on screen —
+            // not the row the viewer left.
+            onDismiss = {
+                categoryPanelOpen = false
+                scope.launch { gridHandle.focusAnchor() }
+            },
+            modifier = Modifier.align(Alignment.CenterStart),
+        )
+    }
     }
 
     if (pinPromptOpen) {
@@ -701,10 +627,10 @@ private fun GuideHeader(
         modifier = Modifier.fillMaxWidth().height(HEADER_HEIGHT),
         horizontalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        // Channel artwork, with the live preview drawn over it when that is
-        // switched on. Off by default and gated on a dwell, because previewing
-        // every channel focus passes over would open a stream per channel and
-        // providers cap concurrent connections — see GuidePreview.kt.
+        // Channel artwork, with the live preview drawn over it. Gated on a
+        // dwell, because previewing every channel focus passes over would open
+        // a stream per channel and providers cap concurrent connections — see
+        // GuidePreview.kt.
         Box(
             modifier = Modifier
                 .width(200.dp)
@@ -848,33 +774,6 @@ private fun GuideHeader(
     }
 }
 
-/**
- * The category strip's rest-before-select, in a scope of its own so that a
- * chip taking focus invalidates this and nothing else.
- *
- * The dwell is the rail's 450ms, not the 250ms every other category strip
- * uses, for the same reason the rail's is longer: what a rest here replaces
- * is the whole grid — every row re-laid, every cell rebuilt, the preview
- * re-tuned — and at 250ms a viewer travelling the strip rebuilt it on every
- * chip they merely passed through. The guide keeps dwell at all, where the
- * channel list might have settled for OK, because the live preview earns
- * it: resting on Sport and seeing Sport is the point.
- *
- * Cancelled the moment focus leaves the chip — the strip's onBlur nulls the
- * state, which restarts the effect with nothing to select.
- */
-@Composable
-private fun CategoryDwell(
-    focusedCategory: androidx.compose.runtime.State<String?>,
-    onCategoryId: (String) -> Unit,
-) {
-    val id = focusedCategory.value
-    LaunchedEffect(id) {
-        if (id == null) return@LaunchedEffect
-        delay(NuxMotion.TabDwellMs.toLong())
-        onCategoryId(id)
-    }
-}
 
 /**
  * What, if anything, is wrong with the guide sitting above the grid.
@@ -1052,7 +951,7 @@ private const val SHELF_SEPARATOR = " · "
  * names the run that follows, so travelling the row still steps shelf to shelf.
  */
 @Composable
-private fun RegionGroupLabel(label: String) {
+internal fun RegionGroupLabel(label: String) {
     Text(
         text = label.uppercase(),
         style = MaterialTheme.typography.labelSmall,
