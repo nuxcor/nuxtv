@@ -113,7 +113,13 @@ class ExoEngine(
     override var onTransportPause: (() -> Unit)? = null
 
     private val lease =
-        PlayerPool.borrow(context, main = requestAudioFocus, profile = profile, live = isLive)
+        PlayerPool.borrow(
+            context,
+            main = requestAudioFocus,
+            profile = profile,
+            live = isLive,
+            silent = silent,
+        )
     private val player: ExoPlayer get() = lease.player
     private val trackSelector: DefaultTrackSelector get() = lease.trackSelector
 
