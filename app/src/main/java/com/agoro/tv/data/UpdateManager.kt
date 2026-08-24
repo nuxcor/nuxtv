@@ -16,6 +16,30 @@ import okhttp3.Request
  * and hands it to the system installer. Same signing key on every release,
  * so updates install over the top with all data intact.
  */
+/**
+ * true when [remote] (e.g. "v2.4.0") is newer than [local] ("2.3.1").
+ *
+ * The whole update feature turns on this: it decides whether the rail shows a
+ * row and whether Settings offers a download. Top-level and internal so it can
+ * be, because every part of it is a silent failure — the leading "v" the
+ * release tag carries, a missing third component, and the pre-release suffix
+ * that must never outrank the release it precedes.
+ */
+internal fun isNewer(remote: String, local: String): Boolean {
+    // Only the numeric x.y.z triple counts; suffixes like -rc.1 are
+    // ignored so an RC never outranks the final release.
+    fun parts(v: String) = v.removePrefix("v").substringBefore("-").split(".")
+        .mapNotNull { it.toIntOrNull() }.take(3)
+    val r = parts(remote)
+    val l = parts(local)
+    for (i in 0 until maxOf(r.size, l.size)) {
+        val a = r.getOrElse(i) { 0 }
+        val b = l.getOrElse(i) { 0 }
+        if (a != b) return a > b
+    }
+    return false
+}
+
 class UpdateManager(private val context: Context, private val http: OkHttpClient) {
 
     sealed class State {
@@ -44,21 +68,6 @@ class UpdateManager(private val context: Context, private val http: OkHttpClient
         const val LATEST_URL = "https://github.com/nuxcor/nuxtv/releases/latest"
         const val DOWNLOAD_BASE = "https://github.com/nuxcor/nuxtv/releases/download"
 
-        /** true when [remote] (e.g. "v2.4.0") is newer than [local] ("2.3.1"). */
-        fun isNewer(remote: String, local: String): Boolean {
-            // Only the numeric x.y.z triple counts; suffixes like -rc.1 are
-            // ignored so an RC never outranks the final release.
-            fun parts(v: String) = v.removePrefix("v").substringBefore("-").split(".")
-                .mapNotNull { it.toIntOrNull() }.take(3)
-            val r = parts(remote)
-            val l = parts(local)
-            for (i in 0 until maxOf(r.size, l.size)) {
-                val a = r.getOrElse(i) { 0 }
-                val b = l.getOrElse(i) { 0 }
-                if (a != b) return a > b
-            }
-            return false
-        }
     }
 
     suspend fun check(): State = withContext(Dispatchers.IO) {
