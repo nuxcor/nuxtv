@@ -377,7 +377,17 @@ class PlayerSession internal constructor(
                     // gives a struggling provider room to breathe.
                     val attempt = RETRIES_PER_ITEM - retriesLeft
                     retriesLeft--
-                    statusMessage = "Stream error — reconnecting…"
+                    // The REASON, not just the fact. humanError has already
+                    // turned the code into something a viewer can act on -
+                    // "your provider didn't return this stream" is a different
+                    // problem from "the connection dropped" and a different
+                    // one again from "audio track init failed" - and this line
+                    // was throwing all of that away for a word that says only
+                    // that something went wrong. The specific message survived
+                    // to the error card, which is reached only after the
+                    // retries are spent: exactly the cases that recover are
+                    // the ones that never said why they had to.
+                    statusMessage = "$message — reconnecting…"
                     scope.launch {
                         delay(3_000L shl attempt)
                         engine?.let { it.playAt(it.currentIndex) }
