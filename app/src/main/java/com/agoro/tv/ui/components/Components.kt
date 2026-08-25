@@ -416,9 +416,11 @@ fun PosterCard(
     val focused = remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
-        onLongClick = onLongClick,
         modifier = modifier
             .then(if (width != null) Modifier.width(width) else Modifier.fillMaxWidth())
+            // A clock-based hold, because tv-material3's own is deaf to a
+            // remote that doesn't auto-repeat the select key; see dpadLongPress.
+            .dpadLongPress(onLongClick)
             .focusHalo(CardShape, focused)
             .onFocusChanged {
                 focused.value = it.isFocused
@@ -586,12 +588,12 @@ fun WideItem(
 ) {
     Surface(
         onClick = onClick,
-        onLongClick = onLongClick,
         // Callers pass a FocusRequester through here to park focus on a
         // specific row — the channel-number jump needs the row it scrolled to
         // to also be the row the next D-pad press moves from.
         modifier = modifier
             .fillMaxWidth()
+            .dpadLongPress(onLongClick)
             .onFocusChanged { if (it.isFocused) onFocus() },
         shape = ClickableSurfaceDefaults.shape(CardShape),
         colors = ClickableSurfaceDefaults.colors(

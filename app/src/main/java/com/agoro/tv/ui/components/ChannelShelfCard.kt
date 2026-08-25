@@ -64,8 +64,8 @@ fun ChannelShelfCard(
     Column(modifier = Modifier.width(240.dp)) {
         Surface(
             onClick = onClick,
-            onLongClick = onLongClick,
             modifier = modifier
+                .dpadLongPress(onLongClick)
                 .focusHalo(NuxShape.Card, focused)
                 .onFocusChanged {
                     focused.value = it.isFocused
