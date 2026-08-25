@@ -25,7 +25,7 @@ internal sealed interface PlayerKeyAction {
     data object ToggleGuide : PlayerKeyAction
     data object OpenChannelList : PlayerKeyAction
 
-    /** The channel options menu (live) — OK, MENU, or long-press OK. */
+    /** The channel options menu (live) — MENU or long-press OK. */
     data object OpenOptions : PlayerKeyAction
 
     /** The tracks/options sheet (VOD) — MENU or long-press OK. */
@@ -41,8 +41,9 @@ internal sealed interface PlayerKeyAction {
 
     /**
      * OK went down on bare playback. Nothing happens yet — a short press acts
-     * on the *release*, so it can be told apart from a long press, and so the
-     * release can never land on a row the press just focused and tune it.
+     * on the *release* (the channel list on live, the controls on VOD), so it
+     * can be told apart from a long press, and so the release can never land
+     * on a row the press just focused and tune it.
      */
     data object CenterArm : PlayerKeyAction
 
@@ -82,7 +83,7 @@ internal const val ZAP_REPEAT_EVERY = 6
  * [PlayerKeyResult.consumed] from its onPreviewKeyEvent.
  *
  * The live no-chrome map, TiviMate-style:
- *   OK → channel options (favorite, etc.) · long-OK / MENU → options
+ *   OK → channel list · long-OK / MENU → channel options (favorite, etc.)
  *   LEFT → channel list · RIGHT → controls · INFO → banner (again → controls)
  *   UP/DOWN & CH± → zap · GUIDE → grid · digits → number tune
  *   LAST_CHANNEL/RED → back to previous · PLAY_PAUSE → pause · BACK → exit
@@ -131,8 +132,9 @@ internal fun playerKeyAction(
         else PlayerKeyResult(consumed = true)
     }
 
-    // OK on bare playback: press arms, hold opens options, release opens the
-    // channel options. Acting on the release is what keeps the two press lengths
+    // OK on bare playback: press arms, hold opens the channel options,
+    // release opens the channel list (live) or the controls (VOD). Acting on
+    // the release is what keeps the two press lengths
     // distinguishable — and it doubles as the swallow that used to exist
     // here: an unhandled KeyUp would land on whatever the action just
     // focused and activate it immediately.
@@ -158,7 +160,14 @@ internal fun playerKeyAction(
             }
             return PlayerKeyResult(
                 consumed = true,
-                action = if (isLive) PlayerKeyAction.OpenOptions
+                // OK on live opens the channel list — the browse-and-switch
+                // surface a viewer reaches for on the button they press
+                // first, the way TiviMate maps its select key. The channel
+                // options (favourite, record, catch-up…) are the secondary
+                // surface and stay on the secondary gestures: a hold of OK,
+                // or MENU — the same "OK acts, a hold opens the menu" split
+                // the cards use everywhere else. VOD keeps the controls.
+                action = if (isLive) PlayerKeyAction.OpenChannelList
                 else PlayerKeyAction.ShowControls,
             )
         }
