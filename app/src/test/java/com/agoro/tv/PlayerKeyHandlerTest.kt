@@ -53,7 +53,7 @@ class PlayerKeyHandlerTest {
     }
 
     @Test
-    fun `OK short press release opens the channel options on live`() {
+    fun `OK short press release opens the channel list on live`() {
         val up = press(
             KeyEvent.KEYCODE_DPAD_CENTER,
             centerArmed = true,
@@ -61,7 +61,19 @@ class PlayerKeyHandlerTest {
             isKeyUp = true,
         )
         assertTrue(up.consumed)
-        assertEquals(PlayerKeyAction.OpenOptions, up.action)
+        assertEquals(PlayerKeyAction.OpenChannelList, up.action)
+    }
+
+    @Test
+    fun `the channel options stay one gesture away — a hold, or MENU`() {
+        val hold = press(
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            centerArmed = true,
+            repeatCount = 1,
+        )
+        assertTrue(hold.consumed)
+        assertEquals(PlayerKeyAction.CenterLongPress, hold.action)
+        assertEquals(PlayerKeyAction.OpenOptions, press(KeyEvent.KEYCODE_MENU).action)
     }
 
     @Test
@@ -73,7 +85,7 @@ class PlayerKeyHandlerTest {
             assertEquals(PlayerKeyAction.CenterArm, down.action)
             val up = press(code, centerArmed = true, isKeyDown = false, isKeyUp = true)
             assertTrue(up.consumed)
-            assertEquals(PlayerKeyAction.OpenOptions, up.action)
+            assertEquals(PlayerKeyAction.OpenChannelList, up.action)
         }
     }
 
