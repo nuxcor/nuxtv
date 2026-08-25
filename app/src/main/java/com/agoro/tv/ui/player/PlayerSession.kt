@@ -29,6 +29,32 @@ internal fun formatPlayerTime(ms: Long): String {
 }
 
 /**
+ * How long a reconnect waits before re-opening the same stream, per attempt.
+ *
+ * VOD keeps the original quick pair — a film is one deliberate connection and
+ * a hiccup is usually the line, so 3s then 6s. Live is the case that a
+ * one-connection provider line breaks: when a stream drops, the panel counts
+ * the just-ended slot as open for many seconds, so an immediate reconnect
+ * asks for a second connection the line does not allow and is refused (403).
+ * The two quick retries then burn out before the slot clears, and an hour of
+ * viewing ends in a freeze that would have healed itself given a moment. Live
+ * waits across a typical panel-release window instead — one near-immediate
+ * try for a line that is NOT connection-capped, then two that straddle the
+ * slot timeout.
+ */
+private val VOD_RECONNECT_DELAYS_MS = longArrayOf(3_000L, 6_000L)
+private val LIVE_RECONNECT_DELAYS_MS = longArrayOf(6_000L, 20_000L, 40_000L)
+
+internal fun reconnectDelaysMs(isLive: Boolean): LongArray =
+    if (isLive) LIVE_RECONNECT_DELAYS_MS else VOD_RECONNECT_DELAYS_MS
+
+/** The backoff for [attempt] (0-based), clamped to the last step for any overrun. */
+internal fun reconnectDelayMs(isLive: Boolean, attempt: Int): Long {
+    val delays = reconnectDelaysMs(isLive)
+    return delays[attempt.coerceIn(0, delays.size - 1)]
+}
+
+/**
  * Best-effort language equality between what an engine reports for a track
  * ("en", "eng", "English"…) and the viewer's saved preference. Everything is
  * normalised to an ISO-639-2 code where possible; unknowns never match.
@@ -94,8 +120,6 @@ class PlayerSession internal constructor(
          * re-tuning to the live edge, not playing a picture from the past.
          */
         const val LIVE_PAUSE_REJOIN_MS = 30_000L
-
-        private const val RETRIES_PER_ITEM = 2
 
         /**
          * Repeated stalls inside this window mean the feed can't keep up —
@@ -268,7 +292,7 @@ class PlayerSession internal constructor(
     internal var vodSpeedLoaded: Boolean = false
 
     // --- failure ladder, reset per item ------------------------------------
-    private var retriesLeft = RETRIES_PER_ITEM
+    private var retriesLeft = reconnectDelaysMs(initialRequest.isLive).size
     private var liveFormatStage = 0
     private var sourceStage = 0
     private var ladderItemIndex = initialRequest.startIndex
@@ -404,9 +428,10 @@ class PlayerSession internal constructor(
                 // login or a stream it no longer carries fails identically
                 // on every reconnect, and the wait is the whole cost.
                 fault != PlaybackFault.PERMANENT && retriesLeft > 0 -> {
-                    // Backing off: the first reconnect is quick, the second
-                    // gives a struggling provider room to breathe.
-                    val attempt = RETRIES_PER_ITEM - retriesLeft
+                    // Backing off, and on live long enough for a one-connection
+                    // panel to release the slot the just-dropped stream still
+                    // holds — see reconnectDelaysMs. A film keeps the quick pair.
+                    val attempt = reconnectDelaysMs(request.isLive).size - retriesLeft
                     retriesLeft--
                     // The REASON, not just the fact. humanError has already
                     // turned the code into something a viewer can act on -
@@ -420,7 +445,7 @@ class PlayerSession internal constructor(
                     // the ones that never said why they had to.
                     statusMessage = "$message — reconnecting…"
                     scope.launch {
-                        delay(3_000L shl attempt)
+                        delay(reconnectDelayMs(request.isLive, attempt))
                         engine?.let { it.playAt(it.currentIndex, retryPositionMs) }
                     }
                 }
@@ -486,7 +511,7 @@ class PlayerSession internal constructor(
 
     private fun resetLadder(index: Int) {
         ladderItemIndex = index
-        retriesLeft = RETRIES_PER_ITEM
+        retriesLeft = reconnectDelaysMs(request.isLive).size
         liveFormatStage = 0
         sourceStage = 0
         stallClock.clear()
