@@ -205,6 +205,7 @@ class PlayerSession internal constructor(
             if (value) {
                 stallClock.clear()
                 stallTimer = null
+                reconnectJob = null
                 lastTuneMs = System.currentTimeMillis()
                 tuneSerial++
             }
@@ -305,6 +306,24 @@ class PlayerSession internal constructor(
 
     /** Counts the stall in progress once it has lasted [STALL_COUNTS_AFTER_MS]; cancelled if it ends first. */
     private var stallTimer: Job? = null
+        set(value) {
+            field?.cancel()
+            field = value
+        }
+
+    /**
+     * The pending reconnect, waiting out its backoff before it re-opens the
+     * stream. Held so a tune away from the failed stream can cancel it —
+     * the live backoff runs up to forty seconds now, and a reconnect that
+     * fired after the viewer had zapped elsewhere would yank the channel they
+     * moved to back to the one that failed. [tuneSerial] is the belt to this
+     * braces: it is captured when the reconnect is scheduled and re-checked
+     * before it acts, so a reconnect can never re-tune a stream the viewer
+     * has already left. A reconnect's own re-open does not bump the serial
+     * (it re-announces the same index without a new tune), so the chain of
+     * backoffs for one failed stream still runs.
+     */
+    private var reconnectJob: Job? = null
         set(value) {
             field?.cancel()
             field = value
@@ -444,8 +463,12 @@ class PlayerSession internal constructor(
                     // retries are spent: exactly the cases that recover are
                     // the ones that never said why they had to.
                     statusMessage = "$message — reconnecting…"
-                    scope.launch {
+                    val forSerial = tuneSerial
+                    reconnectJob = scope.launch {
                         delay(reconnectDelayMs(request.isLive, attempt))
+                        // The viewer zapped or the ladder moved on while we
+                        // waited: this reconnect is for a stream they left.
+                        if (tuneSerial != forSerial) return@launch
                         engine?.let { it.playAt(it.currentIndex, retryPositionMs) }
                     }
                 }
@@ -516,6 +539,7 @@ class PlayerSession internal constructor(
         sourceStage = 0
         stallClock.clear()
         stallTimer = null
+        reconnectJob = null
     }
 
     /** A stall has lasted long enough to count; three in a minute move the ladder. */
