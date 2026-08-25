@@ -112,6 +112,14 @@ class PlayerSession internal constructor(
     private val scope: CoroutineScope,
     initialRequest: PlaybackRequest,
     private val onSaveResume: (url: String, positionMs: Long, durationMs: Long) -> Unit,
+    /**
+     * Waits for the provider to free a live slot before a reconnect asks for
+     * one, on a one/two-connection line; returns true when it took the wait
+     * (reconnect at once) and false when the line has room to spare (use the
+     * fixed backoff). Null off the player screen and in tests. See
+     * [reconnectDelaysMs] and MainViewModel.awaitFreeLiveSlot.
+     */
+    private val awaitLiveSlot: (suspend () -> Boolean)? = null,
 ) {
     companion object {
         /**
@@ -464,8 +472,14 @@ class PlayerSession internal constructor(
                     // the ones that never said why they had to.
                     statusMessage = "$message — reconnecting…"
                     val forSerial = tuneSerial
+                    val live = request.isLive
                     reconnectJob = scope.launch {
-                        delay(reconnectDelayMs(request.isLive, attempt))
+                        // On a capped line, wait for the panel to free the
+                        // slot the dropped stream still holds, and reconnect
+                        // the moment it does; otherwise the fixed backoff. See
+                        // awaitLiveSlot.
+                        val waited = live && (awaitLiveSlot?.invoke() ?: false)
+                        if (!waited) delay(reconnectDelayMs(live, attempt))
                         // The viewer zapped or the ladder moved on while we
                         // waited: this reconnect is for a stream they left.
                         if (tuneSerial != forSerial) return@launch

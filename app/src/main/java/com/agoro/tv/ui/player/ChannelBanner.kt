@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -229,6 +230,61 @@ internal fun ChannelBanner(
                 // options sheet instead.
             }
         }
+    }
+}
+
+/**
+ * The intentional "connecting" screen a fresh tune opens on, so arriving at
+ * the player from a poster or a fixture is never a flat black void waiting
+ * for the first frame. A soft brand-gold glow breathing over the dark video
+ * canvas, under the [TuneCard]'s name and sweep. Only for a fresh arrival —
+ * a zap keeps the last frame showing through the card instead, which is why
+ * the caller hides this once anything has played.
+ *
+ * The breath is read inside graphicsLayer, so each frame is a draw and
+ * nothing recomposes; the glow is one radial brush drawn once.
+ */
+@Composable
+internal fun TuningBackdrop(modifier: Modifier = Modifier) {
+    val motion = androidx.compose.animation.core.rememberInfiniteTransition(label = "tuneBg")
+    val breath by motion.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            androidx.compose.animation.core.tween(
+                2_600,
+                easing = androidx.compose.animation.core.FastOutSlowInEasing,
+            ),
+            androidx.compose.animation.core.RepeatMode.Reverse,
+        ),
+        label = "breath",
+    )
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(PlayerTheme.VideoCanvas),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                // Breathe the glow's size and strength together, about the
+                // centre, so it reads as a slow pulse rather than a flicker.
+                .graphicsLayer {
+                    val scale = 0.92f + 0.16f * breath
+                    scaleX = scale
+                    scaleY = scale
+                    alpha = 0.55f + 0.45f * breath
+                }
+                .background(
+                    androidx.compose.ui.graphics.Brush.radialGradient(
+                        colors = listOf(
+                            NuxColors.Primary.copy(alpha = 0.22f),
+                            NuxColors.PrimaryDim.copy(alpha = 0.10f),
+                            androidx.compose.ui.graphics.Color.Transparent,
+                        ),
+                    )
+                ),
+        )
     }
 }
 
