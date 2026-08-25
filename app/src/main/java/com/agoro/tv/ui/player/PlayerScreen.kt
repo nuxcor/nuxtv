@@ -166,6 +166,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             scope = scope,
             initialRequest = request,
             onSaveResume = vm::saveResumePosition,
+            awaitLiveSlot = vm::awaitFreeLiveSlot,
         )
     }
     // A replacement playlist re-primes the session the way the old screen's
@@ -179,6 +180,14 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     val item = request.items.getOrNull(session.currentIndex)
     val channel: LiveChannel? = item?.channelId?.let { vm.channelById(it) }
     val isVod = !request.isLive
+
+    // Whether anything has drawn yet this player visit. The rich tuning
+    // backdrop is for the FIRST arrival only — once a frame has landed, a zap
+    // shows the last frame through the TuneCard instead, so the backdrop must
+    // not cover it. Latches on the first play and never clears while the
+    // screen lives.
+    var everPlayed by remember { mutableStateOf(false) }
+    LaunchedEffect(session.playing) { if (session.playing) everPlayed = true }
 
     // Engine lives until something asks for a rebuild; see engineGeneration.
     val engine = remember(session.engineGeneration) {
@@ -814,6 +823,22 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 },
                 factory = { engine.createView(it) },
             )
+        }
+
+        // The connecting screen a FRESH tune opens on — a soft glow over the
+        // dark canvas — so arriving from a poster or a fixture is never a flat
+        // black void while the engine builds. Not on a zap: there the last
+        // frame shows through the card instead, so this is gated on nothing
+        // having played yet. Present from the first frame (no enter fade) so
+        // there is no black beat before it; it fades out as the picture lands.
+        AnimatedVisibility(
+            visible = session.tuning && !everPlayed && session.errorMessage == null &&
+                !inPip && session.layer != PlayerLayer.Guide,
+            enter = androidx.compose.animation.EnterTransition.None,
+            exit = PlayerMotion.exitFade(),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            TuningBackdrop()
         }
 
         // Tuning shows who we're tuning to, not an anonymous spinner — fading

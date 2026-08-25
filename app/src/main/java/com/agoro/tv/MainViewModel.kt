@@ -676,6 +676,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
         const val INSTALL_BLOCKED =
             "Couldn't start the installer — allow \"install unknown apps\" for Agoro, then press Install"
+
+        /** Poll `active_cons` this often while waiting for a live slot to free. */
+        const val AWAIT_SLOT_POLL_MS = 3_000L
+        /** Give up waiting for the slot after this and reconnect anyway. */
+        const val AWAIT_SLOT_TIMEOUT_MS = 45_000L
+        /** Only wait for a slot on a line this tightly capped; above it there is room to spare. */
+        const val CONNECTION_CAP_TO_GATE = 2
     }
 
     fun downloadAndInstallUpdate() {
@@ -929,6 +936,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshAccountInfo() {
         viewModelScope.launch { _accountInfo.value = repo.accountInfo() }
+    }
+
+    /**
+     * Waits for the provider to free a live slot before a reconnect asks for
+     * one, on a line that caps concurrent streams at one or two. When a live
+     * stream drops, the panel keeps counting the just-ended slot as open for
+     * many seconds, so an immediate reconnect asks for a second connection
+     * the line does not allow and is refused (403). Polling `active_cons` is
+     * an API call, not a stream, so it does not itself use the slot — the app
+     * can watch the count fall and reconnect the instant it does, which is
+     * both faster than a fixed wait when the panel releases quickly and more
+     * patient when it does not.
+     *
+     * Returns true when the wait was taken (reconnect at once); false when
+     * the plan reports room to spare (or no cap at all), leaving the caller's
+     * own backoff to apply. Refreshes [accountInfo] as it goes, so the
+     * Settings meter counts down with it.
+     */
+    suspend fun awaitFreeLiveSlot(): Boolean {
+        val max = accountInfo.value?.maxConnections ?: return false
+        if (max > CONNECTION_CAP_TO_GATE) return false
+        val deadline = android.os.SystemClock.elapsedRealtime() + AWAIT_SLOT_TIMEOUT_MS
+        while (android.os.SystemClock.elapsedRealtime() < deadline) {
+            val info = repo.accountInfo() ?: return true
+            _accountInfo.value = info
+            if ((info.activeConnections ?: 0) < (info.maxConnections ?: max)) return true
+            kotlinx.coroutines.delay(AWAIT_SLOT_POLL_MS)
+        }
+        return true
     }
 
     fun selectSource(id: String) = viewModelScope.launch { repo.selectSource(id) }
