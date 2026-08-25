@@ -421,7 +421,7 @@ class PlayerSession internal constructor(
                     statusMessage = "$message — reconnecting…"
                     scope.launch {
                         delay(3_000L shl attempt)
-                        engine?.let { it.playAt(it.currentIndex) }
+                        engine?.let { it.playAt(it.currentIndex, retryPositionMs) }
                     }
                 }
 
@@ -764,8 +764,18 @@ class PlayerSession internal constructor(
     fun retryAfterError() {
         clearError()
         resetLadder(currentIndex)
-        engine?.let { it.playAt(it.currentIndex) }
+        engine?.let { it.playAt(it.currentIndex, retryPositionMs) }
         tuning = true
     }
+
+    /**
+     * Where a retry of the current item re-opens. Live re-joins at the edge;
+     * a film picks up where it was — [positionMs] is captured from the
+     * engine at the top of onError, before anything recovers, for exactly
+     * this. The retry used to open the item by index alone, which is the
+     * engine's "from the top", so every reconnected film restarted at 0:00.
+     */
+    private val retryPositionMs: Long
+        get() = if (request.isLive || request.isCatchup) 0L else positionMs
 
 }

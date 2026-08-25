@@ -619,17 +619,19 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         }
     }
 
-    // A mid-stream stall on LIVE earns a corner chip, and only after a grace
-    // period: tuning has its own card, and sub-second hiccups deserve nothing.
+    // A mid-stream stall earns a corner chip, and only after a grace period:
+    // tuning has its own card, and sub-second hiccups deserve nothing.
     //
-    // Live only. On a film the chip was announcing every pause the buffer took
-    // to refill, and a film refills far more often than a channel does —
-    // playback is not racing a live edge, so a stall is a wait rather than a
-    // fault, and one that resolves itself with no viewer decision attached to
-    // it. Naming it made an ordinary pause look like a failure. Live keeps the
-    // chip because there the stall IS the fault: the feed is running away from
-    // the player, and the recovery ladder is about to do something visible
-    // about it.
+    // Films too, and later than live. The chip was live-only for a while, on
+    // the reasoning that a film refills often and naming each refill made an
+    // ordinary pause look like a failure. Those refills are the complaint
+    // now, and hiding them made it worse: a film that stops with nothing on
+    // screen reads as a broken stream, and a viewer cannot tell a refill from
+    // a crash. Netflix shows the wait on a film as plainly as on anything
+    // else. The grace is longer on a film — a refill that clears in under a
+    // second and a half is the buffer doing its job and is still shown
+    // nothing — and the log records what each one was, so the next report
+    // names a cause rather than a symptom.
     //
     // Keyed on the tune as well, and held for whatever is left of the settling
     // window, because "not tuning" was never the same thing as "not changing
@@ -640,11 +642,12 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     // then it has stopped settling and started failing.
     var showBufferingChip by remember { mutableStateOf(false) }
     LaunchedEffect(session.buffering, session.tuning, session.tuneSerial, request.isLive) {
-        if (!request.isLive || !session.buffering || session.tuning) {
+        if (!session.buffering || session.tuning) {
             showBufferingChip = false
             return@LaunchedEffect
         }
-        delay(maxOf(PlayerMotion.BufferGraceMs, session.settleRemainingMs))
+        val grace = if (request.isLive) PlayerMotion.BufferGraceMs else PlayerMotion.VodBufferGraceMs
+        delay(maxOf(grace, session.settleRemainingMs))
         showBufferingChip = true
     }
 

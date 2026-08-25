@@ -117,6 +117,9 @@ internal object PlayerMotion {
     /** Mid-stream stalls shorter than this show nothing. */
     const val BufferGraceMs = 500L
 
+    /** A film's refill has to last this long before it is named; see PlayerScreen. */
+    const val VodBufferGraceMs = 1_500L
+
     /** How long a zap rests on a channel before its stream is opened. */
     const val ZapDwellMs = 400L
 

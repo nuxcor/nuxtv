@@ -456,7 +456,15 @@ object PlayerPool {
             // A live feed that stops sending is dead NOW, not in fifteen
             // seconds: the recovery ladder can't run until this fires, and
             // every second here is a second of frozen picture first.
-            .setReadTimeoutMs(8_000)
+            //
+            // A film is the opposite case. It has twenty to fifty seconds
+            // buffered ahead, so a server that pauses for ten is invisible to
+            // the viewer — unless the read times out, in which case ExoPlayer
+            // retries the range three times and then throws, and the ladder
+            // shows "the connection dropped" over a picture that had plenty
+            // to play. The buffer pays for the patience; live has no buffer
+            // to pay with.
+            .setReadTimeoutMs(if (slot.live) 8_000 else 20_000)
         // Stock until an output latch says otherwise; see AgoroRenderersFactory.
         val renderers = AgoroRenderersFactory(context, slot)
             // ON, not PREFER: hardware decoders first, software only as a
