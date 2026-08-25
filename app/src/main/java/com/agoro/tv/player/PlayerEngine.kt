@@ -137,6 +137,14 @@ interface PlayerEngine {
     fun next()
     fun previous()
     fun playAt(index: Int)
+
+    /**
+     * Opens `items[index]` at a position. A retry of a film after an error
+     * goes through here with the position it had — [playAt] with the index
+     * alone starts the item from the top, which is right for a channel and
+     * was sending every reconnected film back to 0:00.
+     */
+    fun playAt(index: Int, startPositionMs: Long)
     fun release()
 
     val isPlaying: Boolean

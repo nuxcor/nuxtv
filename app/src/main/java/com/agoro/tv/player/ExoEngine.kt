@@ -200,6 +200,12 @@ class ExoEngine(
     /** Which decoder is feeding the sink, or null when the TV is decoding (passthrough). */
     private var audioDecoderName: String? = null
 
+    /** Which decoder is drawing the picture; the log's answer to "some titles stutter". */
+    private var videoDecoderName: String? = null
+
+    /** When playback last stopped to refill mid-stream, 0 while it is playing. */
+    private var rebufferStartedAtMs = 0L
+
     /** A format reached the video decoder; a frame has (not) yet been drawn. */
     private var videoArmed = false
     private var firstFrameDrawn = false
@@ -213,6 +219,8 @@ class ExoEngine(
         audioArmed = false
         audioAdvancing = false
         audioDecoderName = null
+        videoDecoderName = null
+        rebufferStartedAtMs = 0L
         videoArmed = false
         firstFrameDrawn = false
         surfaceLost = false
@@ -323,6 +331,31 @@ class ExoEngine(
             audioAdvancing = true
         }
 
+        override fun onVideoDecoderInitialized(
+            eventTime: AnalyticsListener.EventTime,
+            decoderName: String,
+            initializedTimestampMs: Long,
+            initializationDurationMs: Long,
+        ) {
+            // A decoder that has just been (re)created refills from a full
+            // buffer — a variant switch, a surface handed back, a format the
+            // old instance could not take — and noteBuffering must not read
+            // that refill as the HAL freezing.
+            markReconfigured()
+            videoDecoderName = decoderName
+            // The line that tells "some titles stutter" apart: the hardware
+            // decoder refused this profile and a software one took it, which
+            // will not carry 1080p smoothly and 4K not at all, and nothing on
+            // screen says so. Warned, not just noted, so it stands out in a
+            // capture.
+            val format = player.videoFormat
+            if (isSoftwareDecoder(decoderName) && (format?.height ?: 0) >= 720) {
+                android.util.Log.w("Agoro", "Video on SOFTWARE decoder $decoderName for ${format?.width}x${format?.height} ${format?.codecs}")
+            } else {
+                android.util.Log.i("Agoro", "Video decoder $decoderName for ${format?.width}x${format?.height} ${format?.codecs}")
+            }
+        }
+
         override fun onAudioUnderrun(
             eventTime: AnalyticsListener.EventTime,
             bufferSize: Int,
@@ -391,6 +424,9 @@ class ExoEngine(
             } else if (surfaceLost) {
                 surfaceLost = false
                 firstFrameDrawn = false
+                // The decoder re-initialises on the new surface and refills
+                // behind it; see noteBuffering.
+                markReconfigured()
                 scheduleOutputCheck()
             }
         }
@@ -513,9 +549,11 @@ class ExoEngine(
 
         /**
          * How long after a renderer reconfiguration its own rebuffer is
-         * ignored: switching the tunnel on or off, or a track change, empties
-         * and refills the decoder with a full buffer behind it, which is the
-         * very shape a HAL freeze has.
+         * ignored: switching the tunnel on or off, a track change, a seek, a
+         * decoder (re)initialisation or a surface handed back all empty and
+         * refill the decoder with a full buffer behind it, which is the very
+         * shape a HAL freeze has. Each of those calls markReconfigured; a
+         * BUFFERING inside this window is theirs, not the device's.
          */
         const val RECONFIGURE_GRACE_MS = 5_000L
     }
@@ -531,8 +569,41 @@ class ExoEngine(
         if (!main || !tunnelling || !wasPlaying) return
         if (android.os.SystemClock.elapsedRealtime() - reconfiguredAtMs < RECONFIGURE_GRACE_MS) return
         if (player.totalBufferedDuration < TunnelPolicy.FULL_BUFFER_MS) return
+        android.util.Log.w("Agoro", "Tunnelled stream stalled with ${player.totalBufferedDuration}ms buffered; tunnelling off for this device")
         TunnelPolicy.refuse()
         setTunnelling(false)
+    }
+
+    // --- rebuffer log -----------------------------------------------------
+    //
+    // "It breaks for a few seconds" has been answered with a guess every time
+    // because nothing recorded what a mid-stream stall looked like: how much
+    // was buffered when it began (empty is the line, full is a renderer),
+    // what was decoding and on which decoder, whether the tunnel was on, and
+    // how long it lasted. One line at each end, on the viewer's player only.
+    // A seek starts one too — media3 buffers on every seek — and says so.
+
+    private fun noteRebufferStarted() {
+        if (!main || !wasPlaying) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        rebufferStartedAtMs = now
+        val video = player.videoFormat
+        android.util.Log.w(
+            "Agoro",
+            "Rebuffer at ${player.currentPosition}ms: buffered=${player.totalBufferedDuration}ms" +
+                " video=${videoDecoderName ?: "?"} ${video?.width}x${video?.height}@${video?.frameRate}" +
+                " ${video?.codecs} ${video?.bitrate}bps" +
+                " audio=${audioDecoderName ?: "passthrough"} ${player.audioFormat?.sampleMimeType}" +
+                " tunnelled=$tunnelling live=$live" +
+                " afterSeekOrReconfigure=${now - reconfiguredAtMs < RECONFIGURE_GRACE_MS}",
+        )
+    }
+
+    private fun noteRebufferEnded() {
+        if (rebufferStartedAtMs == 0L) return
+        val lasted = android.os.SystemClock.elapsedRealtime() - rebufferStartedAtMs
+        rebufferStartedAtMs = 0L
+        android.util.Log.w("Agoro", "Rebuffer ended after ${lasted}ms with ${player.totalBufferedDuration}ms buffered")
     }
 
     private val playerListener = object : Player.Listener {
@@ -541,7 +612,13 @@ class ExoEngine(
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
-            if (playbackState == Player.STATE_BUFFERING) noteBuffering()
+            when (playbackState) {
+                Player.STATE_BUFFERING -> {
+                    noteRebufferStarted()
+                    noteBuffering()
+                }
+                Player.STATE_READY -> noteRebufferEnded()
+            }
             listener?.onPlayingChanged(
                 playing = player.isPlaying,
                 buffering = playbackState == Player.STATE_BUFFERING,
@@ -671,7 +748,15 @@ class ExoEngine(
     }
 
     override fun seekTo(positionMs: Long) {
-        if (!released) player.seekTo(positionMs.coerceAtLeast(0))
+        if (released) return
+        // A seek is a reconfiguration as far as noteBuffering is concerned:
+        // media3 puts the player into BUFFERING on every seek from READY, and
+        // a seek that lands inside the buffer keeps that buffer — which is
+        // the exact shape of a HAL freeze, on a film that was merely skipped
+        // forward. Read as a freeze, it took the tunnel away from every 4K
+        // and HDR stream for the rest of the process.
+        markReconfigured()
+        player.seekTo(positionMs.coerceAtLeast(0))
     }
 
     override fun next() = playAt((index + 1).coerceAtMost(items.size - 1))
@@ -689,11 +774,14 @@ class ExoEngine(
      * second onError ever arrived, the retry budget never ran out and the
      * error card was unreachable. The viewer sat on "Tuning…" forever.
      */
-    private fun playAt(index: Int, startPositionMs: Long) {
+    override fun playAt(index: Int, startPositionMs: Long) {
         if (released || index !in items.indices) return
         this.index = index
         clearSinkRefusal()
         resetWatchdog()
+        // The first BUFFERING of a new item is a tune, not a stall: the
+        // isPlaying=false for the old one is dispatched after it.
+        wasPlaying = false
         val item = items[index]
         // Decided before the decoder opens, so a stream that deserves the
         // tunnel gets it without a re-initialisation after the first frame.
@@ -945,6 +1033,13 @@ internal fun isAudioOutputFault(errorCodeName: String): Boolean = when (errorCod
     "ERROR_CODE_AUDIO_TRACK_OFFLOAD_WRITE_FAILED" -> true
     else -> false
 }
+
+/** Whether this MediaCodec name is one of the platform's software decoders. */
+internal fun isSoftwareDecoder(name: String): Boolean =
+    name.startsWith("OMX.google.", ignoreCase = true) ||
+        name.startsWith("c2.android.", ignoreCase = true) ||
+        name.startsWith("OMX.ffmpeg.", ignoreCase = true) ||
+        name.contains(".sw.", ignoreCase = true)
 
 /**
  * ExoPlayer's error constant, said in words a viewer can act on.
