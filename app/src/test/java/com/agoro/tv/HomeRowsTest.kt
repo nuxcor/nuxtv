@@ -15,6 +15,7 @@ import com.agoro.tv.ui.screens.buildCatalog
 import com.agoro.tv.ui.screens.buildCatalogIndex
 import com.agoro.tv.ui.screens.buildContinueWatching
 import com.agoro.tv.ui.screens.buildRecentlyAdded
+import com.agoro.tv.ui.screens.currentYear
 import com.agoro.tv.ui.screens.channelHero
 import com.agoro.tv.ui.screens.isRecentRelease
 import com.agoro.tv.ui.screens.ratingChip
@@ -49,6 +50,39 @@ class HomeRowsTest {
         return buildContinueWatching(
             index.movieByUrl, index.seriesById, episodeOrigins, resumePositions, resumeProgress,
         )
+    }
+
+    @Test
+    fun `recently added folds a title's duplicate streams into one card`() {
+        // The same film three times — a 4K rung, an HD rung, and the same
+        // title dumped in a second category — each a distinct stream id,
+        // all dated within the row.
+        fun dupe(id: String, addedMs: Long) = Movie(
+            id = id, name = "Oppenheimer", poster = null, url = "http://x/movie/$id",
+            categoryId = null, year = currentYear(), addedMs = addedMs,
+        )
+        val index = buildCatalogIndex(
+            ContentBundle(
+                movies = listOf(dupe("a", 3_000L), dupe("b", 2_000L), dupe("c", 1_000L)),
+            )
+        ) { false }
+        assertEquals(1, index.newMovies.size)
+        // The survivor is the newest-added of the three.
+        assertEquals("a", index.newMovies.first().id)
+    }
+
+    @Test
+    fun `two same-named titles from different years are both kept`() {
+        // Both recent (this year and last), so the release-year gate keeps
+        // them; only the (name, year) key tells them apart, and it does.
+        fun film(id: String, yr: Int) = Movie(
+            id = id, name = "Dune", poster = null, url = "http://x/movie/$id",
+            categoryId = null, year = yr, addedMs = 1_000L,
+        )
+        val index = buildCatalogIndex(
+            ContentBundle(movies = listOf(film("thisYear", currentYear()), film("lastYear", currentYear() - 1)))
+        ) { false }
+        assertEquals(2, index.newMovies.size)
     }
 
     @Test

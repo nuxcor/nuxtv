@@ -217,6 +217,25 @@ internal fun isRecentRelease(year: Int?, nowYear: Int): Boolean =
 
 internal fun currentYear(): Int = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
 
+/**
+ * One entry per (title, year), keeping the first — used on a list already in
+ * newest-first order so the survivor is the newest. The title is compared
+ * case- and space-insensitively; the year disambiguates a remake from its
+ * original, so two different films that share a name are both kept.
+ */
+internal inline fun <T> List<T>.dedupeByTitle(
+    name: (T) -> String,
+    year: (T) -> Int?,
+): List<T> {
+    val seen = HashSet<String>(size)
+    val out = ArrayList<T>(size)
+    for (item in this) {
+        val key = name(item).trim().lowercase(java.util.Locale.ROOT) + "|" + (year(item) ?: 0)
+        if (seen.add(key)) out.add(item)
+    }
+    return out
+}
+
 internal fun buildCatalogIndex(
     bundle: ContentBundle,
     nowYear: Int = currentYear(),
@@ -255,6 +274,14 @@ internal fun buildCatalogIndex(
     }
     // Stable: titles the provider dated identically keep playlist order.
     newMovies.sortByDescending { it.addedMs }
+    // One card per title. Providers list the same film several times — a
+    // 4K rung beside an HD one, the same movie dropped into two categories —
+    // each a distinct stream with its own id, all dated within days. Recently
+    // added is the one row that walks the flat list newest-first, so it was
+    // the one that showed the pile. The name is already the cleaned title
+    // (quality and year live in their own fields) and every entry here has a
+    // year, so (name, year) folds the variants and keeps the newest-added.
+    val dedupedMovies = newMovies.dedupeByTitle({ it.name }, { it.year })
 
     val knownSeriesCategories = seriesCategories.mapTo(HashSet()) { it.id }
     val seriesById = HashMap<String, Series>(series.size * 2)
@@ -267,6 +294,7 @@ internal fun buildCatalogIndex(
         if (show.addedMs != null && isRecentRelease(show.year, nowYear)) newSeries.add(show)
     }
     newSeries.sortByDescending { it.addedMs }
+    val dedupedSeries = newSeries.dedupeByTitle({ it.name }, { it.year })
 
     return CatalogIndex(
         bundle = bundle,
@@ -278,8 +306,8 @@ internal fun buildCatalogIndex(
         seriesById = seriesById,
         moviesByCategory = moviesByCategory,
         seriesByCategory = seriesByCategory,
-        newMovies = newMovies,
-        newSeries = newSeries,
+        newMovies = dedupedMovies,
+        newSeries = dedupedSeries,
     )
 }
 
