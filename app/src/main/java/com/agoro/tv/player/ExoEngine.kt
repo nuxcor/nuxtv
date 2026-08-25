@@ -244,7 +244,10 @@ class ExoEngine(
             // of the first frame through the vendor's onFrameRendered callback,
             // which some boxes never send (androidx/media #1169). A tunnelled
             // decoder that truly freezes is TunnelPolicy's case, not this one.
-            videoArmed && !firstFrameDrawn && !tunnelling -> {
+            // And only with sound leaving the device: the failure this is for
+            // is "audio plays, screen black", and a stream that is stuck for
+            // any other reason has not earned a verdict on its decoder.
+            videoArmed && !firstFrameDrawn && !tunnelling && audioAdvancing -> {
                 if (VideoOutputPolicy.reinitOnly) {
                     android.util.Log.w("Agoro", "Video still not drawing on a re-initialised decoder; leaving playback alone")
                     return@Runnable
@@ -351,9 +354,19 @@ class ExoEngine(
             format: Format,
             decoderReuseEvaluation: DecoderReuseEvaluation?,
         ) {
-            videoArmed = true
-            firstFrameDrawn = false
-            scheduleOutputCheck()
+            // Armed ONCE per item. media3 reports a first frame for a new
+            // item and for a new surface, and never for a format change
+            // inside the stream — a resolution switch on an ad break, an HLS
+            // variant switch — so clearing the flag here on every change
+            // called a picture that never stopped a black screen, six
+            // seconds after each change, on every live channel that has
+            // them. That verdict latched a decoder that re-initialises on
+            // every change, which is "buffering and stop" until restart.
+            if (!videoArmed) {
+                videoArmed = true
+                firstFrameDrawn = false
+                scheduleOutputCheck()
+            }
             // Whether the catalogue carries the one Dolby Vision profile
             // media3 has no base-layer fallback for (dvhe.07) is a question
             // only the box can answer; this is how it answers.
