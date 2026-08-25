@@ -45,6 +45,21 @@ class AudioOutputPolicyTest {
     }
 
     @Test
+    fun `passthrough is allowed everywhere until a tunnelled bitstream track is refused`() {
+        assertTrue(AudioOutputPolicy.allowsPassthrough(tunnelled = false))
+        assertTrue(AudioOutputPolicy.allowsPassthrough(tunnelled = true))
+        assertTrue(AudioOutputPolicy.refuseTunnelledPassthrough("HW_AV_SYNC E-AC-3 refused"))
+        assertFalse(AudioOutputPolicy.allowsPassthrough(tunnelled = true))
+        // The untunnelled path is untouched: the output plays the bitstream
+        // there, and this is not the PCM latch.
+        assertTrue(AudioOutputPolicy.allowsPassthrough(tunnelled = false))
+        assertFalse(AudioOutputPolicy.pcmOnly)
+        assertEquals("HW_AV_SYNC E-AC-3 refused", AudioOutputPolicy.tunnelledReason)
+        // Once: a second refusal is not this policy's to answer.
+        assertFalse(AudioOutputPolicy.refuseTunnelledPassthrough("again"))
+    }
+
+    @Test
     fun `a refusal on the PCM player is not answered with another rebuild`() {
         // PCM did not fix it, so the ladder must fall through to its ordinary
         // retries and the error card rather than loop on rebuilds.

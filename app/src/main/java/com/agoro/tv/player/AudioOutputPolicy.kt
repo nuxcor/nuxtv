@@ -40,6 +40,19 @@ import androidx.media3.exoplayer.audio.AudioCapabilities
  * rebuild, a few seconds of black — before the latch turned. Kodi's sink
  * settles the same question by opening the AudioTrack at start-up and
  * trusting what happens rather than what was advertised; so does this.
+ *
+ * There is a second, narrower refusal the first probe could not see. A 4K
+ * or HDR film tunnels, and a tunnelled AudioTrack is a different track —
+ * `FLAG_HW_AV_SYNC`, the HAL keeping sync — which a fair number of boxes
+ * open for PCM and refuse for a bitstream, while opening the same bitstream
+ * untunnelled without complaint. That refusal only ever arrives on a film
+ * that is both 4K/HDR and Dolby, and it was landing on the PCM latch: the
+ * banner, the rebuild, and every film afterwards decoded in the app for a
+ * fault that belonged to one combination. [passthroughWhileTunnelled] is
+ * the narrower answer: bitstream audio is decoded in the app only while the
+ * player is tunnelling, and the untunnelled film keeps its passthrough. The
+ * probe asks the tunnelled question too, and the engine learns it at
+ * runtime for the boxes whose probe passes and whose HAL still says no.
  */
 internal object AudioOutputPolicy {
     /** True once the output has refused a track; every player built after this decodes to PCM. */
@@ -66,6 +79,38 @@ internal object AudioOutputPolicy {
         reason = why
         return true
     }
+
+    /**
+     * False once a tunnelled bitstream track has been refused; from then on
+     * a tunnelling player decodes Dolby and DTS in the app and hands the
+     * tunnelled track PCM, which is the path every AAC channel already
+     * takes. Untunnelled players are not touched. See the class comment.
+     */
+    @Volatile
+    var passthroughWhileTunnelled: Boolean = true
+        private set
+
+    /** What the tunnelled refusal was, for the log; null until refused. */
+    @Volatile
+    var tunnelledReason: String? = null
+        private set
+
+    /**
+     * Records that the output refused a tunnelled bitstream track. True the
+     * first time — the caller's cue to re-open the stream, which re-selects
+     * with passthrough withheld — and false thereafter, when the refusal is
+     * something this policy has already answered and did not fix.
+     */
+    @Synchronized
+    fun refuseTunnelledPassthrough(why: String): Boolean {
+        if (!passthroughWhileTunnelled) return false
+        passthroughWhileTunnelled = false
+        tunnelledReason = why
+        return true
+    }
+
+    /** Whether a bitstream may be handed to the output on this path. */
+    fun allowsPassthrough(tunnelled: Boolean): Boolean = !tunnelled || passthroughWhileTunnelled
 
     /**
      * True once decoded audio has shown the sink enough spurious timestamp
@@ -123,6 +168,7 @@ internal object AudioOutputPolicy {
     @OptIn(UnstableApi::class)
     fun probe(context: Context) {
         if (pcmOnly) return
+        audioManager = context.applicationContext.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
         val attributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
             .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
@@ -133,14 +179,26 @@ internal object AudioOutputPolicy {
             )
             probeEncodings.filter { capabilities.supportsEncoding(it) }
         }.getOrElse { emptyList() }
-        val refused = passthroughVerdict(advertised) { canOpen(it) }
+        val refused = passthroughVerdict(advertised) { canOpen(it, tunnelled = false) }
+        // The tunnelled variant is only worth asking about where the plain
+        // one opened: a refusal of both is the PCM latch's, and it has
+        // already turned.
+        val refusedTunnelled = if (refused != null) null else {
+            passthroughVerdict(advertised) { canOpen(it, tunnelled = true) }
+        }
         android.util.Log.i(
             "Agoro",
             "Passthrough probe: advertised=${advertised.map(::encodingName)} " +
-                "refused=${refused?.let(::encodingName) ?: "none"}",
+                "refused=${refused?.let(::encodingName) ?: "none"} " +
+                "refusedTunnelled=${refusedTunnelled?.let(::encodingName) ?: "none"}",
         )
         if (refused != null) {
             latch("probe: the platform advertised ${encodingName(refused)} passthrough and refused the AudioTrack")
+        }
+        if (refusedTunnelled != null) {
+            refuseTunnelledPassthrough(
+                "probe: the platform opens ${encodingName(refusedTunnelled)} passthrough untunnelled and refuses it tunnelled",
+            )
         }
     }
 
@@ -154,15 +212,22 @@ internal object AudioOutputPolicy {
      * refusals this box has shown arrive here: `UnsupportedOperationException`
      * ("Cannot create AudioTrack") from the builder, or a track that comes
      * back uninitialised.
+     *
+     * [tunnelled] shapes it the way media3 shapes a tunnelled track
+     * (`AudioTrackAudioOutputProvider.getAudioTrackTunnelingAttributes`):
+     * the same usage and content type with `FLAG_HW_AV_SYNC`, on a fresh
+     * audio session, which is what a tunnelled video decoder is later bound
+     * to. Creating the track needs no decoder; that is what makes it a
+     * question the app can ask before any film.
      */
-    private fun canOpen(encoding: Int): Boolean = try {
+    private fun canOpen(encoding: Int, tunnelled: Boolean): Boolean = try {
+        val attributes = android.media.AudioAttributes.Builder()
+            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MOVIE)
+            .apply { if (tunnelled) setFlags(android.media.AudioAttributes.FLAG_HW_AV_SYNC) }
+            .build()
         val track = AudioTrack.Builder()
-            .setAudioAttributes(
-                android.media.AudioAttributes.Builder()
-                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MOVIE)
-                    .build(),
-            )
+            .setAudioAttributes(attributes)
             .setAudioFormat(
                 AudioFormat.Builder()
                     .setEncoding(encoding)
@@ -171,6 +236,7 @@ internal object AudioOutputPolicy {
                     .build(),
             )
             .setBufferSizeInBytes(PROBE_BUFFER_BYTES)
+            .apply { if (tunnelled) setSessionId(probeSessionId()) }
             .build()
         val initialised = track.state == AudioTrack.STATE_INITIALIZED
         track.release()
@@ -178,6 +244,13 @@ internal object AudioOutputPolicy {
     } catch (e: Exception) {
         false
     }
+
+    /** The AudioManager the probe was given, for the tunnelled track's session. */
+    @Volatile
+    private var audioManager: android.media.AudioManager? = null
+
+    private fun probeSessionId(): Int =
+        audioManager?.generateAudioSessionId() ?: android.media.AudioManager.AUDIO_SESSION_ID_GENERATE
 
     private fun encodingName(encoding: Int): String = when (encoding) {
         C.ENCODING_AC3 -> "AC-3"
@@ -190,6 +263,8 @@ internal object AudioOutputPolicy {
     internal fun reset() {
         pcmOnly = false
         reason = null
+        passthroughWhileTunnelled = true
+        tunnelledReason = null
         smoothTimestamps = false
         discontinuities.clear()
     }
