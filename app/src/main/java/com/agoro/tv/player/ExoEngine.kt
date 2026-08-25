@@ -174,10 +174,13 @@ class ExoEngine(
         }
         android.util.Log.w("Agoro", "Audio output refused the track and playback never started", refusal)
         clearSinkRefusal()
-        // Untunnelling re-selects the tracks and re-creates the AudioTrack on
-        // the ordinary path; the player never left BUFFERING, so nothing else
-        // needs restarting.
-        if (refuseTunnelIfPcmRefused()) return@Runnable
+        // A tunnel's refusal is answered in the engine, by re-opening where
+        // the stream was with the tunnel or the bitstream withheld; anything
+        // else is the ladder's.
+        if (handleTunnelledRefusal(refusal)) {
+            playAt(index, resumePositionMs())
+            return@Runnable
+        }
         listener?.onError(humanError("ERROR_CODE_AUDIO_TRACK_INIT_FAILED"), PlaybackFault.AUDIO_OUTPUT)
     }
 
@@ -197,8 +200,11 @@ class ExoEngine(
     private var audioArmed = false
     private var audioAdvancing = false
 
-    /** Which decoder is feeding the sink, or null when the TV is decoding (passthrough). */
+    /** Which decoder is feeding the sink; the passthrough path reports the platform's raw decoder. */
     private var audioDecoderName: String? = null
+
+    /** The encoding of the AudioTrack that last opened, [C.ENCODING_INVALID] until one has. */
+    private var trackEncoding: Int = C.ENCODING_INVALID
 
     /** Which decoder is drawing the picture; the log's answer to "some titles stutter". */
     private var videoDecoderName: String? = null
@@ -219,6 +225,7 @@ class ExoEngine(
         audioArmed = false
         audioAdvancing = false
         audioDecoderName = null
+        trackEncoding = C.ENCODING_INVALID
         videoDecoderName = null
         rebufferStartedAtMs = 0L
         videoArmed = false
@@ -266,13 +273,16 @@ class ExoEngine(
         }
     }
 
-    /** Whether the sink is being fed decoded PCM, as opposed to the TV decoding a bitstream. */
+    /**
+     * Whether the sink is being fed decoded PCM, as opposed to the TV
+     * decoding a bitstream. Read off the AudioTrack that opened, not the
+     * decoder's name: passthrough runs through the platform's raw decoder
+     * (`OMX.google.raw.decoder`, `c2.android.raw.decoder`, a vendor's
+     * `…DECODER.RAW`), and a name test was calling all of them "decoded".
+     */
     private val audioDecodedInApp: Boolean
-        get() {
-            val name = audioDecoderName ?: return false
-            return !name.startsWith("audio.raw", ignoreCase = true) &&
-                !name.startsWith("audio.passthrough", ignoreCase = true)
-        }
+        get() = trackEncoding != C.ENCODING_INVALID &&
+            androidx.media3.common.util.Util.isEncodingLinearPcm(trackEncoding)
 
     private fun clearSinkRefusal() {
         sinkRefusal = null
@@ -435,6 +445,12 @@ class ExoEngine(
             eventTime: AnalyticsListener.EventTime,
             audioTrackConfig: AudioSink.AudioTrackConfig,
         ) {
+            trackEncoding = audioTrackConfig.encoding
+            android.util.Log.i(
+                "Agoro",
+                "AudioTrack opened: encoding=${audioTrackConfig.encoding} channels=${audioTrackConfig.channelConfig}" +
+                    " rate=${audioTrackConfig.sampleRate} tunnelled=${audioTrackConfig.tunneling} decoder=${audioDecoderName ?: "?"}",
+            )
             // The retry took: the refusal was the transient kind the sink's
             // own retry window exists for.
             clearSinkRefusal()
@@ -477,6 +493,9 @@ class ExoEngine(
         if (on == tunnelling) return
         tunnelling = on
         markReconfigured()
+        // The sink's gate first, so the selection this triggers already
+        // knows whether a bitstream may go down the tunnelled track.
+        lease.audioGate.tunnelling = on
         trackSelector.parameters = trackSelector.buildUponParameters()
             .setTunnelingEnabled(on)
             .build()
@@ -503,25 +522,56 @@ class ExoEngine(
      * is the path every AAC channel took before the latch existed, and with
      * the probe latching PCM at launch the veto quietly took the tunnel away
      * from every 4K/HDR channel on the boxes that need it most. If the
-     * tunnelled PCM track IS refused, [refuseTunnelIfPcmRefused] answers
+     * tunnelled PCM track IS refused, [handleTunnelledRefusal] answers
      * that, once, for the process.
      */
     private fun tunnelAllowed(): Boolean = main && !TunnelPolicy.refusedByDevice
 
     /**
-     * A refusal on the PCM sink while tunnelled is the tunnel's doing — there
-     * is no bitstream left to blame — so the device is marked as refusing
-     * the tunnel and the selector asked for the ordinary path, which
-     * re-creates the track untunnelled. True when that was the case and has
-     * been handled; false when the refusal is someone else's.
+     * Answers an AudioTrack refusal that arrived while tunnelled, in the
+     * engine, before it can reach the PCM latch. Two cases, told apart by
+     * the format the sink was trying to open — media3 carries it on the
+     * refusal — and answered in order of how much they cost the viewer:
+     *
+     *  - A BITSTREAM refused while tunnelled, with passthrough still trusted
+     *    on that path: the box opens the tunnelled track for PCM and not for
+     *    Dolby, which is the 4K Dolby Vision film with Dolby Digital+ that
+     *    was landing on the PCM latch. [AudioOutputPolicy.refuseTunnelledPassthrough]
+     *    withholds bitstreams from tunnelled tracks for the process, and
+     *    the re-open decodes this one in the app. Untunnelled films keep
+     *    their passthrough; nothing is rebuilt; no banner.
+     *  - PCM refused while tunnelled — or any refusal once the player is
+     *    already PCM-only: there is no bitstream left to blame, so the
+     *    tunnel itself is what the device will not do. [TunnelPolicy.refuse]
+     *    and the ordinary path, which re-creates the track untunnelled.
+     *
+     * True when the refusal was one of these and has been answered — the
+     * caller re-opens the stream where it was; false when it is someone
+     * else's, and the ladder's.
      */
-    private fun refuseTunnelIfPcmRefused(): Boolean {
-        if (!tunnelling || !AudioOutputPolicy.pcmOnly) return false
-        android.util.Log.w("Agoro", "PCM track refused while tunnelled; tunnelling off for this device")
-        TunnelPolicy.refuse()
-        setTunnelling(false)
-        return true
+    private fun handleTunnelledRefusal(refusal: Throwable?): Boolean {
+        if (!tunnelling) return false
+        val refusedFormat = refusal?.let(::refusedSinkFormat)
+        val pcmRefused = AudioOutputPolicy.pcmOnly || refusedFormat?.sampleMimeType == MimeTypes.AUDIO_RAW
+        return when {
+            pcmRefused -> {
+                android.util.Log.w("Agoro", "PCM track refused while tunnelled; tunnelling off for this device")
+                TunnelPolicy.refuse()
+                setTunnelling(false)
+                true
+            }
+            AudioOutputPolicy.refuseTunnelledPassthrough(
+                "tunnelled ${refusedFormat?.sampleMimeType ?: "bitstream"} track refused; decoding it in the app while tunnelled",
+            ) -> {
+                android.util.Log.w("Agoro", "Bitstream refused while tunnelled; passthrough withheld from tunnelled tracks for this device")
+                true
+            }
+            else -> false
+        }
     }
+
+    /** Where a re-open after a refusal picks up: the edge on live, the position on a film. */
+    private fun resumePositionMs(): Long = if (live) 0L else player.currentPosition.coerceAtLeast(0L)
 
     private companion object {
         /**
@@ -656,10 +706,10 @@ class ExoEngine(
             android.util.Log.w("Agoro", "Playback error ${error.errorCodeName}", error)
             val httpStatus = httpStatusOf(error)
             val fault = faultOf(error.errorCodeName, httpStatus)
-            // A thrown refusal leaves the player idle, so the untunnelled
-            // retry has to re-open the item — live at the edge, VOD where it was.
-            if (fault == PlaybackFault.AUDIO_OUTPUT && refuseTunnelIfPcmRefused()) {
-                playAt(index, if (live) 0L else player.currentPosition.coerceAtLeast(0L))
+            // A thrown refusal leaves the player idle, so the answer has to
+            // re-open the item — live at the edge, VOD where it was.
+            if (fault == PlaybackFault.AUDIO_OUTPUT && handleTunnelledRefusal(error)) {
+                playAt(index, resumePositionMs())
                 return
             }
             listener?.onError(humanError(error.errorCodeName, httpStatus), fault)
@@ -1054,6 +1104,20 @@ internal fun humanError(errorCodeName: String, httpStatus: Int? = null): String 
         httpReason(httpStatus)?.let { return it }
     }
     return humanErrorForCode(errorCodeName)
+}
+
+/** The format the audio sink was opening when it was refused, from the cause chain. */
+@OptIn(UnstableApi::class)
+internal fun refusedSinkFormat(error: Throwable): Format? {
+    var cause: Throwable? = error
+    while (cause != null) {
+        when (cause) {
+            is AudioSink.InitializationException -> return cause.format
+            is AudioSink.WriteException -> return cause.format
+        }
+        cause = cause.cause
+    }
+    return null
 }
 
 /** The provider's HTTP status from the cause chain, when the failure was its answer. */

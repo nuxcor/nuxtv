@@ -8,6 +8,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.datasource.DataSource
@@ -18,9 +19,11 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.audio.AudioOutputProvider
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.AudioTrackAudioOutputProvider
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.audio.ForwardingAudioOutputProvider
 import androidx.media3.exoplayer.drm.DrmSessionManagerProvider
 import androidx.media3.exoplayer.hls.DefaultHlsExtractorFactory
 import androidx.media3.exoplayer.hls.HlsMediaSource
@@ -322,11 +325,12 @@ object PlayerPool {
         val reinitVideo: Boolean,
     )
 
-    /** One borrowed player and the selector it was built with. */
+    /** One borrowed player, the selector it was built with, and its sink's tunnel gate. */
     class Lease internal constructor(
         val player: ExoPlayer,
         val trackSelector: DefaultTrackSelector,
         internal val slot: Slot,
+        internal val audioGate: TunnelledAudioGate,
     )
 
     /**
@@ -393,6 +397,7 @@ object PlayerPool {
         player.volume = 1f
         player.setPlaybackSpeed(1f)
         player.clearVideoSurface()
+        lease.audioGate.tunnelling = false
         if (idle[lease.slot] == null) {
             idle[lease.slot] = lease
             evictBeyondCap(keep = lease.slot)
@@ -466,7 +471,8 @@ object PlayerPool {
             // to pay with.
             .setReadTimeoutMs(if (slot.live) 8_000 else 20_000)
         // Stock until an output latch says otherwise; see AgoroRenderersFactory.
-        val renderers = AgoroRenderersFactory(context, slot)
+        val audioGate = TunnelledAudioGate()
+        val renderers = AgoroRenderersFactory(context, slot, audioGate)
             // ON, not PREFER: hardware decoders first, software only as a
             // fallback. PREFER puts software ahead of MediaCodec, which drops
             // frames on TV silicon the moment a decoder extension is present.
@@ -515,7 +521,7 @@ object PlayerPool {
             // less than the frame it costs, and ExoPlayer only logs a timeout.
             .setReleaseTimeoutMs(100)
             .build()
-        return Lease(player, trackSelector, slot)
+        return Lease(player, trackSelector, slot, audioGate)
     }
 }
 
@@ -550,6 +556,7 @@ object PlayerPool {
 private class AgoroRenderersFactory(
     context: Context,
     private val slot: PlayerPool.Slot,
+    private val audioGate: TunnelledAudioGate,
 ) : DefaultRenderersFactory(context) {
 
     override fun buildAudioSink(
@@ -557,13 +564,17 @@ private class AgoroRenderersFactory(
         enableFloatOutput: Boolean,
         enableAudioOutputPlaybackParams: Boolean,
     ): AudioSink {
-        val builder = DefaultAudioSink.Builder(context)
+        // With a Context the provider reads the HDMI capabilities and keeps
+        // reading them; without one it believes in 16-bit PCM and nothing
+        // else, which is the PCM latch. Either way it sits behind the tunnel
+        // gate, which withholds bitstreams from a tunnelled track once the
+        // output has refused one; see TunnelGatedAudioOutputProvider.
+        val output = AudioTrackAudioOutputProvider.Builder(if (slot.pcmOnly) null else context).build()
+        val sink = DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(enableFloatOutput)
             .setEnableAudioOutputPlaybackParameters(enableAudioOutputPlaybackParams)
-        if (slot.pcmOnly) {
-            builder.setAudioOutputProvider(AudioTrackAudioOutputProvider.Builder(/* context = */ null).build())
-        }
-        val sink = builder.build()
+            .setAudioOutputProvider(TunnelGatedAudioOutputProvider(output, audioGate))
+            .build()
         return if (slot.smoothPts) PtsSmoothingAudioSink(sink) else sink
     }
 
@@ -596,6 +607,53 @@ private class AgoroRenderersFactory(
                 .setEventListener(eventListener)
                 .setMaxDroppedFramesToNotify(DefaultRenderersFactory.MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY),
         )
+    }
+}
+
+/**
+ * Whether the player a sink belongs to is asking for tunnelled rendering.
+ *
+ * Set by the engine BEFORE it changes the selector, because the sink's own
+ * tunnelling flag only turns when the audio renderer is enabled — which is
+ * after the track selection that decided between passthrough and decoding
+ * has already been made. Reset when the player goes back to the pool.
+ */
+internal class TunnelledAudioGate {
+    @Volatile
+    var tunnelling: Boolean = false
+}
+
+/**
+ * The output provider with one rule in front of it: while the player is
+ * tunnelling and [AudioOutputPolicy.passthroughWhileTunnelled] has turned,
+ * no bitstream is "supported". `MediaCodecAudioRenderer` asks the sink
+ * whether it supports the compressed format before choosing between the
+ * passthrough codec and a real decoder, so answering no here is what routes
+ * a tunnelled Dolby track through the platform's or FFmpeg's decoder and
+ * hands the tunnelled AudioTrack PCM — the track such a box does open. The
+ * untunnelled question is passed straight through; that path was never the
+ * problem.
+ */
+@OptIn(UnstableApi::class)
+private class TunnelGatedAudioOutputProvider(
+    delegate: AudioOutputProvider,
+    private val gate: TunnelledAudioGate,
+) : ForwardingAudioOutputProvider(delegate) {
+
+    override fun getFormatSupport(
+        formatConfig: AudioOutputProvider.FormatConfig,
+    ): AudioOutputProvider.FormatSupport {
+        // The gate, not formatConfig.enableTunneling. The sink's flag is a
+        // record of the LAST renderer enable, and a selection is made
+        // before the next one: after a tunnelled stream it still reads
+        // true while an ordinary film is choosing its audio path, and
+        // reading it here withheld passthrough from every film that
+        // followed a 4K one on the same pooled player.
+        val bitstream = formatConfig.format.sampleMimeType != MimeTypes.AUDIO_RAW
+        if (gate.tunnelling && bitstream && !AudioOutputPolicy.allowsPassthrough(tunnelled = true)) {
+            return AudioOutputProvider.FormatSupport.UNSUPPORTED
+        }
+        return super.getFormatSupport(formatConfig)
     }
 }
 
