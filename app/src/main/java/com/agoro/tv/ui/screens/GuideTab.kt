@@ -384,7 +384,16 @@ fun GuideTab(
             true
         } else false
     }
-    gridHandle.beforePlayImpl = { preview.release() }
+    // Hand the preview's connection back, and say so, because a tune follows.
+    // The panel keeps counting a just-ended connection for seconds after the
+    // client drops it, so the tune waits for the count to fall instead of
+    // asking for a second one the line may not allow — see
+    // MainViewModel.awaitLiveSlotAfterHandover. Only the routes that lead
+    // straight into playback report a handover: a preview that merely stands
+    // down (for a recording, for the app going to background) frees nothing
+    // the next tune should sit and wait on.
+    val releasePreviewForPlay = { if (preview.release()) vm.noteLiveSlotHandover() }
+    gridHandle.beforePlayImpl = releasePreviewForPlay
     // Digits tune from anywhere in the tab — the strip and the day chip
     // included. Collected here (preview phase runs ancestors first, so this
     // is THE collector while the grid is hosted here); the grid executes the
@@ -578,7 +587,7 @@ fun GuideTab(
                 // one. Two engines briefly alive at once is one too
                 // many on a line that allows two, and the stream
                 // refused is the one the viewer just asked for.
-                preview.release()
+                releasePreviewForPlay()
                 // By id, never by value. LiveChannel is a data class, so
                 // indexOf compares every field - fallbackUrls included, and
                 // those change as the catalogue learns each stream's real
@@ -593,7 +602,7 @@ fun GuideTab(
                 scope.launch {
                     val url = vm.catchupUrl(channel, program)
                     if (url != null) {
-                        preview.release()
+                        releasePreviewForPlay()
                         vm.playCatchup(channel, program, url)
                         onPlay()
                     } else {

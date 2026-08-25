@@ -683,6 +683,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         const val AWAIT_SLOT_TIMEOUT_MS = 45_000L
         /** Only wait for a slot on a line this tightly capped; above it there is room to spare. */
         const val CONNECTION_CAP_TO_GATE = 2
+
+        /**
+         * A live or catch-up tune this soon after a preview let go of its
+         * connection is the same slot changing hands, so it waits for the
+         * count to fall.
+         * Later than this and the handover is over — whatever holds the line
+         * now is something else, and the tune should not sit on it.
+         */
+        const val SLOT_HANDOVER_WINDOW_MS = 15_000L
+
+        /**
+         * Give up waiting for a handover and open anyway after this — much
+         * sooner than a reconnect's [AWAIT_SLOT_TIMEOUT_MS], because here the
+         * viewer has just pressed OK and is watching the connecting screen.
+         * Trying and letting the ladder recover beats a longer black wait.
+         */
+        const val SLOT_HANDOVER_TIMEOUT_MS = 12_000L
     }
 
     fun downloadAndInstallUpdate() {
@@ -916,9 +933,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * The preview is on, and yields to a recording. "Connections" meter
      * simultaneous STREAMS, not logins — and while the guide is open nothing
      * else is streaming, so even a single-stream plan has its slot free; the
-     * guide releases the preview before fullscreen opens, and this held up
-     * against a real 1-connection line. The one thing that genuinely occupies
-     * the slot is an active recording, so the preview stands down for it —
+     * guide releases the preview before fullscreen opens — and the tune that
+     * follows waits for the panel to agree, see [awaitLiveSlotAfterHandover].
+     * This held up against a real 1-connection line. The one thing that
+     * genuinely occupies the slot is an active recording, so the preview
+     * stands down for it —
      * unless the plan has a second connection to spare.
      *
      * This was Auto/On/Off. Off was a preference for a thing that costs
@@ -954,10 +973,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * own backoff to apply. Refreshes [accountInfo] as it goes, so the
      * Settings meter counts down with it.
      */
-    suspend fun awaitFreeLiveSlot(): Boolean {
+    suspend fun awaitFreeLiveSlot(): Boolean = pollForFreeLiveSlot(AWAIT_SLOT_TIMEOUT_MS)
+
+    /**
+     * The poll itself, with the deadline the caller can afford. A reconnect
+     * can wait a long time — nothing is on screen but an error it is trying to
+     * avoid — while a viewer who has just pressed OK cannot.
+     */
+    private suspend fun pollForFreeLiveSlot(timeoutMs: Long): Boolean {
         val max = accountInfo.value?.maxConnections ?: return false
         if (max > CONNECTION_CAP_TO_GATE) return false
-        val deadline = android.os.SystemClock.elapsedRealtime() + AWAIT_SLOT_TIMEOUT_MS
+        val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs
         while (android.os.SystemClock.elapsedRealtime() < deadline) {
             val info = repo.accountInfo() ?: return true
             _accountInfo.value = info
@@ -965,6 +991,41 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             kotlinx.coroutines.delay(AWAIT_SLOT_POLL_MS)
         }
         return true
+    }
+
+    /** When the guide preview last gave a live connection back. See [noteLiveSlotHandover]. */
+    @Volatile
+    private var slotHandoverAtMs = 0L
+
+    /**
+     * The guide preview has released its stream and a tune is expected to
+     * follow. The client has let go, but a capped panel keeps counting the
+     * slot for seconds afterwards — see [awaitLiveSlotAfterHandover].
+     */
+    fun noteLiveSlotHandover() {
+        slotHandoverAtMs = android.os.SystemClock.elapsedRealtime()
+    }
+
+    /**
+     * Waits, once, for the slot a just-released preview still occupies on the
+     * panel's books before the player asks for it.
+     *
+     * The preview already stands down before fullscreen opens, so the two are
+     * never deliberately open at once; this covers the gap that ordering
+     * cannot close, which is the panel's own lag in freeing what the app has
+     * already dropped. Without it the tune the viewer actually asked for is
+     * the one refused, and the recovery is a reconnect ladder unwinding on
+     * screen. Costs nothing on an uncapped line, or on any tune no preview
+     * preceded: the stamp is consumed here, so a zap that follows does not
+     * wait on a connection the player itself is holding.
+     */
+    suspend fun awaitLiveSlotAfterHandover() {
+        val handoverAt = slotHandoverAtMs
+        if (handoverAt == 0L) return
+        slotHandoverAtMs = 0L
+        val since = android.os.SystemClock.elapsedRealtime() - handoverAt
+        if (since > SLOT_HANDOVER_WINDOW_MS) return
+        pollForFreeLiveSlot(SLOT_HANDOVER_TIMEOUT_MS)
     }
 
     fun selectSource(id: String) = viewModelScope.launch { repo.selectSource(id) }

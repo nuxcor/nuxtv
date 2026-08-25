@@ -77,11 +77,20 @@ class GuidePreviewController internal constructor(
      * that overlaps with a preview still holding one — the stream the viewer
      * actually asked for is then the one that gets refused. Leaving it to
      * whichever DisposableEffect happens to run first is not an ordering.
+     *
+     * Returns whether a connection was actually given back. Letting go of the
+     * stream is not the same as the panel counting the slot free again — it
+     * goes on counting a just-ended connection for seconds — so a caller that
+     * is about to tune uses this to say a handover has started, and the tune
+     * then waits for the count to fall rather than asking for a second
+     * connection the line may not allow. See MainViewModel.noteLiveSlotHandover.
      */
-    fun release() {
+    fun release(): Boolean {
+        val heldSlot = engine != null
         engine?.release()
         engine = null
         generation++
+        return heldSlot
     }
 }
 

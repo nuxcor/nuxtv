@@ -225,6 +225,18 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             session.vodSpeedLoaded = true
             prefs.vodSpeed.first().takeIf { it != 1f }?.let { session.speed = it }
         }
+        // A guide preview may have handed its connection back a second ago,
+        // and a capped panel goes on counting that slot after the client has
+        // dropped it. Opening now would be asking for a second connection the
+        // line may not allow, and the stream refused would be the one the
+        // viewer just chose. The connecting screen is already up (tuning went
+        // true above), so the wait costs nothing the viewer can see. No-op
+        // where no preview preceded this tune, and on any line with room.
+        //
+        // Catch-up counts: it carries isLive = false because it seeks like a
+        // file, but it is served by the same panel and counted against the
+        // same cap — and the guide plays it from the same preview.
+        if (request.isLive || request.isCatchup) vm.awaitLiveSlotAfterHandover()
         engine.prepare(request.items, startIndex, resume, isLive = request.isLive)
         // A recreated engine starts at defaults; re-apply the user's choices.
         if (session.speed != 1f) engine.setSpeed(session.speed)
