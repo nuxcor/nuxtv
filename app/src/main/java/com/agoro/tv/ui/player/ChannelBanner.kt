@@ -234,12 +234,13 @@ internal fun ChannelBanner(
 }
 
 /**
- * The intentional "connecting" screen a fresh tune opens on, so arriving at
- * the player from a poster or a fixture is never a flat black void waiting
- * for the first frame. A soft brand-gold glow breathing over the dark video
- * canvas, under the [TuneCard]'s name and sweep. Only for a fresh arrival —
- * a zap keeps the last frame showing through the card instead, which is why
- * the caller hides this once anything has played.
+ * The intentional "connecting" screen every tune opens on, so opening a
+ * stream is never a flat black void waiting for the first frame — a fresh
+ * open from a poster or a fixture, a pick from the channel-list panel, a zap.
+ * A soft brand-gold glow breathing over the dark video canvas, under the
+ * [TuneCard]'s name and sweep. The player clears its surface to a black
+ * shutter on every re-tune, so there is never a live frame beneath this to
+ * hide.
  *
  * The breath is read inside graphicsLayer, so each frame is a draw and
  * nothing recomposes; the glow is one radial brush drawn once.

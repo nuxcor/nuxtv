@@ -181,14 +181,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     val channel: LiveChannel? = item?.channelId?.let { vm.channelById(it) }
     val isVod = !request.isLive
 
-    // Whether anything has drawn yet this player visit. The rich tuning
-    // backdrop is for the FIRST arrival only — once a frame has landed, a zap
-    // shows the last frame through the TuneCard instead, so the backdrop must
-    // not cover it. Latches on the first play and never clears while the
-    // screen lives.
-    var everPlayed by remember { mutableStateOf(false) }
-    LaunchedEffect(session.playing) { if (session.playing) everPlayed = true }
-
     // Engine lives until something asks for a rebuild; see engineGeneration.
     val engine = remember(session.engineGeneration) {
         // A channel the app has seen decode at 4K OR in HDR tunnels from its
@@ -825,14 +817,17 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             )
         }
 
-        // The connecting screen a FRESH tune opens on — a soft glow over the
-        // dark canvas — so arriving from a poster or a fixture is never a flat
-        // black void while the engine builds. Not on a zap: there the last
-        // frame shows through the card instead, so this is gated on nothing
-        // having played yet. Present from the first frame (no enter fade) so
-        // there is no black beat before it; it fades out as the picture lands.
+        // The connecting screen every tune opens on — a soft glow over the
+        // dark canvas — so opening a stream is never a flat black void while
+        // the engine builds. Every re-tune clears the surface to a black
+        // shutter (keepContentOnPlayerReset is false), so there is never a
+        // last frame to preserve: a fresh open from a poster or a fixture, a
+        // pick from the channel-list panel, and a zap all land here. Present
+        // from the first frame (no enter fade) so there is no black beat
+        // before it, and held across a zap chain because tuning stays true
+        // throughout; it fades out as the picture lands.
         AnimatedVisibility(
-            visible = session.tuning && !everPlayed && session.errorMessage == null &&
+            visible = session.tuning && session.errorMessage == null &&
                 !inPip && session.layer != PlayerLayer.Guide,
             enter = androidx.compose.animation.EnterTransition.None,
             exit = PlayerMotion.exitFade(),
