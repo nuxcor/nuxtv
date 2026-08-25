@@ -65,6 +65,19 @@ class PlayerKeyHandlerTest {
     }
 
     @Test
+    fun `OK on a single-channel live session shows the controls, not an empty list`() {
+        val up = press(
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            centerArmed = true,
+            isKeyDown = false,
+            isKeyUp = true,
+            hasMultipleItems = false,
+        )
+        assertTrue(up.consumed)
+        assertEquals(PlayerKeyAction.ShowControls, up.action)
+    }
+
+    @Test
     fun `the channel options stay one gesture away — a hold, or MENU`() {
         val hold = press(
             KeyEvent.KEYCODE_DPAD_CENTER,

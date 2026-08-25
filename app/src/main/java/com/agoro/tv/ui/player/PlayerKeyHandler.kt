@@ -166,8 +166,10 @@ internal fun playerKeyAction(
                 // options (favourite, record, catch-up…) are the secondary
                 // surface and stay on the secondary gestures: a hold of OK,
                 // or MENU — the same "OK acts, a hold opens the menu" split
-                // the cards use everywhere else. VOD keeps the controls.
-                action = if (isLive) PlayerKeyAction.OpenChannelList
+                // the cards use everywhere else. VOD keeps the controls, and
+                // so does a single-channel live session — a one-item channel
+                // list is nothing to open — exactly as LEFT decides.
+                action = if (isLive && hasMultipleItems) PlayerKeyAction.OpenChannelList
                 else PlayerKeyAction.ShowControls,
             )
         }
