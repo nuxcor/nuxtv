@@ -169,7 +169,7 @@ class PairingServer(
     internal fun formHtml(error: String? = null) = """
         <!doctype html><html><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Sign in to Agoro</title><style>
+        <title>Sign in to Agorɔ</title><style>
         body{background:#0B0A09;color:#EEEEED;font-family:-apple-system,Roboto,sans-serif;
              margin:0;padding:28px 20px;display:flex;justify-content:center}
         .card{width:100%;max-width:420px}
@@ -183,7 +183,7 @@ class PairingServer(
                border-radius:10px;padding:14px;font-size:16px;font-weight:600}
         .err{color:#FF6B6B;font-size:14px;margin:12px 0 0}
         </style></head><body><div class="card">
-        <h1>Agoro</h1><p>Enter the login your IPTV provider gave you.</p>
+        <h1>Agorɔ</h1><p>Enter the login your IPTV provider gave you.</p>
         <form method="post">
         ${
         if (defaultServer.isNullOrBlank()) """

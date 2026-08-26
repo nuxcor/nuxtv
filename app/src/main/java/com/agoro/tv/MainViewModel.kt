@@ -681,7 +681,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         const val UPDATE_RECHECK_MS = 3L * 60 * 60 * 1000
 
         const val INSTALL_BLOCKED =
-            "Couldn't start the installer — allow \"install unknown apps\" for Agoro, then press Install"
+            "Couldn't start the installer — allow \"install unknown apps\" for Agorɔ, then press Install"
 
         /** Poll `active_cons` this often while waiting for a live slot to free. */
         const val AWAIT_SLOT_POLL_MS = 3_000L
