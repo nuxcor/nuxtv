@@ -97,6 +97,7 @@ class PlayerPrefs(private val context: Context) {
     private val liveTsMigratedKey = stringPreferencesKey("live_ts_migrated")
     private val episodeOriginsKey = stringPreferencesKey("episode_origins")
     private val artworkKey = stringPreferencesKey("tmdb_artwork")
+    private val resumeLiveChannelKey = stringPreferencesKey("resume_live_channel")
 
     /**
      * One decode per distinct blob, shared by every collector.
@@ -457,6 +458,34 @@ class PlayerPrefs(private val context: Context) {
 
     suspend fun clearRecentChannels() {
         context.playerDataStore.edit { it[recentChannelsKey] = json.encodeToString(emptyList<String>()) }
+    }
+
+    /**
+     * The live channel a cold start reopens on, or null to open Home.
+     *
+     * A television comes back on the channel it went off on. A film does not:
+     * it is a thing you chose to sit down for, and starting one unbidden
+     * because the box woke up is not resuming, it is interrupting. So this is
+     * written only while a live channel is playing, and cleared the moment the
+     * viewer leaves the player or plays anything that isn't live — it says
+     * "was watching", not "watched", which is why it cannot just read
+     * [recentChannels].
+     *
+     * Keyed by stream URL like [recentChannels] and favourites, and read back
+     * through LiveChannel.answersTo for the same reason: the feed the viewer
+     * tuned is frequently the one that later LOST a merge.
+     */
+    val resumeLiveChannel: Flow<String?> = context.playerDataStore.data.map { prefs ->
+        prefs[resumeLiveChannelKey]
+    }
+
+    suspend fun setResumeLiveChannel(url: String?) {
+        context.playerDataStore.edit { prefs ->
+            // Removed rather than blanked: an empty string is a value, and one
+            // the reader would then have to filter back out on every read.
+            if (url == null) prefs.remove(resumeLiveChannelKey)
+            else prefs[resumeLiveChannelKey] = url
+        }
     }
 
     // --- scheduled recordings -------------------------------------------------

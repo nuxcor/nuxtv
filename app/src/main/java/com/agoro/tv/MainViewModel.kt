@@ -20,6 +20,7 @@ import com.agoro.tv.data.PlayableItem
 import com.agoro.tv.data.PlaybackRequest
 import com.agoro.tv.data.PlayerPrefs
 import com.agoro.tv.data.PlaylistSource
+import com.agoro.tv.data.indexAnswering
 import com.agoro.tv.data.ScheduledRecording
 import com.agoro.tv.data.Series
 import com.agoro.tv.recording.ActiveRecording
@@ -39,6 +40,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 sealed class AddState {
     data object Idle : AddState()
@@ -567,6 +569,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         refreshRecordings()
+        // Before anything composes: the shell holds the boot background until
+        // this answers, so it must not wait on anything an install with no
+        // channel to resume doesn't already have.
+        resolveStartTarget()
         // Load the guide when a playlist becomes readable and whenever the
         // playlist it belongs to changes — NOT on every publish of content.
         // A cold start publishes the catalogue at least twice (the cache,
@@ -683,6 +689,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         const val AWAIT_SLOT_TIMEOUT_MS = 45_000L
         /** Only wait for a slot on a line this tightly capped; above it there is room to spare. */
         const val CONNECTION_CAP_TO_GATE = 2
+
+        /**
+         * How long a launch with a channel to resume waits for the catalogue
+         * before giving up and opening Home. Long enough for a cache read on a
+         * slow box, short enough that a dead playlist doesn't hold the app on
+         * a blank screen — the splash is showing for the first part of it.
+         */
+        const val RESUME_CATALOGUE_WAIT_MS = 4_000L
+
+        /**
+         * And how long to then wait for [displayChannels] to fill. It is
+         * derived from the catalogue plus the hidden and parental filters, so
+         * it lands a beat after the catalogue settles — but a playlist whose
+         * every channel is hidden or locked never fills it at all.
+         */
+        const val RESUME_FILTER_WAIT_MS = 2_000L
 
         /**
          * A live or catch-up tune this soon after a preview let go of its
@@ -1438,6 +1460,103 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    // --- launch target --------------------------------------------------------
+
+    private val _startTarget = MutableStateFlow(StartTarget.Pending)
+
+    /**
+     * Whether this launch opens on the player or on Home.
+     *
+     * Resolved once, before anything is drawn, so the shell can hold the boot
+     * background rather than flashing Home on its way to a channel. An install
+     * with nothing to resume settles this on the first read and waits for
+     * nothing — only a launch that HAS a channel to reopen waits for the
+     * catalogue, and then only until [RESUME_CATALOGUE_WAIT_MS].
+     */
+    val startTarget: StateFlow<StartTarget> = _startTarget
+
+    private fun resolveStartTarget() {
+        viewModelScope.launch {
+            // Nothing here may leave the target Pending: the shell holds a
+            // bare background until this answers, so a throw would be an
+            // unrecoverable black screen rather than a lost convenience.
+            val target = runCatching { decideStartTarget() }
+                .getOrElse { StartTarget.Home }
+            _startTarget.value = target
+        }
+    }
+
+    private suspend fun decideStartTarget(): StartTarget {
+        val url = withTimeoutOrNull(RESUME_CATALOGUE_WAIT_MS) {
+            playerPrefs.resumeLiveChannel.first()
+        }
+        // Seeded whether or not anything is resumed, so the first clear from
+        // the player is not mistaken for a no-op — see [rememberLiveResume].
+        rememberedLiveUrl = url
+        if (url == null) return StartTarget.Home
+
+        // Any settled state, not Ready specifically: a playlist that comes
+        // back Empty or Error has answered, and waiting out the full timeout
+        // for an answer already given would hold the viewer on a black screen
+        // for no reason. Only a genuinely slow load waits.
+        val settled = withTimeoutOrNull(RESUME_CATALOGUE_WAIT_MS) {
+            content.first { it !is ContentState.Loading }
+        }
+        // displayChannels, never bundle.channels. The raw catalogue still
+        // contains the channels the viewer hid and — the reason this matters —
+        // the ones a parental PIN is meant to be keeping from them. Locking in
+        // this app is enforced by filtering, with no PIN gate inside the
+        // player, so resuming out of the raw list would open a locked channel
+        // full-screen on launch with nothing asked. It is also the list every
+        // other route into the player uses, so a resumed launch zaps through
+        // the same lineup rather than a private one full of SD/HD duplicates.
+        // Null when the visible list never filled — which is NOT the same as
+        // the channel being absent from it, and must not be read as one.
+        val channels = if (settled is ContentState.Ready) {
+            withTimeoutOrNull(RESUME_FILTER_WAIT_MS) {
+                displayChannels.first { it.isNotEmpty() }
+            }
+        } else null
+
+        val index = channels?.indexAnswering(url)
+        return when (resumeOutcome(settled, index)) {
+            ResumeOutcome.OpenPlayer -> {
+                playChannels(channels.orEmpty(), index ?: 0)
+                StartTarget.Player
+            }
+            ResumeOutcome.ForgetAndOpenHome -> {
+                // The catalogue answered and the channel is not in it, so the
+                // url is dead rather than merely unreachable. Forget it, or
+                // every launch from here pays this wait again and lands on
+                // Home anyway.
+                rememberLiveResume(null)
+                StartTarget.Home
+            }
+            // Kept, not forgotten: the catalogue never arrived, which says
+            // nothing about whether the channel is still there.
+            ResumeOutcome.OpenHome -> StartTarget.Home
+        }
+    }
+
+    /**
+     * Remember [url] as the channel to reopen on the next cold start, or
+     * forget whatever was remembered when it is null. See
+     * PlayerPrefs.resumeLiveChannel for what does and does not qualify.
+     */
+    fun rememberLiveResume(url: String?) {
+        // Writing what is already written is a whole DataStore file rewrite
+        // that re-emits the Preferences object to every collector in the app.
+        // The clear in particular is fired on every index change of a series
+        // binge, and all but the first of those say nothing new.
+        if (url == rememberedLiveUrl) return
+        rememberedLiveUrl = url
+        viewModelScope.launch { playerPrefs.setResumeLiveChannel(url) }
+    }
+
+    /** Last value handed to [rememberLiveResume], to keep it from re-writing it. */
+    @Volatile
+    private var rememberedLiveUrl: String? = null
+
     // --- playback -------------------------------------------------------------
 
     fun playChannels(channels: List<LiveChannel>, startIndex: Int) {
@@ -1578,4 +1697,32 @@ private fun searchRank(name: String, query: String, tokens: List<String>): Int? 
         folded.split(' ', '-', '.', '(', '[').any { it.startsWith(tokens.first()) } -> 1
         else -> 2
     }
+}
+
+/**
+ * Where a launch lands. [Pending] is the brief moment before the answer is
+ * known, and the shell shows the boot background for it rather than guessing.
+ */
+enum class StartTarget { Pending, Home, Player }
+
+/** What a launch does with a remembered channel; see [resumeOutcome]. */
+enum class ResumeOutcome { OpenHome, OpenPlayer, ForgetAndOpenHome }
+
+/**
+ * Whether a remembered channel is resumed, and whether it is still worth
+ * remembering, given how far the catalogue got and where the channel was found.
+ *
+ * The distinction that matters is between a channel the catalogue says is GONE
+ * and one the catalogue never described. The first should be forgotten — kept,
+ * it makes every later launch wait for a catalogue only to land on Home anyway.
+ * The second must be kept: a playlist that failed to load, or a visible list
+ * that had not finished filtering yet, says nothing about whether the channel
+ * is still there. [index] is null for exactly that case — no list to look in —
+ * as against -1, which is a list that was looked in and did not have it.
+ */
+fun resumeOutcome(settled: ContentState?, index: Int?): ResumeOutcome = when {
+    settled !is ContentState.Ready -> ResumeOutcome.OpenHome
+    index == null -> ResumeOutcome.OpenHome
+    index < 0 -> ResumeOutcome.ForgetAndOpenHome
+    else -> ResumeOutcome.OpenPlayer
 }
