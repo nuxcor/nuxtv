@@ -576,8 +576,25 @@ MISFILED_TERRITORY = re.compile(r'\bTSN\s+SPORT\b|\bBEIN\s+SP(?:OR)?TS?\s+AU\b',
 # and nothing on the shelf explains what they carry.
 UNWANTED_SPORT = re.compile(r'\bBFBS\b|\bZ\s*CLASSIC\b|\bSPORT\s*STAK\b', re.I)
 
+# Named for removal by hand, whatever shelf they land on.
+#
+# Every other pass here is a pattern over a class of streams. This one is the
+# escape hatch for the single channel that is filed in a section it has no
+# business in and that no rule is going to catch, because it does not look
+# wrong from the outside — the news trim only carries an allowlist for US
+# (MAIN_NEWS is keyed 'US'), so anything the provider files under UK| NEWS
+# ships as news whatever it is.
+#
+# Add a line, with the reason, and rebuild.
+NAMED_REMOVAL = re.compile(
+    # A cruise-holiday infomercial on the UK News shelf beside Sky News and
+    # France 24. Removed 2026-08-26 at the user's request.
+    r'\bCRUISE\s*1ST\b',
+    re.I)
+
 telemundo_drop, rsn_drop, ca_drop, us_news_drop = [], [], [], []
 misfiled_territory = []
+named_drop = []
 defunct_drop = []
 for s in ls:
     if s['stream_id'] in junkset: continue
@@ -610,6 +627,8 @@ for s in ls:
         us_news_drop.append(s['stream_id']); continue
     if DEFUNCT_FEED.search(asc(s['name'])):
         defunct_drop.append(s['stream_id']); continue
+    if NAMED_REMOVAL.search(asc(s['name'])):
+        named_drop.append(s['stream_id']); continue
     # Anchored to the start of the NAME, not searched anywhere in it: PPV
     # listings carry "South Africa v New Zealand: SuperSport Coverage", which
     # is a fixture being broadcast, not the channel being duplicated.
@@ -1037,13 +1056,23 @@ for _t in uk_collapse.values():
 uk_locals_drop = [x for x in uk_locals_drop if x not in _uk_primaries]
 
 
-# ------------------------------------------------------------ AFR, shown as DSTV
-# Keep the DStv bundle plus the Ghanaian channels out of Africa VIP; drop the
-# rest (francophone West African locals, Somali, Ethiopian, Azam, Canal+,
-# Mauritius). Then drop anything already carried under US or UK.
-AFR_LABEL = "DStv"   # the brand's own casing; the shelf chip renders this verbatim
-AFR_KEEP_CATEGORY = re.compile(r'DSTV', re.I)
-AFR_KEEP_PREFIX   = re.compile(r'^GHA\s*:', re.I)      # Ghana, from Africa VIP
+# ------------------------------------------------------- AFR, shown as SUPERSPORT
+# SuperSport, and nothing else.
+#
+# The shelf was the DStv bundle plus the Ghanaian channels out of Africa VIP —
+# 68 channels — until 2026-08-26, when the user asked for the sport on its own
+# and for the shelf to be named after it. They were shown exactly what that
+# costs before it was done: 31 other DStv channels (Africa Magic, AIT,
+# Soundcity, ROK, TV47, ZNBC2, Akwaaba Magic, GTV, Prime TV) and all 14
+# Ghanaian ones (Adom TV, GH One, Metro TV, Ghana Broadcasting, GTV Gov,
+# Kessben, Rock TV, Royal TV, Studio1), and chose it.
+#
+# To bring either group back, add its term to `keep` below:
+#   the DStv bundle   re.compile(r'DSTV', re.I)      against the CATEGORY name
+#   Ghana             re.compile(r'^GHA\s*:', re.I)  against the stream name
+# Everything else those two used to admit still falls to the same passes it
+# always did, so restoring one term restores that group and nothing more.
+AFR_LABEL = "SuperSport"  # the brand's own casing; the shelf chip renders this verbatim
 AFR_KEEP_NAME     = re.compile(r'SUPER\s?SPORT', re.I)  # SuperSport, wherever it sits
 AFR_GENRE = [
     ('NEWS',        r'\bNEWS\b|\bAL ?JAZEERA\b|\bBLOOMBERG\b|\bCGTN\b|\bCNBC\b'
@@ -1055,21 +1084,23 @@ AFR_GENRE = [
     ('DOCUMENTARY', r'\bDOCU|\bNAT ?GEO|\bDISCOVERY\b|\bHISTORY\b|\bREAL TIME\b'
                     r'|\bTRAVEL\b|\bHOME CHANNEL\b|\bMINDSET\b'),
 ]
-# The genre pass above is still what reads a DStv channel's name, but two of
-# its answers no longer become shelves of their own.
+# The genre pass above still reads the name, but the shelf it feeds is
+# SuperSport now and nothing else survives to reach it.
 #
-# News goes entirely. The row was ten channels: four global feeds (CGTN,
-# Russia Today) and three parliament channels that are not a service anyone
-# tunes to, beside SABC News, Newzroom Afrika, CNBC Africa, eTV News and KTN
-# News. The News shelf this package leads with is already the place a viewer
-# looks for news, and a second one behind a territory was a second answer to a
-# question that had one.
+# News goes entirely, and always did. The row was ten channels: four global
+# feeds (CGTN, Russia Today) and three parliament channels that are not a
+# service anyone tunes to, beside SABC News, Newzroom Afrika, CNBC Africa, eTV
+# News and KTN News. The News shelf this package leads with is already the
+# place a viewer looks. Kept as a rule rather than deleted, because it is the
+# one thing that would have to be decided again if the shelf ever widens.
 #
-# Sport folds into Entertainment, so DStv opens as a single row. SuperSport is
-# thirty of the thirty-one, and it keeps its brand grouping — the named
-# channels then one "more" entry — it just sits inside Entertainment now.
+# Sport no longer folds. It did, so that DStv could open as a single row of
+# mixed genres with SuperSport inside it; a shelf that is now ONLY SuperSport
+# belongs beside Sports, not stranded in the Entertainment position where a
+# viewer looking for the football would never think to go. The strip sorts by
+# section before territory, so this line is what decides where the row lands.
 AFR_DROP_GENRE = {'NEWS'}
-AFR_FOLD_GENRE = {'SPORTS'}
+AFR_FOLD_GENRE = set()
 _catname = {c['category_id']: asc(c['category_name'])
             for c in json.load(open('get_live_categories.json'))}
 
@@ -1121,6 +1152,20 @@ AFR_DROP_NAMES = {
     'SUPERSPORT PLAY 3', 'SUPERSPORT PLAY 4', 'SUPERSPORT PLAY 5',
     'SUPERSPORT PLAY 6', 'TELLYTRACK', 'TSHWANE TV', 'TV MUNDIAL',
     'TV5 MONDE AFRIQUE', 'UNIVERSAL TV', 'VUZU', 'WWE SUPERSLAM',
+    # The same three feeds twice, under both the DStv and the Ugandan naming.
+    # They were being suppressed by accident until 2026-08-26: while SPORTS
+    # folded into ENTERTAINMENT the brand pass had all of SuperSport in one
+    # group and trimmed them, and unfolding the genre — so that a shelf which
+    # is now ONLY SuperSport lands beside Sports — let them back onto a
+    # twenty-three channel shelf as three visible duplicates. Named here
+    # instead, which is where the decision belongs and does not depend on
+    # which section the shelf happens to sit in.
+    #
+    # The survivor of each pair is the one already on the shelf:
+    #   'SUPERSPORT RUGBY'          duplicates ZA SUPER SPORTS RUGBY
+    #   'SUPERSPORT LA LIGA'        duplicates SUPERSPORT LIGA
+    #   'SUPERSPORT PREMIER LEAGUE' duplicates SUPERSPORT PL
+    'SUPERSPORT RUGBY', 'SUPERSPORT LA LIGA', 'SUPERSPORT PREMIER LEAGUE',
 }
 
 def _afr_key(n):
@@ -1145,10 +1190,7 @@ afr_drop, afr_assign, afr_dupes, afr_news, afr_named = [], {}, [], [], []
 for st in ls:
     c = cat_live.get(str(st.get('category_id')))
     if not c or c['region'] != 'AFR': continue
-    cat = _catname.get(str(st.get('category_id')), '')
-    keep = (bool(AFR_KEEP_CATEGORY.search(cat))
-            or bool(AFR_KEEP_PREFIX.match(asc(st['name'])))
-            or bool(AFR_KEEP_NAME.search(asc(st['name']))))
+    keep = bool(AFR_KEEP_NAME.search(asc(st['name'])))
     if not keep:
         afr_drop.append(st['stream_id']); continue
     if channel_key(st['name']) in _usuk_keys:
@@ -1269,6 +1311,7 @@ _PN = re.compile(r'^[A-Z0-9]{2,5}\s*:\s*')
 _gone = junkset | set(dropped_region) | set(go_drop) | set(sd_all_drop) \
         | set(religion_drop) | set(telemundo_drop) | set(rsn_drop) | set(ca_drop) \
            | set(us_news_drop) | set(defunct_drop) | set(misfiled_territory) \
+        | set(named_drop) \
         | set(locals_dropped) | set(locals_extra_drop)
 for st in ls:
     sid = st['stream_id']
@@ -1741,7 +1784,7 @@ _dropped = set(junk) | set(dropped_region) | set(locals_dropped) | set(locals_ex
            | set(uk_locals_drop) | set(afr_drop) | set(sd_all_drop) | set(go_drop) \
            | set(religion_drop) | set(telemundo_drop) | set(rsn_drop) | set(ca_drop) \
            | set(us_news_drop) | set(defunct_drop) | set(misfiled_territory) \
-           | set(exact_dupe_drop) \
+           | set(named_drop) | set(exact_dupe_drop) \
            | set(junk_sweep) | set(region_section_drop) | set(clean_drop) | set(pass2_drop) \
            | set(replay_drop)
 _SEPJ = re.compile(r'^[\s#=\-*_~<>|.]+$')
@@ -2008,6 +2051,29 @@ for st in ls:
     if allow and not _allowed(_ent_key(st['name']), allow):
         news_trim.append(sid); news_fix['trimmed'] += 1
 
+# ------------------------------------------------ hand-pinned sections (curation)
+# A section no rule will ever reach, because nothing about these channels is
+# miscategorised by the provider's lights: they are general broadcasters, and
+# the pattern passes have no way to know this package wants their news on the
+# News shelf. Asked for on 2026-08-26 — "add Channel 4, Channel 5, ITV 1".
+#
+# Stream ids, not a name pattern. "CHANNEL 4" also matches the five regional
+# variants folded behind CHANNEL 4 LONDON and "ITV" matches thirteen, and none
+# of those were asked for: ITV 2/3/4/Be, ITV London, ITV Signed and Channel 4
+# London all stay on Entertainment. A pin moves a tile, it does not copy it —
+# the section is one field — so these three leave Entertainment as they arrive.
+#
+# Last word on the section, which is why it sits here rather than beside the
+# other curation tables: news_trim above writes name_section too (reassigning
+# to LOCALS and SPORTS), and a pin that ran before it could be overwritten.
+SECTION_PIN = {
+    162137: 'NEWS',   # UK: CHANNEL 4
+    162136: 'NEWS',   # UK: CHANNEL 5
+    162124: 'NEWS',   # UK: ITV 1
+}
+for _pin_sid, _pin_sec in SECTION_PIN.items():
+    name_section[str(_pin_sid)] = _pin_sec
+
 # ------------------------------------------- explicit channel aliases (curation)
 # The pattern rules cannot tell "MSG 2" (a real second network) from
 # "Nesn Boston" (the same RSN twice). These five are hand-verified.
@@ -2175,10 +2241,33 @@ def _vod_display(n):
     x = VOD_CC.sub('', x)
     return re.sub(r'\s{2,}', ' ', x).strip(' -_|')
 
+# --- shelves the catalogue does not carry -----------------------------------
+# Matched against the CATEGORY name, not the title: the panel files these as
+# whole shelves and there is no reliable read of a single title's origin.
+#
+# "Remove anime", 2026-08-26. Both shelves are the panel's ANIMATION shelves
+# under an anime name — of the 149 shows only 71 carry a (JP)/(KR)/(CN)
+# marker, and the rest is Western animation. The user was shown what goes with
+# it (Avatar: The Last Airbender, Danger Mouse, Carmen Sandiego, Disenchantment,
+# Beavis and Butt-Head, the DC animated films) and chose the whole shelf, on
+# the grounds that a rule against a category is one line to reverse and a
+# hand-checked list of 295 titles is not.
+DROP_VOD_CATEGORY = re.compile(r'\bANIME\b|\bMANGA\b', re.I)
+
+# Category id -> its name, for both libraries. cat_vod above keeps the resolved
+# SECTION, which several categories share, so it cannot answer this.
+_vcatname = {str(c['category_id']): asc(c['category_name']) for c in vod_cats}
+
 # --- movies: fold duplicate films, keep the best source ---------------------
 vod_drop, _vod_best = [], {}
+vod_shelf_drop = []
+for st in vs:
+    if DROP_VOD_CATEGORY.search(_vcatname.get(str(st.get('category_id')), '')):
+        vod_shelf_drop.append(st['stream_id'])
+_vod_shelf_gone = set(vod_shelf_drop)
 for st in vs:
     sid = st['stream_id']
+    if sid in _vod_shelf_gone: continue                # the shelf is not carried
     sec = (cat_vod.get(str(st.get('category_id'))) or {}).get('section')
     if sec in EPISODIC: continue                      # weekly shows, not dupes
     k = _vod_key(st['name'])
@@ -2192,6 +2281,7 @@ for st in vs:
     else:
         _vod_best[k] = sid
 
+vod_drop.extend(vod_shelf_drop)
 _vd = set(vod_drop)
 vod_display = {}          # only exceptions; the app applies vod_name_rules
 
@@ -2201,10 +2291,16 @@ _lm = sorted((s.get('last_modified') or '') for s in ser if s.get('last_modified
 if _lm: _recent_cutoff = _lm[int(len(_lm) * 0.85)]     # newest ~15%
 
 _hidden_series = {i for g in dedup.values() for i in g['hide']}
+# Series had no drop list at all until now — every pass here only ever
+# re-shelved them — so DROP_VOD_CATEGORY needed one to act on. Read by the app
+# as `series_drop`; see ManifestCuration.
+series_drop = [s['series_id'] for s in ser
+               if DROP_VOD_CATEGORY.search(scat.get(s.get('category_id'), ''))]
+_series_gone = set(series_drop)
 series_display, series_section = {}, {}
 for s in ser:
     sid = s['series_id']
-    if sid in _hidden_series: continue
+    if sid in _hidden_series or sid in _series_gone: continue
     _c = _vod_display(s['name'])
     if _c != asc(s['name']) and VOD_PFX.match(asc(s['name'])) is None:
         series_display[str(sid)] = _c        # rule cannot derive it; ship it
@@ -2227,6 +2323,7 @@ _drop_lists = [
     ('religion_drop', religion_drop), ('telemundo_drop', telemundo_drop),
     ('rsn_drop', rsn_drop), ('ca_drop', ca_drop), ('us_news_drop', us_news_drop),
     ('defunct_drop', defunct_drop), ('misfiled_territory', misfiled_territory),
+    ('named_drop', named_drop),
     ('cross_region_dupe', cross_region_dupe),
     ('exact_dupe_drop', exact_dupe_drop), ('junk_sweep', junk_sweep),
     ('region_section_drop', region_section_drop), ('clean_drop', clean_drop),
@@ -2694,6 +2791,7 @@ manifest = {
         "strip_trailing_country": VOD_CC.pattern,
         "note": "apply in this order, then collapse whitespace and trim ' -_|'",
     },
+    "series_drop": series_drop,
     "series_display_name": series_display,
     "series_section": series_section,
     "movie_genres": movie_genres,
@@ -2779,6 +2877,8 @@ manifest = {
         "movie_genre_vocab": len(vocab),
         "movies_with_genre_ids": len(movie_genres),
         "vod_dupes_dropped": len(vod_drop),
+        "vod_shelf_dropped": len(vod_shelf_drop),
+        "series_dropped": len(series_drop),
         "afr_news_dropped": len(afr_news),
         "afr_named_dropped": len(afr_named),
         "afr_late_assigned": afr_late,
