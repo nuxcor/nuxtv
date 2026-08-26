@@ -377,12 +377,101 @@ class SportsParserTest {
             now, roster,
         )!!
         val hd = slot(1, "HD")
-        val eightK = slot(2, "8K EXCLUSIVE")
+        // A bare "8K", not "8K EXCLUSIVE": the badge is what every slot in a
+        // pack wears and carries no tier at all. See the pack-badge test.
+        val eightK = slot(2, "8K")
         val fourK = slot(3, "4K")
         val rows = SportsParser.upcoming(listOf(hd, eightK, fourK), now, 60)
         assertEquals("one row, not three", 1, rows.size)
         assertEquals("the 8K slot leads", 2, rows[0].streamId)
         assertEquals("the others fall behind it, best first", listOf(3, 1), rows[0].alternates)
+    }
+
+    /**
+     * The bracketed packs advertise no tier at all, so before this the
+     * comparator ran out of keys and the winner was playlist order — which is
+     * how a fixture carried by two packs opened on the thin one.
+     */
+    @Test
+    fun `when neither slot advertises a tier, the thin pack goes last`() {
+        val now = ms(2026, 8, 20, 15, 0, "UTC")
+        val roster = mapOf("Bundesliga" to listOf("Union Berlin", "Bayern Munich"))
+        fun slot(id: Int, pack: String) = SportsParser.parse(
+            id, "$pack | Union Berlin vs Bayern Munich | all | 20-08-2026 | 15:00 (GMT)",
+            now, roster,
+        )!!
+        // ESPN+ listed FIRST, which is exactly the order that used to win it.
+        val espn = slot(1, "US (ESPN+ 100)")
+        val other = slot(2, "US (STAN 04)")
+        val rows = SportsParser.upcoming(listOf(espn, other), now, 60)
+        assertEquals("one row, not two", 1, rows.size)
+        assertEquals("the other pack leads", 2, rows[0].streamId)
+        assertEquals("ESPN+ stays reachable as a fallback", listOf(1), rows[0].alternates)
+    }
+
+    @Test
+    fun `an advertised tier still outranks the source`() {
+        val now = ms(2026, 8, 20, 15, 0, "UTC")
+        val roster = mapOf("Bundesliga" to listOf("Union Berlin", "Bayern Munich"))
+        fun slot(id: Int, pack: String) = SportsParser.parse(
+            id, "$pack | Union Berlin vs Bayern Munich | all | 20-08-2026 | 15:00 (GMT)",
+            now, roster,
+        )!!
+        // The demotion is a tie-break and nothing more: a thin pack that says
+        // 4K still beats a neutral one that says nothing, because a measured
+        // picture is worth more than a verdict on the pipe carrying it.
+        val espn4k = slot(1, "US (ESPN+ 100) | 4K")
+        val other = slot(2, "US (STAN 04)")
+        val rows = SportsParser.upcoming(listOf(other, espn4k), now, 60)
+        assertEquals(1, rows.size)
+        assertEquals("the 4K slot leads however thin its pack", 1, rows[0].streamId)
+    }
+
+    /**
+     * The real shape of the packs, and the case the demotion was written for.
+     * Both slots wear "8K EXCLUSIVE" because every slot in both packs does;
+     * neither has said anything about its own picture.
+     */
+    @Test
+    fun `the pack badge is not a tier, so the thin pack still goes last`() {
+        val now = ms(2026, 8, 20, 15, 0, "UTC")
+        val roster = mapOf("La Liga" to listOf("Rayo Vallecano", "Alaves"))
+        fun slot(id: Int, pack: String) = SportsParser.parse(
+            id,
+            "Next | Rayo Vallecano vs. Alaves | all | 20-08-2026 | 15:00 (GMT) | " +
+                "8K EXCLUSIVE | $pack",
+            now, roster,
+        )!!
+        // ESPN+ first, which is the order the playlist ships them in.
+        val espn = slot(1, "US: ESPN+ PPV 19")
+        val other = slot(2, "CA: SOCCER PPV 5")
+        val rows = SportsParser.upcoming(listOf(espn, other), now, 60)
+        assertEquals("one row, not two", 1, rows.size)
+        assertEquals("the neutral pack leads", 2, rows[0].streamId)
+        assertEquals("ESPN+ stays reachable as a fallback", listOf(1), rows[0].alternates)
+    }
+
+    @Test
+    fun `a real 8K claim is still read as one`() {
+        val now = ms(2026, 8, 20, 15, 0, "UTC")
+        val roster = mapOf("La Liga" to listOf("Rayo Vallecano", "Alaves"))
+        fun tier(badge: String) = SportsParser.parse(
+            9, "Rayo Vallecano vs Alaves $badge | all | 20-08-2026 | 15:00 (GMT)", now, roster,
+        )!!.tierRank
+        // The badge is two words together. "8K" alone is a slot saying
+        // something about itself, and it keeps its tier.
+        assertEquals("a bare 8K still means 8K", 0, tier("| 8K"))
+        assertEquals("and 4K still means 4K", 1, tier("| 4K"))
+        assertEquals(
+            "the badge alone leaves the slot with no claim",
+            com.agoro.tv.data.SportsEvent.TIER_UNKNOWN,
+            tier("| 8K EXCLUSIVE | US: ESPN+ PPV 19"),
+        )
+        assertEquals(
+            "a badged slot that ALSO says 4K keeps the 4K",
+            1,
+            tier("| 4K | 8K EXCLUSIVE | CA: SOCCER PPV 5"),
+        )
     }
 
     @Test
