@@ -284,6 +284,19 @@ CHANNEL_ALIAS = {
     # international feed simply became BBC News. Two tiles for one channel,
     # and no probe can see it — both decode, at 1080 and 720.
     'bbcworldnews': 'bbcnews',
+    # Neither of the panel's "Parliament" feeds is BBC Parliament — both carry
+    # BBC News, confirmed by watching them. The panel files one as PARLAMENT
+    # and one as PARLIAMENT, so they did not even fold into each other, and
+    # the app showed three BBC News tiles under two names. No probe can see
+    # this; only the picture can. The misspelled one is the best BBC News
+    # feed on the line, which is why it is pinned below rather than dropped.
+    'bbcparlament': 'bbcnews',
+    'bbcparliament': 'bbcnews',
+    # The panel's "BLOOMBERG EU" is Bloomberg. Left on its own key it stood as
+    # a second tile beside the main one, at 720 against the 1080 the merged
+    # tile already had — so the only thing the separate entry bought the
+    # viewer was a worse picture under a name suggesting different content.
+    'bloombergeu': 'bloomberg',
     # The club's channel is MUTV; the panel also ships it spelled out.
     'manchesterunited': 'mutv',
     # "ESPN USA" is ESPN. The panel carries both spellings of the same feed.
@@ -634,6 +647,20 @@ for k, sid, reg, sec, t in live_rows:
     if reg not in TIER: home[k].add(reg)
 
 TIER_RANK = {"8K":0,"4K":1,"UHD":2,"FHD":3,"HEVC":4,"H265":5,"RAW":6,"HD":7,None:8,"SD":9}
+
+# Which source leads a tile, where measurement cannot tell them apart.
+#
+# The sort below trusts the name's tier before the probe, so a feed the panel
+# labelled "4K" leads even when it decodes at 1080 — and BBC NEWS has two
+# sources that both probe 1080, one of them carrying that false 4K label. The
+# tie is real: no number this build can take separates them. What separates
+# them is watching both, which is a judgement rather than a measurement, so it
+# is written down as one. Keyed by channel key -> stream id.
+PRIMARY_PIN = {
+    # 622075, the panel's "UK: BBC PARLAMENT". Visibly the better picture of
+    # the two 1080 feeds; the "HEVC 4K" one is neither 4K nor better.
+    'bbcnews': 622075,
+}
 # Hand-pinned territories where the fold's majority lands wrong: NBC News Now
 # grouped under UK because its surviving sources sit in UK categories.
 #
@@ -698,6 +725,11 @@ for (k, reg), srcs in tiles.items():
     # provider chose; 0 sorts last because it means "we could not tell".
     srcs.sort(key=lambda x: (_swept_source(x), TIER_RANK.get(x["tier"], 8),
                              -_probed.get(str(x["id"]), 0)))
+    # A pinned source leads, and the rest keep the order measurement gave
+    # them — the pin decides the primary, not the whole fallback ladder.
+    _pin = PRIMARY_PIN.get(k)
+    if _pin is not None and any(x["id"] == _pin for x in srcs):
+        srcs.sort(key=lambda x: x["id"] != _pin)
     vote = [x for x in srcs if x["section"] not in DROP_LIVE_SECTIONS] or srcs
     sec, ambiguous = pick_section(vote)
     if k in SECTION_OVERRIDE: sec = SECTION_OVERRIDE[k]
@@ -2509,6 +2541,11 @@ TILE_LABEL = {
     # "HQ" was dropped in 2019. The alias already folds the two feeds; without
     # this the retired spelling still wins the label for being longer.
     'skysportnews': 'SKY SPORTS NEWS',
+    # Bloomberg TV+ is the streaming product, not the linear channel, and the
+    # panel carries a few of its feeds among Bloomberg's. Longest-wins read
+    # "BLOOMBERG TV+" as the fullest spelling and named the whole tile after
+    # it, so the news channel sat on the shelf under a name for something else.
+    'bloomberg': 'BLOOMBERG',
 }
 
 # Per-stream name corrections for channels that never form a tile, so the

@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-24T14:34:57+00:00",
+ "generated": "2026-08-26T18:36:36+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -37755,13 +37755,15 @@
     "section": "NEWS",
     "region": "UK",
     "sources": [
+     622075,
      717698,
      1536959,
      1525693,
+     1525676,
      162143,
      717702
     ],
-    "primary": 717698
+    "primary": 622075
    },
    "billiard|US": {
     "section": "SPORTS",
@@ -37783,6 +37785,7 @@
      1536944,
      1537479,
      162145,
+     162146,
      1548402
     ],
     "primary": 325904
@@ -55055,8 +55058,8 @@
   "1562519": "PREMIER SPORTS 2",
   "325778": "AMC +",
   "414042": "BBC EARTH",
-  "717698": "BBC NEWS",
-  "325904": "BLOOMBERG TV+",
+  "622075": "BBC NEWS",
+  "325904": "BLOOMBERG",
   "1536940": "BOUNCE XL",
   "1536659": "LAW & CRIME NETWORK",
   "1536562": "NBC LX HOME (PC)",
@@ -62065,8 +62068,8 @@
   "movie_categories": 67,
   "unresolved_live_categories": 0,
   "movies_with_genre": 0,
-  "live_tiles_after_collapse": 6451,
-  "live_tiles_collapsed": 3144,
+  "live_tiles_after_collapse": 6448,
+  "live_tiles_collapsed": 3147,
   "collapse_groups": 155,
   "collapse_needs_review": 1,
   "dropped_region_streams": 2896,
