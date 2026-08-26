@@ -127,8 +127,8 @@ private val SLEEP_CHOICES = listOf(0, 30, 60, 90)
 
 @Composable
 fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
-    val request = vm.playback
-    if (request == null) {
+    val incoming = vm.playback
+    if (incoming == null) {
         LaunchedEffect(Unit) { onExit() }
         return
     }
@@ -180,7 +180,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         PlayerSession(
             context = context,
             scope = scope,
-            initialRequest = request,
+            initialRequest = incoming,
             onSaveResume = vm::saveResumePosition,
             awaitLiveSlot = vm::awaitFreeLiveSlot,
         )
@@ -188,10 +188,26 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     // A replacement playlist re-primes the session the way the old screen's
     // remember(request) resets did — and returns the decode profile to the
     // fast one.
-    remember(request) {
-        session.onRequest(request)
+    remember(incoming) {
+        session.onRequest(incoming)
         true
     }
+
+    // The SESSION's request, not the ViewModel's, and this is not cosmetic.
+    //
+    // Two rungs of the failure ladder work by rewriting the url of the item
+    // being played — swapLiveFormat steps through the Xtream forms, swapSource
+    // moves to the next stream the manifest folded into this channel — and
+    // they do it by patching session.request. Read from vm.playback, none of
+    // that patching reached anything: the engine is prepared from whatever
+    // this line points at, so both rungs set a status message and returned
+    // true, the `when` stopped there, and nothing re-opened the stream. On a
+    // live url of the shape those rungs match, that was the FIRST branch any
+    // error hit — so the reconnect below it was never reached either, and the
+    // picture simply stopped with a toast and no way forward. The ViewModel
+    // stays the way a new playlist arrives (above); the session owns it after
+    // that, and a patch re-keys the prepare effect the way a new request does.
+    val request = session.request
 
     val item = request.items.getOrNull(session.currentIndex)
     val channel: LiveChannel? = item?.channelId?.let { vm.channelById(it) }
@@ -533,12 +549,17 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
                     val pip = android.os.Build.VERSION.SDK_INT >= 24 &&
                         (context as? android.app.Activity)?.isInPictureInPictureMode == true
+                    // A stalled engine is already not playing, so the pause
+                    // below cannot speak for it — the death watchdog reads
+                    // this instead rather than reconnecting into the launcher.
+                    session.appForeground = pip
                     if (!pip && engine.isPlaying) {
                         engine.playPause()
                         pausedByLifecycle = true
                     }
                 }
                 androidx.lifecycle.Lifecycle.Event.ON_START -> {
+                    session.appForeground = true
                     if (pausedByLifecycle && request.isLive && !engine.isPlaying) {
                         session.togglePlayPause()
                     }

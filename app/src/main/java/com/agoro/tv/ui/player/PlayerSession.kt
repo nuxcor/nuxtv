@@ -139,6 +139,32 @@ class PlayerSession internal constructor(
         private const val STALLS_BEFORE_HOP = 3
 
         /**
+         * How long one unbroken stall lasts before the stream is declared
+         * dead, regardless of how many stalls have been counted.
+         *
+         * [STALLS_BEFORE_HOP] only catches a feed that RECOVERS between
+         * failures — three stalls in a minute means three resumptions too. A
+         * stream that stops and stays stopped raises exactly one, so nothing
+         * retried and nothing was said, and the viewer sat on a buffering chip
+         * with a working remote and no way to make anything happen. That is
+         * the "it just buffers and gets stuck" report.
+         *
+         * Deliberately LONGER than the engine's own read-timeout cascade. A
+         * live socket that goes silent throws through media3's retry policy at
+         * roughly thirty-five seconds (8s read timeout, three attempts, 0/1/2s
+         * backoff — see PlayerPool), and that error is better than this one:
+         * it names what actually failed, and the ladder can classify it. This
+         * is the backstop for the case where no error EVER arrives, so it must
+         * not pre-empt the one that would have. Firing first would burn a rung
+         * of the ladder and replace "the connection dropped" with a guess.
+         *
+         * The cost of being wrong is one unnecessary reconnect on a stream
+         * about to recover on its own; the cost of not having it is a freeze
+         * with no end and no explanation.
+         */
+        private const val STALL_IS_DEATH_MS = 40_000L
+
+        /**
          * A stall has to last this long to count. The ladder used to count
          * every BUFFERING transition, so three sub-second Wi-Fi blips in a
          * minute — routine on a dongle, and absorbed by the buffer without
@@ -319,6 +345,20 @@ class PlayerSession internal constructor(
             field = value
         }
 
+    /** Gives up on the stall in progress once it has lasted [STALL_IS_DEATH_MS]. */
+    private var deathTimer: Job? = null
+        set(value) {
+            field?.cancel()
+            field = value
+        }
+
+    /**
+     * Whether the app is in front of the viewer. Set by the player scaffold's
+     * lifecycle observer; read only by the death watchdog, which must not
+     * reconnect — and so start audio — behind the launcher.
+     */
+    internal var appForeground: Boolean = true
+
     /**
      * The pending reconnect, waiting out its backoff before it re-opens the
      * stream. Held so a tune away from the failed stream can cancel it —
@@ -380,6 +420,35 @@ class PlayerSession internal constructor(
             } else if (!b) {
                 stallTimer = null
             }
+
+            // A separate timer, because it asks a separate question. The
+            // counter above asks which recovery a stall DESERVES, and every
+            // gate it carries is built for that: a grace after the tune, an
+            // empty buffer, live and not catch-up. None of them belong to
+            // "is this stream alive at all". A feed that dies eight seconds
+            // after its first frame is inside the grace; one that freezes
+            // behind a full buffer is not starved; and the reconnect that
+            // itself never returns is invisible to a timer that arms on
+            // `playing`, which the reconnect has already cleared. Each of
+            // those is a viewer stuck on a chip forever.
+            deathTimer = if (b && !tuning && (request.isLive || request.isCatchup)) {
+                scope.launch {
+                    delay(STALL_IS_DEATH_MS)
+                    if (!buffering || tuning) return@launch
+                    // Never behind the launcher: the reconnect comes back
+                    // playing, and the lifecycle pause cannot catch it
+                    // because a stalled engine is already not playing — so
+                    // the channel would start talking under the home screen.
+                    if (!appForeground) return@launch
+                    android.util.Log.w(
+                        "Agoro",
+                        "Stalled ${STALL_IS_DEATH_MS}ms with " +
+                            "${engine?.bufferedAheadMs ?: 0}ms buffered, live=${request.isLive}; " +
+                            "giving up on the stream",
+                    )
+                    onError("the stream stopped sending", PlaybackFault.TRANSIENT)
+                }
+            } else null
             playing = p
             buffering = b
         }
@@ -553,6 +622,7 @@ class PlayerSession internal constructor(
         sourceStage = 0
         stallClock.clear()
         stallTimer = null
+        deathTimer = null
         reconnectJob = null
     }
 
