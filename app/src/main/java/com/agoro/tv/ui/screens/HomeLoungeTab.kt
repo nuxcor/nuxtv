@@ -291,7 +291,7 @@ fun HomeLoungeTab(
         // path — leaving the only way to search a playlist of thousands
         // unreachable exactly when the viewer has nothing else to go on.
         StatusPane(
-            title = "Welcome to Agoro",
+            title = "Welcome to Agorɔ",
             message = "Things you watch and star will gather here.",
             icon = Icons.Default.Home,
             primaryAction = StatusAction("Browse Live TV") { onBrowse(HomeTab.Live) },

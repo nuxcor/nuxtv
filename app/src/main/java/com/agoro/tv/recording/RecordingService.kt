@@ -169,7 +169,7 @@ class RecordingService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.presence_video_online)
             .setContentTitle("Recording $name")
-            .setContentText("Agoro is recording this channel")
+            .setContentText("Agorɔ is recording this channel")
             .setOngoing(true)
             .addAction(android.R.drawable.ic_media_pause, "Stop", stopIntent)
             .build()
