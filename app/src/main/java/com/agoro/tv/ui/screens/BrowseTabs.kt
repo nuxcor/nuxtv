@@ -153,6 +153,25 @@ private const val VOD_NEW_LABEL = "Recently added"
 private const val VOD_NEW = "__new__"
 
 /**
+ * A genre chip's id: this prefix and then the genre's own name.
+ *
+ * Genres sit at the END of the strip, after the provider's own collections.
+ * Those collections are how the panel is organised — ALL MOVIES, TOP RATED,
+ * NETFLIX SERIES — and they are what a viewer arriving with something in mind
+ * reaches for; a genre is what they reach for when they don't. Ahead of them,
+ * the shortcuts would be the thing buried.
+ *
+ * No divider chip between the two groups. The strip is a focus row with a
+ * restorer on it, and threading a non-focusable item through that is the kind
+ * of D-pad change this project does not ship without a device check.
+ */
+private const val VOD_GENRE = "__genre__:"
+
+/** The genre chips, or none at all when the catalogue carries no genres. */
+private fun genreCategories(genres: List<String>): List<Category> =
+    genres.map { Category(id = VOD_GENRE + it, name = it) }
+
+/**
  * A category's worth of posters, built one cell at a time.
  *
  * The browser used to receive a fully materialised List<VodEntry>: entering
@@ -701,6 +720,7 @@ fun MoviesTab(
             if (!index.moviesByCategory[VOD_MORE].isNullOrEmpty()) {
                 add(Category(id = VOD_MORE, name = "More"))
             }
+            addAll(genreCategories(index.movieGenres))
         }
     }
 
@@ -727,9 +747,14 @@ fun MoviesTab(
         // Every category is a lookup; the filters and the sort that used to
         // run here, on the main thread, per chip, ran once in the index.
         entriesFor = { categoryId ->
-            val list = when (categoryId) {
-                VOD_ALL -> index.movies
-                VOD_NEW -> index.newMovies
+            val list = when {
+                categoryId == VOD_ALL -> index.movies
+                categoryId == VOD_NEW -> index.newMovies
+                // A map lookup, off the same single index pass the categories
+                // come from — never a filter over 29,000 films on the main
+                // thread, which is what the strip cost before it was indexed.
+                categoryId.startsWith(VOD_GENRE) ->
+                    index.moviesByGenre[genreKey(categoryId.removePrefix(VOD_GENRE))].orEmpty()
                 else -> index.moviesByCategory[categoryId].orEmpty()
             }
             VodPage(list.size, { list[it].id }, { list[it].entry() })
@@ -786,6 +811,7 @@ fun SeriesTab(
             if (!index.seriesByCategory[VOD_MORE].isNullOrEmpty()) {
                 add(Category(id = VOD_MORE, name = "More"))
             }
+            addAll(genreCategories(index.seriesGenres))
         }
     }
 
@@ -817,9 +843,11 @@ fun SeriesTab(
         categories = shownCategories,
         continueWatching = continueWatching,
         entriesFor = { categoryId ->
-            val list = when (categoryId) {
-                VOD_ALL -> index.series
-                VOD_NEW -> index.newSeries
+            val list = when {
+                categoryId == VOD_ALL -> index.series
+                categoryId == VOD_NEW -> index.newSeries
+                categoryId.startsWith(VOD_GENRE) ->
+                    index.seriesByGenre[genreKey(categoryId.removePrefix(VOD_GENRE))].orEmpty()
                 else -> index.seriesByCategory[categoryId].orEmpty()
             }
             VodPage(list.size, { list[it].id }, { list[it].entry() })
