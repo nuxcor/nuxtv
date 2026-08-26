@@ -82,6 +82,22 @@ private const val DISPLAY_MODE_SETTLE_MS = 3_000L
 private const val QUALITY_LEARN_SETTLE_MS = 5_000L
 
 /**
+ * How long a channel has to stay tuned before it becomes the one a cold start
+ * reopens on.
+ *
+ * currentIndex moves on every keypress of a zap chain, and this write is a
+ * DataStore file rewrite that re-emits the whole Preferences object to every
+ * collector in the app — fifteen of them for a walk down fifteen channels, on
+ * the hot tuning path, on the weakest hardware. A channel left within a second
+ * of arriving is not the one you were watching, and losing it costs a resume
+ * onto the previous channel rather than anything the viewer would notice.
+ */
+private const val RESUME_MARK_DWELL_MS = 1_500L
+
+/** How long a channel has to stay tuned to earn a place on the Recent shelf. */
+private const val RECENT_SHELF_DWELL_MS = 8_000L
+
+/**
  * PiP params from the actual decoded size, not an assumed 16:9. The platform
  * rejects aspect ratios outside [0.418, 2.39]; clamp just inside the limits
  * and fall back to 16:9 for degenerate or unknown sizes.
@@ -477,12 +493,27 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     // through twenty channels to find something should record the one you
     // stopped on, not all twenty.
     LaunchedEffect(session.currentIndex, request) {
-        if (!request.isLive) return@LaunchedEffect
+        if (!request.isLive) {
+            // And a film, a catch-up programme or a recording forgets whatever
+            // channel was remembered. Playing one is the viewer choosing to sit
+            // down for it; starting it again unbidden because the box woke up
+            // would be interrupting rather than resuming. Only live comes back
+            // on by itself — see PlayerPrefs.resumeLiveChannel.
+            vm.rememberLiveResume(null)
+            return@LaunchedEffect
+        }
         val url = request.items.getOrNull(session.currentIndex)?.url ?: return@LaunchedEffect
         // Immediately, for the guide's return landing; the dwell below is
         // only for the Recent shelf.
         vm.noteTuned(url)
-        delay(8_000)
+        // Both of the below are dwells on the same effect, which collectLatest
+        // -style cancels on the next index change: a zap chain writes nothing
+        // until it settles. The resume mark comes first and much sooner — it
+        // asks only what is on, where the shelf asks what earns a place in a
+        // list.
+        delay(RESUME_MARK_DWELL_MS)
+        vm.rememberLiveResume(url)
+        delay(RECENT_SHELF_DWELL_MS - RESUME_MARK_DWELL_MS)
         vm.recordChannelVisit(url)
     }
 

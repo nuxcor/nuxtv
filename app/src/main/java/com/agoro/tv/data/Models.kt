@@ -107,6 +107,15 @@ data class EpgProgram(
 fun LiveChannel.answersTo(url: String): Boolean =
     this.url == url || url in fallbackUrls
 
+/**
+ * The index of the tile that answers for [url], or -1.
+ *
+ * The rule in [answersTo] is easy to reach for and easy to forget, and every
+ * place holding a url the viewer chose earlier needs it. Kept here so the
+ * reasoning lives with the rule rather than being restated at each call site.
+ */
+fun List<LiveChannel>.indexAnswering(url: String): Int = indexOfFirst { it.answersTo(url) }
+
 /** Whether any feed this tile answers for has been starred. */
 fun LiveChannel.isFavorite(favorites: Set<String>): Boolean =
     url in favorites || fallbackUrls.any { it in favorites }
