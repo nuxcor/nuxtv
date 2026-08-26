@@ -303,6 +303,8 @@ internal fun TuneCard(
     channel: LiveChannel?,
     item: PlayableItem?,
     modifier: Modifier = Modifier,
+    /** Why this is taking a moment, when it is more than an ordinary tune. */
+    note: String? = null,
 ) {
     val motion = androidx.compose.animation.core.rememberInfiniteTransition(label = "tune")
     // One light sweeping left-to-right, restarting — a scanner bounce reads
@@ -343,6 +345,17 @@ internal fun TuneCard(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.widthIn(max = 720.dp),
         )
+        if (note != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = note,
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuxColors.OnSurfaceDim,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 720.dp),
+            )
+        }
         Spacer(Modifier.height(14.dp))
         Box(
             modifier = Modifier

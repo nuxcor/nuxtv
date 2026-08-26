@@ -183,6 +183,31 @@ class PlayerSession internal constructor(
 
         /** Settling time after a tune, during which buffering is expected. */
         private const val STALL_GRACE_MS = 12_000L
+
+        /**
+         * Unbroken playing time after which the retry budget is given back.
+         *
+         * The ladder only ever spent. [resetLadder] runs for a new item, a new
+         * request, or a retry the viewer asked for, and nothing refilled the
+         * budget for a stream that dropped, reconnected, and then played
+         * perfectly — so the count fell across a whole viewing session. Three
+         * drops spread over three hours on one channel spent the entire
+         * ladder, and the fourth, however transient, skipped every reconnect
+         * and went straight to the error card. "It used to recover, now it
+         * just shows Retry" is that, and it gets worse the longer you watch.
+         *
+         * A minute, not the first frame. Refilling on the first frame is the
+         * loop trap: a stream that plays two seconds and dies would reconnect
+         * for as long as the viewer left it there. A minute of unbroken
+         * playing is a stream that has genuinely recovered, and it is short
+         * enough that ordinary hourly hiccups each meet a full ladder.
+         *
+         * Only the same-URL retries come back. The format and source stages
+         * stay where they are on purpose: they record what this session has
+         * learned about which url of this channel actually answers, and
+         * re-walking them would re-try forms already known to be dead.
+         */
+        private const val HEALTHY_PLAYBACK_MS = 60_000L
     }
 
     var request: PlaybackRequest by mutableStateOf(initialRequest)
@@ -239,7 +264,12 @@ class PlayerSession internal constructor(
             if (value) {
                 stallClock.clear()
                 stallTimer = null
+                healthTimer = null
                 reconnectJob = null
+                // A tune the viewer asked for is not a reconnect, and it
+                // cancels the one in flight above — so the card that one was
+                // holding up goes with it.
+                reconnectAttempt = 0
                 lastTuneMs = System.currentTimeMillis()
                 tuneSerial++
             }
@@ -252,6 +282,16 @@ class PlayerSession internal constructor(
      * the index, which a retry or a rejoin repeats and a new playlist reuses.
      */
     var tuneSerial: Int by mutableIntStateOf(0)
+        private set
+
+    /**
+     * Counts every OPEN of a stream — the ladder's own reconnects and swaps
+     * included — as against [tuneSerial], which counts only the tunes the
+     * viewer asked for. The tune timeout is per attempt now, and this is what
+     * "an attempt" means: without it that timeout was a single wall clock
+     * across a whole cascade, and it expired in the middle of the recovery.
+     */
+    var attemptSerial: Int by mutableIntStateOf(0)
         private set
 
     /** When the current stream was asked for; see [STALL_GRACE_MS]. */
@@ -274,6 +314,44 @@ class PlayerSession internal constructor(
      */
     val settleRemainingMs: Long
         get() = (STALL_GRACE_MS - (System.currentTimeMillis() - lastTuneMs)).coerceAtLeast(0L)
+
+    /**
+     * Which reconnect the ladder is on, 1-based; 0 when none is in flight.
+     *
+     * The screen showed NOTHING for the whole of a reconnect. A thrown error
+     * leaves the player idle, which reports playing=false and buffering=false,
+     * so neither the tune card (which wants [tuning]) nor the buffering chip
+     * (which wants [buffering]) was up; the status toast retires after four
+     * seconds; and the "paused" glyph, which asks for exactly that state, came
+     * up instead. Live backs off 6s, 20s and 40s, and on a capped line it
+     * polls for a free slot for up to forty-five — so a viewer sat in front of
+     * a frozen frame wearing a pause icon, three times over, before the error
+     * card finally appeared. That is the whole of "it buffers, then it stops".
+     *
+     * TiviMate's answer, and the right one: say which attempt this is, and go
+     * on saying it until the picture returns or the card takes over.
+     */
+    var reconnectAttempt: Int by mutableIntStateOf(0)
+        private set
+
+    /** How many attempts the ladder has, for "2 of 3". */
+    val reconnectTotal: Int get() = reconnectDelaysMs(request.isLive).size
+
+    /**
+     * True only while a reconnect is waiting out its backoff or a free slot,
+     * and false once it has re-opened the stream. The tune timeout reads it: a
+     * ladder still working is not a hang, and the error card must not pre-empt
+     * it.
+     *
+     * NOT snapshot state, unlike every other field here: it is derived from a
+     * plain Job, so nothing recomposes when it changes. Read it imperatively —
+     * inside an effect, at the moment a decision is made — and never in
+     * composition, which would render one value and never hear about the next.
+     * It is a Job probe on purpose: a boolean set around the wait would have to
+     * be cleared from a cancelled coroutine, and that clear races the next
+     * reconnect's set.
+     */
+    val reconnectPending: Boolean get() = reconnectJob?.isActive == true
 
     var errorMessage: String? by mutableStateOf(null)
     var statusMessage: String? by mutableStateOf(null)
@@ -352,6 +430,13 @@ class PlayerSession internal constructor(
             field = value
         }
 
+    /** Refills the retry budget once playback has held for [HEALTHY_PLAYBACK_MS]. */
+    private var healthTimer: Job? = null
+        set(value) {
+            field?.cancel()
+            field = value
+        }
+
     /**
      * Whether the app is in front of the viewer. Set by the player scaffold's
      * lifecycle observer; read only by the death watchdog, which must not
@@ -384,6 +469,10 @@ class PlayerSession internal constructor(
             // from playAt), and resetting then would let a dead stream
             // reconnect forever.
             if (index != ladderItemIndex) resetLadder(index)
+            // Every open counts as an attempt, that reconnect included: the
+            // tune timeout restarts on this, so a cascade gets one budget per
+            // try rather than one for the whole climb.
+            attemptSerial++
             currentIndex = index
             clearError()
         }
@@ -392,9 +481,34 @@ class PlayerSession internal constructor(
             if (p) {
                 tuning = false
                 pauseStartedMs = 0L
-            } else if (!b && playing) {
+                // The picture is back, so the reconnect card comes down. Tied
+                // to playing rather than to the reconnect firing, because
+                // playAt is the ATTEMPT: one that fails again should never
+                // have flashed the card away and back.
+                reconnectAttempt = 0
+                // Only unbroken playing time earns the budget back, so this is
+                // armed on the way into playing and cancelled the moment
+                // playback stops. A timer already running is left alone rather
+                // than restarted — a stream that re-reports playing would
+                // otherwise never reach the minute. See [HEALTHY_PLAYBACK_MS].
+                if (healthTimer == null) {
+                    healthTimer = scope.launch {
+                        delay(HEALTHY_PLAYBACK_MS)
+                        val full = reconnectDelaysMs(request.isLive).size
+                        if (retriesLeft < full) {
+                            android.util.Log.i(
+                                "Agoro",
+                                "Played ${HEALTHY_PLAYBACK_MS}ms clean; retry budget " +
+                                    "back to $full (was $retriesLeft)",
+                            )
+                            retriesLeft = full
+                        }
+                    }
+                }
+            } else {
+                healthTimer = null
                 // An actual pause, not a stall: start the rejoin clock.
-                pauseStartedMs = System.currentTimeMillis()
+                if (!b && playing) pauseStartedMs = System.currentTimeMillis()
             }
             // A live feed that starves three times in a minute can't be
             // carried on this line at this tier. Catch-up is exempt: seeking
@@ -540,19 +654,54 @@ class PlayerSession internal constructor(
                     // retries are spent: exactly the cases that recover are
                     // the ones that never said why they had to.
                     statusMessage = "$message — reconnecting…"
+                    // Up for the whole wait, and taken down by the picture
+                    // coming back; see [reconnectAttempt].
+                    reconnectAttempt = attempt + 1
                     val forSerial = tuneSerial
+                    // Catch-up counts. It carries isLive = false because it
+                    // seeks like a file, but the same panel serves it against
+                    // the same connection cap — PlayerScreen's prepare effect
+                    // already waits for a slot on that basis. Left on isLive
+                    // alone, a catch-up reconnect skipped the wait entirely
+                    // and raced the panel for the slot it had just dropped.
+                    val capped = request.isLive || request.isCatchup
                     val live = request.isLive
+                    // Read now, not inside the wait. The top of onError
+                    // captured the engine's live position for exactly this,
+                    // and the 2Hz poll goes on writing session.positionMs from
+                    // an engine that is about to be stopped — so a film left
+                    // to read it a backoff later could resume from whatever
+                    // the poll had last seen rather than from where it broke.
+                    val resumeAt = retryPositionMs
                     reconnectJob = scope.launch {
+                        // Let go of the connection BEFORE asking for one. A
+                        // stall that never threw leaves the player sitting in
+                        // BUFFERING with its socket open, and the wait below
+                        // polls the panel until a slot frees — so on a
+                        // one-connection line the app was waiting for itself
+                        // to let go, every time, for the full timeout. A
+                        // thrown error has already idled the player, so this
+                        // costs that path nothing.
+                        //
+                        // Only when nothing is coming out of it. A watchdog
+                        // can raise a fault over a picture that is still
+                        // rendering — a latched audio refusal falls through to
+                        // this rung with the video playing fine — and stopping
+                        // that would black the screen for the whole backoff
+                        // when the playAt at the end of it was going to
+                        // re-open anyway. It also keeps the idle report below
+                        // from reading as a viewer's pause; see pauseStartedMs.
+                        engine?.takeIf { !it.isPlaying }?.stop()
                         // On a capped line, wait for the panel to free the
                         // slot the dropped stream still holds, and reconnect
                         // the moment it does; otherwise the fixed backoff. See
                         // awaitLiveSlot.
-                        val waited = live && (awaitLiveSlot?.invoke() ?: false)
+                        val waited = capped && (awaitLiveSlot?.invoke() ?: false)
                         if (!waited) delay(reconnectDelayMs(live, attempt))
                         // The viewer zapped or the ladder moved on while we
                         // waited: this reconnect is for a stream they left.
                         if (tuneSerial != forSerial) return@launch
-                        engine?.let { it.playAt(it.currentIndex, retryPositionMs) }
+                        engine?.let { it.playAt(it.currentIndex, resumeAt) }
                     }
                 }
 
@@ -560,6 +709,7 @@ class PlayerSession internal constructor(
                     // Just the reason: the card's title already says it
                     // couldn't play, and "Couldn't play this — Couldn't play"
                     // was the sentence on screen.
+                    reconnectAttempt = 0
                     errorMessage = message
                     layer = PlayerLayer.Error
                 }
@@ -623,7 +773,9 @@ class PlayerSession internal constructor(
         stallClock.clear()
         stallTimer = null
         deathTimer = null
+        healthTimer = null
         reconnectJob = null
+        reconnectAttempt = 0
     }
 
     /** A stall has lasted long enough to count; three in a minute move the ladder. */
@@ -716,6 +868,13 @@ class PlayerSession internal constructor(
      */
     fun failTuning(reason: String) {
         tuning = false
+        // The other two exits — the ladder running out, and resetLadder —
+        // both clear this. Left set, a later re-open from inside the engine
+        // (a tunnelled refusal re-opening where it was) calls clearError and
+        // brings the card back captioned "Reconnecting… (2 of 3)" with no
+        // reconnect anywhere in flight.
+        reconnectAttempt = 0
+        reconnectJob = null
         errorMessage = reason
         layer = PlayerLayer.Error
     }
@@ -777,7 +936,14 @@ class PlayerSession internal constructor(
             // open: nothing to commit, and re-opening it would only restart
             // it. The tune card shows only if that stream is still coming up.
             pendingTuneIndex = null
+            // Unless a reconnect had it. Read before the write below, which
+            // clears it: that reconnect was the only thing going to re-open
+            // this stream, the tuning setter has just cancelled it, and the
+            // engine behind it is stopped — so returning here would leave an
+            // idle player with nothing in flight and no watchdog able to arm.
+            val wasReconnecting = reconnectAttempt > 0
             tuning = !engine.isPlaying
+            if (wasReconnecting) engine.playAt(target)
             return
         }
         previousIndex = engine.currentIndex

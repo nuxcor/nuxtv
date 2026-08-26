@@ -858,6 +858,23 @@ class ExoEngine(
         if (!released) player.volume = if (muted) 0f else 1f
     }
 
+    override fun stop() {
+        if (released) return
+        // The watchdogs are about the stream that was open; nothing they have
+        // learned about it survives it being closed.
+        clearSinkRefusal()
+        resetWatchdog()
+        // Drops the source and its socket and leaves the player idle, which is
+        // exactly where playAt picks up from: it sets a media item and
+        // prepares, so a stopped player re-opens as cleanly as an errored one.
+        player.stop()
+        // The pool's own teardown does this for the same reason: playWhenReady
+        // left true on an idle player has the media session telling the system
+        // — and any CEC or assistant surface reading it — that a stopped
+        // stream is playing. playAt sets it back on its way in.
+        player.playWhenReady = false
+    }
+
     /**
      * Gives the player back to the pool rather than releasing it — release
      * is the call that blocked the main thread on the decoders. Everything
