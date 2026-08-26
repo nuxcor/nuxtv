@@ -129,7 +129,7 @@ private sealed interface HomeMenu {
  * that still occupies a scroll position.
  */
 private enum class HomeRow {
-    Continue, Favorites, Recents, StarterChannels, StarterMovies, StarterSeries, New
+    Recents, Continue, Favorites, StarterChannels, StarterMovies, StarterSeries, New
 }
 
 /**
@@ -263,15 +263,23 @@ fun HomeLoungeTab(
     ) {
         // Live first, then films, then shows.
         //
-        // Continue watching keeps the top: it is the one row that answers
-        // "what was I doing", and it is empty for anyone who has not started
-        // something. Everything after it runs live -> movies -> shows, so the
-        // shelf order matches the rail order and the thing this app is
-        // primarily for is the thing on screen when Home opens.
+        // Recent channels take the top. Continue watching held it for a while,
+        // on the reasoning that "what was I doing" is the first question Home
+        // answers — but on this app it usually is not. This is a live TV app
+        // before it is a library: the common arrival is someone coming back to
+        // a channel they were watching, not to a film they were halfway
+        // through, and a live row is also the one that is populated on almost
+        // every install. Continue watching keeps second place, which is still
+        // above the fold, and is still absent entirely for anyone who has not
+        // started something.
+        //
+        // Everything after them runs live -> movies -> shows, so the shelf
+        // order matches the rail order and the thing this app is primarily for
+        // is the thing on screen when Home opens.
         buildList {
+            if (recentsRow.isNotEmpty()) add(HomeRow.Recents)
             if (continueRow.isNotEmpty()) add(HomeRow.Continue)
             if (favoritesRow.isNotEmpty()) add(HomeRow.Favorites)
-            if (recentsRow.isNotEmpty()) add(HomeRow.Recents)
             if (starterChannels.isNotEmpty()) add(HomeRow.StarterChannels)
             if (starterMovies.isNotEmpty()) add(HomeRow.StarterMovies)
             if (starterSeries.isNotEmpty()) add(HomeRow.StarterSeries)
