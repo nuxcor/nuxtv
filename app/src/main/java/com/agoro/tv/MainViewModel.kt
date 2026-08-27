@@ -728,6 +728,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         when (val current = _updateState.value) {
             is com.agoro.tv.data.UpdateManager.State.Downloading -> return // already running
             is com.agoro.tv.data.UpdateManager.State.Ready -> {
+                // A staged APK can go missing between download and install —
+                // Android empties cacheDir under pressure, and this app's own
+                // storage cleanup lives two rows above the update button. Fall
+                // back to downloading again rather than telling the viewer to
+                // enable a permission that was never the problem: Ready has no
+                // other way back, so that message used to stand for ever.
+                if (!current.file.exists()) {
+                    _updateState.value = com.agoro.tv.data.UpdateManager.State.Idle
+                    checkForUpdates()
+                    return
+                }
                 if (!updateManager.install(current.file)) {
                     _updateState.value = current.copy(note = INSTALL_BLOCKED)
                 }
@@ -740,7 +751,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             runCatching {
                 _updateState.value = com.agoro.tv.data.UpdateManager.State.Downloading(0)
-                val file = updateManager.download(available.apkUrl) { pct ->
+                // The size the release feed advertised, so the download can
+                // ask the system to make room for it first.
+                val file = updateManager.download(available.apkUrl, available.sizeBytes) { pct ->
                     _updateState.value = com.agoro.tv.data.UpdateManager.State.Downloading(pct)
                 }
                 val ready = com.agoro.tv.data.UpdateManager.State.Ready(available.version, file)

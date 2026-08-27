@@ -35,6 +35,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
@@ -150,6 +154,27 @@ internal fun SettingsTab(
         if (!returnToManage) return@LaunchedEffect
         returnToManage = false
         manageFocus.requestFocusRetrying()
+    }
+
+    // Storage state lives HERE, not inside its item. A LazyColumn item is
+    // disposed the moment it scrolls out of view, so held in there the
+    // measurement was thrown away and re-walked — thousands of stat calls —
+    // every time the viewer moved past it, the "Freed 300 MB" confirmation
+    // vanished with no trace the button had done anything, and the
+    // rememberCoroutineScope running the clear was cancelled mid-flight if
+    // they scrolled away while it worked.
+    val storageScope = rememberCoroutineScope()
+    val storageContext = LocalContext.current
+    var storageReport by remember {
+        mutableStateOf<com.agoro.tv.data.StorageUsage.Report?>(null)
+    }
+    var storageFreed by remember { mutableStateOf<Long?>(null) }
+    var storageBusy by remember { mutableStateOf(false) }
+    var confirmClear by remember { mutableStateOf(false) }
+    LaunchedEffect(storageFreed) {
+        storageReport = withContext(Dispatchers.IO) {
+            com.agoro.tv.data.StorageUsage.report(storageContext)
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -456,6 +481,59 @@ internal fun SettingsTab(
             }
         }
 
+        item(key = "storage") {
+            SettingsGroup(title = "Storage", divider = true) {
+                val r = storageReport
+                Text(
+                    text = if (r == null) "Measuring…" else "${mb(r.reclaimableBytes)} of caches",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = NuxColors.OnSurfaceDim,
+                )
+                if (r != null) {
+                    Spacer(Modifier.height(Space.xs))
+                    // Every bucket in the headline is named, Other included.
+                    // Leaving it out meant the figures never added up to the
+                    // total, which is the "where did the space go" question
+                    // this panel exists to answer.
+                    Text(
+                        text = "Artwork ${mb(r.imagesBytes)} · Guide ${mb(r.guideBytes)} · " +
+                            "Downloads ${mb(r.updatesBytes)} · Other ${mb(r.otherCacheBytes)}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = NuxColors.OnSurfaceDim,
+                    )
+                    // Counted, and plainly not on offer. A viewer who clears
+                    // everything and still sees hundreds of megabytes against
+                    // the app deserves to know what is holding them.
+                    Spacer(Modifier.height(Space.xs))
+                    Text(
+                        text = "Kept: catalogue ${mb(r.catalogueBytes)}" +
+                            if (r.recordingsCount > 0) {
+                                " · ${r.recordingsCount} recording" +
+                                    (if (r.recordingsCount == 1) "" else "s") +
+                                    " ${mb(r.recordingsBytes)}"
+                            } else "",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = NuxColors.OnSurfaceDim,
+                    )
+                }
+                storageFreed?.let {
+                    Spacer(Modifier.height(Space.xs))
+                    Text(
+                        text = if (it > 0) "Freed ${mb(it)}." else "Nothing to free.",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = NuxColors.Secondary,
+                    )
+                }
+                Spacer(Modifier.height(Space.s))
+                // Confirmed, like Import backup on this same screen. One stray
+                // OK while walking the list would otherwise cost a full guide
+                // re-download on a Wi-Fi-only box.
+                Button(onClick = { confirmClear = true }) {
+                    Text(if (storageBusy) "Clearing…" else "Clear caches")
+                }
+            }
+        }
+
         item(key = "backup") {
             SettingsGroup(title = "Backup & restore", divider = true) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -494,6 +572,27 @@ internal fun SettingsTab(
     // item: an item near the bottom only composes once scrolled to, so a
     // confirmation living there never appeared for actions triggered from
     // the top of the screen — Remove playlist silently did nothing.)
+    if (confirmClear) {
+        ConfirmDialog(
+            title = "Clear caches?",
+            message = "Artwork and the guide download again as you use them. " +
+                "Recordings and your catalogue are not touched.",
+            confirmLabel = "Clear",
+            onConfirm = {
+                confirmClear = false
+                storageBusy = true
+                storageScope.launch {
+                    val n = withContext(Dispatchers.IO) {
+                        com.agoro.tv.data.StorageUsage.clearCaches(storageContext)
+                    }
+                    storageBusy = false
+                    storageFreed = n
+                }
+            },
+            onDismiss = { confirmClear = false },
+        )
+    }
+
     if (pinGateOpen) {
         com.agoro.tv.ui.components.PinPrompt(
             onSubmit = { entered ->
@@ -563,6 +662,10 @@ internal fun SettingsTab(
     )
     }
 }
+
+/** Bytes as the viewer reads them: whole MB, or KB below a megabyte. */
+private fun mb(bytes: Long): String =
+    if (bytes >= 1024L * 1024) "${bytes / (1024 * 1024)} MB" else "${bytes / 1024} KB"
 
 /** Whether a status line reports something that did not work. */
 private fun isFailure(message: String): Boolean =
