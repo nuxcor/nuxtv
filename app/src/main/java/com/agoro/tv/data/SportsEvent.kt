@@ -573,9 +573,22 @@ object SportsParser {
             .minByOrNull { kotlin.math.abs(it - nowMs) }!!
     }
 
-    /** Studio coverage and tactical cameras — a companion feed, not the match. */
+    /**
+     * Studio coverage and tactical cameras — a companion feed, not the match.
+     *
+     * "Goal Rush" is the whip-around show, and it earns its place here by
+     * naming two clubs the way a fixture does: "Goal Rush: Chelsea v Brighton
+     * & Hove Albion" groups with the real Chelsea v Brighton slot fifty
+     * minutes later and, with nothing to separate them, could take the row and
+     * bring its own earlier start as the kick-off.
+     *
+     * Deliberately not here: Countdown, Preview, PL Live. They are companion
+     * programming too, but none of them names two clubs of one league on this
+     * panel, so none can group with a fixture — adding them would be guarding
+     * a door nothing walks through.
+     */
     private val sideFeedWords = Regex(
-        """(?i)\b(Studio Coverage|Player Camera|Multi ?Camera|Match Centre|Tactical|Fan ?Zone)\b"""
+        """(?i)\b(Studio Coverage|Player Camera|Multi ?Camera|Match Centre|Tactical|Fan ?Zone|Goal ?Rush)\b"""
     )
 
     internal fun isSideFeed(name: String) = sideFeedWords.containsMatchIn(name)

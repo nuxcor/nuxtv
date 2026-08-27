@@ -514,6 +514,29 @@ class SportsParserTest {
         assertEquals("the soccer shelf stays reachable", listOf(1), rows[0].alternates)
     }
 
+    /** Copied from the panel: the whip-around names two clubs like a fixture. */
+    @Test
+    fun `the goal round-up does not take the match's row`() {
+        val now = ms(2026, 8, 30, 12, 30, "UTC")
+        val roster = mapOf("Premier League" to listOf("Chelsea", "Brighton"))
+        val rush = SportsParser.parse(
+            1,
+            "AU (STAN 59) | Goal Rush: Chelsea v Brighton & Hove Albion • 30 August  " +
+                "Premier League 2026/27 (2026-08-30 22:00:34)",
+            now, roster,
+        )!!
+        val match = SportsParser.parse(
+            2,
+            "AU (STAN 62) | Chelsea v Brighton & Hove Albion  Premier League Matchweek 2 " +
+                "2026/2027 (2026-08-30 22:50:29)",
+            now, roster,
+        )!!
+        assertTrue("the round-up is a side feed", rush.sideFeed)
+        val rows = SportsParser.upcoming(listOf(rush, match), now, 60)
+        assertEquals(1, rows.size)
+        assertEquals("the match leads", 2, rows[0].streamId)
+    }
+
     @Test
     fun `a slot naming no sport, or naming the right one, is untouched`() {
         val now = ms(2026, 8, 20, 15, 0, "UTC")
