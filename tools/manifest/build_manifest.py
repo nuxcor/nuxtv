@@ -2180,6 +2180,27 @@ CHANNEL_ALIAS = {
     'yankeesentertainmentsport': 'yesnetwork', 'foxsportsyes': 'yesnetwork',
 }
 # region corrections: these are not US channels
+# A tier is not a territory, and these three are the case the automatic pass
+# cannot close. They sit in category "4K| UHD 3840P" and their names begin
+# "4K:", so _eff_region resolves them to 4K from both ends and gives up —
+# KEEP_REGIONS holds no such thing.
+#
+# What that cost, seen on the box 2026-08-27: the app drops a quality tier
+# where it expects a region, so all three came out region-less and opened
+# their own unnamed "Sports" chip between SuperSport and Locals, holding three
+# channels. Worse, it was contagious. One region-less shelf sets
+# hasMergedShelf, and that is the flag deciding whether EVERY OTHER shelf
+# carries a territory suffix — so three stray channels are why the strip reads
+# "News · United States" rather than "News".
+#
+# Pinned by id, not by a ^SKY SPORTS pattern: that would also claim the US Sky
+# Sports feeds, and Eleven Sports PL is not a Sky channel at all.
+REGION_PIN = {
+    1544239: 'UK',   # 4K: SKY SPORTS MAIN EVENTS UHD 3840P
+    1544244: 'UK',   # 4K: SKY SPORTS DARTS UHD 3840P
+    1544301: 'UK',   # 4K: ELEVEN SPORTS PL UHD 3840P
+}
+
 REGION_FIX = [(re.compile(r'^SUPER ?SPORT', re.I), 'AFR'),
               (re.compile(r'^TSN\b', re.I), 'CA'),
               (re.compile(r'^NBC NEWS NOW\b', re.I), 'US')]
@@ -2215,6 +2236,8 @@ for st in ls:
     # gate has, by definition, a region none of them can resolve to a shelf.
     if sid in NAMED_KEEP:
         region_fix[str(sid)] = NAMED_KEEP[sid]
+    if sid in REGION_PIN:
+        region_fix[str(sid)] = REGION_PIN[sid]
     k = _alias_key(n)
     if not k: continue
     if k in _alias_best:                             # keep the best tier

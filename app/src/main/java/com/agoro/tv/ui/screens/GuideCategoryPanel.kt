@@ -4,10 +4,12 @@ package com.agoro.tv.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -101,6 +103,21 @@ internal fun GuideCategoryPanel(
         if (!selectedFocus.requestFocusRetrying()) onDismiss()
     }
 
+    // A scrim under the whole screen, then the panel on top of it.
+    //
+    // Without one the panel is a lit slab standing on a guide that is still
+    // fully lit, with a preview still moving behind that — three things at the
+    // same brightness, and the panel reads as something that has gone wrong
+    // rather than something that was opened. It is reachable by LEFT out of
+    // the channel column, so it also arrives unannounced.
+    //
+    // The scrim is not focusable and takes no input: BACK and RIGHT are still
+    // the panel's own, handled below. It only says which layer is live.
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(NuxColors.Scrim.copy(alpha = 0.72f)),
+    )
     Column(
         modifier = modifier
             .width(PANEL_WIDTH)

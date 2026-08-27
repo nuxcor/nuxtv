@@ -329,7 +329,19 @@ fun HomeLoungeTab(
     // it (the first favorite starred, a first resume) shifts every index
     // below, and the viewer's row must follow itself rather than hand its
     // slot to the newcomer.
-    var focusedRowKey by rememberSaveable { mutableStateOf(HomeRow.Continue.name) }
+    // Seeded from the row list, NOT hardcoded. This said Continue, and said it
+    // from before Continue was the top row — so once Recents took the top
+    // (2026-08-26) a fresh launch still resolved the viewer's row to Continue
+    // watching and arrival focus went there, past the row above it. The name
+    // is resolved before the index in currentRow(), so a stale name does not
+    // fall through to position 0; it wins.
+    //
+    // firstOrNull, because on the very first composition the catalogue may not
+    // have landed and rowKeys is empty. currentRow()'s index fallback covers
+    // that frame, and rememberSaveable keeps a returning viewer's own row.
+    var focusedRowKey by rememberSaveable {
+        mutableStateOf(rowKeys.firstOrNull()?.name ?: HomeRow.Recents.name)
+    }
     var hasFocused by rememberSaveable { mutableStateOf(false) }
     val rowKeysState = rememberUpdatedState(rowKeys)
     /** The viewer's row, by name first, else by index — read in effects only. */
