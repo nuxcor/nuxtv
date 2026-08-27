@@ -42,6 +42,18 @@ data class Sport(
     @SerialName("cue_minutes") val cueMinutes: Int = 60,
     /** Nicknames more than one sport answers to; these need both sides. */
     val ambiguous: List<String> = emptyList(),
+    /**
+     * Club name -> crest URL, resolved at build time by crest_match.py against
+     * two public repositories. Keyed by the ROSTER's spelling, which is what
+     * the parser puts in [SportsEvent.home] and [SportsEvent.away], so a row
+     * looks a crest up with the string it already holds.
+     *
+     * Not exhaustive, by design: 203 of 239 clubs. MLS has no crest source
+     * worth using, so its 32 clubs — and three Champions League entrants from
+     * leagues neither repository carries — resolve to null and their rows fall
+     * back to a monogram. A row must never assume a crest exists.
+     */
+    @SerialName("club_crest") val clubCrest: Map<String, String> = emptyMap(),
 )
 
 @Serializable

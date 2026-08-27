@@ -1915,6 +1915,11 @@ _logo_map = _load('logo_map.json', {}) or {}
 _prev = _load('manifest.json', {}) or {}
 if not _epg_map:  _epg_map  = (_prev.get('epg')  or {}).get('channel_map', {})
 if not _logo_map: _logo_map = (_prev.get('logo') or {}).get('channel_logo', {})
+# Club crests for the fixture rows, from crest_match.py. Same fallback as the
+# channel artwork above: a missing index carries the last one forward rather
+# than stripping every crest off the Sport tab.
+_crest_map = _load('crest_map.json', {}) or {}
+if not _crest_map: _crest_map = (_prev.get('sport') or {}).get('club_crest', {})
 
 # ------------------------------------------------- "Cozi" == "Cozi TV"
 # The provider ships both forms of the same channel. Fold only when the bare
@@ -2836,7 +2841,7 @@ manifest = {
     # These share one shelf per genre; anything else keeps its own shelf.
     "merged_regions": list(MERGED_REGIONS),
     "sport": {"leagues": SPORT_LEAGUES, "cue_minutes": SPORT_CUE_MINUTES,
-              "ambiguous": SPORT_AMBIGUOUS},
+              "ambiguous": SPORT_AMBIGUOUS, "club_crest": _crest_map},
     # Section-level fold, applied to whatever section a channel resolves to.
     # The per-stream merged_section map cannot cover a channel that no pass
     # enumerated, and a handful of strays were enough to reopen a shelf.
@@ -2904,6 +2909,7 @@ manifest = {
         "tiles_resectioned": len(merged_section),
         "epg_bound": len(_epg_map),
         "logo_bound": len(_logo_map),
+        "club_crests_bound": len(_crest_map),
         "live_event_channels": sum(len(v) for v in live_events.values()),
         "live_event_groups": len(live_events),
         "sd_dropped": len(sd_all_drop),

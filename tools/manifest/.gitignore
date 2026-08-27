@@ -4,3 +4,6 @@
 *.m3u
 dup_ids.txt
 __pycache__/
+
+# Crest source trees, re-fetched with the gh calls in crest_match.py.
+crest_tree_*.txt
