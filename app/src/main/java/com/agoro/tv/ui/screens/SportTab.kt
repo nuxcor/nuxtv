@@ -11,6 +11,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import com.agoro.tv.ui.components.Artwork
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -132,7 +134,7 @@ fun SportTab(
     // recompose the whole of SportTab every thirty seconds — the manifest
     // collect and the fixtures collect — so that a label could say "in 5
     // min". Only the part that reads the clock should answer to it.
-    Fixtures(parsed.orEmpty(), leagueOrder, cue, onPlay, onBrowse, vm)
+    Fixtures(parsed.orEmpty(), leagueOrder, cue, sport?.clubCrest.orEmpty(), onPlay, onBrowse, vm)
 }
 
 /**
@@ -181,6 +183,12 @@ private fun FixturesSkeleton() {
 /** One outlined fixture: the status column, then the two clubs about the "v". */
 @Composable
 private fun SkeletonFixtureRow(sweep: State<Float>, gapAbove: Dp) {
+    // Same skeleton the real row is: two crests at the leading edge, the two
+    // clubs, the status at the trailing edge. It used to lead with the status
+    // column, which is where the status was BEFORE the crests took that edge —
+    // so the list arrived by shrinking its leading block 96dp to 66dp and
+    // growing a status column out of nothing on the right. A skeleton the real
+    // list has to jump out of is worse than no skeleton.
     Row(
         modifier = Modifier
             .padding(top = gapAbove)
@@ -188,12 +196,22 @@ private fun SkeletonFixtureRow(sweep: State<Float>, gapAbove: Dp) {
             .padding(horizontal = Space.m, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(StatusColumnWidth), contentAlignment = Alignment.CenterStart) {
-            SkeletonBar(width = 52.dp, height = 12.dp, sweep = sweep)
+        Row(
+            modifier = Modifier.width(CrestColumnWidth),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SkeletonBar(width = CrestSize, height = CrestSize, sweep = sweep)
+            SkeletonBar(width = CrestSize, height = CrestSize, sweep = sweep)
         }
+        Spacer(Modifier.width(Space.m))
         SkeletonBar(width = 128.dp, height = 14.dp, sweep = sweep, modifier = Modifier.weight(1f))
         Spacer(Modifier.width(Space.m + 8.dp))
         SkeletonBar(width = 128.dp, height = 14.dp, sweep = sweep, modifier = Modifier.weight(1f))
+        Spacer(Modifier.width(Space.m))
+        Box(Modifier.width(StatusColumnWidth), contentAlignment = Alignment.CenterEnd) {
+            SkeletonBar(width = 52.dp, height = 12.dp, sweep = sweep)
+        }
     }
 }
 
@@ -245,6 +263,8 @@ private fun Fixtures(
     parsed: List<SportsEvent>,
     leagueOrder: List<String>,
     cue: Int,
+    /** Club name -> crest URL; not every club has one. See Sport.clubCrest. */
+    crests: Map<String, String>,
     onPlay: () -> Unit,
     onBrowse: (HomeTab) -> Unit,
     vm: MainViewModel,
@@ -348,6 +368,8 @@ private fun Fixtures(
                     FixtureRow(
                         home = event.home,
                         away = event.away,
+                        homeCrest = crests[event.home],
+                        awayCrest = crests[event.away],
                         status = status,
                         // Fixtures inside a league belong together; the
                         // first one sits straight under its heading.
@@ -374,10 +396,76 @@ private fun Fixtures(
  * wide whatever the panel's pixels are, so an earlier 900 was 94% of the
  * screen and looked like no cap at all.
  */
-private val FixtureRowWidth = 620.dp
+// 620 as before, plus every dp of chrome the crests added: the 66dp badge
+// block, the 16dp gap after it, and the 16dp gap that now separates the names
+// from the status column — 98, not the 82 an earlier count here claimed. At
+// 702 the two name columns shared 16dp LESS than they did at 620, so the
+// longest pairings the 620 cap was picked for ("Wolverhampton Wanderers v
+// Brighton & Hove Albion") ellipsised where they used to fit.
+//
+// Written out rather than composed from CrestColumnWidth: top-level properties
+// initialise in file order and that one is declared below this, so referring
+// to it here reads as zero at class-init time and the cap silently becomes 636.
+private val FixtureRowWidth = 718.dp
 
 /** The status column, fixed so the clubs line up down the page. */
 private val StatusColumnWidth = 96.dp
+
+/** One crest. Small enough that two fit the row's height without growing it. */
+private val CrestSize = 30.dp
+
+/**
+ * The badge block, fixed so the clubs line up down the page exactly as they do
+ * against the status column on the other side. Two crests and the gap between.
+ */
+private val CrestColumnWidth = CrestSize * 2 + 6.dp
+
+/**
+ * The two clubs' badges, home then away.
+ *
+ * [Artwork] and not a bare AsyncImage, because these URLs 404 routinely — the
+ * crest index is matched by name against two public repositories and a club
+ * that was renamed or promoted out of a covered league simply is not there —
+ * and Artwork already owns that: transparent placeholder, no stale pixels
+ * carried into a reused row, and a monogram when the image never arrives.
+ *
+ * The monogram is why a missing crest is a soft failure rather than a hole.
+ * MLS has no crest source worth using, so all 32 of its clubs land here, and
+ * "Atlanta United" reading as AU beside "Austin FC" as AF still lines up and
+ * still tells a viewer which row is which.
+ */
+@Composable
+private fun Crests(
+    home: String,
+    away: String,
+    homeCrest: String?,
+    awayCrest: String?,
+) {
+    Row(
+        modifier = Modifier.width(CrestColumnWidth),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Crest(home, homeCrest)
+        Crest(away, awayCrest)
+    }
+}
+
+@Composable
+private fun Crest(club: String, url: String?) {
+    Artwork(
+        imageUrl = url,
+        title = club,
+        // Fit, not Crop: a crest is a transparent PNG with its own margins and
+        // cropping one cuts the badge. Transparent background for the same
+        // reason the guide chips use one — a slab behind a round crest draws a
+        // square nobody asked for.
+        contentScale = ContentScale.Fit,
+        background = Color.Transparent,
+        monogramStyle = MaterialTheme.typography.labelSmall,
+        modifier = Modifier.size(CrestSize),
+    )
+}
 
 /**
  * One fixture. Takes strings, not the event and the clock: every parameter
@@ -388,6 +476,9 @@ private val StatusColumnWidth = 96.dp
 private fun FixtureRow(
     home: String,
     away: String,
+    /** Crest URLs, either of which may be absent. See Sport.clubCrest. */
+    homeCrest: String?,
+    awayCrest: String?,
     /** The label to print, or null for the LIVE badge. */
     status: String?,
     gapAbove: androidx.compose.ui.unit.Dp,
@@ -420,16 +511,11 @@ private fun FixtureRow(
                 .padding(horizontal = Space.m, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.width(StatusColumnWidth), contentAlignment = Alignment.CenterStart) {
-                if (status == null) LiveBadge() else {
-                    Text(
-                        text = status,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = NuxColors.OnSurfaceDim,
-                        maxLines = 1,
-                    )
-                }
-            }
+            // The crests lead, the way they do on a broadcaster's own
+            // fixture list: two badges are recognised across a room at a
+            // glance, where two names have to be read.
+            Crests(home, away, homeCrest, awayCrest)
+            Spacer(Modifier.width(Space.m))
             // Home right, away left, the "v" between them: the clubs sit on a
             // common axis so a column of fixtures reads down rather than
             // ragged.
@@ -455,6 +541,21 @@ private fun FixtureRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            // Status moved from the left of the row to the right of it, where
+            // a broadcaster puts the kick-off time. On the left it sat between
+            // the viewer and the fixture — the thing they are actually looking
+            // for — and the crests want that edge more than it does.
+            Spacer(Modifier.width(Space.m))
+            Box(Modifier.width(StatusColumnWidth), contentAlignment = Alignment.CenterEnd) {
+                if (status == null) LiveBadge() else {
+                    Text(
+                        text = status,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = NuxColors.OnSurfaceDim,
+                        maxLines = 1,
+                    )
+                }
+            }
         }
     }
     }

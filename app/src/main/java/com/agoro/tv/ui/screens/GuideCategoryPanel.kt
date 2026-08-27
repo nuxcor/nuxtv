@@ -4,10 +4,12 @@ package com.agoro.tv.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -101,6 +103,11 @@ internal fun GuideCategoryPanel(
         if (!selectedFocus.requestFocusRetrying()) onDismiss()
     }
 
+    // The scrim is NOT here; GuideTab draws it. This composable emits one node
+    // and `modifier` describes all of it, which is what a caller passing
+    // Modifier.align() is entitled to assume — a second fillMaxSize() sibling
+    // would silently require a Box parent and take the parent's own alignment
+    // rather than the one it was handed.
     Column(
         modifier = modifier
             .width(PANEL_WIDTH)

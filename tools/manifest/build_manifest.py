@@ -89,12 +89,16 @@ MOVIE_MANUAL = {
 
 SECTIONS_LIVE = [
     ("NEWS",          "News",                False),
+    # Entertainment second, straight under News, asked for 2026-08-27. It is
+    # the biggest shelf in the package and the one a viewer with nothing
+    # particular in mind lands on; Sports and Locals are what you reach for
+    # when you already know what you want, and they keep their order behind it.
+    ("ENTERTAINMENT", "Entertainment",       False),
     ("SPORTS",        "Sports",              False),
     # "Locals", not "Locals & Networks": the shelf is metro affiliate stations
     # and nothing else, so the second half named a thing that is not there and
     # cost width in a strip where width is the whole budget.
     ("LOCALS",        "Locals",              False),
-    ("ENTERTAINMENT", "Entertainment",       False),
     ("MOVIES",        "Movies 24/7",         False),
     ("KIDS",          "Kids",                False),
     ("DOCUMENTARY",   "Documentary",         False),
@@ -1915,6 +1919,71 @@ _logo_map = _load('logo_map.json', {}) or {}
 _prev = _load('manifest.json', {}) or {}
 if not _epg_map:  _epg_map  = (_prev.get('epg')  or {}).get('channel_map', {})
 if not _logo_map: _logo_map = (_prev.get('logo') or {}).get('channel_logo', {})
+# Club crests for the fixture rows, from crest_match.py. Same fallback as the
+# channel artwork above: a missing index carries the last one forward rather
+# than stripping every crest off the Sport tab.
+_crest_map = _load('crest_map.json', {}) or {}
+if not _crest_map: _crest_map = (_prev.get('sport') or {}).get('club_crest', {})
+
+# ------------------------------------------------ hand-pinned guide ids (curation)
+# The guide match normalises a country code OFF an XMLTV id — epg_match.nid()
+# strips a trailing .uk/.au/.us so that a channel and its id can disagree about
+# spelling — and the cost of that is a channel binding another country's feed
+# for the same brand. Nothing downstream notices: the id resolves, the guide
+# fills, and the listings are simply for somewhere else.
+#
+# Found 2026-08-27 from "change skynews AU to just sky news". Only three
+# bindings in 919 carry an .au id and two of them are wrong:
+#
+#   717697  UK: SKY NEWS      was skynews.au   — Sky News AUSTRALIA's schedule
+#                             on the UK channel, which is what was noticed.
+#   325773  US: ABC HD        was abcsydney.au — ABC Sydney on a US network.
+#
+# The third, GO: FAIL ARMY on failarmy.au, is left alone: FailArmy is one
+# global FAST feed and .au is the only id anyone publishes for it.
+#
+# Ids verified against iptv-org's channel list, and the CASE matters — the repo
+# source writes SkySportsNews.uk, not the lowercase form the bad binding used.
+# The feed is deliberately NOT pinned: epg6 already carries 58 other .uk ids,
+# so the corrected id resolves in the feed the channel was already reading.
+#
+# The rest came out of an audit on the same day, run the other way round: not
+# "does the id's country match" but "does the id name the same channel at all".
+# 185 of the 919 bindings have an id that neither contains nor is contained by
+# the channel's name; these two are the ones where the id names something else
+# entirely AND a correct id could be verified to exist.
+#
+#   325058  US: FUSE MUSIC   01TV.fr -> Fuse.us    a US music network reading
+#                           a French channel.
+#
+# Both land in a feed already carrying that country: epg6 has 59 .uk ids,
+# epg15 has 7 .us. Two more are just as wrong and are NOT pinned here, because
+# the right id sits in a feed this channel does not read and pinning a feed
+# unverified trades a wrong guide for a blank one:
+#
+#   787993  DSTV: ONE GOSPEL  nicktoons.us -> OneGospel.za, which is in the
+#                             "South Africa 1" feed, not epg2.
+#   788134  DSTV: GTV         hgtv.uk      -> GTV.gh, in "Ghana 1", not epg6.
+#
+# Checked and NOT a bug, recorded so it is not re-reported: US: DIY HD reads
+# magnolianetwork.us, which is right — DIY Network became Magnolia Network.
+#
+# Only channels the build actually CARRIES belong here. The first pass of this
+# audit read names out of the raw playlist rather than kept_live.json and so
+# proposed corrections to three channels that are not in the line-up at all —
+# US: ABC HD, VIP: LFC TV, and the two DSTV entries above, all already dropped.
+# 624 of the 919 bindings are for channels the build drops; a pin on one of
+# them is dead weight that reads like a fix.
+EPG_PIN = {
+    717697: 'SkyNews.uk',    # UK: SKY NEWS   — carried
+    325058: 'Fuse.us',       # US: FUSE MUSIC — carried
+}
+for _sid, _eid in EPG_PIN.items():
+    _cur = _epg_map.get(str(_sid))
+    # Only ever a correction to a binding that exists. Inventing one would mean
+    # inventing a src and a feed too, and a guess there is a blank guide.
+    if isinstance(_cur, dict):
+        _cur['id'] = _eid
 
 # ------------------------------------------------- "Cozi" == "Cozi TV"
 # The provider ships both forms of the same channel. Fold only when the bare
@@ -2111,6 +2180,66 @@ CHANNEL_ALIAS = {
     'yankeesentertainmentsport': 'yesnetwork', 'foxsportsyes': 'yesnetwork',
 }
 # region corrections: these are not US channels
+# A tier is not a territory, and a channel filed under one needs its real
+# territory found rather than named by hand.
+#
+# The case: "4K: SKY SPORTS MAIN EVENTS" sits in category "4K| UHD 3840P" and
+# its name prefix is "4K" too, so _eff_region resolves a tier from both ends
+# and gives up. What that cost, seen on the box 2026-08-27, was not just the
+# channel: the app drops a tier where it expects a region, so the channel came
+# out region-less and opened its own unnamed "Sports" chip — and ONE
+# region-less shelf sets the flag that decides whether EVERY shelf carries a
+# territory suffix. Three strays are why the strip read "News · United States"
+# rather than "News".
+#
+# Resolved from where the rest of the channel lives, which is what the
+# region_fix comment below has always claimed to do and never did. A tile's
+# other sources are the evidence: SKY SPORTS MAIN EVENTS and SKY SPORTS DARTS
+# each have four or five UK-filed siblings under the same channel key, so the
+# tier copy is UK too.
+#
+# Deliberately NOT a hand-written id list, which is what this was first. Stream
+# ids churn between refreshes, so the next unclassifiable tier channel would
+# reproduce the bug verbatim; a rule reads whatever the panel ships. And
+# deliberately no fallback for a channel with no siblings: ELEVEN SPORTS PL is
+# Eleven Sports POLAND, a territory this package does not carry, and guessing
+# UK for it would carry a Polish channel on the UK shelf. With no region it
+# falls to the region drop like any other foreign channel, which is correct.
+# A STRICTER key than channel_key for this one purpose. channel_key drops a
+# short trailing token as a style tag when what is left is still six
+# characters, which is right for "Sky Sports 1 HD" and wrong here: it takes the
+# PL off ELEVEN SPORTS PL, collapsing Eleven Sports POLAND into Eleven Sports
+# and handing a Polish channel whatever region that one has. Territory is
+# exactly what must not be guessed here, so nothing is trimmed.
+def _peer_key(n):
+    # NFKD here, NOT asc(). asc() maps a handful of known glyphs and DELETES
+    # every other non-ASCII character, and the provider writes territory tags
+    # in superscript: "ELEVEN SPORTS PL" carries its PL as U+1D3E U+1D38, so
+    # asc() hands back "ELEVEN SPORTS" and Eleven Sports POLAND becomes
+    # indistinguishable from Eleven Sports US — which is exactly the territory
+    # this function exists to establish. NFKD folds the superscripts to letters
+    # instead, so the tag survives long enough to keep the two apart.
+    n = unicodedata.normalize('NFKD', n).encode('ascii', 'ignore').decode()
+    return re.sub(r'[^a-z0-9]', '', QUAL.sub('', SPFX.sub('', n)).lower())
+
+
+# Built once. This was a scan of all 18,766 streams per tier channel, which
+# put 80 seconds on the build for the sake of a handful of lookups.
+_peer_regions = collections.defaultdict(set)
+for _st in ls:
+    _r = (cat_live.get(str(_st.get('category_id'))) or {}).get('region')
+    if _r in KEEP_REGIONS:
+        _peer_regions[_peer_key(_st['name'])].add(_r)
+
+
+def _peer_region(st):
+    """The region of this channel's namesakes elsewhere, if they agree."""
+    seen = _peer_regions.get(_peer_key(st['name']), ())
+    # Only an unambiguous answer. A key living under two territories is a name
+    # collision, not a tier copy, and picking one of them would be a guess.
+    return next(iter(seen)) if len(seen) == 1 else None
+
+
 REGION_FIX = [(re.compile(r'^SUPER ?SPORT', re.I), 'AFR'),
               (re.compile(r'^TSN\b', re.I), 'CA'),
               (re.compile(r'^NBC NEWS NOW\b', re.I), 'US')]
@@ -2146,6 +2275,11 @@ for st in ls:
     # gate has, by definition, a region none of them can resolve to a shelf.
     if sid in NAMED_KEEP:
         region_fix[str(sid)] = NAMED_KEEP[sid]
+    # Still a tier after both passes above: ask the namesakes. See _peer_region.
+    if str(sid) not in region_fix and c['region'] in TIER:
+        _peer = _peer_region(st)
+        if _peer:
+            region_fix[str(sid)] = _peer
     k = _alias_key(n)
     if not k: continue
     if k in _alias_best:                             # keep the best tier
@@ -2154,6 +2288,26 @@ for st in ls:
             alias_dupe.append(keep); _alias_best[k] = sid
         else:
             alias_dupe.append(sid)
+
+# --------------------------------- channels left holding a tier for a region
+# A tier is not a territory, and by this point every rule that could turn one
+# into a territory has run: the name prefix, the namesakes, the hand tables.
+# What is left has no shelf to appear on — the app discards a quality tier
+# where it expects a region — so it opens an unnamed shelf of its own instead,
+# which is how a single Polish channel put a bare "Sports" chip on the strip
+# beside "Sports · United Kingdom".
+#
+# Dropped, on the same grounds every other unsold territory is dropped.
+# ELEVEN SPORTS PL is Eleven Sports POLAND: no namesake in a region this
+# package carries, and its own territory is not one either. Keeping it would
+# mean either a chip of one or a Polish channel filed under a country it does
+# not belong to.
+tier_unshelved = []
+for st in ls:
+    sid = st['stream_id']
+    c = cat_live.get(str(st.get('category_id')))
+    if c and c['region'] in TIER and str(sid) not in region_fix:
+        tier_unshelved.append(sid)
     else:
         _alias_best[k] = sid
 
@@ -2355,6 +2509,7 @@ _drop_lists = [
     ('rsn_drop', rsn_drop), ('ca_drop', ca_drop), ('us_news_drop', us_news_drop),
     ('defunct_drop', defunct_drop), ('misfiled_territory', misfiled_territory),
     ('named_drop', named_drop),
+    ('tier_unshelved', tier_unshelved),
     ('cross_region_dupe', cross_region_dupe),
     ('exact_dupe_drop', exact_dupe_drop), ('junk_sweep', junk_sweep),
     ('region_section_drop', region_section_drop), ('clean_drop', clean_drop),
@@ -2379,7 +2534,7 @@ _all_drops = [sid for _, lst in _drop_lists for sid in lst]
 # the drop stand costs the tile nothing, because effectivePrimary promotes the
 # best surviving source; the guard is only needed where every member of a
 # group was caught for being a duplicate of the others.
-_region_gone = set(dropped_region)
+_region_gone = set(dropped_region) | set(tier_unshelved)
 _all_drops = [sid for sid in _all_drops
               if sid in _region_gone
               or sid not in {t['primary'] for t in uk_collapse.values()}]
@@ -2836,7 +2991,7 @@ manifest = {
     # These share one shelf per genre; anything else keeps its own shelf.
     "merged_regions": list(MERGED_REGIONS),
     "sport": {"leagues": SPORT_LEAGUES, "cue_minutes": SPORT_CUE_MINUTES,
-              "ambiguous": SPORT_AMBIGUOUS},
+              "ambiguous": SPORT_AMBIGUOUS, "club_crest": _crest_map},
     # Section-level fold, applied to whatever section a channel resolves to.
     # The per-stream merged_section map cannot cover a channel that no pass
     # enumerated, and a handful of strays were enough to reopen a shelf.
@@ -2904,6 +3059,7 @@ manifest = {
         "tiles_resectioned": len(merged_section),
         "epg_bound": len(_epg_map),
         "logo_bound": len(_logo_map),
+        "club_crests_bound": len(_crest_map),
         "live_event_channels": sum(len(v) for v in live_events.values()),
         "live_event_groups": len(live_events),
         "sd_dropped": len(sd_all_drop),

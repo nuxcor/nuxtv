@@ -53,8 +53,25 @@ on disk.
 | VOD metadata | `enrich_vod.py` | `get_vod_streams.json` | genre/rating/tmdb keys |
 | Guide match | `epg_match.py` | `repo_epg_index.json`, `openepg_index_built.json` | `epg_map_final.json` |
 | Artwork match | `logo_match.py` | tv-logos index | `logo_map.json` |
+| Club crests | `crest_match.py` | `manifest.json`, `crest_tree_*.txt` | `crest_map.json` |
 | Events | `ppv_parse.py` | panel PPV categories | `ppv_events.json` |
 | **Build** | `build_manifest.py` | all of the above | `manifest.json` |
+
+`crest_match.py` runs AFTER a first build: it reads `sport.leagues` out of
+`manifest.json` and exits if it is missing. So the real order is build → crest
+→ rebuild, and only the second build carries the crests.
+
+Both its inputs and its output are gitignored, and a missing `crest_map.json`
+does not fail the build — `build_manifest.py` falls back to the crests in the
+previous manifest and reports `club_crests_bound` from that. On a fresh clone
+that is a silent stale count, so refresh the trees before trusting it:
+
+```
+gh api "repos/luukhopman/football-logos/git/trees/master?recursive=1" \
+  --jq '.tree[]|select(.path|endswith(".png"))|.path' > crest_tree_euro.txt
+gh api "repos/klunn91/team-logos/git/trees/master?recursive=1" \
+  --jq '.tree[]|select(.path|test("\\.(png|svg)$"))|.path' > crest_tree_us.txt
+```
 | Measure | `probe_tiers.py` | `manifest.json`, panel streams | `probed_tiers.json` |
 | Artwork gaps | `bind_logos.py` | `manifest.json`, tv-logos tree | `manifest.json` (in place) |
 

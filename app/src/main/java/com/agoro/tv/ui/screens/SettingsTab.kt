@@ -376,35 +376,59 @@ internal fun SettingsTab(
         item(key = "updates") {
             val update by vm.updateState.collectAsState()
             SettingsGroup(title = "App updates", divider = true) {
+                // Two lines, not one. The installed version used to open a
+                // sentence that then carried the available version and its
+                // download size — "Version 2.35.5 — 2.35.10 is available
+                // (42 MB)" — so the one fact that is always worth reading sat
+                // in front of two that are only sometimes there, and whatever
+                // the line could not fit was lost off the end of it. The
+                // version now stands alone and cannot be the part that goes.
                 Text(
-                    text = when (val u = update) {
-                        is UpdateManager.State.Available ->
-                            "Version ${BuildConfig.VERSION_NAME} — ${u.version.removePrefix("v")} is available" +
-                                (u.sizeBytes.takeIf { it > 0 }?.let { " (${it / 1048576} MB)" } ?: "")
-                        // The button IS the prompt once the system dialog has
-                        // been dismissed; "install when prompted" promised a
-                        // prompt that was never coming back.
-                        is UpdateManager.State.Ready ->
-                            u.note ?: "Update downloaded — press Install"
-                        is UpdateManager.State.UpToDate ->
-                            "Version ${BuildConfig.VERSION_NAME} — up to date"
-                        // Already a sentence: the check, the download and the
-                        // installer each say which of them failed.
-                        is UpdateManager.State.Error -> u.message
-                        // Downloading and Checking: the button below already
-                        // carries the live progress — saying it twice, 40px
-                        // apart, read as a glitch.
-                        else -> "Version ${BuildConfig.VERSION_NAME}"
-                    },
+                    text = "Version ${BuildConfig.VERSION_NAME}",
                     style = MaterialTheme.typography.labelMedium,
-                    color = when (val u = update) {
-                        is UpdateManager.State.Available -> NuxColors.Secondary
-                        is UpdateManager.State.Error -> NuxColors.Error
-                        is UpdateManager.State.Ready ->
-                            if (u.note != null) NuxColors.Error else NuxColors.Secondary
-                        else -> NuxColors.OnSurfaceDim
-                    },
+                    color = NuxColors.OnSurfaceDim,
                 )
+                // Wraps rather than clipping: an update line carries a version
+                // and a size, an error line carries a whole sentence, and on a
+                // narrow pane either can outrun the width. Nothing below this
+                // depends on it being one line high.
+                val status = when (val u = update) {
+                    is UpdateManager.State.Available ->
+                        "${u.version.removePrefix("v")} is available" +
+                            (u.sizeBytes.takeIf { it > 0 }?.let { " (${it / 1048576} MB)" } ?: "")
+                    // The button IS the prompt once the system dialog has
+                    // been dismissed; "install when prompted" promised a
+                    // prompt that was never coming back.
+                    is UpdateManager.State.Ready ->
+                        u.note ?: "Update downloaded — press Install"
+                    is UpdateManager.State.UpToDate -> "Up to date"
+                    // Already a sentence: the check, the download and the
+                    // installer each say which of them failed.
+                    is UpdateManager.State.Error -> u.message
+                    // Downloading and Checking: the button below already
+                    // carries the live progress — saying it twice, 40px
+                    // apart, read as a glitch.
+                    else -> null
+                }
+                if (status != null) {
+                    Spacer(Modifier.height(Space.xs))
+                    Text(
+                        text = status,
+                        style = MaterialTheme.typography.labelMedium,
+                        softWrap = true,
+                        // Only the three states that produce a status string
+                        // can reach this; the rest returned null above and are
+                        // not rendered at all. An `else` branch here would read
+                        // as a live default and invite a fourth state to be
+                        // added to the text without one being added here.
+                        color = when (val u = update) {
+                            is UpdateManager.State.Error -> NuxColors.Error
+                            is UpdateManager.State.Ready ->
+                                if (u.note != null) NuxColors.Error else NuxColors.Secondary
+                            else -> NuxColors.Secondary
+                        },
+                    )
+                }
                 Spacer(Modifier.height(Space.s))
                 // One stable button — swapping composables per state would drop
                 // D-pad focus mid-download.
