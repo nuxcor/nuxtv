@@ -1921,6 +1921,38 @@ if not _logo_map: _logo_map = (_prev.get('logo') or {}).get('channel_logo', {})
 _crest_map = _load('crest_map.json', {}) or {}
 if not _crest_map: _crest_map = (_prev.get('sport') or {}).get('club_crest', {})
 
+# ------------------------------------------------ hand-pinned guide ids (curation)
+# The guide match normalises a country code OFF an XMLTV id — epg_match.nid()
+# strips a trailing .uk/.au/.us so that a channel and its id can disagree about
+# spelling — and the cost of that is a channel binding another country's feed
+# for the same brand. Nothing downstream notices: the id resolves, the guide
+# fills, and the listings are simply for somewhere else.
+#
+# Found 2026-08-27 from "change skynews AU to just sky news". Only three
+# bindings in 919 carry an .au id and two of them are wrong:
+#
+#   717697  UK: SKY NEWS      was skynews.au   — Sky News AUSTRALIA's schedule
+#                             on the UK channel, which is what was noticed.
+#   325773  US: ABC HD        was abcsydney.au — ABC Sydney on a US network.
+#
+# The third, GO: FAIL ARMY on failarmy.au, is left alone: FailArmy is one
+# global FAST feed and .au is the only id anyone publishes for it.
+#
+# Ids verified against iptv-org's channel list, and the CASE matters — the repo
+# source writes SkySportsNews.uk, not the lowercase form the bad binding used.
+# The feed is deliberately NOT pinned: epg6 already carries 58 other .uk ids,
+# so the corrected id resolves in the feed the channel was already reading.
+EPG_PIN = {
+    717697: 'SkyNews.uk',
+    325773: 'ABC.us',
+}
+for _sid, _eid in EPG_PIN.items():
+    _cur = _epg_map.get(str(_sid))
+    # Only ever a correction to a binding that exists. Inventing one would mean
+    # inventing a src and a feed too, and a guess there is a blank guide.
+    if isinstance(_cur, dict):
+        _cur['id'] = _eid
+
 # ------------------------------------------------- "Cozi" == "Cozi TV"
 # The provider ships both forms of the same channel. Fold only when the bare
 # form also exists, so "Comedy TV" survives when there is no bare "Comedy".

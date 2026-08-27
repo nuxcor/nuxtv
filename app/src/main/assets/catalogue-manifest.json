@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-27T13:54:19+00:00",
+ "generated": "2026-08-27T14:24:07+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -18626,7 +18626,7 @@
    },
    "717697": {
     "src": "repo",
-    "id": "skynews.au",
+    "id": "SkyNews.uk",
     "feed": "epg6"
    },
    "272243": {
@@ -19771,7 +19771,7 @@
    },
    "325773": {
     "src": "repo",
-    "id": "abcsydney.au",
+    "id": "ABC.us",
     "feed": "epg6"
    },
    "325904": {
