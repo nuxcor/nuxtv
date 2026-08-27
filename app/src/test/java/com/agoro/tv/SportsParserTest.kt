@@ -474,6 +474,86 @@ class SportsParserTest {
         )
     }
 
+    /**
+     * The real pair, copied from the panel on 2026-08-27. Same fixture on two
+     * shelves, seven hours apart, and the soccer shelf was winning — so a
+     * 6pm kick-off was reported live at 11am.
+     */
+    @Test
+    fun `a pack shelved under the wrong sport does not set the kick-off`() {
+        val now = ms(2026, 8, 27, 16, 15, "UTC")          // 11:15 in Dallas
+        val roster = mapOf("NFL" to listOf("Steelers", "Bills"))
+        val soccerShelf = SportsParser.parse(
+            1,
+            "Next | Preseason: Steelers vs. Bills | all | 27-08-2026 | 16:00 (GMT) | " +
+                "8K EXCLUSIVE | US: SOCCER PPV 14",
+            now, roster,
+        )!!
+        val nflShelf = SportsParser.parse(2, "NFL  | 01 - 8/27 7pm Steelers at Bills", now, roster)!!
+        assertTrue("the soccer shelf is flagged", soccerShelf.wrongSport)
+        assertTrue("the NFL shelf is not", !nflShelf.wrongSport)
+        // Soccer shelf FIRST, which is the order that used to win it.
+        val slots = listOf(soccerShelf, nflShelf)
+        // At 11:15 in Dallas the game is nearly seven hours off, so the right
+        // answer is no row at all. It used to show, and to say LIVE.
+        assertEquals(
+            "nothing on screen seven hours early",
+            0, SportsParser.upcoming(slots, now, 60).size,
+        )
+        // And it appears on the NFL shelf's clock, not the soccer shelf's:
+        // half an hour before a 7pm Eastern kick-off.
+        val later = ms(2026, 8, 27, 18, 30, "America/New_York")
+        val rows = SportsParser.upcoming(slots, later, 60)
+        assertEquals("one row, not two", 1, rows.size)
+        assertEquals("the NFL shelf leads", 2, rows[0].streamId)
+        assertEquals(
+            "and the row carries ITS kick-off — 7pm Eastern, not 16:00 GMT",
+            ms(2026, 8, 27, 19, 0, "America/New_York"), rows[0].startMs,
+        )
+        assertTrue("not yet under way", !rows[0].isLive(later))
+        assertEquals("the soccer shelf stays reachable", listOf(1), rows[0].alternates)
+    }
+
+    /** Copied from the panel: the whip-around names two clubs like a fixture. */
+    @Test
+    fun `the goal round-up does not take the match's row`() {
+        val now = ms(2026, 8, 30, 12, 30, "UTC")
+        val roster = mapOf("Premier League" to listOf("Chelsea", "Brighton"))
+        val rush = SportsParser.parse(
+            1,
+            "AU (STAN 59) | Goal Rush: Chelsea v Brighton & Hove Albion • 30 August  " +
+                "Premier League 2026/27 (2026-08-30 22:00:34)",
+            now, roster,
+        )!!
+        val match = SportsParser.parse(
+            2,
+            "AU (STAN 62) | Chelsea v Brighton & Hove Albion  Premier League Matchweek 2 " +
+                "2026/2027 (2026-08-30 22:50:29)",
+            now, roster,
+        )!!
+        assertTrue("the round-up is a side feed", rush.sideFeed)
+        val rows = SportsParser.upcoming(listOf(rush, match), now, 60)
+        assertEquals(1, rows.size)
+        assertEquals("the match leads", 2, rows[0].streamId)
+    }
+
+    @Test
+    fun `a slot naming no sport, or naming the right one, is untouched`() {
+        val now = ms(2026, 8, 20, 15, 0, "UTC")
+        val roster = mapOf("Premier League" to listOf("Brighton", "Arsenal"))
+        // SOCCER on a soccer fixture is not a contradiction.
+        val soccer = SportsParser.parse(
+            1, "Next | Brighton vs. Arsenal | all | 20-08-2026 | 15:00 (GMT) | US: SOCCER PPV 3",
+            now, roster,
+        )!!
+        assertTrue("soccer shelf, soccer league", !soccer.wrongSport)
+        // And a slot that names no sport at all says nothing either way.
+        val bare = SportsParser.parse(
+            2, "Next | Brighton vs. Arsenal | all | 20-08-2026 | 15:00 (GMT)", now, roster,
+        )!!
+        assertTrue(!bare.wrongSport)
+    }
+
     @Test
     fun `live fixtures outrank ones about to start`() {
         val now = ms(2026, 8, 20, 15, 0, "UTC")

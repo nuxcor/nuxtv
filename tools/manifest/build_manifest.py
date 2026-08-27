@@ -620,7 +620,16 @@ UNWANTED_SPORT = re.compile(r'\bBFBS\b|\bZ\s*CLASSIC\b|\bSPORT\s*STAK\b', re.I)
 NAMED_REMOVAL = re.compile(
     # A cruise-holiday infomercial on the UK News shelf beside Sky News and
     # France 24. Removed 2026-08-26 at the user's request.
-    r'\bCRUISE\s*1ST\b',
+    r'\bCRUISE\s*1ST\b'
+    # FanDuel Racing, shipped by the panel as "TVG NETWORK 2". Removed
+    # 2026-08-27 at the user's request. It shared a guide id (network.us) with
+    # FanDuel TV, so one of the pair was reading the other's listings; with
+    # the second feed gone the id belongs unambiguously to the one that stays.
+    #
+    # Anchored to the trailing 2, which is what keeps this off "TVG NETWORK"
+    # itself — FanDuel TV, which stays — and off "GUI: TVGE", an unrelated
+    # Equatorial Guinea channel a bare \bTVG would have taken.
+    r'|\bTVG\s*NETWORK\s*2\b',
     re.I)
 
 telemundo_drop, rsn_drop, ca_drop, us_news_drop = [], [], [], []
@@ -1965,8 +1974,17 @@ if not _crest_map: _crest_map = (_prev.get('sport') or {}).get('club_crest', {})
 #                             "South Africa 1" feed, not epg2.
 #   788134  DSTV: GTV         hgtv.uk      -> GTV.gh, in "Ghana 1", not epg6.
 #
-# Checked and NOT a bug, recorded so it is not re-reported: US: DIY HD reads
-# magnolianetwork.us, which is right — DIY Network became Magnolia Network.
+# Checked and NOT bugs, recorded so they are not re-reported. Both look wrong
+# to any name-comparison audit and both are correct, so anyone "fixing" them
+# trades a working guide for a blank one:
+#
+#   US: DIY HD reads magnolianetwork.us. Right: DIY Network became Magnolia
+#   Network, so the id names the channel under its current name.
+#
+#   BBC NEWS reads BBCParliament.uk. Right on THIS source, confirmed by the
+#   user 2026-08-27: the feed published under that id carries BBC News, not
+#   Parliament. The id is what the source calls it, not what it carries, and
+#   an audit comparing the id against the channel name cannot know that.
 #
 # Only channels the build actually CARRIES belong here. The first pass of this
 # audit read names out of the raw playlist rather than kept_live.json and so
@@ -1974,16 +1992,40 @@ if not _crest_map: _crest_map = (_prev.get('sport') or {}).get('club_crest', {})
 # US: ABC HD, VIP: LFC TV, and the two DSTV entries above, all already dropped.
 # 624 of the 919 bindings are for channels the build drops; a pin on one of
 # them is dead weight that reads like a fix.
+# A pin is either a STRING, correcting the id of a binding that already exists,
+# or a FULL BINDING, creating one where the match found nothing.
+#
+# The string form is safe by construction: src and feed come from the binding
+# being corrected, so the id is looked for in a feed the channel already reads.
+# The dict form has no such backstop — it names a feed outright — so it is only
+# allowed once that feed has been opened and checked to carry BOTH the id and
+# programmes under it. Guessing a feed here buys a blank guide, which is what
+# the channel already had.
+#
+# ABC News Live (2026-08-27): reported as blank on the News shelf. The stream
+# is healthy — it probes 1080p30 h264 — and every one of the tile's seven
+# sources had NO guide binding at all, so there was nothing to correct. epg6
+# was downloaded and searched: it carries "abcnewslive.us" with 168 programmes
+# against it ("ABC News Live Reports", "Burden of Proof"). All five surviving
+# sources are pinned, not just today's primary, so a later probe promoting a
+# different source does not empty the guide again.
+_ABC_NEWS_LIVE = {'src': 'repo', 'id': 'abcnewslive.us', 'feed': 'epg6'}
 EPG_PIN = {
     717697: 'SkyNews.uk',    # UK: SKY NEWS   — carried
     325058: 'Fuse.us',       # US: FUSE MUSIC — carried
+    1537034: _ABC_NEWS_LIVE,  # PRIME: ABC NEWS LIVE (the tile's primary)
+    430297: _ABC_NEWS_LIVE,   # US: ABC NEWS HD
+    324915: _ABC_NEWS_LIVE,   # US: ABC NEWS
+    430328: _ABC_NEWS_LIVE,   # US: ABC NEWS
+    430295: _ABC_NEWS_LIVE,   # US: ABC NEWS LIVE HD
 }
-for _sid, _eid in EPG_PIN.items():
+for _sid, _pin in EPG_PIN.items():
+    if isinstance(_pin, dict):
+        _epg_map[str(_sid)] = dict(_pin)
+        continue
     _cur = _epg_map.get(str(_sid))
-    # Only ever a correction to a binding that exists. Inventing one would mean
-    # inventing a src and a feed too, and a guess there is a blank guide.
     if isinstance(_cur, dict):
-        _cur['id'] = _eid
+        _cur['id'] = _pin
 
 # ------------------------------------------------- "Cozi" == "Cozi TV"
 # The provider ships both forms of the same channel. Fold only when the bare
@@ -2837,9 +2879,9 @@ TILE_LABEL = {
 STREAM_LABEL = {
     # The panel misspells Golazo.
     '648290': 'CBS SPORTS GOLAZO NETWORK',
-    # TVG became FanDuel TV in 2022, and TVG2 became FanDuel Racing.
+    # TVG became FanDuel TV in 2022.
     '325906': 'FANDUEL TV',
-    '325907': 'FANDUEL RACING',
+    # 325907 was FANDUEL RACING; it is dropped now, see NAMED_REMOVAL.
     # "M.LALIGA HDR 3840P" — the panel's abbreviation, and a resolution the
     # channel stopped carrying when Movistar moved LaLiga to 1080p50 HDR for
     # 2025/26. Named for the brand instead, so the shelf makes a promise the

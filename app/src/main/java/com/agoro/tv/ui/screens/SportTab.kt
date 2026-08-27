@@ -396,23 +396,31 @@ private fun Fixtures(
  * wide whatever the panel's pixels are, so an earlier 900 was 94% of the
  * screen and looked like no cap at all.
  */
-// 620 as before, plus every dp of chrome the crests added: the 66dp badge
+// 620 as before, plus every dp of chrome the crests added: the 86dp badge
 // block, the 16dp gap after it, and the 16dp gap that now separates the names
-// from the status column — 98, not the 82 an earlier count here claimed. At
-// 702 the two name columns shared 16dp LESS than they did at 620, so the
-// longest pairings the 620 cap was picked for ("Wolverhampton Wanderers v
-// Brighton & Hove Albion") ellipsised where they used to fit.
+// from the status column — 118. This has to move whenever CrestSize does. It
+// did not the first time: the row gained 98dp of chrome against a cap raised
+// by 82, so the two name columns had LESS width than before the crests
+// existed and the longest pairings the 620 cap was picked for
+// ("Wolverhampton Wanderers v Brighton & Hove Albion") ellipsised.
 //
 // Written out rather than composed from CrestColumnWidth: top-level properties
 // initialise in file order and that one is declared below this, so referring
 // to it here reads as zero at class-init time and the cap silently becomes 636.
-private val FixtureRowWidth = 718.dp
+private val FixtureRowWidth = 738.dp
 
 /** The status column, fixed so the clubs line up down the page. */
 private val StatusColumnWidth = 96.dp
 
-/** One crest. Small enough that two fit the row's height without growing it. */
-private val CrestSize = 30.dp
+/**
+ * One crest, sized to the row rather than tucked into a corner of it.
+ *
+ * 30dp was the first cut and on a real panel it read as a favicon: about 3% of
+ * the canvas width and visibly shorter than the row it sat in, where the point
+ * of a badge is to be recognised across a room without reading anything. 40dp
+ * fills the row's height without changing its rhythm.
+ */
+private val CrestSize = 40.dp
 
 /**
  * The badge block, fixed so the clubs line up down the page exactly as they do

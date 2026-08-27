@@ -507,12 +507,6 @@ internal fun GuideGrid(
      * to the host's controls row (category chips) instead.
      */
     upFromTopRow: FocusRequester? = null,
-    /**
-     * LEFT out of the channel column. Null where there is nowhere to go —
-     * the player's guide overlay has no category panel — and LEFT there keeps
-     * its old meaning.
-     */
-    onOpenCategories: (() -> Unit)? = null,
     onChannelLongPress: (LiveChannel) -> Unit = {},
     listState: LazyListState = rememberLazyListState(
         prefetchStrategy = remember { GuideRowPrefetchStrategy() },
@@ -789,17 +783,13 @@ internal fun GuideGrid(
                         } else {
                             moveFocusVertically(-1)
                         }
-                    // LEFT out of the channel column — the leftmost thing in
-                    // the grid — opens the category panel. focusedIsCell is
-                    // false only there, so a LEFT anywhere in the timeline
-                    // still walks programmes. Unhandled when no panel is
-                    // offered (the player's guide overlay), where LEFT keeps
-                    // falling through to the drawer as before.
-                    AndroidKeyEvent.KEYCODE_DPAD_LEFT ->
-                        if (!gridFocus.focusedIsCell && onOpenCategories != null) {
-                            onOpenCategories()
-                            true
-                        } else false
+                    // No case for LEFT. Out of the channel column it used to
+                    // open a category drawer over the guide; that drawer is
+                    // gone (2026-08-27) because the category strip along the
+                    // top of the guide is already the way in, and a second one
+                    // arrived unannounced on a key people press while walking
+                    // the channel list. Unhandled here, LEFT falls through to
+                    // the nav drawer, which is what it does everywhere else.
                     AndroidKeyEvent.KEYCODE_CHANNEL_UP -> pageChannels(+1)
                     AndroidKeyEvent.KEYCODE_CHANNEL_DOWN -> pageChannels(-1)
                     in AndroidKeyEvent.KEYCODE_0..AndroidKeyEvent.KEYCODE_9 -> {
