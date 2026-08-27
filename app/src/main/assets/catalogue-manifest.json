@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-27T19:13:42+00:00",
+ "generated": "2026-08-27T19:33:19+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -23062,11 +23062,6 @@
    "162136": {
     "src": "repo",
     "id": "channel5.uk",
-    "feed": "epg6"
-   },
-   "162137": {
-    "src": "repo",
-    "id": "channel4.uk",
     "feed": "epg6"
    },
    "1107838": {
@@ -63066,7 +63061,7 @@
   "misfiled_us_locals": 1,
   "sections_merged": 6,
   "tiles_resectioned": 116,
-  "epg_bound": 971,
+  "epg_bound": 970,
   "logo_bound": 4386,
   "club_crests_bound": 200,
   "live_event_channels": 7849,

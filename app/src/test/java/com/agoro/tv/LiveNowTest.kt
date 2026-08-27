@@ -103,4 +103,16 @@ class LiveNowTest {
         // carries it where the whitelist could not.
         assertEquals("La Liga", byLeague[4]?.first)
     }
+
+    /** ...but a fixture NOTHING trusted carries still has to reach the screen. */
+    @Test
+    fun `a fixture only a mis-shelved slot carries is still shown`() {
+        val now = ms(2026, 8, 27, 23, 10, "UTC")
+        val nfl = mapOf("NFL" to listOf("Steelers", "Bills"))
+        val only = listOf(
+            1 to "Live | Steelers vs. Bills | all | 27-08-2026 | 23:00 (GMT) | US: SOCCER PPV 14",
+        )
+        val rows = SportsParser.upcoming(SportsParser.parseAll(only, now, nfl), now, 60)
+        assertEquals("the only slot there is still carries the match", 1, rows.size)
+    }
 }

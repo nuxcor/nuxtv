@@ -84,7 +84,7 @@ def main():
     display = manifest.get('display_name', {})
     hidden = {s['key'] for s in manifest['sections']['live'] if s['hidden_by_default']}
     regions = manifest.get('region_fix', {})
-    cat_region = {k: v.get('region') for k, v in manifest['categories']['live'].items()}
+    tiers = {'4K', '8K', 'UHD', 'FHD', 'HD', 'SD', 'OTHER'}
 
     by_key = collections.defaultdict(set)
     for cid, meta in index.items():
@@ -96,8 +96,11 @@ def main():
     # map: 624 of the 919 are for channels this build drops, and counting those
     # blocked Sky Sports Football on behalf of a 4K variant that is not shipped.
     line_up = {c['id'] for c in kept}
-    taken = {v['id'] for k, v in cmap.items()
-             if isinstance(v, dict) and int(k) in line_up}
+    # Lower-cased on both sides. The packs publish "SkySportsNews.uk" and
+    # "skysportsnews.uk" and an exact-string test treats them as two ids, so a
+    # channel could be handed one while another already reads the other.
+    taken = {v['id'].lower() for k, v in cmap.items()
+             if isinstance(v, dict) and int(k) in line_up and v.get('id')}
 
     out, refused = {}, collections.Counter()
     for c in kept:
@@ -114,19 +117,28 @@ def main():
             refused['two or more ids answer to the name'] += 1
             continue
         cid = next(iter(cands))
-        if cid in taken:
+        if cid.lower() in taken:
             refused['id already serves a carried channel'] += 1
             continue
         suffix = re.search(r'\.([a-z]{2})$', cid)
         if not suffix:
             refused['id names no territory'] += 1
             continue
-        region = regions.get(str(c['id'])) or cat_region.get(str(c.get('category_id')))
-        if region in COMPATIBLE and suffix.group(1) not in COMPATIBLE[region]:
+        # The channel's OWN region, off kept_live, with region_fix winning.
+        # This read c['category_id'] and kept_live has no such key — it carries
+        # `region` directly — so the territory test silently never ran, which is
+        # the one thing this script exists to get right. It is how the guide
+        # match put Sky News AUSTRALIA on UK Sky News in the first place.
+        region = regions.get(str(c['id'])) or c.get('region')
+        if region in tiers or not region:
+            refused['channel territory unknown'] += 1
+            continue
+        # Refuse, not skip, when the territory is not one this map knows.
+        if region not in COMPATIBLE or suffix.group(1) not in COMPATIBLE[region]:
             refused['territory clash'] += 1
             continue
         out[str(c['id'])] = {'src': 'repo', 'id': cid, 'feed': index[cid]['feed']}
-        taken.add(cid)
+        taken.add(cid.lower())
 
     dest = os.path.join(here, 'epg_extra.json')
     with open(dest, 'w', encoding='utf-8') as fh:

@@ -246,8 +246,18 @@ object SportsParser {
         // roster still runs first, because it knows the full spelling of a
         // club and which competition it plays in; billing only catches what
         // the roster cannot.
+        // The billing wins on the COMPETITION, the roster on the names.
+        //
+        // Ordering the roster first put "Carabao Cup: Manchester United vs
+        // Luton Town" under Premier League, because United is a roster club
+        // and the roster answers with the league it plays in — so one cup
+        // round split across two rows depending on whether a tie happened to
+        // name a multi-word club. The slot says which competition it is; the
+        // roster only ever knew which league a club belongs to.
+        val billed = billedLeague(name)
         val sides = resolveSides(rawHome, rawAway, idx, ambiguous)
-            ?: billedLeague(name)?.let { Sides(it, billedSide(rawHome), billedSide(rawAway)) }
+            ?.let { if (billed != null) Sides(billed, it.home, it.away) else it }
+            ?: billed?.let { Sides(it, billedSide(rawHome), billedSide(rawAway)) }
             ?: return null
         val (league, home, away) = sides
         val start = readStart(name, nowMs)
@@ -316,7 +326,12 @@ object SportsParser {
         // roster spells differently still lands: "LaLiga: Celta vs. Osasuna"
         // was lost because the roster says "Celta Vigo" and the slot says
         // "Celta".
-        "Premier League" to Regex("""(?i)\bPremier League\b"""),
+        //
+        // "Premier League" is deliberately ABSENT. Every nation has one — the
+        // Indian Premier League is cricket, the Ghana Premier League is
+        // football but not this one — and an unanchored match filed both under
+        // England. The roster carries all twenty English clubs, so billing has
+        // nothing to add here and could only over-match.
         "La Liga" to Regex("""(?i)\bLaLiga\b|\bLa Liga\b"""),
         "Serie A" to Regex("""(?i)\bSerie A\b"""),
         "Bundesliga" to Regex("""(?i)\bBundesliga\b"""),
@@ -349,8 +364,13 @@ object SportsParser {
             hit.second.trim().contains(' ') -> hit.first
             else -> return null
         }
-        return Sides(league, hHit?.let { fullName(it, idx) } ?: tidyCase(home),
-            aHit?.let { fullName(it, idx) } ?: tidyCase(away))
+        // billedSide, not tidyCase: a side the roster did not match keeps
+        // whatever readFixture left on it, and readFixture splits on the colon
+        // — so "Luton Town @ Aug 27 2" reached the row as a club name, and the
+        // fold key with it, which stopped the same fixture on two slots from
+        // folding into one row.
+        return Sides(league, hHit?.let { fullName(it, idx) } ?: billedSide(home),
+            aHit?.let { fullName(it, idx) } ?: billedSide(away))
     }
 
     /**
@@ -886,11 +906,12 @@ object SportsParser {
         // three can no longer take the match off the screen. The fold then
         // chooses the FEED, which is all it was ever good at.
         val (trusted, misshelved) = events.partition { !it.wrongSport }
+        fun inWindow(e: SportsEvent): Boolean {
+            val s = e.startMs ?: return e.live
+            return s <= nowMs + cue && nowMs <= s + FIXTURE_LENGTH_MS
+        }
         val rows = bestPerFixture(
-            trusted.filter { e ->
-                val s = e.startMs ?: return@filter e.live
-                s <= nowMs + cue && nowMs <= s + FIXTURE_LENGTH_MS
-            }
+            trusted.filter(::inWindow)
         )
         // The mis-shelved slots come back as FALLBACKS, having been kept out
         // of every decision above. What they cannot be trusted with is a
@@ -899,7 +920,26 @@ object SportsParser {
         // not open. Excluding them outright was the first cut of this and it
         // quietly cost the row a source.
         val extras = misshelved.groupBy { norm(it.home) + "|" + norm(it.away) }
-        return rows.map { row ->
+        // A fixture carried ONLY by mis-shelved slots still has to reach the
+        // screen. Excluding them outright was right for the clock and wrong
+        // for the match: a soccer shelf that has the sport wrong can still be
+        // the only place a game is, and dropping it meant a match that is
+        // being played showed nowhere at all — the same fault, from the other
+        // side, as the one this ordering was written to fix. They cannot ADMIT
+        // a fixture that a trusted slot already speaks for; they can only
+        // speak for one nothing else does.
+        // Spoken for by ANY trusted slot, in window or not. Keying this on the
+        // rows instead was the seven-hours-early bug back again: the NFL shelf
+        // had Steelers v Bills correctly at 23:00, that is outside the cue so
+        // it produced no row, and the soccer shelf walked in as an "orphan" at
+        // 16:00. A trusted slot that says the match is not on yet has spoken.
+        val spokenFor = trusted.mapTo(HashSet()) { norm(it.home) + "|" + norm(it.away) }
+        val orphans = bestPerFixture(
+            misshelved.filter {
+                inWindow(it) && (norm(it.home) + "|" + norm(it.away)) !in spokenFor
+            }
+        )
+        return (rows + orphans).map { row ->
             val also = extras[norm(row.home) + "|" + norm(row.away)]
                 ?.map { it.streamId }
                 ?.filterNot { it == row.streamId || it in row.alternates }
