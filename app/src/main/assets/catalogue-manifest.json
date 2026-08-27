@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-27T16:52:28+00:00",
+ "generated": "2026-08-27T18:27:47+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -62175,7 +62175,8 @@
  ],
  "merged_regions": [
   "US",
-  "UK"
+  "UK",
+  "AFR"
  ],
  "sport": {
   "leagues": {

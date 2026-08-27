@@ -732,8 +732,29 @@ PRIMARY_PIN = {
 # any other. Only for channels that really are one broadcast everywhere.
 REGION_PIN = {'nbcnewsnow': 'US', 'bbcworldnews': 'US'}
 
-# The territories that share one shelf per genre. DSTV (AFR) keeps its own.
+# Territories whose channels share a TILE — the build-time collapse key.
+#
+# Not the same question as which share a shelf, and they were one constant
+# until 2026-08-27. Widening this folds channels of the same name across
+# territories into one tile and drops the losers: adding AFR here took
+# US: ESPN HD, US: ESPN 2 HD, UK: NAT GEO WILD and seven more out of the
+# line-up entirely, which is nobody's idea of merging a sports shelf.
 MERGED_REGIONS = ('US', 'UK')
+
+# Territories that share one SHELF per genre — what the app reads to decide
+# whether a territory opens a chip of its own.
+#
+# AFR is here and not above, asked for as "merge supersport channels into
+# sports then delete its chip" — which is one thing, not two: a territory
+# outside the shelf merge opens its own row, so folding it in is what removes
+# the row. Its channels keep their own tiles, so nothing collapses and nothing
+# is dropped; they simply land on Sports.
+#
+# It earns this now in a way it did not before. The shelf was 110 mixed DStv
+# and Ghanaian channels when it was its own thing; since the SuperSport-only
+# trim it is 23 sports channels, which is a subset of what Sports is for
+# rather than a territory with its own News, Kids and Music.
+SHELF_MERGED_REGIONS = ('US', 'UK', 'AFR')
 tiles = collections.defaultdict(list)
 for k, sid, reg, sec, t in live_rows:
     if k in REGION_PIN:
@@ -3031,7 +3052,7 @@ manifest = {
     "movie_year": movie_year,
     "kept_regions": list(KEEP_REGIONS),   # authored order — see KEEP_REGIONS
     # These share one shelf per genre; anything else keeps its own shelf.
-    "merged_regions": list(MERGED_REGIONS),
+    "merged_regions": list(SHELF_MERGED_REGIONS),
     "sport": {"leagues": SPORT_LEAGUES, "cue_minutes": SPORT_CUE_MINUTES,
               "ambiguous": SPORT_AMBIGUOUS, "club_crest": _crest_map},
     # Section-level fold, applied to whatever section a channel resolves to.
