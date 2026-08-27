@@ -44,8 +44,10 @@ class TunnelPolicyTest {
  * This is the gate on the rung that replaced the swap to libVLC, and getting
  * it wrong is user-visible in both directions: too narrow and a stream that
  * software decoding would have played dies on the error card, too wide and a
- * viewer whose provider returned a 404 is made to sit through a second
- * doomed attempt labelled "Trying software decoding…".
+ * viewer whose provider returned a 404 is made to sit through a second doomed
+ * attempt. That attempt used to announce itself as "Trying software
+ * decoding…"; the ladder stopped narrating its rungs in 2.35.25, so a wrong
+ * gate now costs the wait without even saying what it is waiting for.
  */
 class DecodeFaultTest {
 
