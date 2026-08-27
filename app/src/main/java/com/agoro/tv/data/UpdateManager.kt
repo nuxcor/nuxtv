@@ -40,6 +40,31 @@ internal fun isNewer(remote: String, local: String): Boolean {
     return false
 }
 
+    /**
+ * Why this file is not an installable APK, or null when it is.
+ *
+ * Two checks, because they fail differently. The length catches a
+ * truncated download, which is the common one. Opening it as a zip and
+ * asking for AndroidManifest.xml catches an archive that arrived complete
+ * but corrupt, and costs a central-directory read rather than a scan of
+ * seven megabytes.
+ *
+ * Pure and internal so it can be tested without a network or a device.
+ */
+internal fun verifyApk(file: File, expectedBytes: Long): String? {
+    if (!file.exists()) return "The download did not finish."
+    val got = file.length()
+    if (got == 0L) return "The download was empty."
+    if (expectedBytes > 0 && got != expectedBytes) {
+        return "The download was cut short (${got / 1024} of ${expectedBytes / 1024} KB)."
+    }
+    val readable = runCatching {
+        java.util.zip.ZipFile(file).use { it.getEntry("AndroidManifest.xml") != null }
+    }.getOrDefault(false)
+    if (!readable) return "The download arrived damaged."
+    return null
+}
+
 class UpdateManager(private val context: Context, private val http: OkHttpClient) {
 
     sealed class State {
@@ -136,13 +161,31 @@ class UpdateManager(private val context: Context, private val http: OkHttpClient
                         }
                     }
                 }
+                // Every byte, or none. A stream that ends early ends the loop
+                // above perfectly normally — read() returns -1 whether the
+                // body finished or the socket died — so a dropped connection
+                // on a Wi-Fi-only box produced a SHORT FILE that looked like a
+                // successful download. Android's answer to a truncated archive
+                // is "There was a problem parsing the package", which names
+                // the symptom and hides the cause, and install()'s only guard
+                // was length() == 0, which a truncated file walks straight
+                // past.
+                val expected = if (total > 0) total else -1L
+                verifyApk(out, expected)?.let { why ->
+                    out.delete()          // never leave a bad archive to be retried into
+                    throw IOException(why)
+                }
             }
             out
         }
 
+
     /** Launches the system installer; false when it can't be started. */
     fun install(file: File): Boolean {
-        if (!file.exists() || file.length() == 0L) return false
+        // Re-checked here, not just after the download: the file sits in
+        // cacheDir between the two, and cacheDir is the first thing Android
+        // empties when the box runs short of space.
+        if (verifyApk(file, expectedBytes = -1L) != null) return false
         val uri = if (android.os.Build.VERSION.SDK_INT >= 24) {
             FileProvider.getUriForFile(context, "com.agoro.tv.fileprovider", file)
         } else {
