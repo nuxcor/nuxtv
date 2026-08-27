@@ -316,11 +316,6 @@ fun HomeScreen(
                         HomeTab.Sport -> SportTab(vm, state.bundle, onPlay, onBrowse = { tab = it })
                         HomeTab.Movies -> MoviesTab(vm, state.bundle, onOpenMovie, onOpenSettings = { tab = HomeTab.Settings })
                         HomeTab.Series -> SeriesTab(vm, state.bundle, onOpenSeries, onOpenSettings = { tab = HomeTab.Settings })
-                        HomeTab.Recordings -> RecordingsTab(
-                            vm,
-                            onPlay,
-                            onGoToGuide = { tab = HomeTab.Live },
-                        )
                         HomeTab.Settings -> Unit // composed above, state-independent
                     }
                 }

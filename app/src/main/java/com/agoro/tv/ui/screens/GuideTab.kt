@@ -609,12 +609,13 @@ fun GuideTab(
                 }
             },
             onSchedule = { channel, program ->
-                statusMessage = if (vm.scheduleRecording(channel, program)) {
-                    "Recording scheduled: ${program.title}"
-                } else {
-                    vm.scheduleReminder(channel, program)
-                    "Reminder set: ${program.title}"
-                }
+                // Always a reminder now. This used to record when the
+                // provider allowed it and fall back to a reminder when it did
+                // not, so the same press did two different things depending on
+                // the channel; with recording gone the fallback is the whole
+                // behaviour and OK means one thing everywhere.
+                vm.scheduleReminder(channel, program)
+                statusMessage = "Reminder set: ${program.title}"
             },
         )
     }

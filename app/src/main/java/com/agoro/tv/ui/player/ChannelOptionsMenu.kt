@@ -58,14 +58,11 @@ internal fun ChannelOptionsMenu(
     channelName: String,
     isFavoritable: Boolean,
     isFavorite: Boolean,
-    canRecord: Boolean,
-    isRecording: Boolean,
     hasCatchup: Boolean,
     aspectLabel: String,
     sleepLabel: String,
     canHide: Boolean,
     onFavoriteToggle: () -> Unit,
-    onRecordToggle: () -> Unit,
     onCatchup: () -> Unit,
     onTracks: () -> Unit,
     onAspectCycle: () -> Unit,
@@ -112,16 +109,6 @@ internal fun ChannelOptionsMenu(
                                 iconTint = if (isFavorite) NuxColors.Primary else NuxColors.OnSurface,
                                 onClick = onFavoriteToggle,
                                 modifier = Modifier.focusRequester(firstFocus),
-                            )
-                        }
-                    }
-                    if (canRecord || isRecording) {
-                        item(key = "record") {
-                            OptionRow(
-                                icon = if (isRecording) Icons.Default.Stop else Icons.Default.FiberManualRecord,
-                                label = if (isRecording) "Stop recording" else "Record",
-                                iconTint = NuxColors.Error,
-                                onClick = onRecordToggle,
                             )
                         }
                     }

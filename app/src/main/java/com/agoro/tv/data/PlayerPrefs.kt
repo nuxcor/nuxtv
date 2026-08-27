@@ -23,6 +23,15 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 
 @kotlinx.serialization.Serializable
+/**
+ * A scheduled recording. Recording was removed on 2026-08-27 and nothing
+ * creates one any more.
+ *
+ * Kept because it is a field in the backup format: a backup written by an
+ * older build carries a `schedules` array, and deleting the type would make
+ * those backups fail to restore rather than restore an empty list. It costs a
+ * declaration and it keeps every backup a viewer already has readable.
+ */
 data class ScheduledRecording(
     val id: String,
     val channelName: String,

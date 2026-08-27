@@ -322,23 +322,17 @@ fun SearchTab(
                             subtitle = "${hit.channel.displayName} • " + airTime(hit.program.startMs),
                             // The same vocabulary as the guide's header chip,
                             // so OK does what the row says it does.
-                            badge = when {
-                                airing -> "ON NOW"
-                                hit.channel.recordUrl != null -> "OK to record"
-                                else -> "OK to remind"
-                            },
+                            badge = if (airing) "ON NOW" else "OK to remind",
                             imageUrl = hit.channel.logo,
                             onClick = {
-                                // The guide's rule: a programme on now plays;
-                                // one still to come is recorded or remembered.
-                                // Tuning a channel eight hours before the thing
-                                // you searched for is not watching it.
+                                // The guide's rule: a programme on now plays,
+                                // one still to come is remembered. Tuning a
+                                // channel eight hours before the thing you
+                                // searched for is not watching it.
                                 val now = System.currentTimeMillis()
                                 if (hit.program.startMs <= now) {
                                     vm.playChannels(listOf(hit.channel), 0)
                                     onPlay()
-                                } else if (vm.scheduleRecording(hit.channel, hit.program)) {
-                                    statusMessage = "Recording scheduled: ${hit.program.title}"
                                 } else {
                                     vm.scheduleReminder(hit.channel, hit.program)
                                     statusMessage = "Reminder set: ${hit.program.title}"

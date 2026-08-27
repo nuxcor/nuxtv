@@ -2,7 +2,6 @@ package com.agoro.tv.data
 
 import android.content.Context
 import coil3.SingletonImageLoader
-import com.agoro.tv.recording.RecordingManager
 import java.io.File
 
 /**
@@ -36,6 +35,7 @@ object StorageUsage {
         val otherCacheBytes: Long,
         /** The playlist bundle and its EPG id map. Re-downloads; not cleared. */
         val catalogueBytes: Long,
+        /** Left over from the removed recording feature; see [legacyRecordings]. */
         val recordingsBytes: Long,
         val recordingsCount: Int,
     ) {
@@ -75,8 +75,7 @@ object StorageUsage {
         val catalogue = (context.filesDir.listFiles { f ->
             f.name.startsWith("bundle-") || f.name.startsWith("tvg-")
         } ?: emptyArray()).sumOf { it.sizeOf() }
-        val files = (RecordingManager.directory(context).listFiles() ?: emptyArray())
-            .filter { it.isFile }
+        val files = (legacyRecordings(context).listFiles() ?: emptyArray()).filter { it.isFile }
         return Report(
             imagesBytes = images,
             guideBytes = guide,
@@ -139,6 +138,27 @@ object StorageUsage {
         // deleteRecursively returns false on a partial failure, and reporting
         // "Freed 300 MB" over a file still on disk is the panel lying about
         // the one thing it exists to be right about.
+        return freed
+    }
+
+    /**
+     * Where recordings were kept, before the feature was removed (2026-08-27).
+     *
+     * The files outlive the feature: they are a viewer's own content and this
+     * app is not going to delete them on an upgrade because a menu item went
+     * away. They are counted so the space is not a mystery, and Settings
+     * offers to delete them, which is now the only way to get it back.
+     */
+    fun legacyRecordings(context: Context): File =
+        File(context.getExternalFilesDir(null), "recordings")
+
+    /** Removes the old recordings, and returns what that freed. */
+    fun deleteLegacyRecordings(context: Context): Long {
+        var freed = 0L
+        for (f in legacyRecordings(context).listFiles() ?: emptyArray()) {
+            val n = f.length()
+            if (f.delete()) freed += n
+        }
         return freed
     }
 

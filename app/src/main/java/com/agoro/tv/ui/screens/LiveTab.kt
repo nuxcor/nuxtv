@@ -334,13 +334,7 @@ internal fun LiveTab(
                     scheduleChannel = null
                     playFromHost(channel)
                     null
-                } else if (vm.scheduleRecording(channel, program)) {
-                    "Recording scheduled: ${program.title}"
                 } else {
-                    // Same fallback the guide uses: a channel the provider
-                    // won't let us record can still be remembered. Sending the
-                    // viewer to the guide to do what this screen could have
-                    // done is not an answer.
                     vm.scheduleReminder(channel, program)
                     "Reminder set: ${program.title}"
                 }

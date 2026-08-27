@@ -93,7 +93,6 @@ enum class HomeTab(val label: String, val icon: ImageVector) {
     Sport("Sport", Icons.Default.SportsSoccer),
     Movies("Movies", Icons.Default.Movie),
     Series("Shows", Icons.Default.VideoLibrary),
-    Recordings("Recordings", Icons.Default.Videocam),
     Settings("Settings", Icons.Default.Settings),
 }
 

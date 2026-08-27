@@ -171,6 +171,7 @@ internal fun SettingsTab(
     var storageFreed by remember { mutableStateOf<Long?>(null) }
     var storageBusy by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
+    var confirmDeleteRecordings by remember { mutableStateOf(false) }
     LaunchedEffect(storageFreed) {
         storageReport = withContext(Dispatchers.IO) {
             com.agoro.tv.data.StorageUsage.report(storageContext)
@@ -525,11 +526,23 @@ internal fun SettingsTab(
                     )
                 }
                 Spacer(Modifier.height(Space.s))
-                // Confirmed, like Import backup on this same screen. One stray
-                // OK while walking the list would otherwise cost a full guide
-                // re-download on a Wi-Fi-only box.
-                Button(onClick = { confirmClear = true }) {
-                    Text(if (storageBusy) "Clearing…" else "Clear caches")
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // Confirmed, like Import backup on this same screen. One
+                    // stray OK while walking the list would otherwise cost a
+                    // full guide re-download on a Wi-Fi-only box.
+                    Button(onClick = { confirmClear = true }) {
+                        Text(if (storageBusy) "Clearing…" else "Clear caches")
+                    }
+                    // Only when there is something to delete, so it is absent
+                    // on every box that never recorded. Recording was removed
+                    // in this release and its Recordings tab went with it, so
+                    // without this the files would sit there for ever with
+                    // nothing in the app able to reach them.
+                    if (r != null && r.recordingsCount > 0) {
+                        OutlinedButton(onClick = { confirmDeleteRecordings = true }) {
+                            Text("Delete old recordings")
+                        }
+                    }
                 }
             }
         }
@@ -572,6 +585,25 @@ internal fun SettingsTab(
     // item: an item near the bottom only composes once scrolled to, so a
     // confirmation living there never appeared for actions triggered from
     // the top of the screen — Remove playlist silently did nothing.)
+    if (confirmDeleteRecordings) {
+        ConfirmDialog(
+            title = "Delete old recordings?",
+            message = "Recording was removed, and these are what it left behind. " +
+                "This cannot be undone.",
+            confirmLabel = "Delete",
+            onConfirm = {
+                confirmDeleteRecordings = false
+                storageScope.launch {
+                    val n = withContext(Dispatchers.IO) {
+                        com.agoro.tv.data.StorageUsage.deleteLegacyRecordings(storageContext)
+                    }
+                    storageFreed = n
+                }
+            },
+            onDismiss = { confirmDeleteRecordings = false },
+        )
+    }
+
     if (confirmClear) {
         ConfirmDialog(
             title = "Clear caches?",

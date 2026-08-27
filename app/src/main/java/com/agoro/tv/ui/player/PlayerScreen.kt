@@ -191,7 +191,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     }
 
     val qualityPref by vm.videoQuality.collectAsState()
-    val activeRecording by vm.activeRecording.collectAsState()
     val favorites by vm.favorites.collectAsState()
 
     val session = remember {
@@ -832,18 +831,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             if (minutes == 0) 0L else System.currentTimeMillis() + minutes * 60_000L
     }
 
-    // THIS channel's recording, not any recording: the state is global, and
-    // zapping from the channel being recorded to another one showed REC on
-    // the wrong banner and "Stop recording" on a channel that was not. A
-    // recording is named for its channel when it starts, so compare that.
-    val recordingThis = activeRecording != null && activeRecording?.channelName == item?.title
-    fun toggleRecording() {
-        // Starting on another channel replaces the running recording — the
-        // service's generation counter makes that safe.
-        if (recordingThis) vm.stopRecording()
-        else item?.let { vm.startRecording(it) }
-    }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1064,7 +1051,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     resolution = session.videoSize,
                     hdrFormat = session.hdrType?.label,
                     audioFormatLabel = session.audioFormatLabel,
-                    isRecording = recordingThis,
                     // Only while the controls are down: with them open the
                     // viewer has already found the thing the hint points at.
                     showKeyHints = request.isLive && hintsVersionSeen < KEY_HINTS_VERSION &&
@@ -1261,15 +1247,12 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 channelName = channel?.displayName ?: item?.title.orEmpty(),
                 isFavoritable = request.isLive && channel != null,
                 isFavorite = channel != null && channel.isFavorite(favorites),
-                canRecord = request.isLive && item?.recordUrl != null,
-                isRecording = recordingThis,
                 hasCatchup = request.isLive && (channel?.archiveDays ?: 0) > 0,
                 aspectLabel = ASPECT_LABELS.getOrElse(session.scaleMode) { ASPECT_LABELS[0] },
                 sleepLabel = if (session.sleepChoiceMinutes == 0) "Off"
                 else "${session.sleepChoiceMinutes}m",
                 canHide = request.isLive && channel != null,
                 onFavoriteToggle = { channel?.let { vm.toggleFavorite(it) } },
-                onRecordToggle = { toggleRecording() },
                 onCatchup = { session.layer = PlayerLayer.Catchup },
                 onTracks = { session.layer = PlayerLayer.Tracks },
                 onAspectCycle = { applyAspect((session.scaleMode + 1) % ASPECT_LABELS.size) },
@@ -1298,19 +1281,13 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // The two PERSISTENT chips — REC and the sleep countdown — step
-            // aside while a panel owns the top-right: they sat on the
-            // options menu's channel name and the guide's clock for as long
-            // as those were open. Transient toasts still show everywhere.
+            // The sleep countdown steps aside while a panel owns the
+            // top-right: it sat on the options menu's channel name and the
+            // guide's clock for as long as those were open. Transient toasts
+            // still show everywhere. (The REC chip stood here too, until
+            // recording was removed.)
             val panelOwnsCorner = session.layer == PlayerLayer.Options ||
                 session.layer == PlayerLayer.Guide || session.layer == PlayerLayer.Tracks
-            val rec = activeRecording
-            if (rec != null && !panelOwnsCorner) {
-                PlayerBadge(
-                    text = "REC ${rec.channelName} • ${rec.bytesWritten / (1024 * 1024)} MB",
-                    color = NuxColors.Error,
-                )
-            }
             session.statusMessage?.let { PlayerBadge(text = it, color = NuxColors.Secondary) }
             AnimatedVisibility(
                 visible = showBufferingChip,
