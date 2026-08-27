@@ -629,7 +629,19 @@ NAMED_REMOVAL = re.compile(
     # Anchored to the trailing 2, which is what keeps this off "TVG NETWORK"
     # itself — FanDuel TV, which stays — and off "GUI: TVGE", an unrelated
     # Equatorial Guinea channel a bare \bTVG would have taken.
-    r'|\bTVG\s*NETWORK\s*2\b',
+    r'|\bTVG\s*NETWORK\s*2\b'
+    # Five sports channels off the US shelf, 2026-08-27 at the user's request.
+    # Each pattern was checked against the whole line-up and takes exactly one
+    # channel; the ones already dropped for their territory it also matches
+    # (IT: DAZN BOXING TV, CA: FIGHT NETWORK) cost nothing.
+    #
+    # DAZN COMBAT is deliberately NOT here. It was not asked for, and a
+    # \bDAZN\b rule would have taken it along with the three that were.
+    r'|\bDAZN\s+WOMA?[EA]?N\'?S?\b'      # US: DAZN WOMANS FOOTBALL
+    r'|\bDAZN\s+FAST\b'                  # US: DAZN FAST+
+    r'|\bDAZN\s+RISE\b'                  # US: DAZN RISE
+    r'|\bFIGHT\s*NETWORK\b'              # US: FIGHT NETWORK HD
+    r'|\bBOXING\s*TV\b',                 # US: BOXING TV
     re.I)
 
 telemundo_drop, rsn_drop, ca_drop, us_news_drop = [], [], [], []

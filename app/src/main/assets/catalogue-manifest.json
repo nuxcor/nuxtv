@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-27T18:27:47+00:00",
+ "generated": "2026-08-27T18:33:33+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -8537,7 +8537,20 @@
   1232961,
   1232960,
   1232959,
+  1562617,
+  1562616,
+  1562615,
+  1562614,
+  1562613,
+  1562892,
   325907,
+  325048,
+  525581,
+  525580,
+  525579,
+  832056,
+  498738,
+  414074,
   1008121,
   483976,
   483974,
@@ -16535,7 +16548,6 @@
   2044650,
   430366,
   604332,
-  812596,
   605002,
   1661738,
   1661028,
@@ -37830,6 +37842,15 @@
    "sources": [
     1555784
    ]
+  },
+  "WASHINGTON|WAS": {
+   "metro": "WASHINGTON",
+   "network": "WAS",
+   "primary": 812596,
+   "label": "WAS (WAS) WASHINGTON",
+   "sources": [
+    812596
+   ]
   }
  },
  "top_metros": [
@@ -55574,6 +55595,7 @@
   "1586981": "UNIVISION (WXTV) NEW YORK",
   "620130": "KTLA (KTLA) LOS ANGELES",
   "1555784": "WHDH (WHDH) BOSTON",
+  "812596": "WAS (WAS) WASHINGTON",
   "1562537": "SKY SPORTS NEWS",
   "1562534": "SKY SPORTS ACTION",
   "1562532": "SKY SPORTS GOLF",
@@ -62729,8 +62751,8 @@
   "movie_categories": 67,
   "unresolved_live_categories": 0,
   "movies_with_genre": 0,
-  "live_tiles_after_collapse": 6446,
-  "live_tiles_collapsed": 3147,
+  "live_tiles_after_collapse": 6441,
+  "live_tiles_collapsed": 3139,
   "collapse_groups": 146,
   "collapse_needs_review": 1,
   "dropped_region_streams": 2906,
@@ -62747,7 +62769,7 @@
   "us_locals_kept": 457,
   "us_locals_dropped": 933,
   "us_markets": 46,
-  "metro_local_tiles": 64,
+  "metro_local_tiles": 65,
   "metro_locals_folded": 159,
   "collapse_metro_conflicts": 22,
   "uk_locals_dropped": 176,
@@ -62795,12 +62817,12 @@
    "bbc_regional": 43,
    "itv_regional": 13
   },
-  "pass2_dropped": 1214,
+  "pass2_dropped": 1213,
   "pass2_detail": {
    "overflow": 59,
-   "stray_local_folded": 181,
+   "stray_local_folded": 182,
    "timezone": 97,
-   "stray_local_dropped": 1023,
+   "stray_local_dropped": 1022,
    "show_channel": 18
   },
   "replay_feeds_dropped": 718,
