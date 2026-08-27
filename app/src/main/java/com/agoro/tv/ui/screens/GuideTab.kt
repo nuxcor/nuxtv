@@ -620,16 +620,20 @@ fun GuideTab(
             },
         )
     }
-    // Over the guide, not above it: as the Column's first child the toast
-    // pushed strip, header, ruler and every row down for four seconds and
-    // then snapped them back — the whole screen reflowed to say one line.
-    com.agoro.tv.ui.components.ToastBadge(
-        message = statusMessage,
-        modifier = Modifier
-            .align(Alignment.BottomEnd)
-            .padding(bottom = Space.m, end = Space.m),
-    )
     if (categoryPanelOpen) {
+        // Drawn here, not inside the panel, and drawn BEFORE it so the panel
+        // sits on top. Without a scrim the panel was a lit slab standing on a
+        // fully lit guide with a preview still moving behind it — three things
+        // at one brightness — and since LEFT out of the channel column is what
+        // opens it, it arrives unannounced as well.
+        //
+        // It takes no input and is not focusable: BACK and RIGHT remain the
+        // panel's own. It only says which layer is live.
+        Box(
+            Modifier
+                .matchParentSize()
+                .background(NuxColors.Scrim.copy(alpha = 0.72f))
+        )
         GuideCategoryPanel(
             entries = strip,
             selectedId = categoryId,
@@ -647,6 +651,20 @@ fun GuideTab(
             modifier = Modifier.align(Alignment.CenterStart),
         )
     }
+    // LAST, so it is over the category panel's scrim rather than under it.
+    // "Recording scheduled" and "Catch-up isn't available" are answers to
+    // something the viewer just did, and dimming one to 28% because a drawer
+    // happens to be open loses it for the four seconds it exists.
+    //
+    // Over the guide, not above it: as the Column's first child the toast
+    // pushed strip, header, ruler and every row down for four seconds and
+    // then snapped them back — the whole screen reflowed to say one line.
+    com.agoro.tv.ui.components.ToastBadge(
+        message = statusMessage,
+        modifier = Modifier
+            .align(Alignment.BottomEnd)
+            .padding(bottom = Space.m, end = Space.m),
+    )
     }
 
     if (pinPromptOpen) {

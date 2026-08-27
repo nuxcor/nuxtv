@@ -183,6 +183,12 @@ private fun FixturesSkeleton() {
 /** One outlined fixture: the status column, then the two clubs about the "v". */
 @Composable
 private fun SkeletonFixtureRow(sweep: State<Float>, gapAbove: Dp) {
+    // Same skeleton the real row is: two crests at the leading edge, the two
+    // clubs, the status at the trailing edge. It used to lead with the status
+    // column, which is where the status was BEFORE the crests took that edge —
+    // so the list arrived by shrinking its leading block 96dp to 66dp and
+    // growing a status column out of nothing on the right. A skeleton the real
+    // list has to jump out of is worse than no skeleton.
     Row(
         modifier = Modifier
             .padding(top = gapAbove)
@@ -190,12 +196,22 @@ private fun SkeletonFixtureRow(sweep: State<Float>, gapAbove: Dp) {
             .padding(horizontal = Space.m, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(StatusColumnWidth), contentAlignment = Alignment.CenterStart) {
-            SkeletonBar(width = 52.dp, height = 12.dp, sweep = sweep)
+        Row(
+            modifier = Modifier.width(CrestColumnWidth),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SkeletonBar(width = CrestSize, height = CrestSize, sweep = sweep)
+            SkeletonBar(width = CrestSize, height = CrestSize, sweep = sweep)
         }
+        Spacer(Modifier.width(Space.m))
         SkeletonBar(width = 128.dp, height = 14.dp, sweep = sweep, modifier = Modifier.weight(1f))
         Spacer(Modifier.width(Space.m + 8.dp))
         SkeletonBar(width = 128.dp, height = 14.dp, sweep = sweep, modifier = Modifier.weight(1f))
+        Spacer(Modifier.width(Space.m))
+        Box(Modifier.width(StatusColumnWidth), contentAlignment = Alignment.CenterEnd) {
+            SkeletonBar(width = 52.dp, height = 12.dp, sweep = sweep)
+        }
     }
 }
 
@@ -380,11 +396,17 @@ private fun Fixtures(
  * wide whatever the panel's pixels are, so an earlier 900 was 94% of the
  * screen and looked like no cap at all.
  */
-// 620 as before, plus the crest block and its gap (30+30+6, then 16). Written
-// out rather than composed from CrestColumnWidth: top-level properties
+// 620 as before, plus every dp of chrome the crests added: the 66dp badge
+// block, the 16dp gap after it, and the 16dp gap that now separates the names
+// from the status column — 98, not the 82 an earlier count here claimed. At
+// 702 the two name columns shared 16dp LESS than they did at 620, so the
+// longest pairings the 620 cap was picked for ("Wolverhampton Wanderers v
+// Brighton & Hove Albion") ellipsised where they used to fit.
+//
+// Written out rather than composed from CrestColumnWidth: top-level properties
 // initialise in file order and that one is declared below this, so referring
 // to it here reads as zero at class-init time and the cap silently becomes 636.
-private val FixtureRowWidth = 702.dp
+private val FixtureRowWidth = 718.dp
 
 /** The status column, fixed so the clubs line up down the page. */
 private val StatusColumnWidth = 96.dp
@@ -531,7 +553,6 @@ private fun FixtureRow(
                         style = MaterialTheme.typography.labelLarge,
                         color = NuxColors.OnSurfaceDim,
                         maxLines = 1,
-                        textAlign = TextAlign.End,
                     )
                 }
             }

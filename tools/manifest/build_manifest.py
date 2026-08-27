@@ -2195,7 +2195,14 @@ CHANNEL_ALIAS = {
 #
 # Pinned by id, not by a ^SKY SPORTS pattern: that would also claim the US Sky
 # Sports feeds, and Eleven Sports PL is not a Sky channel at all.
-REGION_PIN = {
+#
+# SHELF_ prefixed because REGION_PIN is already taken, further up, by a pin
+# keyed on the NORMALISED CHANNEL NAME and read by the tile loop. This one is
+# keyed on the stream id and read by the region_fix pass. Reusing the name
+# worked only because module code runs top to bottom and that loop happens to
+# come first; moving either block, or lifting one into a function, would have
+# silently voided the other's pins.
+SHELF_REGION_PIN = {
     1544239: 'UK',   # 4K: SKY SPORTS MAIN EVENTS UHD 3840P
     1544244: 'UK',   # 4K: SKY SPORTS DARTS UHD 3840P
     1544301: 'UK',   # 4K: ELEVEN SPORTS PL UHD 3840P
@@ -2236,8 +2243,8 @@ for st in ls:
     # gate has, by definition, a region none of them can resolve to a shelf.
     if sid in NAMED_KEEP:
         region_fix[str(sid)] = NAMED_KEEP[sid]
-    if sid in REGION_PIN:
-        region_fix[str(sid)] = REGION_PIN[sid]
+    if sid in SHELF_REGION_PIN:
+        region_fix[str(sid)] = SHELF_REGION_PIN[sid]
     k = _alias_key(n)
     if not k: continue
     if k in _alias_best:                             # keep the best tier

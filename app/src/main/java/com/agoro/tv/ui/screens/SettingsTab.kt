@@ -416,12 +416,16 @@ internal fun SettingsTab(
                         text = status,
                         style = MaterialTheme.typography.labelMedium,
                         softWrap = true,
+                        // Only the three states that produce a status string
+                        // can reach this; the rest returned null above and are
+                        // not rendered at all. An `else` branch here would read
+                        // as a live default and invite a fourth state to be
+                        // added to the text without one being added here.
                         color = when (val u = update) {
-                            is UpdateManager.State.Available -> NuxColors.Secondary
                             is UpdateManager.State.Error -> NuxColors.Error
                             is UpdateManager.State.Ready ->
                                 if (u.note != null) NuxColors.Error else NuxColors.Secondary
-                            else -> NuxColors.OnSurfaceDim
+                            else -> NuxColors.Secondary
                         },
                     )
                 }

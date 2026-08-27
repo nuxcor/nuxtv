@@ -49,17 +49,33 @@ NOISE = re.compile(
 )
 
 
-def key(name):
-    """The form two spellings of one club share.
+def tokens(name):
+    """A club name as the set of words that identify it.
 
-    Accents folded, digits dropped — the German clubs carry founding years
-    ("1. FC Köln", "Schalke 04") and the roster never does — then the decoration
-    words above, then everything that is not a letter or a digit.
+    Accents folded, then the decoration words, then STANDALONE numbers — the
+    German clubs carry founding years the roster never does ("1. FC Köln",
+    "Schalke 04"). Standalone is the whole point: an earlier version stripped
+    every digit anywhere, which collapsed "49ers" and "76ers" both to "ers",
+    and the San Francisco 49ers shipped wearing the Philadelphia 76ers' badge.
     """
     s = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode()
-    s = re.sub(r'\d', '', s)
+    # camelCase is a word boundary. klunn91 files "trailBlazers.png",
+    # "airForce.png", "washingtonState.png" — one token to any splitter that
+    # only knows about spaces, so "Trail Blazers" could never be a subset of
+    # it. Split before the case is folded, which is the only point it is
+    # still visible.
+    s = re.sub(r'(?<=[a-z0-9])(?=[A-Z])', ' ', s)
     s = NOISE.sub(' ', s)
-    return re.sub(r'[^a-z0-9]', '', s.lower())
+    out = set()
+    for t in re.split(r'[^A-Za-z0-9]+', s.lower()):
+        if t and not t.isdigit():
+            out.add(t)
+    return out
+
+
+def key(name):
+    """The tokens joined, for the exact-match index."""
+    return ''.join(sorted(tokens(name)))
 
 
 # The clubs the roster and the sources call different things. Hand-verified,
@@ -78,8 +94,9 @@ ALIAS = {
     'pisa': 'Pisa Sporting Club',
     'cologne': '1. FC Köln',
     'psg': 'Paris Saint-Germain',
-    'lyon': 'Olympique Lyonnais',
+    'lyon': 'Olympique Lyon',
     'rennes': 'Stade Rennais FC',
+    'brest': 'Stade Brestois',
     # Champions League entrants from leagues the source covers under another
     # spelling, or not at all.
     'psv': 'PSV Eindhoven',
@@ -93,7 +110,11 @@ ALIAS = {
 # them as a regression every time. Pafos and Kairat are Champions League
 # entrants from leagues neither repo carries; Qarabag is in neither tree
 # under any spelling.
-KNOWN_ABSENT = {'pafos', 'kairat', 'qarabag'}
+# Washington's NFL team is in the source only under the name it dropped in
+# 2022, and matching the roster's "Commanders" to "redskins.png" would mean
+# writing that name into this file to do it. Left without a crest; the row
+# falls back to a monogram like any MLS club.
+KNOWN_ABSENT = {'pafos', 'kairat', 'qarabag', 'commanders'}
 
 
 def _season_rank(path):
@@ -111,12 +132,20 @@ def _season_rank(path):
     return (1, -int(m.group(1))) if m else (2, 0)
 
 
-def build_index(tree_path, base_url, strip_ext='.png'):
-    """path list -> {club key: full URL}, newest season winning each key."""
+def build_index(tree_path, base_url):
+    """path list -> ({club key: URL}, {club key: token set}), newest first.
+
+    encoding='utf-8' explicitly, on every read and write in this module. The
+    tree listings carry "Atlético de Madrid", "1.FC Köln", "FK BodøGlimt", and
+    the default is the locale's — so under LC_ALL=C, which is an ordinary CI
+    container, this raises UnicodeDecodeError or silently mis-decodes into keys
+    that match nothing and URLs that 404.
+    """
     if not os.path.exists(tree_path):
         sys.exit(f"{tree_path} not found — see the module docstring for the gh call")
-    paths = sorted((l.strip() for l in open(tree_path) if l.strip()), key=_season_rank)
-    idx = {}
+    with open(tree_path, encoding='utf-8') as fh:
+        paths = sorted((l.strip() for l in fh if l.strip()), key=_season_rank)
+    idx, tok = {}, {}
     for p in paths:
         base = os.path.splitext(os.path.basename(p))[0]
         if base.startswith('_'):          # _NFL_logo.png and friends: the league, not a club
@@ -127,53 +156,90 @@ def build_index(tree_path, base_url, strip_ext='.png'):
         # ord() per character, which emits Latin-1 — "Atlético" became %E9
         # where raw.githubusercontent wants the UTF-8 %C3%A9, and every one of
         # the 40 accented clubs 404'd while the ASCII ones looked fine.
-        idx.setdefault(key(base), base_url + quote(p, safe='/'))
-    return idx
+        k = key(base)
+        if k not in idx:
+            idx[k] = base_url + quote(p, safe='/')
+            tok[k] = tokens(base)
+    return idx, tok
 
 
-def resolve(club, pool):
-    """One club against one index. Exact, then containment, then near-miss."""
-    k = ALIAS.get(key(club))
-    k = key(k) if k else key(club)
+# The near-miss floor. Chosen against the roster: it admits the accent and
+# punctuation variants and rejects Inter Miami -> Inter Milan (0.85) and
+# Wolfsburg -> Wolfsberger AC. Loosening it does not add coverage, it adds
+# wrong badges.
+NEAR = 0.88
+
+
+def resolve(club, pool, pool_tokens):
+    """One club against one index. Exact, then token subset, then near-miss."""
+    alias = ALIAS.get(key(club))
+    want = tokens(alias) if alias else tokens(club)
+    k = ''.join(sorted(want))
     if k in pool:
         return pool[k]
-    # Containment, shortest wins: "Barcelona" is inside "Barcelona B", and the
-    # senior side is the shorter of the two.
-    if len(k) > 4:
-        hits = [x for x in pool if k in x or x in k]
+    # SUBSET OF WORDS, not substring of letters. Substring matching in either
+    # direction is what put five more wrong badges in the manifest: "angers"
+    # sits inside "rangers", "rapid" inside "coloradorapids", "sporting"
+    # inside "sportingkansascity" — and the tie-break took the SHORTEST hit,
+    # which deliberately picks the least specific candidate. Words cannot do
+    # that: Angers and Rangers share no word at all.
+    #
+    # Fewest surplus words wins, which is the same instinct the old shortest
+    # rule had and the reason it was there: "Barcelona" is a subset of both
+    # "FC Barcelona" (nothing left over once FC is noise) and "Barcelona B"
+    # (one word left over), and the senior side is the one with nothing left.
+    if want:
+        hits = [(len(toks - want), x) for x, toks in pool_tokens.items() if want <= toks]
         if hits:
-            return pool[min(hits, key=len)]
-    # A near miss has to be very near. 0.88 was chosen against the roster: it
-    # admits the accent and punctuation variants and rejects Inter Miami ->
-    # Inter Milan (0.85) and Wolfsburg -> Wolfsberger AC. Loosening it does not
-    # add coverage, it adds wrong badges.
-    close = difflib.get_close_matches(k, list(pool), 1, 0.80)
-    if close and difflib.SequenceMatcher(None, k, close[0]).ratio() >= 0.88:
+            return pool[min(hits)[1]]
+    close = difflib.get_close_matches(k, list(pool), 1, NEAR)
+    if close and difflib.SequenceMatcher(None, k, close[0]).ratio() >= NEAR:
         return pool[close[0]]
     return None
 
 
 def main():
-    manifest = json.load(open(MANIFEST))
+    with open(MANIFEST, encoding='utf-8') as fh:
+        manifest = json.load(fh)
     leagues = (manifest.get('sport') or {}).get('leagues') or {}
     if not leagues:
         sys.exit(f"{MANIFEST} carries no sport.leagues — run build_manifest.py first")
 
-    euro = build_index(os.path.join(HERE, 'crest_tree_euro.txt'), EURO_RAW)
-    us = build_index(os.path.join(HERE, 'crest_tree_us.txt'), US_RAW)
+    # Named per competition, never a default. An `else euro` sent every
+    # league without an entry into the European index; MLB or NHL added to the
+    # roster tomorrow would silently do the same thing MLS did.
+    global POOL
+    euro, euro_tok = build_index(os.path.join(HERE, 'crest_tree_euro.txt'), EURO_RAW)
+    us, us_tok = build_index(os.path.join(HERE, 'crest_tree_us.txt'), US_RAW)
     print(f"index: {len(euro)} European clubs, {len(us)} US")
+    POOL = {
+        'Premier League': (euro, euro_tok), 'La Liga': (euro, euro_tok),
+        'Serie A': (euro, euro_tok), 'Bundesliga': (euro, euro_tok),
+        'Ligue 1': (euro, euro_tok), 'Champions League': (euro, euro_tok),
+        'NFL': (us, us_tok), 'NBA': (us, us_tok),
+        # MLS: no entry, on purpose. See the module docstring.
+    }
 
     crest, missing = {}, []
     for league, clubs in leagues.items():
-        pool = us if league in ('NFL', 'NBA') else euro
+        pool, pool_tok = POOL.get(league, (None, None))
+        if pool is None:
+            # No source for this competition, and that is the whole answer.
+            # This used to fall through to the European index on `else`, which
+            # is how MLS — documented right here as resolving to nothing — put
+            # Portugal's Sporting CP on Sporting Kansas City and Romania's FC
+            # Rapid on the Colorado Rapids.
+            missing.extend((league, c) for c in clubs)
+            continue
         for club in clubs:
-            url = resolve(club, pool)
+            url = resolve(club, pool, pool_tok)
             if url:
                 crest[club] = url
             elif key(club) not in KNOWN_ABSENT:
                 missing.append((league, club))
 
-    json.dump(crest, open(OUT, 'w'), indent=1, ensure_ascii=False)
+    with open(OUT, 'w', encoding='utf-8') as fh:
+        json.dump(crest, fh, indent=1, ensure_ascii=False)
     total = sum(len(v) for v in leagues.values())
     print(f"{len(crest)}/{total} clubs matched -> {OUT}")
     if missing:
