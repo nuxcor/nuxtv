@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-27T14:27:42+00:00",
+ "generated": "2026-08-27T14:38:04+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -13,6 +13,11 @@
     "hidden_by_default": false
    },
    {
+    "key": "ENTERTAINMENT",
+    "label": "Entertainment",
+    "hidden_by_default": false
+   },
+   {
     "key": "SPORTS",
     "label": "Sports",
     "hidden_by_default": false
@@ -20,11 +25,6 @@
    {
     "key": "LOCALS",
     "label": "Locals",
-    "hidden_by_default": false
-   },
-   {
-    "key": "ENTERTAINMENT",
-    "label": "Entertainment",
     "hidden_by_default": false
    },
    {
@@ -18761,7 +18761,7 @@
    },
    "1290299": {
     "src": "repo",
-    "id": "LFCTV.uk",
+    "id": "xfctv.nz",
     "feed": "epg6"
    },
    "1290300": {
@@ -19771,7 +19771,7 @@
    },
    "325773": {
     "src": "repo",
-    "id": "ABC.us",
+    "id": "abcsydney.au",
     "feed": "epg6"
    },
    "325904": {
@@ -61983,9 +61983,9 @@
  "region_sections": {},
  "destinations": {
   "NEWS": "live",
+  "ENTERTAINMENT": "live",
   "SPORTS": "live",
   "LOCALS": "live",
-  "ENTERTAINMENT": "live",
   "MOVIES": "live",
   "KIDS": "live",
   "DOCUMENTARY": "live",

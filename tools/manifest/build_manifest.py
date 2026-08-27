@@ -89,12 +89,16 @@ MOVIE_MANUAL = {
 
 SECTIONS_LIVE = [
     ("NEWS",          "News",                False),
+    # Entertainment second, straight under News, asked for 2026-08-27. It is
+    # the biggest shelf in the package and the one a viewer with nothing
+    # particular in mind lands on; Sports and Locals are what you reach for
+    # when you already know what you want, and they keep their order behind it.
+    ("ENTERTAINMENT", "Entertainment",       False),
     ("SPORTS",        "Sports",              False),
     # "Locals", not "Locals & Networks": the shelf is metro affiliate stations
     # and nothing else, so the second half named a thing that is not there and
     # cost width in a strip where width is the whole budget.
     ("LOCALS",        "Locals",              False),
-    ("ENTERTAINMENT", "Entertainment",       False),
     ("MOVIES",        "Movies 24/7",         False),
     ("KIDS",          "Kids",                False),
     ("DOCUMENTARY",   "Documentary",         False),
@@ -1949,8 +1953,6 @@ if not _crest_map: _crest_map = (_prev.get('sport') or {}).get('club_crest', {})
 # the channel's name; these two are the ones where the id names something else
 # entirely AND a correct id could be verified to exist.
 #
-#   1290299 VIP: LFC TV     xfctv.nz -> LFCTV.uk   Liverpool FC's channel was
-#                           reading a New Zealand feed.
 #   325058  US: FUSE MUSIC   01TV.fr -> Fuse.us    a US music network reading
 #                           a French channel.
 #
@@ -1965,11 +1967,16 @@ if not _crest_map: _crest_map = (_prev.get('sport') or {}).get('club_crest', {})
 #
 # Checked and NOT a bug, recorded so it is not re-reported: US: DIY HD reads
 # magnolianetwork.us, which is right — DIY Network became Magnolia Network.
+#
+# Only channels the build actually CARRIES belong here. The first pass of this
+# audit read names out of the raw playlist rather than kept_live.json and so
+# proposed corrections to three channels that are not in the line-up at all —
+# US: ABC HD, VIP: LFC TV, and the two DSTV entries above, all already dropped.
+# 624 of the 919 bindings are for channels the build drops; a pin on one of
+# them is dead weight that reads like a fix.
 EPG_PIN = {
-    717697: 'SkyNews.uk',
-    325773: 'ABC.us',
-    1290299: 'LFCTV.uk',
-    325058: 'Fuse.us',
+    717697: 'SkyNews.uk',    # UK: SKY NEWS   — carried
+    325058: 'Fuse.us',       # US: FUSE MUSIC — carried
 }
 for _sid, _eid in EPG_PIN.items():
     _cur = _epg_map.get(str(_sid))
