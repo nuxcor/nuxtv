@@ -1960,6 +1960,13 @@ _logo_map = _load('logo_map.json', {}) or {}
 # a prior manifest is the fallback so a missing index never blanks the binding
 _prev = _load('manifest.json', {}) or {}
 if not _epg_map:  _epg_map  = (_prev.get('epg')  or {}).get('channel_map', {})
+# Channels the guide match left with NO binding at all, filled in by
+# epg_fill.py. Merged under the map above — setdefault, so it only ever adds a
+# key that is missing — and over-ridable by EPG_PIN below, so a hand-verified
+# correction still wins. 166 of the 432 channels on visible shelves had no
+# listings whatsoever, Sports worst of all.
+for _sid, _bind in (_load('epg_extra.json', {}) or {}).items():
+    _epg_map.setdefault(_sid, _bind)
 if not _logo_map: _logo_map = (_prev.get('logo') or {}).get('channel_logo', {})
 # Club crests for the fixture rows, from crest_match.py. Same fallback as the
 # channel artwork above: a missing index carries the last one forward rather

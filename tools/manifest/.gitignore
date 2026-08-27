@@ -7,3 +7,7 @@ __pycache__/
 
 # Crest source trees, re-fetched with the gh calls in crest_match.py.
 crest_tree_*.txt
+
+# Guide packs, re-fetched by epg_fill.py from the repo source.
+*.gz
+*.xml
