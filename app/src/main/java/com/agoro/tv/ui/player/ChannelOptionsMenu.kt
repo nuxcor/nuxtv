@@ -20,11 +20,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Bedtime
-import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.runtime.Composable
@@ -58,14 +56,11 @@ internal fun ChannelOptionsMenu(
     channelName: String,
     isFavoritable: Boolean,
     isFavorite: Boolean,
-    canRecord: Boolean,
-    isRecording: Boolean,
     hasCatchup: Boolean,
     aspectLabel: String,
     sleepLabel: String,
     canHide: Boolean,
     onFavoriteToggle: () -> Unit,
-    onRecordToggle: () -> Unit,
     onCatchup: () -> Unit,
     onTracks: () -> Unit,
     onAspectCycle: () -> Unit,
@@ -112,16 +107,6 @@ internal fun ChannelOptionsMenu(
                                 iconTint = if (isFavorite) NuxColors.Primary else NuxColors.OnSurface,
                                 onClick = onFavoriteToggle,
                                 modifier = Modifier.focusRequester(firstFocus),
-                            )
-                        }
-                    }
-                    if (canRecord || isRecording) {
-                        item(key = "record") {
-                            OptionRow(
-                                icon = if (isRecording) Icons.Default.Stop else Icons.Default.FiberManualRecord,
-                                label = if (isRecording) "Stop recording" else "Record",
-                                iconTint = NuxColors.Error,
-                                onClick = onRecordToggle,
                             )
                         }
                     }

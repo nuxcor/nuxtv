@@ -653,7 +653,12 @@ class PlayerSession internal constructor(
                     // to the error card, which is reached only after the
                     // retries are spent: exactly the cases that recover are
                     // the ones that never said why they had to.
-                    statusMessage = "$message — reconnecting…"
+                    // No toast. reconnectAttempt puts the tune card up for the
+                    // whole wait, naming the channel and which try this is, so
+                    // a second line in the corner saying the same thing in
+                    // other words was this app talking over itself. The
+                    // specific message still reaches the error card if the
+                    // retries run out.
                     // Up for the whole wait, and taken down by the picture
                     // coming back; see [reconnectAttempt].
                     reconnectAttempt = attempt + 1
@@ -794,11 +799,16 @@ class PlayerSession internal constructor(
         // and is why live URLs were moved to raw .ts in the first place.
         // Reaching for it first traded a stutter for a permanently softer
         // picture, and did it silently.
+        // Silently. The ladder used to narrate every rung — "trying another
+        // source", "trying a steadier feed", "trying a different stream
+        // format" — and none of it is the viewer's business: they asked for a
+        // channel, the app is getting them the channel, and which URL it is on
+        // its third attempt is diagnostics. What earns a line is the ladder
+        // running OUT, which is the case below, because that is the point the
+        // picture stops coming back on its own.
         when {
-            swapSource() ->
-                statusMessage = "Stream can't keep up — trying another source…"
-            swapLiveFormat() ->
-                statusMessage = "Stream keeps breaking — trying a steadier feed…"
+            swapSource() -> Unit
+            swapLiveFormat() -> Unit
             // Both ladders spent. Without this the when did nothing at all:
             // the stall counter went on firing into a branch that could no
             // longer act, so the picture froze and the app said nothing —
@@ -831,7 +841,6 @@ class PlayerSession internal constructor(
             else -> return false
         }
         liveFormatStage++
-        statusMessage = "Trying a different stream format…"
         request = request.copy(items = PatchedList(request.items, idx, request.items[idx].copy(url = next)))
         return true
     }
@@ -851,7 +860,6 @@ class PlayerSession internal constructor(
         val next = item.fallbackUrls.getOrNull(sourceStage) ?: return false
         sourceStage++
         liveFormatStage = 0
-        statusMessage = "Trying another source…"
         request = request.copy(items = PatchedList(request.items, idx, item.copy(url = next)))
         return true
     }
@@ -1052,7 +1060,8 @@ class PlayerSession internal constructor(
         clearError()
         resetLadder(currentIndex)
         tuning = true
-        statusMessage = "Trying software decoding…"
+        // No line for this either. Which decoder is running is the definition
+        // of diagnostics, and the tune card is already up.
         rebuildOn(DecodeProfile.TOLERANT)
     }
 

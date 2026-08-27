@@ -629,7 +629,19 @@ NAMED_REMOVAL = re.compile(
     # Anchored to the trailing 2, which is what keeps this off "TVG NETWORK"
     # itself — FanDuel TV, which stays — and off "GUI: TVGE", an unrelated
     # Equatorial Guinea channel a bare \bTVG would have taken.
-    r'|\bTVG\s*NETWORK\s*2\b',
+    r'|\bTVG\s*NETWORK\s*2\b'
+    # Five sports channels off the US shelf, 2026-08-27 at the user's request.
+    # Each pattern was checked against the whole line-up and takes exactly one
+    # channel; the ones already dropped for their territory it also matches
+    # (IT: DAZN BOXING TV, CA: FIGHT NETWORK) cost nothing.
+    #
+    # DAZN COMBAT is deliberately NOT here. It was not asked for, and a
+    # \bDAZN\b rule would have taken it along with the three that were.
+    r'|\bDAZN\s+WOMA?[EA]?N\'?S?\b'      # US: DAZN WOMANS FOOTBALL
+    r'|\bDAZN\s+FAST\b'                  # US: DAZN FAST+
+    r'|\bDAZN\s+RISE\b'                  # US: DAZN RISE
+    r'|\bFIGHT\s*NETWORK\b'              # US: FIGHT NETWORK HD
+    r'|\bBOXING\s*TV\b',                 # US: BOXING TV
     re.I)
 
 telemundo_drop, rsn_drop, ca_drop, us_news_drop = [], [], [], []
@@ -732,8 +744,29 @@ PRIMARY_PIN = {
 # any other. Only for channels that really are one broadcast everywhere.
 REGION_PIN = {'nbcnewsnow': 'US', 'bbcworldnews': 'US'}
 
-# The territories that share one shelf per genre. DSTV (AFR) keeps its own.
+# Territories whose channels share a TILE — the build-time collapse key.
+#
+# Not the same question as which share a shelf, and they were one constant
+# until 2026-08-27. Widening this folds channels of the same name across
+# territories into one tile and drops the losers: adding AFR here took
+# US: ESPN HD, US: ESPN 2 HD, UK: NAT GEO WILD and seven more out of the
+# line-up entirely, which is nobody's idea of merging a sports shelf.
 MERGED_REGIONS = ('US', 'UK')
+
+# Territories that share one SHELF per genre — what the app reads to decide
+# whether a territory opens a chip of its own.
+#
+# AFR is here and not above, asked for as "merge supersport channels into
+# sports then delete its chip" — which is one thing, not two: a territory
+# outside the shelf merge opens its own row, so folding it in is what removes
+# the row. Its channels keep their own tiles, so nothing collapses and nothing
+# is dropped; they simply land on Sports.
+#
+# It earns this now in a way it did not before. The shelf was 110 mixed DStv
+# and Ghanaian channels when it was its own thing; since the SuperSport-only
+# trim it is 23 sports channels, which is a subset of what Sports is for
+# rather than a territory with its own News, Kids and Music.
+SHELF_MERGED_REGIONS = ('US', 'UK', 'AFR')
 tiles = collections.defaultdict(list)
 for k, sid, reg, sec, t in live_rows:
     if k in REGION_PIN:
@@ -1927,6 +1960,13 @@ _logo_map = _load('logo_map.json', {}) or {}
 # a prior manifest is the fallback so a missing index never blanks the binding
 _prev = _load('manifest.json', {}) or {}
 if not _epg_map:  _epg_map  = (_prev.get('epg')  or {}).get('channel_map', {})
+# Channels the guide match left with NO binding at all, filled in by
+# epg_fill.py. Merged under the map above — setdefault, so it only ever adds a
+# key that is missing — and over-ridable by EPG_PIN below, so a hand-verified
+# correction still wins. 166 of the 432 channels on visible shelves had no
+# listings whatsoever, Sports worst of all.
+for _sid, _bind in (_load('epg_extra.json', {}) or {}).items():
+    _epg_map.setdefault(_sid, _bind)
 if not _logo_map: _logo_map = (_prev.get('logo') or {}).get('channel_logo', {})
 # Club crests for the fixture rows, from crest_match.py. Same fallback as the
 # channel artwork above: a missing index carries the last one forward rather
@@ -2635,6 +2675,21 @@ with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'kept_live.js
 # themselves: "Man United" and "Manchester United", "Red Bull New York" and
 # "New York Red Bulls" all appear. Matching is substring on a normalised name,
 # so the shorter alias must come with the longer one.
+# Competitions the app can read from a slot's own billing, with no club list.
+#
+# The Sport tab groups by this map's KEYS and drops anything whose league is
+# not one of them, so a competition the parser can now recognise still needs an
+# entry here to get a row. The lists are empty on purpose: for these the club
+# whitelist is what fails — cup ties pair a Premier League side with an EFL
+# one, European qualifying brings clubs from leagues no index carries, and the
+# playlist only ever lists the day's fixtures so nothing durable can be derived
+# from it. SportsParser.billedLeague reads the competition off the slot
+# instead; see the note there.
+#
+# Order matters: this is the order the rows appear in.
+BILLED_ONLY_COMPETITIONS = ["Europa League", "Conference League", "UEFA",
+                            "Carabao Cup", "FA Cup"]
+
 SPORT_LEAGUES = {
  "NFL": ["Cardinals","Falcons","Ravens","Bills","Panthers","Bears","Bengals","Browns",
    "Cowboys","Broncos","Lions","Packers","Texans","Colts","Jaguars","Chiefs","Raiders",
@@ -2736,6 +2791,11 @@ for _comp, _clubs in _derived.items():
     if len(_clubs) >= max(6, len(SPORT_LEAGUES.get(_comp, [])) // 2):
         SPORT_LEAGUES[_comp] = sorted(set(SPORT_LEAGUES.get(_comp, [])) | set(_clubs))
         sport_derived[_comp] = len(_clubs)
+
+# The billed-only competitions get their key whether or not the listings
+# happened to mention them today, because an absent key is an absent row.
+for _billed in BILLED_ONLY_COMPETITIONS:
+    SPORT_LEAGUES.setdefault(_billed, [])
 
 # --------------------------------------------- one owner per stream, at the end
 # Two folds run over the same streams — the quality collapse (by channel name)
@@ -3031,7 +3091,7 @@ manifest = {
     "movie_year": movie_year,
     "kept_regions": list(KEEP_REGIONS),   # authored order — see KEEP_REGIONS
     # These share one shelf per genre; anything else keeps its own shelf.
-    "merged_regions": list(MERGED_REGIONS),
+    "merged_regions": list(SHELF_MERGED_REGIONS),
     "sport": {"leagues": SPORT_LEAGUES, "cue_minutes": SPORT_CUE_MINUTES,
               "ambiguous": SPORT_AMBIGUOUS, "club_crest": _crest_map},
     # Section-level fold, applied to whatever section a channel resolves to.

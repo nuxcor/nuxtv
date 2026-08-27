@@ -21,11 +21,7 @@ import com.agoro.tv.data.PlaybackRequest
 import com.agoro.tv.data.PlayerPrefs
 import com.agoro.tv.data.PlaylistSource
 import com.agoro.tv.data.indexAnswering
-import com.agoro.tv.data.ScheduledRecording
 import com.agoro.tv.data.Series
-import com.agoro.tv.recording.ActiveRecording
-import com.agoro.tv.recording.Recording
-import com.agoro.tv.recording.RecordingManager
 import com.agoro.tv.recording.RecordingScheduler
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.withPermit
@@ -195,8 +191,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .sorted()
     }
 
-    val schedules: StateFlow<List<ScheduledRecording>> = playerPrefs.schedules
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val epgState: StateFlow<ContentRepository.EpgState> = repo.epg
 
@@ -258,8 +252,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 SharingStarted.Eagerly,
                 GuideCoverage(matchesPlaylist = true, lastProgramEndMs = Long.MAX_VALUE),
             )
-
-    val activeRecording: StateFlow<ActiveRecording?> = RecordingManager.active
 
     /** Now/next per channel id, recomputed once a minute off the main thread. */
     data class NowNext(val now: EpgProgram?, val next: EpgProgram?)
@@ -547,9 +539,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var addState by mutableStateOf<AddState>(AddState.Idle)
         private set
 
-    private val _recordings = MutableStateFlow<List<Recording>>(emptyList())
-    val recordings: StateFlow<List<Recording>> = _recordings
-
     init {
         // Before anything reads URL-keyed prefs: live URLs changed .m3u8 → .ts
         // and favorites/hidden/learned-quality keys must follow them.
@@ -568,7 +557,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 kotlinx.coroutines.delay(60 * 60 * 1000L)
             }
         }
-        refreshRecordings()
         // Before anything composes: the shell holds the boot background until
         // this answers, so it must not wait on anything an install with no
         // channel to resume doesn't already have.
@@ -598,9 +586,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 delay(6L * 3600 * 1000)
                 if (content.value is ContentState.Ready) repo.loadEpg()
             }
-        }
-        viewModelScope.launch {
-            RecordingScheduler.rescheduleAll(getApplication(), playerPrefs)
         }
         viewModelScope.launch {
             delay(3_000)
@@ -817,7 +802,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     ?: java.io.File(dir, LEGACY_BACKUP_FILE)
                 val restoredSources = playerPrefs.restore(file.readText())
                 repo.restoreSources(restoredSources)
-                RecordingScheduler.rescheduleAll(getApplication(), playerPrefs)
                 true
             }.getOrDefault(false)
             onDone(ok)
@@ -965,28 +949,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * The preview is on, and yields to a recording. "Connections" meter
-     * simultaneous STREAMS, not logins — and while the guide is open nothing
-     * else is streaming, so even a single-stream plan has its slot free; the
-     * guide releases the preview before fullscreen opens — and the tune that
-     * follows waits for the panel to agree, see [awaitLiveSlotAfterHandover].
-     * This held up against a real 1-connection line. The one thing that
-     * genuinely occupies the slot is an active recording, so the preview
-     * stands down for it —
-     * unless the plan has a second connection to spare.
+     * Whether the guide may keep a preview running.
      *
-     * This was Auto/On/Off. Off was a preference for a thing that costs
-     * nothing when it is free and stops on its own when it isn't, and On was
-     * the same as Auto except that it would take a recording's only stream —
-     * an option whose whole content was "break my recording".
+     * "Connections" meter simultaneous STREAMS, not logins — and while the
+     * guide is open nothing else is streaming, so even a single-stream plan
+     * has its slot free; the guide releases the preview before fullscreen
+     * opens, and the tune that follows waits for the panel to agree, see
+     * [awaitLiveSlotAfterHandover]. This held up against a real 1-connection
+     * line.
+     *
+     * It used to also stand down for an active recording, which was the one
+     * other thing that could genuinely hold the slot. Recording was removed on
+     * 2026-08-27, so a second connection is now the whole question.
+     *
+     * This was Auto/On/Off before that. Off was a preference for a thing that
+     * costs nothing when it is free and stops on its own when it is not.
      */
     val guidePreview: StateFlow<Boolean> =
-        combine(
-            accountInfo,
-            com.agoro.tv.recording.RecordingManager.active,
-        ) { account, recording ->
-            recording == null || (account?.maxConnections ?: 1) >= 2
-        }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+        accountInfo.map { account -> (account?.maxConnections ?: 1) >= 2 }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     fun refreshAccountInfo() {
         viewModelScope.launch { _accountInfo.value = repo.accountInfo() }
@@ -1290,27 +1271,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { playerPrefs.clearRecentChannels() }
     }
 
-    fun scheduleRecording(channel: LiveChannel, program: EpgProgram): Boolean {
-        val recordUrl = channel.recordUrl ?: return false
-        RecordingScheduler.schedule(
-            getApplication(),
-            playerPrefs,
-            ScheduledRecording(
-                id = "${channel.url}#${program.startMs}",
-                channelName = channel.displayName,
-                recordUrl = recordUrl,
-                title = program.title,
-                startMs = program.startMs,
-                endMs = program.endMs,
-            ),
-        )
-        return true
-    }
-
-    fun cancelSchedule(id: String) {
-        RecordingScheduler.cancel(getApplication(), playerPrefs, id)
-    }
-
     data class SearchResults(
         val channels: List<LiveChannel> = emptyList(),
         val movies: List<Movie> = emptyList(),
@@ -1433,44 +1393,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun forgetSeriesResume(series: Series) {
         val urls = episodeOrigins.value.filterValues { it == series.id }.keys
         viewModelScope.launch { playerPrefs.clearResume(urls) }
-    }
-
-    // --- recordings -----------------------------------------------------------
-
-    fun refreshRecordings() {
-        // listFiles + length + lastModified is disk I/O — never on the main thread.
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            _recordings.value = RecordingManager.list(getApplication())
-        }
-    }
-
-    fun startRecording(item: PlayableItem) {
-        val url = item.recordUrl ?: return
-        RecordingManager.start(getApplication(), url, item.title)
-    }
-
-    fun stopRecording() {
-        RecordingManager.stop(getApplication())
-        refreshRecordings()
-    }
-
-    fun deleteRecording(recording: Recording) {
-        RecordingManager.delete(recording)
-        refreshRecordings()
-    }
-
-    fun playRecording(recording: Recording) {
-        playback = PlaybackRequest(
-            items = listOf(
-                PlayableItem(
-                    url = "file://${recording.file.absolutePath}",
-                    title = recording.name,
-                    subtitle = "Recording",
-                )
-            ),
-            startIndex = 0,
-            isLive = false,
-        )
     }
 
     // --- launch target --------------------------------------------------------

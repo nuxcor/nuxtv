@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-27T16:52:28+00:00",
+ "generated": "2026-08-27T19:33:19+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -8537,7 +8537,20 @@
   1232961,
   1232960,
   1232959,
+  1562617,
+  1562616,
+  1562615,
+  1562614,
+  1562613,
+  1562892,
   325907,
+  325048,
+  525581,
+  525580,
+  525579,
+  832056,
+  498738,
+  414074,
   1008121,
   483976,
   483974,
@@ -22886,6 +22899,236 @@
     "id": "wttw.us",
     "feed": "epg6"
    },
+   "1544244": {
+    "src": "repo",
+    "id": "skysportsdarts.uk",
+    "feed": "epg6"
+   },
+   "1562537": {
+    "src": "repo",
+    "id": "skysportsnews.uk",
+    "feed": "epg6"
+   },
+   "1562531": {
+    "src": "repo",
+    "id": "skysportsmix.uk",
+    "feed": "epg6"
+   },
+   "1562528": {
+    "src": "repo",
+    "id": "skysportsracing.uk",
+    "feed": "epg6"
+   },
+   "1562526": {
+    "src": "repo",
+    "id": "skywitness.uk",
+    "feed": "epg6"
+   },
+   "1562524": {
+    "src": "repo",
+    "id": "tntsports2.uk",
+    "feed": "epg6"
+   },
+   "1562523": {
+    "src": "repo",
+    "id": "tntsports3.uk",
+    "feed": "epg6"
+   },
+   "1562522": {
+    "src": "repo",
+    "id": "tntsports4.uk",
+    "feed": "epg6"
+   },
+   "1562521": {
+    "src": "repo",
+    "id": "skysportsfootball.uk",
+    "feed": "epg6"
+   },
+   "1536949": {
+    "src": "repo",
+    "id": "billiardtv.us",
+    "feed": "epg6"
+   },
+   "1536934": {
+    "src": "repo",
+    "id": "buzzr.us",
+    "feed": "epg6"
+   },
+   "1536761": {
+    "src": "repo",
+    "id": "foxsoul.us",
+    "feed": "epg6"
+   },
+   "1536723": {
+    "src": "repo",
+    "id": "hbocomedy.us",
+    "feed": "epg6"
+   },
+   "1536686": {
+    "src": "repo",
+    "id": "ionmystery.us",
+    "feed": "epg6"
+   },
+   "1536685": {
+    "src": "repo",
+    "id": "ionplus.us",
+    "feed": "epg6"
+   },
+   "1536560": {
+    "src": "repo",
+    "id": "nbcnewsnow.us",
+    "feed": "epg6"
+   },
+   "1536557": {
+    "src": "repo",
+    "id": "nbcsportsnow.us",
+    "feed": "epg6"
+   },
+   "1536512": {
+    "src": "repo",
+    "id": "pixl.us",
+    "feed": "epg6"
+   },
+   "1536445": {
+    "src": "repo",
+    "id": "stadium.us",
+    "feed": "epg6"
+   },
+   "325863": {
+    "src": "repo",
+    "id": "grit.us",
+    "feed": "epg6"
+   },
+   "325879": {
+    "src": "repo",
+    "id": "teennick.us",
+    "feed": "epg6"
+   },
+   "324967": {
+    "src": "repo",
+    "id": "livenowfromfox.us",
+    "feed": "epg6"
+   },
+   "1820474": {
+    "src": "repo",
+    "id": "cnbc.us",
+    "feed": "epg6"
+   },
+   "325017": {
+    "src": "repo",
+    "id": "foxsports1.us",
+    "feed": "epg6"
+   },
+   "325016": {
+    "src": "repo",
+    "id": "foxsports2.us",
+    "feed": "epg6"
+   },
+   "325018": {
+    "src": "repo",
+    "id": "foxsoccerplus.us",
+    "feed": "epg6"
+   },
+   "325023": {
+    "src": "repo",
+    "id": "cbssportsnetwork.us",
+    "feed": "epg6"
+   },
+   "325002": {
+    "src": "repo",
+    "id": "mlbnetwork.us",
+    "feed": "epg6"
+   },
+   "508003": {
+    "src": "repo",
+    "id": "willowcricket.us",
+    "feed": "epg6"
+   },
+   "1537434": {
+    "src": "repo",
+    "id": "laligatv.uk",
+    "feed": "epg6"
+   },
+   "1537405": {
+    "src": "repo",
+    "id": "talktv.uk",
+    "feed": "epg6"
+   },
+   "162125": {
+    "src": "repo",
+    "id": "itv2.uk",
+    "feed": "epg6"
+   },
+   "162136": {
+    "src": "repo",
+    "id": "channel5.uk",
+    "feed": "epg6"
+   },
+   "1107838": {
+    "src": "repo",
+    "id": "itvlondon.uk",
+    "feed": "epg6"
+   },
+   "162254": {
+    "src": "repo",
+    "id": "skyarts.uk",
+    "feed": "epg6"
+   },
+   "162284": {
+    "src": "repo",
+    "id": "dave.uk",
+    "feed": "epg6"
+   },
+   "1525688": {
+    "src": "repo",
+    "id": "bbconelondon.uk",
+    "feed": "epg6"
+   },
+   "1525675": {
+    "src": "repo",
+    "id": "bbcscotland.uk",
+    "feed": "epg6"
+   },
+   "1525673": {
+    "src": "repo",
+    "id": "bbctwoengland.uk",
+    "feed": "epg6"
+   },
+   "1536226": {
+    "src": "repo",
+    "id": "itv3.uk",
+    "feed": "epg6"
+   },
+   "1536225": {
+    "src": "repo",
+    "id": "itv4.uk",
+    "feed": "epg6"
+   },
+   "162382": {
+    "src": "repo",
+    "id": "skydocumentaries.uk",
+    "feed": "epg6"
+   },
+   "162384": {
+    "src": "repo",
+    "id": "skynature.uk",
+    "feed": "epg6"
+   },
+   "162231": {
+    "src": "repo",
+    "id": "skykids.uk",
+    "feed": "epg6"
+   },
+   "1527625": {
+    "src": "repo",
+    "id": "skysportscricket.uk",
+    "feed": "epg6"
+   },
+   "1527617": {
+    "src": "repo",
+    "id": "tntsports1.uk",
+    "feed": "epg6"
+   },
    "1537034": {
     "src": "repo",
     "id": "abcnewslive.us",
@@ -27536,8 +27779,6 @@
     1899899,
     1899898,
     1899897,
-    1899896,
-    1899895,
     1899894,
     1899893,
     1899892,
@@ -31349,7 +31590,6 @@
     1912600,
     1912599,
     1912598,
-    1912597,
     1912596,
     1912595,
     1912594,
@@ -33309,6 +33549,8 @@
     1939958,
     1939957,
     1899901,
+    1899896,
+    1899895,
     1899884,
     1474582,
     1474581,
@@ -33940,6 +34182,7 @@
     1611005,
     1610991,
     1912602,
+    1912597,
     1912586,
     1896475,
     1900001,
@@ -62175,7 +62418,8 @@
  ],
  "merged_regions": [
   "US",
-  "UK"
+  "UK",
+  "AFR"
  ],
  "sport": {
   "leagues": {
@@ -62434,7 +62678,12 @@
     "Union Saint-Gilloise",
     "Pafos",
     "Kairat"
-   ]
+   ],
+   "Europa League": [],
+   "Conference League": [],
+   "UEFA": [],
+   "Carabao Cup": [],
+   "FA Cup": []
   },
   "cue_minutes": 60,
   "ambiguous": [
@@ -62728,8 +62977,8 @@
   "movie_categories": 67,
   "unresolved_live_categories": 0,
   "movies_with_genre": 0,
-  "live_tiles_after_collapse": 6446,
-  "live_tiles_collapsed": 3147,
+  "live_tiles_after_collapse": 6441,
+  "live_tiles_collapsed": 3139,
   "collapse_groups": 146,
   "collapse_needs_review": 1,
   "dropped_region_streams": 2906,
@@ -62812,7 +63061,7 @@
   "misfiled_us_locals": 1,
   "sections_merged": 6,
   "tiles_resectioned": 116,
-  "epg_bound": 924,
+  "epg_bound": 970,
   "logo_bound": 4386,
   "club_crests_bound": 200,
   "live_event_channels": 7849,

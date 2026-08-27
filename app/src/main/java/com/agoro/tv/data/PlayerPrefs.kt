@@ -23,6 +23,17 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 
 @kotlinx.serialization.Serializable
+/**
+ * A scheduled recording. Recording was removed on 2026-08-27 and nothing
+ * creates one any more.
+ *
+ * Kept ONLY because it is a field in the backup format: a backup written by an
+ * older build carries a `schedules` array, and deleting the type would make
+ * those backups fail to restore rather than restore an empty list. The backup
+ * path reads and writes that key directly, so the DataStore flow and the
+ * add/remove helpers that used to sit here are gone — nothing read them once
+ * scheduling was removed, and leaving them would have implied a feature.
+ */
 data class ScheduledRecording(
     val id: String,
     val channelName: String,
@@ -137,8 +148,6 @@ class PlayerPrefs(private val context: Context) {
     private val resumeDurationsSlot = JsonSlot<Map<String, Long>>(emptyMap()) { json.decodeFromString(it) }
     private val favoritesSlot = JsonSlot<Set<String>>(emptySet()) { json.decodeFromString(it) }
     private val recentChannelsSlot = JsonSlot<List<String>>(emptyList()) { json.decodeFromString(it) }
-    private val schedulesSlot =
-        JsonSlot<List<ScheduledRecording>>(emptyList()) { json.decodeFromString(it) }
     private val hiddenSlot = JsonSlot<Set<String>>(emptySet()) { json.decodeFromString(it) }
     private val hiddenTitlesSlot = JsonSlot<Set<String>>(emptySet()) { json.decodeFromString(it) }
 
@@ -489,28 +498,6 @@ class PlayerPrefs(private val context: Context) {
     }
 
     // --- scheduled recordings -------------------------------------------------
-
-    val schedules: Flow<List<ScheduledRecording>> = context.playerDataStore.data.map { prefs ->
-        schedulesSlot.read(prefs[schedulesKey])
-    }.flowOn(Dispatchers.Default)
-
-    suspend fun addSchedule(item: ScheduledRecording) {
-        context.playerDataStore.edit { prefs ->
-            val current = prefs[schedulesKey]?.let {
-                runCatching { json.decodeFromString<List<ScheduledRecording>>(it) }.getOrNull()
-            } ?: emptyList()
-            prefs[schedulesKey] = json.encodeToString(current.filterNot { it.id == item.id } + item)
-        }
-    }
-
-    suspend fun removeSchedule(id: String) {
-        context.playerDataStore.edit { prefs ->
-            val current = prefs[schedulesKey]?.let {
-                runCatching { json.decodeFromString<List<ScheduledRecording>>(it) }.getOrNull()
-            } ?: emptyList()
-            prefs[schedulesKey] = json.encodeToString(current.filterNot { it.id == id })
-        }
-    }
 
     // --- hidden channels ------------------------------------------------------
 

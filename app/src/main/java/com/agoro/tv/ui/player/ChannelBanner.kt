@@ -60,7 +60,6 @@ internal fun ChannelBanner(
     resolution: Pair<Int, Int>?,
     hdrFormat: String?,
     audioFormatLabel: String?,
-    isRecording: Boolean,
     showKeyHints: Boolean = false,
     /**
      * True while a zap chain is still running. The logo slot stays, empty,
@@ -222,9 +221,6 @@ internal fun ChannelBanner(
                 // the options sheet for whoever wants them. HDR and the audio
                 // format join it when the stream actually carries them.
                 StreamBadges(resolution, hdrFormat, audioFormatLabel)
-                if (isRecording) {
-                    PlayerBadge(text = "REC", color = NuxColors.Error)
-                }
                 // No engine-name chip here: which decoder is playing is
                 // diagnostics, not viewing information — it lives in the
                 // options sheet instead.

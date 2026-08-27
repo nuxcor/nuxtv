@@ -318,14 +318,8 @@ internal fun PlayerGuideOverlay(
                         }
                     },
                     onSchedule = { channel, program ->
-                        onStatus(
-                            if (vm.scheduleRecording(channel, program)) {
-                                "Recording scheduled: ${program.title}"
-                            } else {
-                                vm.scheduleReminder(channel, program)
-                                "Reminder set: ${program.title}"
-                            }
-                        )
+                        vm.scheduleReminder(channel, program)
+                        onStatus("Reminder set: ${program.title}")
                     },
                 )
             }

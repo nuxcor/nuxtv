@@ -2,7 +2,6 @@ package com.agoro.tv.data
 
 import android.content.Context
 import coil3.SingletonImageLoader
-import com.agoro.tv.recording.RecordingManager
 import java.io.File
 
 /**
@@ -14,9 +13,14 @@ import java.io.File
  * went or offered any of it back.
  *
  * The split that matters is not by folder, it is by what losing it costs.
- * Caches re-fetch. The catalogue costs a full re-download, so it is reported
- * and not offered. Recordings are the only thing here a viewer asked the box
- * to keep, so they are reported and never touched.
+ * Caches re-fetch, so [clearCaches] takes them. The catalogue costs a full
+ * re-download, so it is reported and never offered.
+ *
+ * Recordings are a viewer's own content and [clearCaches] does not touch them.
+ * They get their own action, [deleteLegacyRecordings], behind its own
+ * confirmation — recording was removed in 2.35.22 and took the Recordings tab
+ * with it, so without a deliberate way to delete them these files would sit
+ * there with nothing in the app able to reach them.
  */
 object StorageUsage {
 
@@ -36,6 +40,7 @@ object StorageUsage {
         val otherCacheBytes: Long,
         /** The playlist bundle and its EPG id map. Re-downloads; not cleared. */
         val catalogueBytes: Long,
+        /** Left over from the removed recording feature; see [legacyRecordings]. */
         val recordingsBytes: Long,
         val recordingsCount: Int,
     ) {
@@ -75,8 +80,12 @@ object StorageUsage {
         val catalogue = (context.filesDir.listFiles { f ->
             f.name.startsWith("bundle-") || f.name.startsWith("tvg-")
         } ?: emptyArray()).sumOf { it.sizeOf() }
-        val files = (RecordingManager.directory(context).listFiles() ?: emptyArray())
-            .filter { it.isFile }
+        // Files only, and non-empty ones. Counting a leftover directory or a
+        // zero-byte stub put "1 recording, 0 B" on the panel and a Delete
+        // button on a box that never recorded — which the button's own comment
+        // says it must be absent for.
+        val files = (legacyRecordings(context)?.listFiles() ?: emptyArray())
+            .filter { it.isFile && it.length() > 0 }
         return Report(
             imagesBytes = images,
             guideBytes = guide,
@@ -139,6 +148,34 @@ object StorageUsage {
         // deleteRecursively returns false on a partial failure, and reporting
         // "Freed 300 MB" over a file still on disk is the panel lying about
         // the one thing it exists to be right about.
+        return freed
+    }
+
+    /**
+     * Where recordings were kept, before the feature was removed (2026-08-27).
+     *
+     * The files outlive the feature: they are a viewer's own content and this
+     * app is not going to delete them on an upgrade because a menu item went
+     * away. They are counted so the space is not a mystery, and Settings
+     * offers to delete them, which is now the only way to get it back.
+     */
+    fun legacyRecordings(context: Context): File? =
+        // Null when external storage is unavailable. File(null, "recordings")
+        // is a RELATIVE path resolved against the process working directory,
+        // so measuring or deleting through it would touch something that has
+        // nothing to do with this app.
+        context.getExternalFilesDir(null)?.let { File(it, "recordings") }
+
+    /** Removes the old recordings, and returns what that freed. */
+    fun deleteLegacyRecordings(context: Context): Long {
+        var freed = 0L
+        // report() counts non-empty files, so this deletes them; the sweep
+        // below also clears anything else left in the directory, because the
+        // point is to give the space back and a stray subdirectory holds some.
+        for (f in legacyRecordings(context)?.listFiles() ?: emptyArray()) {
+            val n = f.sizeOf()
+            if (f.deleteRecursively()) freed += n
+        }
         return freed
     }
 

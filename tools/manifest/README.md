@@ -52,10 +52,21 @@ on disk.
 | Episodes | `dedup_fetch.py` | `dup_ids.txt` | `dup_episodes.json` |
 | VOD metadata | `enrich_vod.py` | `get_vod_streams.json` | genre/rating/tmdb keys |
 | Guide match | `epg_match.py` | `repo_epg_index.json`, `openepg_index_built.json` | `epg_map_final.json` |
+| Guide gaps | `epg_fill.py` | `manifest.json`, `kept_live.json`, guide packs | `epg_extra.json` |
 | Artwork match | `logo_match.py` | tv-logos index | `logo_map.json` |
 | Club crests | `crest_match.py` | `manifest.json`, `crest_tree_*.txt` | `crest_map.json` |
 | Events | `ppv_parse.py` | panel PPV categories | `ppv_events.json` |
 | **Build** | `build_manifest.py` | all of the above | `manifest.json` |
+
+`epg_fill.py` also runs after a first build — it reads the channel map and the
+line-up out of `manifest.json` and `kept_live.json` to find what is unbound.
+Fetch the packs it reads first:
+
+```
+curl -sL -o epg6.xml.gz https://raw.githubusercontent.com/ferteque/Curated-M3U-Repository/main/epg6.xml.gz
+curl -sL -o epg2.xml.gz https://raw.githubusercontent.com/ferteque/Curated-M3U-Repository/main/epg2.xml.gz
+python3 epg_fill.py manifest.json epg6.xml.gz epg2.xml.gz
+```
 
 `crest_match.py` runs AFTER a first build: it reads `sport.leagues` out of
 `manifest.json` and exits if it is missing. So the real order is build → crest

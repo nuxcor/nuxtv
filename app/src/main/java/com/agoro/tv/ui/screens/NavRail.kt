@@ -31,7 +31,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.material.icons.filled.SystemUpdateAlt
 import androidx.compose.material.icons.filled.VideoLibrary
-import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -93,7 +92,6 @@ enum class HomeTab(val label: String, val icon: ImageVector) {
     Sport("Sport", Icons.Default.SportsSoccer),
     Movies("Movies", Icons.Default.Movie),
     Series("Shows", Icons.Default.VideoLibrary),
-    Recordings("Recordings", Icons.Default.Videocam),
     Settings("Settings", Icons.Default.Settings),
 }
 

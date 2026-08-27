@@ -325,22 +325,14 @@ internal fun LiveTab(
                 // filtered against a clock that ticks every 30 seconds while
                 // this reads the real one. In the seconds after a programme
                 // ends the row still says ON NOW, and treating that press as a
-                // future programme sent it to scheduleRecording — which
-                // succeeds for any recordable channel and clamps its alarm to
-                // now, so a press meant to watch instead began recording
-                // something already over. Both cases play the channel.
+                // future one set a reminder for something already over. Both
+                // cases play the channel.
                 val now = System.currentTimeMillis()
                 if (program.startMs <= now) {
                     scheduleChannel = null
                     playFromHost(channel)
                     null
-                } else if (vm.scheduleRecording(channel, program)) {
-                    "Recording scheduled: ${program.title}"
                 } else {
-                    // Same fallback the guide uses: a channel the provider
-                    // won't let us record can still be remembered. Sending the
-                    // viewer to the guide to do what this screen could have
-                    // done is not an answer.
                     vm.scheduleReminder(channel, program)
                     "Reminder set: ${program.title}"
                 }

@@ -1421,7 +1421,6 @@ private fun GuideRow(
                                 onFocus(spec.program)
                             },
                             hasArchive = channel.archiveDays > 0,
-                            canRecord = channel.recordUrl != null,
                             onPlayLive = onPlayChannel,
                             onCatchup = { onCatchup(spec.program) },
                             onSchedule = { onSchedule(spec.program) },
@@ -1570,7 +1569,6 @@ private fun ProgramCell(
     focusRequester: FocusRequester,
     onFocus: () -> Unit,
     hasArchive: Boolean,
-    canRecord: Boolean,
     onPlayLive: () -> Unit,
     onCatchup: () -> Unit,
     onSchedule: () -> Unit,
@@ -1587,7 +1585,7 @@ private fun ProgramCell(
             when {
                 onNow -> onPlayLive()
                 over && hasArchive -> onCatchup()
-                !over -> onSchedule() // records when possible, else sets a reminder
+                !over -> onSchedule() // sets a reminder
                 else -> Unit
             }
         },

@@ -97,9 +97,17 @@ object SportsParser {
     /** Pipe soccer: "20-08-2026 | 15:00 (GMT)". */
     private val dmyGmt = Regex("""(\d{2})-(\d{2})-(\d{4})\s*\|\s*(\d{1,2}):(\d{2})""")
 
-    /** MLS: "@ Aug 19 7:30 PM". */
+    /**
+     * MLS and TSN+: "@ Aug 19 7:30 PM", and the same shape on a 24-hour clock.
+     *
+     * The meridiem was required, which quietly cost every TSN+ fixture: that
+     * pack writes "LaLiga: Celta vs. Osasuna @ Aug 27 14:18 :TSN+ 45" — same
+     * format, 24-hour time — so it read as having no kick-off at all and was
+     * dropped for it. Made optional, and the hour tells the two apart: a bare
+     * hour above 12 can only be 24-hour, and below it the meridiem is there.
+     */
     private val monthDay =
-        Regex("""(?i)@?\s*([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{1,2})(?::(\d{2}))?\s*(AM|PM)""")
+        Regex("""(?i)@?\s*([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?""")
 
     /**
      * The listings packs: "(2026-08-22 04:50:29)" — a bare timestamp in
@@ -174,7 +182,13 @@ object SportsParser {
         // own guard for the callers that reach it directly.
         if (name.contains("NO EVENT", ignoreCase = true)) return false
         if (!fixtureSeparator.containsMatchIn(name)) return false
-        return norm(name).split(' ').any { it in clubWords }
+        // A club we carry, OR a competition we carry. The club test alone is
+        // what made the sieve stricter than the parser behind it: a slot
+        // billed "Carabao Cup: Chelsea vs Luton Town" reaches the parser on
+        // Chelsea, but "Celje vs Slovan Bratislava" on the UEFA shelf names no
+        // club any roster has and was thrown away here, before the billing it
+        // leads with could be read. See billedLeague.
+        return norm(name).split(' ').any { it in clubWords } || anyBilledComp.containsMatchIn(name)
     }
 
     /**
@@ -214,7 +228,37 @@ object SportsParser {
         if (otherLeague.containsMatchIn(name)) return null
 
         val (rawHome, rawAway) = readFixture(name) ?: return null
-        val sides = resolveSides(rawHome, rawAway, idx, ambiguous) ?: return null
+        // The roster first, then the slot's own billing.
+        //
+        // A roster cannot cover this on its own and it was never going to.
+        // Every fixture needs BOTH clubs listed, so a cup tie pairing a
+        // Premier League side with an EFL one is invisible — Chelsea v Luton
+        // Town, Fulham v AFC Wimbledon — and so is European qualifying, which
+        // brought Celje, Slovan Bratislava and KI Klaksvik in one evening.
+        // Authoring past that is a losing race: the 653-club crest index has
+        // no Slovenia, Slovakia or Faroe Islands either, and the playlist only
+        // ever lists the fixtures of the day, so nothing can be derived from
+        // it that lasts.
+        //
+        // But these slots SAY what they are — "Carabao Cup:", "UEFA", "LaLiga:"
+        // — and a competition this catalogue carries, with two sides either
+        //ngside a vs, is a fixture whether or not a list of clubs agrees. The
+        // roster still runs first, because it knows the full spelling of a
+        // club and which competition it plays in; billing only catches what
+        // the roster cannot.
+        // The billing wins on the COMPETITION, the roster on the names.
+        //
+        // Ordering the roster first put "Carabao Cup: Manchester United vs
+        // Luton Town" under Premier League, because United is a roster club
+        // and the roster answers with the league it plays in — so one cup
+        // round split across two rows depending on whether a tie happened to
+        // name a multi-word club. The slot says which competition it is; the
+        // roster only ever knew which league a club belongs to.
+        val billed = billedLeague(name)
+        val sides = resolveSides(rawHome, rawAway, idx, ambiguous)
+            ?.let { if (billed != null) Sides(billed, it.home, it.away) else it }
+            ?: billed?.let { Sides(it, billedSide(rawHome), billedSide(rawAway)) }
+            ?: return null
         val (league, home, away) = sides
         val start = readStart(name, nowMs)
 
@@ -256,6 +300,67 @@ object SportsParser {
      * of standing beside it. A side the roster does not carry (the cup-tie
      * case) keeps its own text, tidied out of all-caps.
      */
+    /**
+     * The competition a slot bills itself as, when this catalogue carries it.
+     *
+     * Only competitions worth a row of their own. Deliberately NOT a generic
+     * "any two names around a vs" rule — that would take darts, cricket and
+     * every press conference the PPV shelves carry.
+     */
+    internal fun billedLeague(name: String): String? {
+        // Checked over the WHOLE name, not as a lookahead after the
+        // competition. "Caribbean Premier League" put its cricket on the
+        // football shelf because the guard only looked to the RIGHT of
+        // "Premier League", and the disqualifier sits to the left of it.
+        if (notOurCompetition.containsMatchIn(name)) return null
+        return billedComps.firstOrNull { it.second.containsMatchIn(name) }?.first
+    }
+
+    /**
+     * One scan for "does this name a competition at all", for the sieve.
+     *
+     * The sieve exists to reject nine slots in ten before any real work, and
+     * calling billedLeague there ran the reject list plus a dozen competition
+     * regexes over every one of the ~7,000 slots it was built to discard
+     * cheaply. This answers the same question in a single pass; billedLeague
+     * still does the precise work on what survives.
+     */
+    private val anyBilledComp = Regex(
+        """(?i)\b(LaLiga|La Liga|Serie A|Bundesliga|Ligue 1|Champions League|UCL""" +
+            """|Europa League|Conference League|Carabao Cup|EFL Cup|League Cup|FA Cup)\b|^\s*UEFA\b"""
+    )
+
+    /** Words that make a major-sounding competition somebody else's. */
+    private val notOurCompetition = Regex(
+        """(?i)\b(Caribbean|DFA|Dominica|Cricket|Rugby|Netball|Women'?s?|Ladies|Youth|U\d{2}|Reserves?)\b"""
+    )
+
+    private val billedComps: List<Pair<String, Regex>> = listOf(
+        // The domestic leagues are here as well as in the roster, so a club the
+        // roster spells differently still lands: "LaLiga: Celta vs. Osasuna"
+        // was lost because the roster says "Celta Vigo" and the slot says
+        // "Celta".
+        //
+        // "Premier League" is deliberately ABSENT. Every nation has one — the
+        // Indian Premier League is cricket, the Ghana Premier League is
+        // football but not this one — and an unanchored match filed both under
+        // England. The roster carries all twenty English clubs, so billing has
+        // nothing to add here and could only over-match.
+        "La Liga" to Regex("""(?i)\bLaLiga\b|\bLa Liga\b"""),
+        "Serie A" to Regex("""(?i)\bSerie A\b"""),
+        "Bundesliga" to Regex("""(?i)\bBundesliga\b"""),
+        "Ligue 1" to Regex("""(?i)\bLigue 1\b"""),
+        "Champions League" to Regex("""(?i)\bChampions League\b|\bUCL\b"""),
+        "Europa League" to Regex("""(?i)\bEuropa League\b"""),
+        "Conference League" to Regex("""(?i)\bConference League\b"""),
+        "Carabao Cup" to Regex("""(?i)\bCarabao Cup\b|\bEFL Cup\b|\bLeague Cup\b"""),
+        "FA Cup" to Regex("""(?i)\bFA Cup\b"""),
+        // The provider's own UEFA shelf, which bills the confederation and not
+        // the competition: "UEFA  | 01 - Freiburg vs Motherwell". A row of its
+        // own rather than a guess at which UEFA competition it is.
+        "UEFA" to Regex("""(?i)^\s*UEFA\b"""),
+    )
+
     private fun resolveSides(
         home: String,
         away: String,
@@ -273,8 +378,13 @@ object SportsParser {
             hit.second.trim().contains(' ') -> hit.first
             else -> return null
         }
-        return Sides(league, hHit?.let { fullName(it, idx) } ?: tidyCase(home),
-            aHit?.let { fullName(it, idx) } ?: tidyCase(away))
+        // billedSide, not tidyCase: a side the roster did not match keeps
+        // whatever readFixture left on it, and readFixture splits on the colon
+        // — so "Luton Town @ Aug 27 2" reached the row as a club name, and the
+        // fold key with it, which stopped the same fixture on two slots from
+        // folding into one row.
+        return Sides(league, hHit?.let { fullName(it, idx) } ?: billedSide(home),
+            aHit?.let { fullName(it, idx) } ?: billedSide(away))
     }
 
     /**
@@ -302,6 +412,24 @@ object SportsParser {
             else word.lowercase(Locale.ROOT).replaceFirstChar { it.titlecase(Locale.ROOT) }
         }
     }
+
+    /**
+     * A club name off a billed slot, with the field's trailing junk cut off.
+     *
+     * readFixture hands back whatever sat around the "vs" in the longest
+     * field, and that field is only as clean as the pack's punctuation:
+     * "Carabao Cup: Chelsea vs Luton Town @ Aug 27 2:20 PM" splits on the
+     * colon into "Chelsea vs Luton Town @ Aug 27 2", so the away side arrives
+     * with a date attached. The roster path never showed this because a
+     * matched club is replaced by the roster's own spelling.
+     *
+     * Keeps the leading run of capitalised words and stops at the first thing
+     * that is not one, which is where the club name ends in every pack here.
+     */
+    internal fun billedSide(raw: String): String =
+        tidyCase(billedName.find(raw.trim())?.value?.trim() ?: raw.trim())
+
+    private val billedName = Regex("""^[\p{L}][\p{L}.'\-]*(?:\s+[\p{L}][\p{L}.'\-]*)*""")
 
     /** The teams, taken from the busiest-looking field the name offers. */
     internal fun readFixture(name: String): Pair<String, String>? {
@@ -508,10 +636,14 @@ object SportsParser {
         }
         monthDay.find(name)?.let { m ->
             val mo = months.indexOf(m.groupValues[1].lowercase(Locale.ROOT))
-            if (mo >= 0) {
-                val hour = hour24(m.groupValues[3].toInt(), m.groupValues[5])
-                val min = m.groupValues[4].toIntOrNull() ?: 0
-                return nearestYear(mo, m.groupValues[2].toInt(), hour, min, nowMs)
+            val minutes = m.groupValues[4]
+            val meridiem = m.groupValues[5]
+            // One of the two has to be there, or this is not a time at all.
+            // With the meridiem optional, "Sep 09 2026" otherwise matches with
+            // the year read as an hour.
+            if (mo >= 0 && (minutes.isNotEmpty() || meridiem.isNotEmpty())) {
+                val hour = hour24(m.groupValues[3].toInt(), meridiem)
+                return nearestYear(mo, m.groupValues[2].toInt(), hour, minutes.toIntOrNull() ?: 0, nowMs)
             }
         }
         slashDay.find(name)?.let { m ->
@@ -523,6 +655,10 @@ object SportsParser {
     }
 
     private fun hour24(h: Int, meridiem: String): Int {
+        // A 24-hour clock says nothing after the number, and says it about
+        // every hour including twelve — so no meridiem means the hour stands.
+        // Without this "12:30" with no AM/PM became midnight.
+        if (meridiem.isBlank()) return h
         val pm = meridiem.equals("pm", ignoreCase = true)
         return when {
             pm && h < 12 -> h + 12
@@ -761,35 +897,82 @@ object SportsParser {
      */
     fun upcoming(events: List<SportsEvent>, nowMs: Long, cueMinutes: Int): List<SportsEvent> {
         val cue = cueMinutes * 60_000L
-        // FOLD FIRST, then window — the reverse of what this did, and the
-        // reversal is the whole fix for a fixture appearing seven hours early.
+        // Drop the slots that cannot be trusted with a clock, THEN window,
+        // then fold. All three steps, in that order, and each one is there
+        // because the other arrangement broke something real.
         //
-        // Windowing first asks each slot separately whether it is due, so a
-        // slot with a wrong clock puts the fixture on screen on its own say-so
-        // and the slots that disagree are never consulted: they were filtered
-        // out before the fold could weigh them. Steelers v Bills was on the
-        // NFL shelf at 7pm Eastern and on the soccer shelf at 16:00 GMT, and
-        // at 11:15 in Dallas only the wrong one was inside the cue. The fold
-        // never ran on the pair, so the demotion that exists precisely for
-        // this could not bite.
+        // Folding before the window — which this did briefly — let the slot
+        // that wins on feed quality decide whether the fixture is on at all.
+        // Barcelona v Athletic Club was on four slots: TSN+ said 18:30, ESPN+
+        // said 18:55, and the soccer shelf said 20:30. The soccer shelf won
+        // the fold on feed rank, carried its clock into the row, and the match
+        // vanished from a screen that said "Nothing on right now" while it was
+        // being played.
         //
-        // Folding first settles which slot speaks for the fixture — on the
-        // feed's own merits, never on its clock — and the window then asks
-        // that one slot. What this gives up, stated plainly because the
-        // previous note promised the opposite: if the slot that wins the fold
-        // carries a stale time, the fixture can now be missed rather than
-        // shown early. That trade is taken deliberately. A row that says a
-        // match is on when it is seven hours away sends someone to the sofa
-        // for nothing, and it was photographed; the other case is possible
-        // and has not been seen.
-        return bestPerFixture(events)
-            .filter { e ->
-                val s = e.startMs ?: return@filter e.live
-                s <= nowMs + cue && nowMs <= s + FIXTURE_LENGTH_MS
+        // Windowing before the fold — which it did before that — let ANY slot
+        // admit a fixture on its own say-so, which is how the NFL preseason
+        // appeared as LIVE seven hours early off a soccer shelf.
+        //
+        // Excluding wrongSport first settles both. A pack that has filed
+        // American football under SOCCER cannot put a fixture on screen, so
+        // the seven-hours-early case is gone; and every remaining slot gets
+        // its own say on whether the fixture is on, so one late clock among
+        // three can no longer take the match off the screen. The fold then
+        // chooses the FEED, which is all it was ever good at.
+        val (trusted, misshelved) = events.partition { !it.wrongSport }
+        fun inWindow(e: SportsEvent): Boolean {
+            val s = e.startMs ?: return e.live
+            return s <= nowMs + cue && nowMs <= s + FIXTURE_LENGTH_MS
+        }
+        val rows = bestPerFixture(
+            trusted.filter(::inWindow)
+        )
+        // The mis-shelved slots come back as FALLBACKS, having been kept out
+        // of every decision above. What they cannot be trusted with is a
+        // clock; the stream behind them is the same match, and the player's
+        // ladder should still be able to reach it when the chosen feed will
+        // not open. Excluding them outright was the first cut of this and it
+        // quietly cost the row a source.
+        val extras = misshelved.groupBy { norm(it.home) + "|" + norm(it.away) }
+        // A fixture carried ONLY by mis-shelved slots still has to reach the
+        // screen. Excluding them outright was right for the clock and wrong
+        // for the match: a soccer shelf that has the sport wrong can still be
+        // the only place a game is, and dropping it meant a match that is
+        // being played showed nowhere at all — the same fault, from the other
+        // side, as the one this ordering was written to fix. They cannot ADMIT
+        // a fixture that a trusted slot already speaks for; they can only
+        // speak for one nothing else does.
+        // Spoken for by ANY trusted slot, in window or not. Keying this on the
+        // rows instead was the seven-hours-early bug back again: the NFL shelf
+        // had Steelers v Bills correctly at 23:00, that is outside the cue so
+        // it produced no row, and the soccer shelf walked in as an "orphan" at
+        // 16:00. A trusted slot that says the match is not on yet has spoken.
+        val spokenFor = trusted.mapTo(HashSet()) { norm(it.home) + "|" + norm(it.away) }
+        val orphans = bestPerFixture(
+            misshelved.filter {
+                inWindow(it) && (norm(it.home) + "|" + norm(it.away)) !in spokenFor
             }
-            .sortedWith(
-                compareByDescending<SportsEvent> { it.isLive(nowMs) }.thenBy { it.startMs ?: 0L }
-            )
+        )
+        return (rows + orphans).map { row ->
+            // Ranked, not appended in playlist order. A mis-shelved slot can
+            // also be a studio show, and unranked it became the first thing
+            // the player's ladder reached for when the match feed would not
+            // open — the pre-match programme instead of the match.
+            val also = extras[norm(row.home) + "|" + norm(row.away)]
+                ?.sortedWith(
+                    compareBy(
+                        { if (it.sideFeed) 2 else if (it.languageFeed) 1 else 0 },
+                        { it.tierRank },
+                        { it.sourceRank },
+                    )
+                )
+                ?.map { it.streamId }
+                ?.filterNot { it == row.streamId || it in row.alternates }
+                .orEmpty()
+            if (also.isEmpty()) row else row.copy(alternates = row.alternates + also)
+        }.sortedWith(
+            compareByDescending<SportsEvent> { it.isLive(nowMs) }.thenBy { it.startMs ?: 0L }
+        )
     }
 
     /**
