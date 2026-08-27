@@ -1965,8 +1965,17 @@ if not _crest_map: _crest_map = (_prev.get('sport') or {}).get('club_crest', {})
 #                             "South Africa 1" feed, not epg2.
 #   788134  DSTV: GTV         hgtv.uk      -> GTV.gh, in "Ghana 1", not epg6.
 #
-# Checked and NOT a bug, recorded so it is not re-reported: US: DIY HD reads
-# magnolianetwork.us, which is right — DIY Network became Magnolia Network.
+# Checked and NOT bugs, recorded so they are not re-reported. Both look wrong
+# to any name-comparison audit and both are correct, so anyone "fixing" them
+# trades a working guide for a blank one:
+#
+#   US: DIY HD reads magnolianetwork.us. Right: DIY Network became Magnolia
+#   Network, so the id names the channel under its current name.
+#
+#   BBC NEWS reads BBCParliament.uk. Right on THIS source, confirmed by the
+#   user 2026-08-27: the feed published under that id carries BBC News, not
+#   Parliament. The id is what the source calls it, not what it carries, and
+#   an audit comparing the id against the channel name cannot know that.
 #
 # Only channels the build actually CARRIES belong here. The first pass of this
 # audit read names out of the raw playlist rather than kept_live.json and so
