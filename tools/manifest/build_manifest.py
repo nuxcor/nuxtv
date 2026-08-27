@@ -2180,33 +2180,65 @@ CHANNEL_ALIAS = {
     'yankeesentertainmentsport': 'yesnetwork', 'foxsportsyes': 'yesnetwork',
 }
 # region corrections: these are not US channels
-# A tier is not a territory, and these three are the case the automatic pass
-# cannot close. They sit in category "4K| UHD 3840P" and their names begin
-# "4K:", so _eff_region resolves them to 4K from both ends and gives up —
-# KEEP_REGIONS holds no such thing.
+# A tier is not a territory, and a channel filed under one needs its real
+# territory found rather than named by hand.
 #
-# What that cost, seen on the box 2026-08-27: the app drops a quality tier
-# where it expects a region, so all three came out region-less and opened
-# their own unnamed "Sports" chip between SuperSport and Locals, holding three
-# channels. Worse, it was contagious. One region-less shelf sets
-# hasMergedShelf, and that is the flag deciding whether EVERY OTHER shelf
-# carries a territory suffix — so three stray channels are why the strip reads
-# "News · United States" rather than "News".
+# The case: "4K: SKY SPORTS MAIN EVENTS" sits in category "4K| UHD 3840P" and
+# its name prefix is "4K" too, so _eff_region resolves a tier from both ends
+# and gives up. What that cost, seen on the box 2026-08-27, was not just the
+# channel: the app drops a tier where it expects a region, so the channel came
+# out region-less and opened its own unnamed "Sports" chip — and ONE
+# region-less shelf sets the flag that decides whether EVERY shelf carries a
+# territory suffix. Three strays are why the strip read "News · United States"
+# rather than "News".
 #
-# Pinned by id, not by a ^SKY SPORTS pattern: that would also claim the US Sky
-# Sports feeds, and Eleven Sports PL is not a Sky channel at all.
+# Resolved from where the rest of the channel lives, which is what the
+# region_fix comment below has always claimed to do and never did. A tile's
+# other sources are the evidence: SKY SPORTS MAIN EVENTS and SKY SPORTS DARTS
+# each have four or five UK-filed siblings under the same channel key, so the
+# tier copy is UK too.
 #
-# SHELF_ prefixed because REGION_PIN is already taken, further up, by a pin
-# keyed on the NORMALISED CHANNEL NAME and read by the tile loop. This one is
-# keyed on the stream id and read by the region_fix pass. Reusing the name
-# worked only because module code runs top to bottom and that loop happens to
-# come first; moving either block, or lifting one into a function, would have
-# silently voided the other's pins.
-SHELF_REGION_PIN = {
-    1544239: 'UK',   # 4K: SKY SPORTS MAIN EVENTS UHD 3840P
-    1544244: 'UK',   # 4K: SKY SPORTS DARTS UHD 3840P
-    1544301: 'UK',   # 4K: ELEVEN SPORTS PL UHD 3840P
-}
+# Deliberately NOT a hand-written id list, which is what this was first. Stream
+# ids churn between refreshes, so the next unclassifiable tier channel would
+# reproduce the bug verbatim; a rule reads whatever the panel ships. And
+# deliberately no fallback for a channel with no siblings: ELEVEN SPORTS PL is
+# Eleven Sports POLAND, a territory this package does not carry, and guessing
+# UK for it would carry a Polish channel on the UK shelf. With no region it
+# falls to the region drop like any other foreign channel, which is correct.
+# A STRICTER key than channel_key for this one purpose. channel_key drops a
+# short trailing token as a style tag when what is left is still six
+# characters, which is right for "Sky Sports 1 HD" and wrong here: it takes the
+# PL off ELEVEN SPORTS PL, collapsing Eleven Sports POLAND into Eleven Sports
+# and handing a Polish channel whatever region that one has. Territory is
+# exactly what must not be guessed here, so nothing is trimmed.
+def _peer_key(n):
+    # NFKD here, NOT asc(). asc() maps a handful of known glyphs and DELETES
+    # every other non-ASCII character, and the provider writes territory tags
+    # in superscript: "ELEVEN SPORTS PL" carries its PL as U+1D3E U+1D38, so
+    # asc() hands back "ELEVEN SPORTS" and Eleven Sports POLAND becomes
+    # indistinguishable from Eleven Sports US — which is exactly the territory
+    # this function exists to establish. NFKD folds the superscripts to letters
+    # instead, so the tag survives long enough to keep the two apart.
+    n = unicodedata.normalize('NFKD', n).encode('ascii', 'ignore').decode()
+    return re.sub(r'[^a-z0-9]', '', QUAL.sub('', SPFX.sub('', n)).lower())
+
+
+# Built once. This was a scan of all 18,766 streams per tier channel, which
+# put 80 seconds on the build for the sake of a handful of lookups.
+_peer_regions = collections.defaultdict(set)
+for _st in ls:
+    _r = (cat_live.get(str(_st.get('category_id'))) or {}).get('region')
+    if _r in KEEP_REGIONS:
+        _peer_regions[_peer_key(_st['name'])].add(_r)
+
+
+def _peer_region(st):
+    """The region of this channel's namesakes elsewhere, if they agree."""
+    seen = _peer_regions.get(_peer_key(st['name']), ())
+    # Only an unambiguous answer. A key living under two territories is a name
+    # collision, not a tier copy, and picking one of them would be a guess.
+    return next(iter(seen)) if len(seen) == 1 else None
+
 
 REGION_FIX = [(re.compile(r'^SUPER ?SPORT', re.I), 'AFR'),
               (re.compile(r'^TSN\b', re.I), 'CA'),
@@ -2243,8 +2275,11 @@ for st in ls:
     # gate has, by definition, a region none of them can resolve to a shelf.
     if sid in NAMED_KEEP:
         region_fix[str(sid)] = NAMED_KEEP[sid]
-    if sid in SHELF_REGION_PIN:
-        region_fix[str(sid)] = SHELF_REGION_PIN[sid]
+    # Still a tier after both passes above: ask the namesakes. See _peer_region.
+    if str(sid) not in region_fix and c['region'] in TIER:
+        _peer = _peer_region(st)
+        if _peer:
+            region_fix[str(sid)] = _peer
     k = _alias_key(n)
     if not k: continue
     if k in _alias_best:                             # keep the best tier
@@ -2253,6 +2288,26 @@ for st in ls:
             alias_dupe.append(keep); _alias_best[k] = sid
         else:
             alias_dupe.append(sid)
+
+# --------------------------------- channels left holding a tier for a region
+# A tier is not a territory, and by this point every rule that could turn one
+# into a territory has run: the name prefix, the namesakes, the hand tables.
+# What is left has no shelf to appear on — the app discards a quality tier
+# where it expects a region — so it opens an unnamed shelf of its own instead,
+# which is how a single Polish channel put a bare "Sports" chip on the strip
+# beside "Sports · United Kingdom".
+#
+# Dropped, on the same grounds every other unsold territory is dropped.
+# ELEVEN SPORTS PL is Eleven Sports POLAND: no namesake in a region this
+# package carries, and its own territory is not one either. Keeping it would
+# mean either a chip of one or a Polish channel filed under a country it does
+# not belong to.
+tier_unshelved = []
+for st in ls:
+    sid = st['stream_id']
+    c = cat_live.get(str(st.get('category_id')))
+    if c and c['region'] in TIER and str(sid) not in region_fix:
+        tier_unshelved.append(sid)
     else:
         _alias_best[k] = sid
 
@@ -2454,6 +2509,7 @@ _drop_lists = [
     ('rsn_drop', rsn_drop), ('ca_drop', ca_drop), ('us_news_drop', us_news_drop),
     ('defunct_drop', defunct_drop), ('misfiled_territory', misfiled_territory),
     ('named_drop', named_drop),
+    ('tier_unshelved', tier_unshelved),
     ('cross_region_dupe', cross_region_dupe),
     ('exact_dupe_drop', exact_dupe_drop), ('junk_sweep', junk_sweep),
     ('region_section_drop', region_section_drop), ('clean_drop', clean_drop),
@@ -2478,7 +2534,7 @@ _all_drops = [sid for _, lst in _drop_lists for sid in lst]
 # the drop stand costs the tile nothing, because effectivePrimary promotes the
 # best surviving source; the guard is only needed where every member of a
 # group was caught for being a duplicate of the others.
-_region_gone = set(dropped_region)
+_region_gone = set(dropped_region) | set(tier_unshelved)
 _all_drops = [sid for sid in _all_drops
               if sid in _region_gone
               or sid not in {t['primary'] for t in uk_collapse.values()}]
