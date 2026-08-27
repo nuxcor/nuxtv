@@ -1992,16 +1992,40 @@ if not _crest_map: _crest_map = (_prev.get('sport') or {}).get('club_crest', {})
 # US: ABC HD, VIP: LFC TV, and the two DSTV entries above, all already dropped.
 # 624 of the 919 bindings are for channels the build drops; a pin on one of
 # them is dead weight that reads like a fix.
+# A pin is either a STRING, correcting the id of a binding that already exists,
+# or a FULL BINDING, creating one where the match found nothing.
+#
+# The string form is safe by construction: src and feed come from the binding
+# being corrected, so the id is looked for in a feed the channel already reads.
+# The dict form has no such backstop — it names a feed outright — so it is only
+# allowed once that feed has been opened and checked to carry BOTH the id and
+# programmes under it. Guessing a feed here buys a blank guide, which is what
+# the channel already had.
+#
+# ABC News Live (2026-08-27): reported as blank on the News shelf. The stream
+# is healthy — it probes 1080p30 h264 — and every one of the tile's seven
+# sources had NO guide binding at all, so there was nothing to correct. epg6
+# was downloaded and searched: it carries "abcnewslive.us" with 168 programmes
+# against it ("ABC News Live Reports", "Burden of Proof"). All five surviving
+# sources are pinned, not just today's primary, so a later probe promoting a
+# different source does not empty the guide again.
+_ABC_NEWS_LIVE = {'src': 'repo', 'id': 'abcnewslive.us', 'feed': 'epg6'}
 EPG_PIN = {
     717697: 'SkyNews.uk',    # UK: SKY NEWS   — carried
     325058: 'Fuse.us',       # US: FUSE MUSIC — carried
+    1537034: _ABC_NEWS_LIVE,  # PRIME: ABC NEWS LIVE (the tile's primary)
+    430297: _ABC_NEWS_LIVE,   # US: ABC NEWS HD
+    324915: _ABC_NEWS_LIVE,   # US: ABC NEWS
+    430328: _ABC_NEWS_LIVE,   # US: ABC NEWS
+    430295: _ABC_NEWS_LIVE,   # US: ABC NEWS LIVE HD
 }
-for _sid, _eid in EPG_PIN.items():
+for _sid, _pin in EPG_PIN.items():
+    if isinstance(_pin, dict):
+        _epg_map[str(_sid)] = dict(_pin)
+        continue
     _cur = _epg_map.get(str(_sid))
-    # Only ever a correction to a binding that exists. Inventing one would mean
-    # inventing a src and a feed too, and a guess there is a blank guide.
     if isinstance(_cur, dict):
-        _cur['id'] = _eid
+        _cur['id'] = _pin
 
 # ------------------------------------------------- "Cozi" == "Cozi TV"
 # The provider ships both forms of the same channel. Fold only when the bare

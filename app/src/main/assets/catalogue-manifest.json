@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-27T16:40:42+00:00",
+ "generated": "2026-08-27T16:52:28+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -22884,6 +22884,31 @@
    "1586996": {
     "src": "repo",
     "id": "wttw.us",
+    "feed": "epg6"
+   },
+   "1537034": {
+    "src": "repo",
+    "id": "abcnewslive.us",
+    "feed": "epg6"
+   },
+   "430297": {
+    "src": "repo",
+    "id": "abcnewslive.us",
+    "feed": "epg6"
+   },
+   "324915": {
+    "src": "repo",
+    "id": "abcnewslive.us",
+    "feed": "epg6"
+   },
+   "430328": {
+    "src": "repo",
+    "id": "abcnewslive.us",
+    "feed": "epg6"
+   },
+   "430295": {
+    "src": "repo",
+    "id": "abcnewslive.us",
     "feed": "epg6"
    }
   }
@@ -62787,7 +62812,7 @@
   "misfiled_us_locals": 1,
   "sections_merged": 6,
   "tiles_resectioned": 116,
-  "epg_bound": 919,
+  "epg_bound": 924,
   "logo_bound": 4386,
   "club_crests_bound": 200,
   "live_event_channels": 7849,
