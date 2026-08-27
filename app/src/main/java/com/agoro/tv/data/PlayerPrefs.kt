@@ -27,10 +27,12 @@ import kotlinx.serialization.json.Json
  * A scheduled recording. Recording was removed on 2026-08-27 and nothing
  * creates one any more.
  *
- * Kept because it is a field in the backup format: a backup written by an
+ * Kept ONLY because it is a field in the backup format: a backup written by an
  * older build carries a `schedules` array, and deleting the type would make
- * those backups fail to restore rather than restore an empty list. It costs a
- * declaration and it keeps every backup a viewer already has readable.
+ * those backups fail to restore rather than restore an empty list. The backup
+ * path reads and writes that key directly, so the DataStore flow and the
+ * add/remove helpers that used to sit here are gone — nothing read them once
+ * scheduling was removed, and leaving them would have implied a feature.
  */
 data class ScheduledRecording(
     val id: String,
@@ -498,28 +500,6 @@ class PlayerPrefs(private val context: Context) {
     }
 
     // --- scheduled recordings -------------------------------------------------
-
-    val schedules: Flow<List<ScheduledRecording>> = context.playerDataStore.data.map { prefs ->
-        schedulesSlot.read(prefs[schedulesKey])
-    }.flowOn(Dispatchers.Default)
-
-    suspend fun addSchedule(item: ScheduledRecording) {
-        context.playerDataStore.edit { prefs ->
-            val current = prefs[schedulesKey]?.let {
-                runCatching { json.decodeFromString<List<ScheduledRecording>>(it) }.getOrNull()
-            } ?: emptyList()
-            prefs[schedulesKey] = json.encodeToString(current.filterNot { it.id == item.id } + item)
-        }
-    }
-
-    suspend fun removeSchedule(id: String) {
-        context.playerDataStore.edit { prefs ->
-            val current = prefs[schedulesKey]?.let {
-                runCatching { json.decodeFromString<List<ScheduledRecording>>(it) }.getOrNull()
-            } ?: emptyList()
-            prefs[schedulesKey] = json.encodeToString(current.filterNot { it.id == id })
-        }
-    }
 
     // --- hidden channels ------------------------------------------------------
 

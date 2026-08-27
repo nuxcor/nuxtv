@@ -23,26 +23,46 @@ import android.os.Build
 object RecordingScheduler {
 
     fun scheduleReminder(context: Context, channelName: String, program: com.agoro.tv.data.EpgProgram) {
+        // Kept verbatim from before recording was removed. Rewriting it from
+        // scratch lost three things at once, all of them silent: the exact-alarm
+        // permission guard, the identity that keeps two reminders apart, and the
+        // clamp that lets one fire for a programme already inside the minute.
         val intent = Intent(context, ReminderReceiver::class.java)
+            // Action and data are what make PendingIntents distinct — extras are
+            // NOT part of the comparison — so without them every reminder is the
+            // same PendingIntent and FLAG_UPDATE_CURRENT quietly replaces the
+            // previous one. Keyed on the programme's id, not its title: "BBC News
+            // at Ten" tonight and tomorrow are two reminders, and the same
+            // programme on two channels is two more.
+            .setAction("com.agoro.tv.REMINDER")
+            .setData(android.net.Uri.parse("dzidzi://reminder/${program.id.hashCode()}"))
             .putExtra("title", program.title)
             .putExtra("channel", channelName)
-        val pending = PendingIntent.getBroadcast(
+        val pi = PendingIntent.getBroadcast(
             context,
-            program.title.hashCode(),
+            program.id.hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val at = program.startMs - 60_000L
-        if (at <= System.currentTimeMillis()) return
-        val am = context.getSystemService(AlarmManager::class.java)
-        runCatching {
-            if (Build.VERSION.SDK_INT >= 23) {
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
-            } else {
-                am.setExact(AlarmManager.RTC_WAKEUP, at, pending)
-            }
+        // Clamped, not skipped. A programme starting in thirty seconds still
+        // gets a reminder — it just fires now — where returning early would
+        // leave the caller saying "Reminder set" over nothing.
+        val triggerAt = (program.startMs - 60_000).coerceAtLeast(System.currentTimeMillis())
+        val am = alarmManager(context)
+        // targetSdk 36, so on 31+ this app does not hold SCHEDULE_EXACT_ALARM by
+        // default. Without the fallback setExactAndAllowWhileIdle throws
+        // SecurityException, and a runCatching around it turns every reminder
+        // into a toast and no alarm.
+        if (Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()) {
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+        } else {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
         }
     }
+
+    private fun alarmManager(context: Context) =
+        context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
 }
 
 class ReminderReceiver : BroadcastReceiver() {

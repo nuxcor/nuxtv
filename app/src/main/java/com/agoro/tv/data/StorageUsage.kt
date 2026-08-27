@@ -13,9 +13,14 @@ import java.io.File
  * went or offered any of it back.
  *
  * The split that matters is not by folder, it is by what losing it costs.
- * Caches re-fetch. The catalogue costs a full re-download, so it is reported
- * and not offered. Recordings are the only thing here a viewer asked the box
- * to keep, so they are reported and never touched.
+ * Caches re-fetch, so [clearCaches] takes them. The catalogue costs a full
+ * re-download, so it is reported and never offered.
+ *
+ * Recordings are a viewer's own content and [clearCaches] does not touch them.
+ * They get their own action, [deleteLegacyRecordings], behind its own
+ * confirmation — recording was removed in 2.35.22 and took the Recordings tab
+ * with it, so without a deliberate way to delete them these files would sit
+ * there with nothing in the app able to reach them.
  */
 object StorageUsage {
 
@@ -75,14 +80,14 @@ object StorageUsage {
         val catalogue = (context.filesDir.listFiles { f ->
             f.name.startsWith("bundle-") || f.name.startsWith("tvg-")
         } ?: emptyArray()).sumOf { it.sizeOf() }
-        val files = (legacyRecordings(context).listFiles() ?: emptyArray()).filter { it.isFile }
+        val files = (legacyRecordings(context)?.listFiles() ?: emptyArray()).toList()
         return Report(
             imagesBytes = images,
             guideBytes = guide,
             updatesBytes = updates,
             otherCacheBytes = other,
             catalogueBytes = catalogue,
-            recordingsBytes = files.sumOf { it.length() },
+            recordingsBytes = files.sumOf { it.sizeOf() },
             recordingsCount = files.size,
         )
     }
@@ -149,15 +154,22 @@ object StorageUsage {
      * away. They are counted so the space is not a mystery, and Settings
      * offers to delete them, which is now the only way to get it back.
      */
-    fun legacyRecordings(context: Context): File =
-        File(context.getExternalFilesDir(null), "recordings")
+    fun legacyRecordings(context: Context): File? =
+        // Null when external storage is unavailable. File(null, "recordings")
+        // is a RELATIVE path resolved against the process working directory,
+        // so measuring or deleting through it would touch something that has
+        // nothing to do with this app.
+        context.getExternalFilesDir(null)?.let { File(it, "recordings") }
 
     /** Removes the old recordings, and returns what that freed. */
     fun deleteLegacyRecordings(context: Context): Long {
         var freed = 0L
-        for (f in legacyRecordings(context).listFiles() ?: emptyArray()) {
-            val n = f.length()
-            if (f.delete()) freed += n
+        // deleteRecursively and sizeOf, so a subdirectory is counted and taken
+        // rather than reported as zero bytes and left holding space — report()
+        // filters to isFile, and the two must agree about what is there.
+        for (f in legacyRecordings(context)?.listFiles() ?: emptyArray()) {
+            val n = f.sizeOf()
+            if (f.deleteRecursively()) freed += n
         }
         return freed
     }

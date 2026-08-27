@@ -770,8 +770,7 @@ private fun GuideHeader(
                                     MetaChip("ON NOW", accent = true)
                                 currentProgram.startMs > nowMs ->
                                     MetaChip(
-                                        if (current?.recordUrl != null) "OK to record"
-                                        else "OK to remind"
+                                        "OK to remind"
                                     )
                                 (current?.archiveDays ?: 0) > 0 ->
                                     MetaChip("OK for catch-up")

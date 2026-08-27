@@ -540,7 +540,7 @@ internal fun SettingsTab(
                     // nothing in the app able to reach them.
                     if (r != null && r.recordingsCount > 0) {
                         OutlinedButton(onClick = { confirmDeleteRecordings = true }) {
-                            Text("Delete old recordings")
+                            Text(if (storageBusy) "Working…" else "Delete old recordings")
                         }
                     }
                 }
@@ -593,10 +593,12 @@ internal fun SettingsTab(
             confirmLabel = "Delete",
             onConfirm = {
                 confirmDeleteRecordings = false
+                storageBusy = true
                 storageScope.launch {
                     val n = withContext(Dispatchers.IO) {
                         com.agoro.tv.data.StorageUsage.deleteLegacyRecordings(storageContext)
                     }
+                    storageBusy = false
                     storageFreed = n
                 }
             },

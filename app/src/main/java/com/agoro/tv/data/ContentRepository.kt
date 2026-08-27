@@ -1101,8 +1101,26 @@ class ContentRepository(context: Context) {
         // the cache lookup fails, the guide reads as unstamped, and the fold
         // runs — which is exactly what a changed binding needs.
         val url = urls.firstOrNull()
+        // Only where the manifest actually produced these feeds, and keyed on
+        // the BINDINGS rather than on the manifest's build stamp.
+        //
+        // manifestFeeds is non-empty exactly when the manifest applies to this
+        // source, so a provider's own xmltv.php — which the manifest had no
+        // hand in — keeps the bare url and is not invalidated by a curation
+        // change it has nothing to do with. The catalogue bundle guards its
+        // own stamp the same way, with `if (applies)`.
+        //
+        // And the ids, not `generated`: the invariant being protected is that
+        // the guide on disk was filtered to the ids the manifest asked for, so
+        // the key has to move when THOSE move and stay still otherwise. Keyed
+        // on the build stamp, every republish — a dropped film, a renamed row
+        // — threw away the guide and re-folded a dozen packs on a Wi-Fi-only
+        // box, which is a worse cost than the bug it was fixing.
         val guideKey = url?.let { u ->
-            manifests.load()?.generated?.takeIf { it.isNotBlank() }?.let { "$u#$it" } ?: u
+            if (manifestFeeds.isEmpty()) u
+            else manifests.load()?.epg?.channelMap?.let { map ->
+                "$u#${map.entries.map { (k, v) -> "$k=${v.id}" }.sorted().hashCode()}"
+            } ?: u
         }
         if (url == null || guideKey == null) {
             _epg.value = EpgState.Error("No EPG source configured for this playlist")
@@ -1213,7 +1231,11 @@ class ContentRepository(context: Context) {
                                 sink = sink::add,
                             )
                         }
-                        guide.finishIngest(ingest, url)
+                        // guideKey, not url — the cold-start lookup reads the
+                        // stamp back under the key, and a mismatch here means the
+                        // guide on disk can never be reused and every start
+                        // re-folds behind a perfectly good cache.
+                        guide.finishIngest(ingest, guideKey)
                         parsed ?: throw IOException("Empty guide response")
                     }
                 }.onSuccess { data ->

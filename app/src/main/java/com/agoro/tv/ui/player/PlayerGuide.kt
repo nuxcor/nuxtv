@@ -318,9 +318,9 @@ internal fun PlayerGuideOverlay(
                         }
                     },
                     onSchedule = { channel, program ->
+                        vm.scheduleReminder(channel, program)
                         onStatus(
                             run {
-                                vm.scheduleReminder(channel, program)
                                 "Reminder set: ${program.title}"
                             }
                         )
