@@ -80,14 +80,19 @@ object StorageUsage {
         val catalogue = (context.filesDir.listFiles { f ->
             f.name.startsWith("bundle-") || f.name.startsWith("tvg-")
         } ?: emptyArray()).sumOf { it.sizeOf() }
-        val files = (legacyRecordings(context)?.listFiles() ?: emptyArray()).toList()
+        // Files only, and non-empty ones. Counting a leftover directory or a
+        // zero-byte stub put "1 recording, 0 B" on the panel and a Delete
+        // button on a box that never recorded — which the button's own comment
+        // says it must be absent for.
+        val files = (legacyRecordings(context)?.listFiles() ?: emptyArray())
+            .filter { it.isFile && it.length() > 0 }
         return Report(
             imagesBytes = images,
             guideBytes = guide,
             updatesBytes = updates,
             otherCacheBytes = other,
             catalogueBytes = catalogue,
-            recordingsBytes = files.sumOf { it.sizeOf() },
+            recordingsBytes = files.sumOf { it.length() },
             recordingsCount = files.size,
         )
     }
@@ -164,9 +169,9 @@ object StorageUsage {
     /** Removes the old recordings, and returns what that freed. */
     fun deleteLegacyRecordings(context: Context): Long {
         var freed = 0L
-        // deleteRecursively and sizeOf, so a subdirectory is counted and taken
-        // rather than reported as zero bytes and left holding space — report()
-        // filters to isFile, and the two must agree about what is there.
+        // report() counts non-empty files, so this deletes them; the sweep
+        // below also clears anything else left in the directory, because the
+        // point is to give the space back and a stray subdirectory holds some.
         for (f in legacyRecordings(context)?.listFiles() ?: emptyArray()) {
             val n = f.sizeOf()
             if (f.deleteRecursively()) freed += n

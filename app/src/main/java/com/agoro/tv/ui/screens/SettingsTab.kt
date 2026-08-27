@@ -530,7 +530,7 @@ internal fun SettingsTab(
                     // Confirmed, like Import backup on this same screen. One
                     // stray OK while walking the list would otherwise cost a
                     // full guide re-download on a Wi-Fi-only box.
-                    Button(onClick = { confirmClear = true }) {
+                    Button(onClick = { confirmClear = true }, enabled = !storageBusy) {
                         Text(if (storageBusy) "Clearing…" else "Clear caches")
                     }
                     // Only when there is something to delete, so it is absent
@@ -539,7 +539,7 @@ internal fun SettingsTab(
                     // without this the files would sit there for ever with
                     // nothing in the app able to reach them.
                     if (r != null && r.recordingsCount > 0) {
-                        OutlinedButton(onClick = { confirmDeleteRecordings = true }) {
+                        OutlinedButton(onClick = { confirmDeleteRecordings = true }, enabled = !storageBusy) {
                             Text(if (storageBusy) "Working…" else "Delete old recordings")
                         }
                     }

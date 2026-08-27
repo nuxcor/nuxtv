@@ -188,7 +188,7 @@ object SportsParser {
         // Chelsea, but "Celje vs Slovan Bratislava" on the UEFA shelf names no
         // club any roster has and was thrown away here, before the billing it
         // leads with could be read. See billedLeague.
-        return norm(name).split(' ').any { it in clubWords } || billedLeague(name) != null
+        return norm(name).split(' ').any { it in clubWords } || anyBilledComp.containsMatchIn(name)
     }
 
     /**
@@ -315,6 +315,20 @@ object SportsParser {
         if (notOurCompetition.containsMatchIn(name)) return null
         return billedComps.firstOrNull { it.second.containsMatchIn(name) }?.first
     }
+
+    /**
+     * One scan for "does this name a competition at all", for the sieve.
+     *
+     * The sieve exists to reject nine slots in ten before any real work, and
+     * calling billedLeague there ran the reject list plus a dozen competition
+     * regexes over every one of the ~7,000 slots it was built to discard
+     * cheaply. This answers the same question in a single pass; billedLeague
+     * still does the precise work on what survives.
+     */
+    private val anyBilledComp = Regex(
+        """(?i)\b(LaLiga|La Liga|Serie A|Bundesliga|Ligue 1|Champions League|UCL""" +
+            """|Europa League|Conference League|Carabao Cup|EFL Cup|League Cup|FA Cup)\b|^\s*UEFA\b"""
+    )
 
     /** Words that make a major-sounding competition somebody else's. */
     private val notOurCompetition = Regex(
@@ -940,7 +954,18 @@ object SportsParser {
             }
         )
         return (rows + orphans).map { row ->
+            // Ranked, not appended in playlist order. A mis-shelved slot can
+            // also be a studio show, and unranked it became the first thing
+            // the player's ladder reached for when the match feed would not
+            // open — the pre-match programme instead of the match.
             val also = extras[norm(row.home) + "|" + norm(row.away)]
+                ?.sortedWith(
+                    compareBy(
+                        { if (it.sideFeed) 2 else if (it.languageFeed) 1 else 0 },
+                        { it.tierRank },
+                        { it.sourceRank },
+                    )
+                )
                 ?.map { it.streamId }
                 ?.filterNot { it == row.streamId || it in row.alternates }
                 .orEmpty()

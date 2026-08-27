@@ -1118,8 +1118,16 @@ class ContentRepository(context: Context) {
         // box, which is a worse cost than the bug it was fixing.
         val guideKey = url?.let { u ->
             if (manifestFeeds.isEmpty()) u
-            else manifests.load()?.epg?.channelMap?.let { map ->
-                "$u#${map.entries.map { (k, v) -> "$k=${v.id}" }.sorted().hashCode()}"
+            else manifests.load()?.let { man ->
+                // The bindings AND the display names. wantedGuideKeys filters
+                // the guide on disk by the manifest's ids and by the NORMALISED
+                // CHANNEL NAMES, so a rename changes what a fetch keeps while
+                // leaving every binding untouched — and the renamed row would
+                // read "TV Guide unavailable" until the six-hour freshness
+                // window expired, which is the fault this key exists to close.
+                val bindings = man.epg.channelMap.entries.map { (k, v) -> "$k=${v.id}" }
+                val names = man.displayName.entries.map { (k, v) -> "$k=$v" }
+                "$u#${(bindings + names).sorted().hashCode()}"
             } ?: u
         }
         if (url == null || guideKey == null) {

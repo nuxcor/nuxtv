@@ -148,8 +148,6 @@ class PlayerPrefs(private val context: Context) {
     private val resumeDurationsSlot = JsonSlot<Map<String, Long>>(emptyMap()) { json.decodeFromString(it) }
     private val favoritesSlot = JsonSlot<Set<String>>(emptySet()) { json.decodeFromString(it) }
     private val recentChannelsSlot = JsonSlot<List<String>>(emptyList()) { json.decodeFromString(it) }
-    private val schedulesSlot =
-        JsonSlot<List<ScheduledRecording>>(emptyList()) { json.decodeFromString(it) }
     private val hiddenSlot = JsonSlot<Set<String>>(emptySet()) { json.decodeFromString(it) }
     private val hiddenTitlesSlot = JsonSlot<Set<String>>(emptySet()) { json.decodeFromString(it) }
 

@@ -325,10 +325,8 @@ internal fun LiveTab(
                 // filtered against a clock that ticks every 30 seconds while
                 // this reads the real one. In the seconds after a programme
                 // ends the row still says ON NOW, and treating that press as a
-                // future programme sent it to scheduleRecording — which
-                // succeeds for any recordable channel and clamps its alarm to
-                // now, so a press meant to watch instead began recording
-                // something already over. Both cases play the channel.
+                // future one set a reminder for something already over. Both
+                // cases play the channel.
                 val now = System.currentTimeMillis()
                 if (program.startMs <= now) {
                     scheduleChannel = null

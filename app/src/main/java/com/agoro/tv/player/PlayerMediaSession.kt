@@ -11,8 +11,8 @@ import androidx.media3.session.MediaSession
  *
  * Deliberately an in-activity session, not a MediaSessionService: media3 only
  * posts a media notification from MediaSessionService/MediaLibraryService,
- * so a bare session adds no notification at all — which keeps it clear of
- * RecordingService's dataSync foreground notification. The session id is
+ * so a bare session adds no notification at all, which is what a TV player
+ * wants. The session id is
  * per-instance because an engine swap briefly overlaps the old and new
  * engines, and duplicate session ids throw.
  */

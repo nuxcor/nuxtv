@@ -319,11 +319,7 @@ internal fun PlayerGuideOverlay(
                     },
                     onSchedule = { channel, program ->
                         vm.scheduleReminder(channel, program)
-                        onStatus(
-                            run {
-                                "Reminder set: ${program.title}"
-                            }
-                        )
+                        onStatus("Reminder set: ${program.title}")
                     },
                 )
             }

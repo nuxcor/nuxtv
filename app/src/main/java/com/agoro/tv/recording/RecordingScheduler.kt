@@ -56,7 +56,38 @@ object RecordingScheduler {
         if (Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()) {
             am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
         } else {
+            // Inexact still fires, but Doze on a box left idling overnight can
+            // defer it well past kick-off — so ask for the permission as well,
+            // once, and let the next reminder be exact.
             am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+            requestExactAlarms(context)
+        }
+    }
+
+    /**
+     * Sends the viewer to the system's exact-alarm switch.
+     *
+     * SCHEDULE_EXACT_ALARM is declared in the manifest and denied by default
+     * from API 31, and the only code that ever asked for it lived in the
+     * recording scheduler that was deleted. Without this the permission could
+     * never be granted, canScheduleExactAlarms() answered false for ever, and
+     * every reminder quietly downgraded to an alarm Doze may sit on — while
+     * the caller still said "Reminder set".
+     *
+     * Once per process. A viewer who declines should not be asked again every
+     * time they set a reminder.
+     */
+    @Volatile private var asked = false
+
+    private fun requestExactAlarms(context: Context) {
+        if (Build.VERSION.SDK_INT < 31 || asked) return
+        asked = true
+        runCatching {
+            context.startActivity(
+                Intent("android.settings.REQUEST_SCHEDULE_EXACT_ALARM")
+                    .setData(android.net.Uri.parse("package:" + context.packageName))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
         }
     }
 
