@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-27T15:50:50+00:00",
+ "generated": "2026-08-27T16:13:26+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -8523,6 +8523,7 @@
   1232961,
   1232960,
   1232959,
+  325907,
   1008121,
   483976,
   483974,
@@ -55564,7 +55565,6 @@
   "437219": "ESPN",
   "648290": "CBS SPORTS GOLAZO NETWORK",
   "325906": "FANDUEL TV",
-  "325907": "FANDUEL RACING",
   "1577208": "MOVISTAR LALIGA",
   "1853522": "SUPERSPORT FOOTBALL PLUS",
   "1853520": "SUPERSPORT MAXIMO",
@@ -62679,7 +62679,7 @@
   "movie_categories": 67,
   "unresolved_live_categories": 0,
   "movies_with_genre": 0,
-  "live_tiles_after_collapse": 6447,
+  "live_tiles_after_collapse": 6446,
   "live_tiles_collapsed": 3147,
   "collapse_groups": 146,
   "collapse_needs_review": 1,

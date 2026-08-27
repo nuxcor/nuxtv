@@ -620,7 +620,16 @@ UNWANTED_SPORT = re.compile(r'\bBFBS\b|\bZ\s*CLASSIC\b|\bSPORT\s*STAK\b', re.I)
 NAMED_REMOVAL = re.compile(
     # A cruise-holiday infomercial on the UK News shelf beside Sky News and
     # France 24. Removed 2026-08-26 at the user's request.
-    r'\bCRUISE\s*1ST\b',
+    r'\bCRUISE\s*1ST\b'
+    # FanDuel Racing, shipped by the panel as "TVG NETWORK 2". Removed
+    # 2026-08-27 at the user's request. It shared a guide id (network.us) with
+    # FanDuel TV, so one of the pair was reading the other's listings; with
+    # the second feed gone the id belongs unambiguously to the one that stays.
+    #
+    # Anchored to the trailing 2, which is what keeps this off "TVG NETWORK"
+    # itself — FanDuel TV, which stays — and off "GUI: TVGE", an unrelated
+    # Equatorial Guinea channel a bare \bTVG would have taken.
+    r'|\bTVG\s*NETWORK\s*2\b',
     re.I)
 
 telemundo_drop, rsn_drop, ca_drop, us_news_drop = [], [], [], []
@@ -2846,9 +2855,9 @@ TILE_LABEL = {
 STREAM_LABEL = {
     # The panel misspells Golazo.
     '648290': 'CBS SPORTS GOLAZO NETWORK',
-    # TVG became FanDuel TV in 2022, and TVG2 became FanDuel Racing.
+    # TVG became FanDuel TV in 2022.
     '325906': 'FANDUEL TV',
-    '325907': 'FANDUEL RACING',
+    # 325907 was FANDUEL RACING; it is dropped now, see NAMED_REMOVAL.
     # "M.LALIGA HDR 3840P" — the panel's abbreviation, and a resolution the
     # channel stopped carrying when Movistar moved LaLiga to 1080p50 HDR for
     # 2025/26. Named for the brand instead, so the shelf makes a promise the
