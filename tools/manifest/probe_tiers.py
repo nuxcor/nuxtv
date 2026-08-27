@@ -18,13 +18,33 @@ sharing.
 
     AGORO_HOST=... AGORO_USER=... AGORO_PASS=... \
         python3 probe_tiers.py manifest-new.json [--all] [--limit N]
+        python3 probe_tiers.py --ids 1577208,1562727
 
 --all also probes a tile's non-primary sources — the backups behind whatever is
 currently on top — rather than only the line-up as it stands.
+
+--ids measures a named list instead of the line-up, and is the only way to
+reach a channel the build DROPS. That is the question it answers: "is this
+one worth carrying?", which cannot be asked of a queue derived from what is
+already carried. It skips the manifest and kept_live.json entirely, so it
+works before a build and against ids no shelf has ever held. Results land in
+the same probed_tiers.json, so a keep decided this way arrives already
+measured.
 """
 import json, os, subprocess, sys, time
 
-manifest_path = next((a for a in sys.argv[1:] if not a.startswith('--')), 'manifest-new.json')
+# Read before the manifest is opened: --ids answers a question about channels
+# that are not in it, so it must not require one to exist.
+explicit_ids = []
+if '--ids' in sys.argv:
+    explicit_ids = [s.strip() for s in sys.argv[sys.argv.index('--ids') + 1].split(',')
+                    if s.strip()]
+
+_positional = [a for a in sys.argv[1:] if not a.startswith('--')]
+# The value of --ids is a positional-looking argument; it is not the manifest.
+if explicit_ids and _positional and _positional[0] == sys.argv[sys.argv.index('--ids') + 1]:
+    _positional = _positional[1:]
+manifest_path = next(iter(_positional), 'manifest-new.json')
 probe_all = '--all' in sys.argv
 # Re-measure ids already recorded. Resolution varies over the day, and the
 # ranking keeps the lowest sample seen, so a second pass can only improve it.
@@ -35,8 +55,19 @@ HOST, USER, PASS = (os.environ[k] for k in ('AGORO_HOST', 'AGORO_USER', 'AGORO_P
 OUT = 'probed_tiers.json'
 done = json.load(open(OUT)) if os.path.exists(OUT) else {}
 
-m = json.load(open(manifest_path))
-tiles = list(m['collapse']['live'].values()) + list(m.get('metro_locals', {}).values())
+if explicit_ids:
+    # --reprobe is implied: a candidate is being asked about NOW, and a stale
+    # recording of it is the thing the question is trying to get past.
+    queue = list(dict.fromkeys(explicit_ids))
+    if limit:
+        queue = queue[:limit]
+    print(f"{len(queue)} named streams to probe", flush=True)
+else:
+    queue = None      # built from the manifest below
+
+m = json.load(open(manifest_path)) if queue is None else None
+tiles = (list(m['collapse']['live'].values()) + list(m.get('metro_locals', {}).values())
+         if queue is None else [])
 
 # The queue is every channel that survives the manifest — tile primaries AND
 # the loose channels that belong to no tile.
@@ -49,9 +80,9 @@ tiles = list(m['collapse']['live'].values()) + list(m.get('metro_locals', {}).va
 # that cannot drift out of agreement with what a viewer sees.
 here = os.path.dirname(os.path.abspath(__file__))
 kept_path = os.path.join(here, 'kept_live.json')
-if not os.path.exists(kept_path):
+if queue is None and not os.path.exists(kept_path):
     sys.exit(f"{kept_path} not found — run build_manifest.py first; it writes the line-up")
-kept = json.load(open(kept_path))
+kept = json.load(open(kept_path)) if queue is None else []
 # PPV event slots are 6,286 of the 6,941 survivors and sit on a shelf hidden
 # by default. Probing them in queue order buried the real channels: a sweep
 # reported ~6,300 unmeasured when only 154 browsable channels had never been
@@ -60,15 +91,16 @@ skip_ppv = '--ppv' not in sys.argv
 candidates = [str(c['id']) for c in kept
               if not (skip_ppv and c.get('section') == 'PPV')]
 # --all reaches past the line-up into the backups a tile is holding in reserve.
-if probe_all:
+if probe_all and queue is None:
     candidates += [str(s) for t in tiles for s in t['sources']]
 
-queue, seen = [], set()
-for s in candidates:
-    if (reprobe or s not in done) and s not in seen:
-        seen.add(s); queue.append(s)
-if limit: queue = queue[:limit]
-print(f"{len(queue)} streams to probe ({len(done)} already recorded)", flush=True)
+if queue is None:
+    queue, seen = [], set()
+    for s in candidates:
+        if (reprobe or s not in done) and s not in seen:
+            seen.add(s); queue.append(s)
+    if limit: queue = queue[:limit]
+    print(f"{len(queue)} streams to probe ({len(done)} already recorded)", flush=True)
 
 
 def probe(sid):

@@ -12,6 +12,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.State
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -101,9 +114,18 @@ fun SportTab(
     val parsed by vm.sportFixtures.collectAsState()
 
     // Null means the first parse has not landed. Saying "nothing on right now"
-    // and then replacing it a second later reads as a fault, so say nothing.
+    // and then replacing it a second later reads as a fault — but so did the
+    // blank screen that replaced it: the parse walks six thousand slots, which
+    // on the box is a second or two of a tab that looks broken or empty, and a
+    // viewer who presses again gets nothing for their trouble.
+    //
+    // A skeleton of the list that is coming says the same "not yet" without
+    // claiming anything about what is on. It is shaped like the fixture list
+    // on purpose — a league heading, then rows at the same width and rhythm —
+    // so the real list lands INTO its outline rather than replacing a spinner
+    // that was somewhere else on the screen.
     if (parsed == null) {
-        Box(Modifier.fillMaxSize())
+        FixturesSkeleton()
         return
     }
     // The clock lives in here, not up there. Ticking in this composable would
@@ -111,6 +133,105 @@ fun SportTab(
     // collect and the fixtures collect — so that a label could say "in 5
     // min". Only the part that reads the clock should answer to it.
     Fixtures(parsed.orEmpty(), leagueOrder, cue, onPlay, onBrowse, vm)
+}
+
+/**
+ * The fixture list before it exists: two leagues' worth of outline, breathing.
+ *
+ * Deliberately NOT a spinner. A spinner in the middle of an empty tab says
+ * "something is happening somewhere"; this says "a list of fixtures is coming,
+ * and it starts here" — and when the real one arrives it lands on the same
+ * baseline at the same width, so nothing jumps.
+ */
+@Composable
+private fun FixturesSkeleton() {
+    val motion = rememberInfiniteTransition(label = "fixtureSkeleton")
+    // Held as State and read inside the draw lambdas below, never in
+    // composition. Read with `by` up here every frame of the sweep would
+    // recompose this whole column — the same trap TuneCard's sweep documents.
+    val sweep = motion.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            tween(1_500, easing = LinearEasing),
+            RepeatMode.Restart,
+        ),
+        label = "sweep",
+    )
+    Column(
+        modifier = Modifier.fillMaxSize().widthIn(max = FixtureRowWidth),
+    ) {
+        repeat(2) { block ->
+            SkeletonBar(
+                width = 150.dp,
+                height = 18.dp,
+                sweep = sweep,
+                modifier = Modifier.padding(top = if (block == 0) 0.dp else Space.l),
+            )
+            Spacer(Modifier.height(Space.m))
+            // Four then three, because a block of equal rows reads as a
+            // pattern rather than as a list waiting to happen.
+            repeat(if (block == 0) 4 else 3) { row ->
+                SkeletonFixtureRow(sweep, gapAbove = if (row == 0) 0.dp else Space.xs)
+            }
+        }
+    }
+}
+
+/** One outlined fixture: the status column, then the two clubs about the "v". */
+@Composable
+private fun SkeletonFixtureRow(sweep: State<Float>, gapAbove: Dp) {
+    Row(
+        modifier = Modifier
+            .padding(top = gapAbove)
+            .fillMaxWidth()
+            .padding(horizontal = Space.m, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.width(StatusColumnWidth), contentAlignment = Alignment.CenterStart) {
+            SkeletonBar(width = 52.dp, height = 12.dp, sweep = sweep)
+        }
+        SkeletonBar(width = 128.dp, height = 14.dp, sweep = sweep, modifier = Modifier.weight(1f))
+        Spacer(Modifier.width(Space.m + 8.dp))
+        SkeletonBar(width = 128.dp, height = 14.dp, sweep = sweep, modifier = Modifier.weight(1f))
+    }
+}
+
+/**
+ * A rounded placeholder with one band of light travelling across it.
+ *
+ * Drawn, not composed: the animated value is read inside [drawBehind], so a
+ * sweep costs a draw per frame and nothing above it recomposes at all.
+ */
+@Composable
+private fun SkeletonBar(
+    width: Dp,
+    height: Dp,
+    sweep: State<Float>,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier
+            .widthIn(max = width)
+            .height(height)
+            .clip(RoundedCornerShape(height / 2))
+            .drawBehind {
+                drawRect(NuxColors.SurfaceRaised)
+                // The band starts fully off the left edge and leaves fully to
+                // the right, so the loop point never shows as a jump.
+                val band = size.width * 0.5f
+                val x = -band + (size.width + band * 2f) * sweep.value
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        0f to Color.Transparent,
+                        0.5f to NuxColors.OnSurface.copy(alpha = 0.10f),
+                        1f to Color.Transparent,
+                        startX = x,
+                        endX = x + band,
+                    ),
+                )
+            },
+    )
 }
 
 /** One line of the fixture list: a league heading or a fixture under it. */

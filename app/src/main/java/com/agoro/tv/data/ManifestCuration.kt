@@ -148,6 +148,7 @@ object ManifestCuration {
         val seriesCats = LinkedHashMap<String, Category>()
         val series = ArrayList<Series>(bundle.series.size)
         for (show in bundle.series) {
+            if (show.xtreamId != null && show.xtreamId in manifest.seriesDropped) continue
             val key = show.xtreamId?.toString()
             val section = key?.let { manifest.seriesSection[it] }
             val catId = section ?: show.categoryId

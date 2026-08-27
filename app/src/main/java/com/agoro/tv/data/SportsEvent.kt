@@ -30,6 +30,12 @@ data class SportsEvent(
     val live: Boolean,
     /** What the slot advertises: 8K, 4K, UHD, FHD, HD. Lower sorts better. */
     val tierRank: Int = TIER_UNKNOWN,
+    /**
+     * What the slot's SOURCE is worth, for the case [tierRank] cannot decide.
+     * Lower sorts better, and it is compared AFTER the tier, so it can never
+     * displace a feed that advertises a better picture. See [SportsParser.sourceOf].
+     */
+    val sourceRank: Int = SOURCE_NEUTRAL,
     /** A studio or tactical-camera companion feed rather than the match itself. */
     val sideFeed: Boolean = false,
     /**
@@ -52,6 +58,12 @@ data class SportsEvent(
 
     companion object {
         const val TIER_UNKNOWN = 9
+
+        /** No opinion about the source, which is true of nearly every slot. */
+        const val SOURCE_NEUTRAL = 5
+
+        /** A pack known to re-stream well below the others; last among equals. */
+        const val SOURCE_THIN = 8
     }
 }
 
@@ -203,8 +215,10 @@ object SportsParser {
         if (start == null) {
             return if (liveWord.containsMatchIn(name)) {
                 SportsEvent(
-                    streamId, league, home, away, null, true, tierOf(name), isSideFeed(name),
-                    languageFeed = isLanguageFeed(name),
+                    streamId = streamId, league = league, home = home, away = away,
+                    startMs = null, live = true,
+                    tierRank = tierOf(name), sourceRank = sourceOf(name),
+                    sideFeed = isSideFeed(name), languageFeed = isLanguageFeed(name),
                 )
             } else {
                 null
@@ -213,8 +227,8 @@ object SportsParser {
         if (kotlin.math.abs(start - nowMs) > SANE_WINDOW_MS) return null
         return SportsEvent(
             streamId, league, home, away, start,
-            live = start <= nowMs, tierRank = tierOf(name), sideFeed = isSideFeed(name),
-            languageFeed = isLanguageFeed(name),
+            live = start <= nowMs, tierRank = tierOf(name), sourceRank = sourceOf(name),
+            sideFeed = isSideFeed(name), languageFeed = isLanguageFeed(name),
         )
     }
 
@@ -567,13 +581,59 @@ object SportsParser {
      * is here — these slots are never probed, because a pipe's measurement
      * belongs to whatever match happened to be running at the time.
      */
-    internal fun tierOf(name: String): Int = when {
-        tier8k.containsMatchIn(name) -> 0
-        tier4k.containsMatchIn(name) -> 1
-        tierFhd.containsMatchIn(name) -> 2
-        tierHd.containsMatchIn(name) -> 3
-        else -> SportsEvent.TIER_UNKNOWN
+    internal fun tierOf(name: String): Int {
+        val claim = packBadge.replace(name, " ")
+        return when {
+            tier8k.containsMatchIn(claim) -> 0
+            tier4k.containsMatchIn(claim) -> 1
+            tierFhd.containsMatchIn(claim) -> 2
+            tierHd.containsMatchIn(claim) -> 3
+            else -> SportsEvent.TIER_UNKNOWN
+        }
     }
+
+    /**
+     * "8K EXCLUSIVE": a shelf badge every slot in a pack wears, not a claim
+     * about this slot's picture.
+     *
+     * Counted on this panel: 2,411 of the 2,412 slots saying 8K are in packs
+     * that stamp it on more than nine slots in ten — all 1,001 of ESPN+ PPV
+     * VIP, all 200 of SOCCER PPV, every DAZN, MAX, FIFA+ and Apple TV pack.
+     * It is on the slots reading "NO EVENT STREAMING NOW". A token that a
+     * whole pack wears is worth exactly what a token no slot wears is worth,
+     * and reading it as tier 0 did real damage: it put every badged slot at
+     * the top of [tierOf], which is compared BEFORE [sourceOf], so the ESPN+
+     * demotion could never reach the fixtures that most needed it.
+     *
+     * Only this phrase, and only where the two words sit together. A slot that
+     * says plain "8K", or "4K", has said something about itself.
+     */
+    private val packBadge = Regex("""(?i)\b8K\s+EXCLUSIVE\b""")
+
+    /**
+     * A verdict on the SOURCE, for when the tier token cannot give one.
+     *
+     * Most event slots advertise a tier and [tierOf] settles it. The bracketed
+     * packs do not — "US (ESPN+ 100) | Soccer: …" says nothing about its
+     * picture — so every one of them ranks [SportsEvent.TIER_UNKNOWN], the
+     * comparator had nothing left to separate them by, and the winner was
+     * whichever the playlist happened to list first. That is how a fixture
+     * carried by two packs opened on the thin one, which is the "the LaLiga
+     * feeds from ESPN+ are subpar" report.
+     *
+     * ESPN+ is named, and only downwards: it is the pack this catalogue has
+     * been shown to re-stream below the others. Nothing is promoted, because
+     * demoting the field on suspicion would trade a measured feed for a guess,
+     * and the tier is still compared first — a slot that advertises 4K wins
+     * however thin its source is thought to be. The demoted feed stays in
+     * `alternates`, so the player's ladder still reaches it if the better one
+     * will not open.
+     */
+    internal fun sourceOf(name: String): Int =
+        if (thinSource.containsMatchIn(name)) SportsEvent.SOURCE_THIN
+        else SportsEvent.SOURCE_NEUTRAL
+
+    private val thinSource = Regex("""(?i)\bESPN\s*\+""")
 
     private val tier8k = Regex("""(?i)\b8K\b""")
     private val tier4k = Regex("""(?i)\b(4K|UHD)\b""")
@@ -604,6 +664,10 @@ object SportsParser {
                     compareBy(
                         { if (it.sideFeed) 2 else if (it.languageFeed) 1 else 0 },
                         { it.tierRank },
+                        // Only reached when the two advertise the same picture,
+                        // which for the bracketed packs means neither said
+                        // anything at all. See sourceOf.
+                        { it.sourceRank },
                     )
                 )
                 ranked.first().copy(alternates = ranked.drop(1).map { it.streamId })

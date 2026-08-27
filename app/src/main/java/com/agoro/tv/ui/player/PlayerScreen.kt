@@ -59,9 +59,27 @@ import com.agoro.tv.data.isFavorite
 private const val KEY_HINTS_VERSION = 3
 
 /**
- * How long the tune card may stand before the stream is declared dead. Long
- * enough to clear the failure ladder's own 3s + 6s backoff on a slow provider,
- * short enough that a hang never looks like patience rewarded.
+ * How long one ATTEMPT at a stream may stand before it is declared dead.
+ *
+ * Per attempt, not per tune. This was one wall clock across the whole cascade,
+ * on the reasoning that it had to "clear the ladder's own 3s + 6s backoff" —
+ * the VOD pair, and true when it was written. Live's ladder is 6s, 20s and 40s
+ * now, and any of those can be a forty-five-second poll for a free slot
+ * instead, so the clock expired in the middle of a recovery that was still
+ * running: the error card appeared, the reconnect landed a beat later and
+ * cleared it, and the screen went dark again. Restarting it on every open —
+ * and holding it while a reconnect is pending — gives each try its own budget
+ * and lets the ladder finish.
+ *
+ * What that gives up, stated plainly, because the old comment promised the
+ * opposite: there is no longer one wall clock over a whole cascade. The bound
+ * is now the ladder's own shape — every rung either fails fast and moves on,
+ * or hangs and meets this within forty-five seconds — which on a channel that
+ * fails fast at every rung is the reconnect backoffs, so about four minutes at
+ * the very worst. That is deliberate. It is what the viewer asked for by
+ * complaining that the card came up while the app was still recovering, it is
+ * what TiviMate does, and it is not a hang: the card names the attempt
+ * throughout, BACK leaves, and OK still opens the channel list.
  */
 private const val TUNE_TIMEOUT_MS = 45_000L
 
@@ -466,10 +484,19 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         while (true) {
             session.positionMs = engine.positionMs
             session.durationMs = engine.durationMs
-            session.videoSize = engine.videoResolution
-            session.videoFrameRate = engine.videoFrameRate
-            session.hdrType = engine.hdrType
-            session.audioFormatLabel = engine.audioFormatLabel
+            // Not while a reconnect has the engine stopped. A stopped player
+            // reports no video format, so this wrote null over the decoded
+            // size, frame rate and HDR flavour of the stream that is coming
+            // back — and the HDR one drives the window's colour mode and the
+            // display's output mode, so every reconnect became two extra mode
+            // changes and the screen blanks they cost. A re-tune that really
+            // does change stream clears these itself; see zap and jumpTo.
+            if (session.reconnectAttempt == 0) {
+                session.videoSize = engine.videoResolution
+                session.videoFrameRate = engine.videoFrameRate
+                session.hdrType = engine.hdrType
+                session.audioFormatLabel = engine.audioFormatLabel
+            }
             val chromeUp = session.layer == PlayerLayer.Controls ||
                 session.layer == PlayerLayer.ChannelList ||
                 session.layer == PlayerLayer.Tracks ||
@@ -670,17 +697,39 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     // ladder is the real recovery path — this only catches a stream that
     // neither plays nor reports an error, which otherwise reads as a hang.
     //
-    // Keyed on the CHANNEL, not the request: every ladder step rewrites the
-    // request, and keying on it restarted this clock on each hop — a channel
-    // with a deep fallback ladder could cascade for minutes with the viewer
-    // pinned to "Tuning…" and no way out. The budget covers the whole
-    // ladder; when it runs out mid-cascade the error card takes over, which
-    // trades an automatic retry for the viewer getting their remote back.
-    LaunchedEffect(session.tuning, session.currentIndex) {
-        if (!session.tuning) return@LaunchedEffect
+    // One budget per ATTEMPT, and never spent against the ladder. Keyed on the
+    // channel alone this was a single clock across a whole cascade, which was
+    // right when the ladder was two quick backoffs and wrong now that a live
+    // one can legitimately spend a minute and a half: it fired mid-recovery,
+    // put the error card up, and the reconnect that landed a beat later
+    // cleared the card from under the viewer. attemptSerial restarts it on
+    // every open and reconnectPending holds it while a backoff is in flight,
+    // so what is left for it to catch is the case it was built for — an
+    // attempt that is genuinely doing nothing. Nobody is stranded meanwhile:
+    // the reconnect card says which try this is, and BACK works throughout.
+    // A RECONNECT counts as an attempt here too, and has to: mid-stream, the
+    // session is not tuning, and the death watchdog that would otherwise cover
+    // it arms only for live and catch-up. A film that dropped and re-opened
+    // into a stream that buffers for ever therefore had nothing watching it at
+    // all — and now that a reconnect puts a card on screen promising progress,
+    // that card would have stood there for as long as the viewer let it.
+    LaunchedEffect(
+        session.tuning,
+        session.currentIndex,
+        session.attemptSerial,
+        session.reconnectAttempt,
+    ) {
+        if (!session.tuning && session.reconnectAttempt == 0) return@LaunchedEffect
         delay(TUNE_TIMEOUT_MS)
-        if (session.tuning && session.errorMessage == null) {
-            session.failTuning("The stream didn't start.")
+        // A ladder still working is not a hang, and the next open bumps
+        // attemptSerial and re-arms this with a fresh budget — so holding off
+        // here leaves nothing unwatched.
+        if ((session.tuning || session.reconnectAttempt > 0) &&
+            session.errorMessage == null && !session.reconnectPending
+        ) {
+            session.failTuning(
+                if (session.tuning) "The stream didn't start." else "The stream didn't come back."
+            )
         }
     }
 
@@ -706,8 +755,18 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     // stream still buffering when the window closes gets the chip, because by
     // then it has stopped settling and started failing.
     var showBufferingChip by remember { mutableStateOf(false) }
-    LaunchedEffect(session.buffering, session.tuning, session.tuneSerial, request.isLive) {
-        if (!session.buffering || session.tuning) {
+    LaunchedEffect(
+        session.buffering,
+        session.tuning,
+        session.tuneSerial,
+        session.reconnectAttempt,
+        request.isLive,
+    ) {
+        // Nor while a reconnect is on screen. Its re-open buffers like any
+        // other, and the chip's guard was written against `tuning`, which a
+        // reconnect deliberately does not set — so the corner chip came up
+        // underneath the card that was already saying the same thing.
+        if (!session.buffering || session.tuning || session.reconnectAttempt > 0) {
             showBufferingChip = false
             return@LaunchedEffect
         }
@@ -881,6 +940,17 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             )
         }
 
+        // A reconnect is the ladder trying again, and from the viewer's side
+        // that is a tune: the same card, with a line saying which try this is.
+        // Before this the screen showed nothing at all for the whole backoff —
+        // see PlayerSession.reconnectAttempt.
+        val reconnecting = session.reconnectAttempt > 0
+        // One rule, two readers: the backdrop and the card. They were two
+        // hand-kept copies of the same four terms, and the backdrop without
+        // the card — or the other way round — is a visible defect.
+        val showTuneUi = (session.tuning || reconnecting) &&
+            session.errorMessage == null && !inPip && session.layer != PlayerLayer.Guide
+
         // The connecting screen every tune opens on — a soft glow over the
         // dark canvas — so opening a stream is never a flat black void while
         // the engine builds. Every re-tune clears the surface to a black
@@ -891,8 +961,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         // before it, and held across a zap chain because tuning stays true
         // throughout; it fades out as the picture lands.
         AnimatedVisibility(
-            visible = session.tuning && session.errorMessage == null &&
-                !inPip && session.layer != PlayerLayer.Guide,
+            visible = showTuneUi,
             enter = androidx.compose.animation.EnterTransition.None,
             exit = PlayerMotion.exitFade(),
             modifier = Modifier.fillMaxSize(),
@@ -903,19 +972,32 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         // Tuning shows who we're tuning to, not an anonymous spinner — fading
         // in over the last frame so a zap never black-flashes.
         AnimatedVisibility(
-            visible = session.tuning && session.errorMessage == null && !inPip &&
-                session.layer != PlayerLayer.Guide,
+            visible = showTuneUi,
             enter = PlayerMotion.enterFade(),
             exit = PlayerMotion.exitFade(),
             modifier = Modifier.align(Alignment.Center),
         ) {
-            TuneCard(channel = channel, item = item)
+            TuneCard(
+                channel = channel,
+                item = item,
+                // The same card, because it is the same thing from where the
+                // viewer sits — the channel they asked for, coming up — and a
+                // second card would only be another way of waiting.
+                note = if (reconnecting) {
+                    "Reconnecting… (${session.reconnectAttempt} of ${session.reconnectTotal})"
+                } else null,
+            )
         }
 
         // Paused with no chrome up: say so, or a dark still frame reads as a
         // hang. Covers the sleep timer's pause too.
         AnimatedVisibility(
+            // Not during a reconnect. An idled player reports exactly the
+            // state this asks for — not playing, not buffering, not tuning —
+            // so the pause glyph was what the viewer got for the whole of a
+            // dropped stream's recovery, which is a lie about who stopped it.
             visible = !session.playing && !session.buffering && !session.tuning &&
+                !reconnecting &&
                 session.layer == PlayerLayer.None && session.errorMessage == null && !inPip,
             enter = PlayerMotion.enterFade(PlayerMotion.FastMs),
             exit = PlayerMotion.exitFade(PlayerMotion.FastMs),

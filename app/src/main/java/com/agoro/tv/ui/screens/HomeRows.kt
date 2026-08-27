@@ -185,7 +185,100 @@ internal class CatalogIndex(
      */
     val newMovies: List<Movie>,
     val newSeries: List<Series>,
+    /**
+     * Genre → its titles, and the genre names worth a chip, alphabetically.
+     *
+     * Alphabetical rather than by size on purpose: the strip is something a
+     * viewer walks along, and a chip that moves because a category grew is a
+     * chip they have to look for every time.
+     *
+     * Empty for movies on a provider that does not send a genre with its VOD
+     * listing — which is this one, today. The strip simply grows no genre
+     * chips then, the same way "Continue watching" stays away until there is
+     * something in it; run tools/manifest/enrich_vod.py and they appear.
+     */
+    val movieGenres: List<String>,
+    val seriesGenres: List<String>,
+    val moviesByGenre: Map<String, List<Movie>>,
+    val seriesByGenre: Map<String, List<Series>>,
 )
+
+/**
+ * How many titles a genre needs before it is worth a chip of its own.
+ *
+ * The provider's genre strings are free text and the long tail is one-offs —
+ * a single film filed "Sport / Talk" earns a chip that leads to itself. The
+ * titles are still reachable from their category and from search.
+ */
+internal const val GENRE_MIN_TITLES = 8
+
+/**
+ * The chip a genre is shown under, when it is not shown under its own name.
+ *
+ * The provider writes seventeen genres and that is too many to walk along on a
+ * remote, so the strip carries ten. Two kinds of entry, and no third:
+ *
+ *  - **The same genre spelled twice.** "Drame" is twelve French-language shows
+ *    that would otherwise sit beside Drama's four and a half thousand as if it
+ *    were a different thing. (Typos and single strays — "Mistery", "DRama" —
+ *    need no entry: casing is folded by [genreKey] and [GENRE_MIN_TITLES]
+ *    keeps the rest off the strip.)
+ *
+ *  - **A stray or a near-synonym folded into its parent.** Soap (67), Romance
+ *    (10), Western (52), Talk (42) and Podcast (25) each earn a chip that
+ *    leads almost nowhere; War & Politics (177) is what Action & Adventure
+ *    already means on a listings panel; and Kids (319) and Family (462) are
+ *    one chip everywhere else in television.
+ *
+ * What is deliberately NOT folded: nothing above a thousand titles loses its
+ * own chip. Crime (1,648) and Mystery (1,067) are the tempting pair and they
+ * stay apart — merging them would be the strip deciding for a viewer who
+ * already knows which one they want. Animation (717) stays out of Kids &
+ * Family for a different reason: a good deal of it is anime and adult
+ * animation, and filing that under Kids says something untrue about it.
+ */
+private val GENRE_FOLD = mapOf(
+    // one genre, two spellings
+    "drame" to "Drama",
+    // strays and near-synonyms
+    "soap" to "Drama",
+    "romance" to "Drama",
+    "western" to "Action & Adventure",
+    "war & politics" to "Action & Adventure",
+    "talk" to "Documentary",
+    "podcast" to "Documentary",
+    "kids" to "Kids & Family",
+    "family" to "Kids & Family",
+)
+
+/**
+ * The genres in one provider genre string, normalised.
+ *
+ * Multi-genre titles arrive as one field with a separator that is not agreed
+ * on: this panel writes "Animation / Comedy / Sci-Fi & Fantasy" for series and
+ * the movie enrichment writes commas. Split on both, and keep "Sci-Fi &
+ * Fantasy" whole — the ampersand is part of a name, not a separator.
+ *
+ * Case is folded for GROUPING and the first spelling seen wins the label,
+ * because the provider is not consistent about it: "Drama" and "DRama" are one
+ * genre spelled twice, and left apart the stray spelling takes titles with it
+ * out of the chip a viewer actually presses. Genres are then folded onto the
+ * chip that carries them; see [GENRE_FOLD].
+ */
+internal fun splitGenres(raw: String?): List<String> =
+    raw?.split('/', ',')
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        ?.map { g -> GENRE_FOLD[g.lowercase()] ?: g }
+        // After the fold, and this is load-bearing: a show tagged
+        // "Kids / Family" — or "Drama / Romance" — now names one chip twice,
+        // and without this it would be indexed under it twice and appear in
+        // that grid as two identical posters.
+        ?.distinctBy { it.lowercase() }
+        .orEmpty()
+
+/** The key two spellings of one genre share; see [splitGenres]. */
+internal fun genreKey(genre: String): String = genre.lowercase()
 
 /**
  * How many years back a release still reads as new: this year and last.
@@ -265,11 +358,17 @@ internal fun buildCatalogIndex(
     val knownMovieCategories = movieCategories.mapTo(HashSet()) { it.id }
     val movieByUrl = HashMap<String, Movie>(movies.size * 2)
     val moviesByCategory = HashMap<String, ArrayList<Movie>>()
+    val moviesByGenre = HashMap<String, ArrayList<Movie>>()
+    val movieGenreLabels = HashMap<String, String>()
     val newMovies = ArrayList<Movie>()
     for (movie in movies) {
         movieByUrl[movie.url] = movie
         val category = movie.categoryId?.takeIf { it in knownMovieCategories } ?: VOD_MORE
         moviesByCategory.getOrPut(category) { ArrayList() }.add(movie)
+        for (g in splitGenres(movie.genre)) {
+            movieGenreLabels.putIfAbsent(genreKey(g), g)
+            moviesByGenre.getOrPut(genreKey(g)) { ArrayList() }.add(movie)
+        }
         if (movie.addedMs != null && isRecentRelease(movie.year, nowYear)) newMovies.add(movie)
     }
     // Stable: titles the provider dated identically keep playlist order.
@@ -286,11 +385,17 @@ internal fun buildCatalogIndex(
     val knownSeriesCategories = seriesCategories.mapTo(HashSet()) { it.id }
     val seriesById = HashMap<String, Series>(series.size * 2)
     val seriesByCategory = HashMap<String, ArrayList<Series>>()
+    val seriesByGenre = HashMap<String, ArrayList<Series>>()
+    val seriesGenreLabels = HashMap<String, String>()
     val newSeries = ArrayList<Series>()
     for (show in series) {
         seriesById[show.id] = show
         val category = show.categoryId?.takeIf { it in knownSeriesCategories } ?: VOD_MORE
         seriesByCategory.getOrPut(category) { ArrayList() }.add(show)
+        for (g in splitGenres(show.genre)) {
+            seriesGenreLabels.putIfAbsent(genreKey(g), g)
+            seriesByGenre.getOrPut(genreKey(g)) { ArrayList() }.add(show)
+        }
         if (show.addedMs != null && isRecentRelease(show.year, nowYear)) newSeries.add(show)
     }
     newSeries.sortByDescending { it.addedMs }
@@ -308,6 +413,16 @@ internal fun buildCatalogIndex(
         seriesByCategory = seriesByCategory,
         newMovies = dedupedMovies,
         newSeries = dedupedSeries,
+        movieGenres = moviesByGenre.keys
+            .filter { moviesByGenre.getValue(it).size >= GENRE_MIN_TITLES }
+            .map { movieGenreLabels.getValue(it) }
+            .sorted(),
+        seriesGenres = seriesByGenre.keys
+            .filter { seriesByGenre.getValue(it).size >= GENRE_MIN_TITLES }
+            .map { seriesGenreLabels.getValue(it) }
+            .sorted(),
+        moviesByGenre = moviesByGenre,
+        seriesByGenre = seriesByGenre,
     )
 }
 

@@ -86,6 +86,13 @@ data class CatalogueManifest(
     @SerialName("top_metros") val topMetros: List<String> = emptyList(),
     @SerialName("vod_drop") val vodDrop: List<Int> = emptyList(),
     /** series id -> NEW | TOP | ALL. */
+    /**
+     * Shows the catalogue does not carry. The first thing here was the anime
+     * shelf (2026-08-26); before it, series had no drop list at all — every
+     * pass only ever re-shelved them — so a shelf the catalogue did not want
+     * had nowhere to say so.
+     */
+    @SerialName("series_drop") val seriesDrop: List<Int> = emptyList(),
     @SerialName("series_section") val seriesSection: Map<String, String> = emptyMap(),
     @SerialName("vod_name_rules") val vodNameRules: VodNameRules? = null,
     @SerialName("display_name") val displayName: Map<String, String> = emptyMap(),
@@ -184,6 +191,7 @@ data class CatalogueManifest(
 
     val dropped: Set<Int> by lazy { dropStreamIds.toSet() }
     val vodDropped: Set<Int> by lazy { vodDrop.toSet() }
+    val seriesDropped: Set<Int> by lazy { seriesDrop.toSet() }
     val keptRegionSet: Set<String> by lazy { keptRegions.toSet() }
     val hiddenSections: Set<String> by lazy {
         sections.live.filter { it.hidden }.map { it.key }.toSet()

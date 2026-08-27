@@ -145,6 +145,19 @@ interface PlayerEngine {
      * was sending every reconnected film back to 0:00.
      */
     fun playAt(index: Int, startPositionMs: Long)
+
+    /**
+     * Closes the open stream but keeps the engine: the connection goes back to
+     * the provider, and a later [playAt] re-opens it.
+     *
+     * A reconnect on a connection-capped line has to come through here first.
+     * The panel counts a slot as taken until the client actually drops the
+     * socket, so a stalled player still holding one while it waits for a slot
+     * to free is waiting on itself — and on a one-connection line that wait
+     * can only ever time out.
+     */
+    fun stop()
+
     fun release()
 
     val isPlaying: Boolean
