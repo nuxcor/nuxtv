@@ -761,35 +761,51 @@ object SportsParser {
      */
     fun upcoming(events: List<SportsEvent>, nowMs: Long, cueMinutes: Int): List<SportsEvent> {
         val cue = cueMinutes * 60_000L
-        // FOLD FIRST, then window — the reverse of what this did, and the
-        // reversal is the whole fix for a fixture appearing seven hours early.
+        // Drop the slots that cannot be trusted with a clock, THEN window,
+        // then fold. All three steps, in that order, and each one is there
+        // because the other arrangement broke something real.
         //
-        // Windowing first asks each slot separately whether it is due, so a
-        // slot with a wrong clock puts the fixture on screen on its own say-so
-        // and the slots that disagree are never consulted: they were filtered
-        // out before the fold could weigh them. Steelers v Bills was on the
-        // NFL shelf at 7pm Eastern and on the soccer shelf at 16:00 GMT, and
-        // at 11:15 in Dallas only the wrong one was inside the cue. The fold
-        // never ran on the pair, so the demotion that exists precisely for
-        // this could not bite.
+        // Folding before the window — which this did briefly — let the slot
+        // that wins on feed quality decide whether the fixture is on at all.
+        // Barcelona v Athletic Club was on four slots: TSN+ said 18:30, ESPN+
+        // said 18:55, and the soccer shelf said 20:30. The soccer shelf won
+        // the fold on feed rank, carried its clock into the row, and the match
+        // vanished from a screen that said "Nothing on right now" while it was
+        // being played.
         //
-        // Folding first settles which slot speaks for the fixture — on the
-        // feed's own merits, never on its clock — and the window then asks
-        // that one slot. What this gives up, stated plainly because the
-        // previous note promised the opposite: if the slot that wins the fold
-        // carries a stale time, the fixture can now be missed rather than
-        // shown early. That trade is taken deliberately. A row that says a
-        // match is on when it is seven hours away sends someone to the sofa
-        // for nothing, and it was photographed; the other case is possible
-        // and has not been seen.
-        return bestPerFixture(events)
-            .filter { e ->
+        // Windowing before the fold — which it did before that — let ANY slot
+        // admit a fixture on its own say-so, which is how the NFL preseason
+        // appeared as LIVE seven hours early off a soccer shelf.
+        //
+        // Excluding wrongSport first settles both. A pack that has filed
+        // American football under SOCCER cannot put a fixture on screen, so
+        // the seven-hours-early case is gone; and every remaining slot gets
+        // its own say on whether the fixture is on, so one late clock among
+        // three can no longer take the match off the screen. The fold then
+        // chooses the FEED, which is all it was ever good at.
+        val (trusted, misshelved) = events.partition { !it.wrongSport }
+        val rows = bestPerFixture(
+            trusted.filter { e ->
                 val s = e.startMs ?: return@filter e.live
                 s <= nowMs + cue && nowMs <= s + FIXTURE_LENGTH_MS
             }
-            .sortedWith(
-                compareByDescending<SportsEvent> { it.isLive(nowMs) }.thenBy { it.startMs ?: 0L }
-            )
+        )
+        // The mis-shelved slots come back as FALLBACKS, having been kept out
+        // of every decision above. What they cannot be trusted with is a
+        // clock; the stream behind them is the same match, and the player's
+        // ladder should still be able to reach it when the chosen feed will
+        // not open. Excluding them outright was the first cut of this and it
+        // quietly cost the row a source.
+        val extras = misshelved.groupBy { norm(it.home) + "|" + norm(it.away) }
+        return rows.map { row ->
+            val also = extras[norm(row.home) + "|" + norm(row.away)]
+                ?.map { it.streamId }
+                ?.filterNot { it == row.streamId || it in row.alternates }
+                .orEmpty()
+            if (also.isEmpty()) row else row.copy(alternates = row.alternates + also)
+        }.sortedWith(
+            compareByDescending<SportsEvent> { it.isLive(nowMs) }.thenBy { it.startMs ?: 0L }
+        )
     }
 
     /**
