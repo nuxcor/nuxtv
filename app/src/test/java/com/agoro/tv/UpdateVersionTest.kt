@@ -1,6 +1,11 @@
 package com.agoro.tv
 
 import com.agoro.tv.data.isNewer
+import com.agoro.tv.data.verifyApk
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotNull
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -48,5 +53,41 @@ class UpdateVersionTest {
         // Better to miss an update than to offer a download of nothing.
         assertFalse(isNewer("latest", "2.34.0"))
         assertFalse(isNewer("", "2.34.0"))
+    }
+
+    @get:Rule val tmp = TemporaryFolder()
+
+    /**
+     * "There was a problem parsing the package", 2026-08-27. A download that
+     * ends early ends the read loop the same way a finished one does, so a
+     * dropped connection wrote a short file that looked like a success.
+     */
+    @Test
+    fun `a truncated download is rejected, not installed`() {
+        val f = tmp.newFile("agoro-update.apk")
+        f.writeBytes(ByteArray(4096))
+        assertNotNull("short of the advertised length", verifyApk(f, expectedBytes = 7_296_263L))
+        assertNotNull("and it is not a readable archive either", verifyApk(f, expectedBytes = -1L))
+    }
+
+    @Test
+    fun `an empty or missing file is rejected`() {
+        val gone = java.io.File(tmp.root, "nope.apk")
+        assertNotNull(verifyApk(gone, -1L))
+        assertNotNull(verifyApk(tmp.newFile("empty.apk"), -1L))
+    }
+
+    /** A real zip carrying an AndroidManifest entry is what an APK looks like. */
+    @Test
+    fun `a complete archive passes`() {
+        val f = tmp.newFile("good.apk")
+        java.util.zip.ZipOutputStream(f.outputStream()).use { zip ->
+            zip.putNextEntry(java.util.zip.ZipEntry("AndroidManifest.xml"))
+            zip.write(ByteArray(64))
+            zip.closeEntry()
+        }
+        assertNull("length unknown, archive readable", verifyApk(f, expectedBytes = -1L))
+        assertNull("length known and matching", verifyApk(f, expectedBytes = f.length()))
+        assertNotNull("length known and NOT matching", verifyApk(f, expectedBytes = f.length() + 1))
     }
 }
