@@ -36,6 +36,15 @@ data class SportsEvent(
      * displace a feed that advertises a better picture. See [SportsParser.sourceOf].
      */
     val sourceRank: Int = SOURCE_NEUTRAL,
+    /**
+     * The slot is shelved under a DIFFERENT sport than this fixture's league.
+     *
+     * Sorted on before anything else about the picture, because a pack that
+     * has the sport wrong routinely has the clock wrong too, and a fixture row
+     * whose time is wrong is worse than one whose picture is. See
+     * [SportsParser.namedSport].
+     */
+    val wrongSport: Boolean = false,
     /** A studio or tactical-camera companion feed rather than the match itself. */
     val sideFeed: Boolean = false,
     /**
@@ -218,6 +227,7 @@ object SportsParser {
                     streamId = streamId, league = league, home = home, away = away,
                     startMs = null, live = true,
                     tierRank = tierOf(name), sourceRank = sourceOf(name),
+                    wrongSport = isWrongSport(name, league),
                     sideFeed = isSideFeed(name), languageFeed = isLanguageFeed(name),
                 )
             } else {
@@ -228,6 +238,7 @@ object SportsParser {
         return SportsEvent(
             streamId, league, home, away, start,
             live = start <= nowMs, tierRank = tierOf(name), sourceRank = sourceOf(name),
+            wrongSport = isWrongSport(name, league),
             sideFeed = isSideFeed(name), languageFeed = isLanguageFeed(name),
         )
     }
@@ -635,6 +646,59 @@ object SportsParser {
 
     private val thinSource = Regex("""(?i)\bESPN\s*\+""")
 
+    /**
+     * Which sport a competition is, and which sport a slot says it is on.
+     *
+     * The packs are shelves, and a shelf can be wrong. On 2026-08-27 the
+     * NFL preseason ran on two of them at once:
+     *
+     *   NFL  | 01 - 8/27 7pm Steelers at Bills                        (NFL PPV)
+     *   Next | Preseason: Steelers vs. Bills | 27-08-2026 | 16:00 (GMT)
+     *                                              ... | US: SOCCER PPV 14
+     *
+     * Same fixture, so [bestPerFixture] folds them into one row — and the two
+     * disagree about the kick-off by SEVEN HOURS. 16:00 GMT is 11am in Dallas;
+     * the game was at 6pm. Nothing in the comparator could tell them apart, so
+     * the row took whichever the playlist listed first and reported a match as
+     * live while it was still seven hours away.
+     *
+     * A pack that has filed American football under SOCCER is not a pack to
+     * take a clock from. Only unambiguous markers count: FOOTBALL is deliberately
+     * absent because half the world means soccer by it and ESPN means the NFL.
+     */
+    private fun sportOf(league: String): String? = when (league) {
+        "NFL" -> "gridiron"
+        "NBA" -> "basketball"
+        "MLS", "Premier League", "La Liga", "Serie A",
+        "Bundesliga", "Ligue 1", "Champions League" -> "soccer"
+        else -> null
+    }
+
+    private val sportMarkers = listOf(
+        Regex("""(?i)\bSOCCER\b""") to "soccer",
+        Regex("""(?i)\bNFL\b""") to "gridiron",
+        Regex("""(?i)\bNBA\b""") to "basketball",
+        Regex("""(?i)\b(MLB|MiLB)\b""") to "baseball",
+        Regex("""(?i)\bNHL\b""") to "hockey",
+        Regex("""(?i)\bRUGBY\b""") to "rugby",
+        Regex("""(?i)\bCRICKET\b""") to "cricket",
+    )
+
+    /** The sport a slot's own name claims, or null when it names none. */
+    internal fun namedSport(name: String): String? =
+        sportMarkers.firstOrNull { it.first.containsMatchIn(name) }?.second
+
+    /**
+     * True only when BOTH are known and they disagree. A slot naming no sport,
+     * or a competition this does not map, changes nothing — the point is to
+     * demote a contradiction, never to reward a slot for being explicit.
+     */
+    internal fun isWrongSport(name: String, league: String): Boolean {
+        val want = sportOf(league) ?: return false
+        val said = namedSport(name) ?: return false
+        return said != want
+    }
+
     private val tier8k = Regex("""(?i)\b8K\b""")
     private val tier4k = Regex("""(?i)\b(4K|UHD)\b""")
     private val tierFhd = Regex("""(?i)\bFHD\b""")
@@ -663,6 +727,10 @@ object SportsParser {
                 val ranked = sameMatch.sortedWith(
                     compareBy(
                         { if (it.sideFeed) 2 else if (it.languageFeed) 1 else 0 },
+                        // Before any question of picture. A pack that has the
+                        // sport wrong has earned no say in the kick-off, and
+                        // the row takes its time from whoever wins here.
+                        { if (it.wrongSport) 1 else 0 },
                         { it.tierRank },
                         // Only reached when the two advertise the same picture,
                         // which for the bracketed packs means neither said
@@ -680,18 +748,35 @@ object SportsParser {
      */
     fun upcoming(events: List<SportsEvent>, nowMs: Long, cueMinutes: Int): List<SportsEvent> {
         val cue = cueMinutes * 60_000L
-        // Window first, then one row per fixture. Collapsing first would pick a
-        // slot before knowing whether it is the one still relevant — three
-        // slots for the same match, one finished and one yet to start, and the
-        // fold could hand back the finished one and drop the match entirely.
-        return bestPerFixture(
-            events.filter { e ->
+        // FOLD FIRST, then window — the reverse of what this did, and the
+        // reversal is the whole fix for a fixture appearing seven hours early.
+        //
+        // Windowing first asks each slot separately whether it is due, so a
+        // slot with a wrong clock puts the fixture on screen on its own say-so
+        // and the slots that disagree are never consulted: they were filtered
+        // out before the fold could weigh them. Steelers v Bills was on the
+        // NFL shelf at 7pm Eastern and on the soccer shelf at 16:00 GMT, and
+        // at 11:15 in Dallas only the wrong one was inside the cue. The fold
+        // never ran on the pair, so the demotion that exists precisely for
+        // this could not bite.
+        //
+        // Folding first settles which slot speaks for the fixture — on the
+        // feed's own merits, never on its clock — and the window then asks
+        // that one slot. What this gives up, stated plainly because the
+        // previous note promised the opposite: if the slot that wins the fold
+        // carries a stale time, the fixture can now be missed rather than
+        // shown early. That trade is taken deliberately. A row that says a
+        // match is on when it is seven hours away sends someone to the sofa
+        // for nothing, and it was photographed; the other case is possible
+        // and has not been seen.
+        return bestPerFixture(events)
+            .filter { e ->
                 val s = e.startMs ?: return@filter e.live
                 s <= nowMs + cue && nowMs <= s + FIXTURE_LENGTH_MS
             }
-        ).sortedWith(
-            compareByDescending<SportsEvent> { it.isLive(nowMs) }.thenBy { it.startMs ?: 0L }
-        )
+            .sortedWith(
+                compareByDescending<SportsEvent> { it.isLive(nowMs) }.thenBy { it.startMs ?: 0L }
+            )
     }
 
     /**
