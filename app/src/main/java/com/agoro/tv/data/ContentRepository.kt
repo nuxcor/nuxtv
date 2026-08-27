@@ -1084,8 +1084,27 @@ class ContentRepository(context: Context) {
                 }
             )
         }
+        // The key the guide is cached and stamped under — the feed URL AND
+        // the manifest that produced the ids in it.
+        //
+        // The URL alone was the key, and that is how ABC News Live stayed
+        // blank for six hours after the release that gave it a binding. The
+        // guide on disk is FILTERED at fetch time to the ids the manifest
+        // wanted, planGuideRefresh will not re-download anything younger than
+        // six hours, and the feed URLs do not change when a binding does — so
+        // a manifest that adds a channel had no way to say so. The cache kept
+        // being republished, and the one id that would have filled that row
+        // was never in it.
+        //
+        // The catalogue bundle already solved this with manifestStamp; this is
+        // the same guard for the guide. A new manifest makes the key miss, so
+        // the cache lookup fails, the guide reads as unstamped, and the fold
+        // runs — which is exactly what a changed binding needs.
         val url = urls.firstOrNull()
-        if (url == null) {
+        val guideKey = url?.let { u ->
+            manifests.load()?.generated?.takeIf { it.isNotBlank() }?.let { "$u#$it" } ?: u
+        }
+        if (url == null || guideKey == null) {
             _epg.value = EpgState.Error("No EPG source configured for this playlist")
             return
         }
@@ -1094,7 +1113,7 @@ class ContentRepository(context: Context) {
         // history of getting it wrong is written on that function.
         epgMutex.withLock {
             val ready = _epg.value is EpgState.Ready
-            val sameUrl = url == lastEpgUrl
+            val sameUrl = guideKey == lastEpgUrl
             // The last run's merged guide, read only when nothing is on
             // screen: a slightly stale grid beats minutes of spinner while a
             // dozen packs download. Both halves have to agree — the index
@@ -1102,8 +1121,8 @@ class ContentRepository(context: Context) {
             // index without its table would publish a guide of empty rows.
             val cached = if (ready) null else withContext(Dispatchers.IO) {
                 deleteLegacyEpgCache()
-                val index = readEpgIndex()?.takeIf { it.url == url }
-                val stamp = guide.readStamp()?.takeIf { it.first == url }
+                val index = readEpgIndex()?.takeIf { it.url == guideKey }
+                val stamp = guide.readStamp()?.takeIf { it.first == guideKey }
                 if (index != null && stamp != null) index else null
             }
             val plan = planGuideRefresh(
@@ -1119,7 +1138,7 @@ class ContentRepository(context: Context) {
             )
             if (plan.publishCache && cached != null) {
                 publishGuide(cached.data)
-                lastEpgUrl = url
+                lastEpgUrl = guideKey
                 // The clock, not the cache's own stamp. Stamping the cache's
                 // age here is what made every launch re-download the guide:
                 // the 15-minute debounce measured from a stamp up to six
@@ -1149,7 +1168,7 @@ class ContentRepository(context: Context) {
                     if (urls.size > 1) {
                         return@runCatching fetchAndMerge(
                             urls,
-                            stampUrl = url,
+                            stampUrl = guideKey,
                             wantedKeys = ::wantedGuideKeys,
                         ) { partial ->
                             if (publishPartials) {
@@ -1199,7 +1218,7 @@ class ContentRepository(context: Context) {
                     }
                 }.onSuccess { data ->
                     publishGuide(data)
-                    lastEpgUrl = url
+                    lastEpgUrl = guideKey
                     lastEpgLoadedAt = System.currentTimeMillis()
                     guideSavedAtMs = lastEpgLoadedAt
                     // Stamped only on a complete ingest — a table stamped from
@@ -1207,7 +1226,7 @@ class ContentRepository(context: Context) {
                     // start and never re-fetched. Same reason the index is
                     // written only on a real fetch: re-stamping it when a
                     // refresh fails would disguise stale data as fresh.
-                    writeEpgIndex(url, data)
+                    writeEpgIndex(guideKey, data)
                     // Once, at the end — not once per pack. Swapped, not
                     // blanked, so a guide that came back the same costs the
                     // screen nothing at all.
