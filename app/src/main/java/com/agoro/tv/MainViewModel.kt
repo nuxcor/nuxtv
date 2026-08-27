@@ -740,7 +740,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             runCatching {
                 _updateState.value = com.agoro.tv.data.UpdateManager.State.Downloading(0)
-                val file = updateManager.download(available.apkUrl) { pct ->
+                // The size the release feed advertised, so the download can
+                // ask the system to make room for it first.
+                val file = updateManager.download(available.apkUrl, available.sizeBytes) { pct ->
                     _updateState.value = com.agoro.tv.data.UpdateManager.State.Downloading(pct)
                 }
                 val ready = com.agoro.tv.data.UpdateManager.State.Ready(available.version, file)

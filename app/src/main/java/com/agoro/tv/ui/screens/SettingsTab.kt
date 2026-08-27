@@ -35,6 +35,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
@@ -456,6 +460,71 @@ internal fun SettingsTab(
             }
         }
 
+        item(key = "storage") {
+            val scope = rememberCoroutineScope()
+            val ctx = LocalContext.current
+            var report by remember {
+                mutableStateOf<com.agoro.tv.data.StorageUsage.Report?>(null)
+            }
+            var freed by remember { mutableStateOf<Long?>(null) }
+            // Off the main thread: walking the image cache is thousands of
+            // stat calls and this is the box that made the space a problem.
+            LaunchedEffect(freed) {
+                report = withContext(Dispatchers.IO) {
+                    com.agoro.tv.data.StorageUsage.report(ctx)
+                }
+            }
+            SettingsGroup(title = "Storage", divider = true) {
+                val r = report
+                Text(
+                    text = when {
+                        r == null -> "Measuring…"
+                        else -> "${mb(r.reclaimableBytes)} of caches" +
+                            if (r.recordingsCount > 0) {
+                                " · ${mb(r.recordingsBytes)} in " +
+                                    "${r.recordingsCount} recording" +
+                                    if (r.recordingsCount == 1) "" else "s"
+                            } else ""
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = NuxColors.OnSurfaceDim,
+                )
+                if (r != null && r.reclaimableBytes > 0) {
+                    Spacer(Modifier.height(Space.xs))
+                    Text(
+                        text = "Artwork ${mb(r.imagesBytes)} · Guide ${mb(r.guideBytes)} · " +
+                            "Downloads ${mb(r.updatesBytes)}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = NuxColors.OnSurfaceDim,
+                    )
+                }
+                freed?.let {
+                    Spacer(Modifier.height(Space.xs))
+                    Text(
+                        text = "Freed ${mb(it)}.",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = NuxColors.Secondary,
+                    )
+                }
+                Spacer(Modifier.height(Space.s))
+                // Caches only. Recordings are the one thing on this box the
+                // viewer asked for, so they are counted above and never
+                // touched here — a button that quietly deletes them would be
+                // a worse fault than the one it is solving. The Recordings
+                // tab is where those go.
+                Button(onClick = {
+                    scope.launch {
+                        val n = withContext(Dispatchers.IO) {
+                            com.agoro.tv.data.StorageUsage.clearCaches(ctx)
+                        }
+                        freed = n
+                    }
+                }) {
+                    Text("Clear caches")
+                }
+            }
+        }
+
         item(key = "backup") {
             SettingsGroup(title = "Backup & restore", divider = true) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -565,6 +634,10 @@ internal fun SettingsTab(
 }
 
 /** Whether a status line reports something that did not work. */
+/** Bytes as the viewer reads them: whole MB, or KB below a megabyte. */
+private fun mb(bytes: Long): String =
+    if (bytes >= 1024L * 1024) "${bytes / (1024 * 1024)} MB" else "${bytes / 1024} KB"
+
 private fun isFailure(message: String): Boolean =
     message.contains("failed", ignoreCase = true) ||
         message.startsWith("No backup") || message.startsWith("Couldn't")

@@ -135,11 +135,32 @@ class UpdateManager(private val context: Context, private val http: OkHttpClient
         }.getOrElse { e -> State.Error("Update check failed — ${e.userMessage("try again later")}") }
     }
 
-    suspend fun download(apkUrl: String, onProgress: (Int) -> Unit): File =
+    suspend fun download(apkUrl: String, expectedBytes: Long = 0L, onProgress: (Int) -> Unit): File =
         withContext(Dispatchers.IO) {
             val dir = File(context.cacheDir, "updates").apply { mkdirs() }
             dir.listFiles()?.forEach { it.delete() }
             val out = File(dir, "agoro-update.apk")
+            // Ask the system for the room BEFORE writing a byte.
+            //
+            // allocateBytes is the sanctioned way to do this and the app was
+            // not using it: the download simply started writing and found out
+            // how it went. On a box with 688MB of this app's own caches and
+            // little free space, that is how a download ends short — and a
+            // short APK is what Android calls "a problem parsing the package".
+            //
+            // The call clears OTHER apps' caches, and ours, to make the space;
+            // it is the OS's job to decide whose, not ours. Best effort: an
+            // older device without the API, or one that cannot free enough,
+            // just proceeds as before and verifyApk catches the fallout.
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                runCatching {
+                    val sm = context.getSystemService(android.os.storage.StorageManager::class.java)
+                    val uuid = sm.getUuidForPath(dir)
+                    // Twice the archive: the installer stages a copy of its
+                    // own, so room for one is room to download and then fail.
+                    sm.allocateBytes(uuid, expectedBytes.coerceAtLeast(0L) * 2)
+                }
+            }
             val request = Request.Builder()
                 .url(apkUrl)
                 .header("User-Agent", "Agoro/${BuildConfig.VERSION_NAME}")
