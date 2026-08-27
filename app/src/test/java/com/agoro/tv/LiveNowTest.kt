@@ -70,4 +70,37 @@ class LiveNowTest {
         val rows = SportsParser.upcoming(SportsParser.parseAll(slots, now, nfl), now, 60)
         assertEquals("nothing on screen seven hours early", 0, rows.size)
     }
+
+    /**
+     * The competitions a club whitelist cannot reach, copied from the panel
+     * the same evening. Each pairs a roster club with one no index carries —
+     * or, for the UEFA shelf, two of them.
+     */
+    @Test
+    fun `cup ties and european qualifying are read from the billing`() {
+        val now = ms(2026, 8, 27, 18, 44, "UTC")
+        val slots = listOf(
+            1 to "Carabao Cup: Chelsea vs Luton Town @ Aug 27 2:20 PM :Paramount+  01",
+            2 to "Carabao Cup: Fulham vs AFC Wimbledon @ Aug 27 2:50 PM :Paramount+  02",
+            // A slot with a time and NO club any roster carries.
+            3 to "UEFA  | 02 - Celje  vs Slovan Bratislava 8:00 pm",
+            4 to "LaLiga: Celta vs. Osasuna @ Aug 27 14:18 :TSN+  45",
+        )
+        // A roster that carries NONE of these clubs, which is the point: the
+        // billing has to do the work on its own.
+        val parsed = SportsParser.parseAll(slots, now, roster)
+        val byLeague = parsed.associate { it.streamId to (it.league to it.title) }
+        println(byLeague)
+        assertEquals("Carabao Cup", byLeague[1]?.first)
+        assertEquals("Chelsea v Luton Town", byLeague[1]?.second)
+        assertEquals("Carabao Cup", byLeague[2]?.first)
+        // The UEFA shelf gives a time but NO date — "8:00 pm" and nothing
+        // more — and a fixture with no readable kick-off is only shown when
+        // the pack says LIVE itself. Left that way on purpose: assuming today
+        // is how a row fills with matches that finished yesterday.
+        assertEquals("this shelf still cannot be dated", null, byLeague[3]?.first)
+        // The roster says "Celta Vigo" and the slot says "Celta"; the billing
+        // carries it where the whitelist could not.
+        assertEquals("La Liga", byLeague[4]?.first)
+    }
 }

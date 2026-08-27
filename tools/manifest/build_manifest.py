@@ -2668,6 +2668,21 @@ with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'kept_live.js
 # themselves: "Man United" and "Manchester United", "Red Bull New York" and
 # "New York Red Bulls" all appear. Matching is substring on a normalised name,
 # so the shorter alias must come with the longer one.
+# Competitions the app can read from a slot's own billing, with no club list.
+#
+# The Sport tab groups by this map's KEYS and drops anything whose league is
+# not one of them, so a competition the parser can now recognise still needs an
+# entry here to get a row. The lists are empty on purpose: for these the club
+# whitelist is what fails — cup ties pair a Premier League side with an EFL
+# one, European qualifying brings clubs from leagues no index carries, and the
+# playlist only ever lists the day's fixtures so nothing durable can be derived
+# from it. SportsParser.billedLeague reads the competition off the slot
+# instead; see the note there.
+#
+# Order matters: this is the order the rows appear in.
+BILLED_ONLY_COMPETITIONS = ["Europa League", "Conference League", "UEFA",
+                            "Carabao Cup", "FA Cup"]
+
 SPORT_LEAGUES = {
  "NFL": ["Cardinals","Falcons","Ravens","Bills","Panthers","Bears","Bengals","Browns",
    "Cowboys","Broncos","Lions","Packers","Texans","Colts","Jaguars","Chiefs","Raiders",
@@ -2769,6 +2784,11 @@ for _comp, _clubs in _derived.items():
     if len(_clubs) >= max(6, len(SPORT_LEAGUES.get(_comp, [])) // 2):
         SPORT_LEAGUES[_comp] = sorted(set(SPORT_LEAGUES.get(_comp, [])) | set(_clubs))
         sport_derived[_comp] = len(_clubs)
+
+# The billed-only competitions get their key whether or not the listings
+# happened to mention them today, because an absent key is an absent row.
+for _billed in BILLED_ONLY_COMPETITIONS:
+    SPORT_LEAGUES.setdefault(_billed, [])
 
 # --------------------------------------------- one owner per stream, at the end
 # Two folds run over the same streams — the quality collapse (by channel name)
