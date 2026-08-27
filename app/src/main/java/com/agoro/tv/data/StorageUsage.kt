@@ -1,6 +1,7 @@
 package com.agoro.tv.data
 
 import android.content.Context
+import coil3.SingletonImageLoader
 import com.agoro.tv.recording.RecordingManager
 import java.io.File
 
@@ -10,25 +11,34 @@ import java.io.File
  * Written after a box reported 688MB against this app and then could not
  * install a 7MB update — Android needs room for the download AND the install
  * staging, and nothing in the app had ever told the viewer where the space
- * went or offered to give any of it back.
+ * went or offered any of it back.
  *
- * The split that matters is not by folder, it is by whether losing it costs
- * anything. Caches re-fetch on demand; recordings are the only thing here a
- * viewer asked the box to keep, so they are counted and reported and never
- * touched by [clearCaches].
+ * The split that matters is not by folder, it is by what losing it costs.
+ * Caches re-fetch. The catalogue costs a full re-download, so it is reported
+ * and not offered. Recordings are the only thing here a viewer asked the box
+ * to keep, so they are reported and never touched.
  */
 object StorageUsage {
 
-    /** A cache directory and what it holds, in bytes. */
+    /**
+     * A measurement of everything this app has on disk.
+     *
+     * [reclaimableBytes] is the only part [clearCaches] will remove; the
+     * catalogue and the recordings are counted so the panel adds up to what
+     * Android's own storage screen says rather than to a subset, and a viewer
+     * who clears everything on offer and still sees 600MB has an explanation
+     * rather than a mystery.
+     */
     data class Report(
         val imagesBytes: Long,
         val guideBytes: Long,
         val updatesBytes: Long,
         val otherCacheBytes: Long,
+        /** The playlist bundle and its EPG id map. Re-downloads; not cleared. */
+        val catalogueBytes: Long,
         val recordingsBytes: Long,
         val recordingsCount: Int,
     ) {
-        /** Everything [clearCaches] would remove. */
         val reclaimableBytes: Long
             get() = imagesBytes + guideBytes + updatesBytes + otherCacheBytes
     }
@@ -37,61 +47,104 @@ object StorageUsage {
         !exists() -> 0L
         isFile -> length()
         // walkBottomUp rather than recursion: the image cache is thousands of
-        // small files and a deep recursive call per directory is the kind of
-        // thing that only shows up on the slowest box.
+        // small files and a deep call per directory is the kind of thing that
+        // only shows up on the slowest box.
         else -> walkBottomUp().filter { it.isFile }.sumOf { it.length() }
     }
+
+    /** Cache entries no cleanup may remove; see [clearCaches]. */
+    private fun protectedCacheNames() = setOf("catalogue-manifest.json")
+
+    private fun guideTemps(cache: File) =
+        (cache.listFiles { f -> f.name.startsWith("epg-pack") } ?: emptyArray()).toList()
 
     fun report(context: Context): Report {
         val cache = context.cacheDir
         val images = File(cache, IMAGE_CACHE_DIR).sizeOf()
-        val updates = File(cache, "updates").sizeOf()
-        val guide = (cache.listFiles { f -> f.name.startsWith("epg-pack") } ?: emptyArray())
-            .sumOf { it.sizeOf() } +
-            File(context.filesDir, "epg-index.json.gz").sizeOf() +
-            File(context.filesDir, "epg-cache.json.gz").sizeOf()
-        // Whatever else has accumulated in cacheDir, so the total a viewer is
-        // shown adds up to what Android's own storage screen says rather than
-        // to a subset this file happened to think of.
-        val counted = setOf(IMAGE_CACHE_DIR, "updates")
+        val updates = File(cache, UPDATES_DIR).sizeOf()
+        val guide = guideTemps(cache).sumOf { it.sizeOf() } +
+            File(context.filesDir, EPG_INDEX).sizeOf()
+        val named = setOf(IMAGE_CACHE_DIR, UPDATES_DIR)
         val other = (cache.listFiles() ?: emptyArray())
-            .filter { it.name !in counted && !it.name.startsWith("epg-pack") }
+            .filter { it.name !in named && !it.name.startsWith("epg-pack") }
             .sumOf { it.sizeOf() }
-        val recordings = RecordingManager.directory(context)
-        val files = (recordings.listFiles() ?: emptyArray()).filter { it.isFile }
+        // The catalogue: bundle-<source>.json and tvg-<source>.txt. Usually the
+        // largest thing this app owns, and it was missing from the first cut of
+        // this report — so on the very box that prompted it, the panel would
+        // have shown tens of megabytes against Android's six hundred.
+        val catalogue = (context.filesDir.listFiles { f ->
+            f.name.startsWith("bundle-") || f.name.startsWith("tvg-")
+        } ?: emptyArray()).sumOf { it.sizeOf() }
+        val files = (RecordingManager.directory(context).listFiles() ?: emptyArray())
+            .filter { it.isFile }
         return Report(
             imagesBytes = images,
             guideBytes = guide,
             updatesBytes = updates,
             otherCacheBytes = other,
+            catalogueBytes = catalogue,
             recordingsBytes = files.sumOf { it.length() },
             recordingsCount = files.size,
         )
     }
 
     /**
-     * Throws away everything that re-fetches, and returns what it freed.
+     * Throws away what re-fetches, and returns what it ACTUALLY freed.
      *
-     * Recordings are not in here and must not be. They are the one thing on
+     * Deliberately not a wipe of cacheDir, which is what this was first and
+     * which broke three things at once:
+     *
+     *  - It deleted Coil's live cache directory out from under the open
+     *    ImageLoader. The journal then pointed at an unlinked inode, okio
+     *    swallowed the errors, and disk caching silently stopped working for
+     *    the rest of the process — every poster re-downloading on a Wi-Fi-only
+     *    box while the panel cheerfully reported "Artwork 0 KB". Coil's own
+     *    clear() trims through its bookkeeping and leaves the cache usable.
+     *
+     *  - It deleted a staged update APK, and the update flow has no way back
+     *    from Ready to Available, so Install then failed forever blaming a
+     *    permission. The staged file is left alone here; it is seven megabytes
+     *    and it is about to be installed.
+     *
+     *  - It deleted catalogue-manifest.json, dropping the box back to the
+     *    curation bundled in the APK until the next fetch. A few kilobytes,
+     *    and this project's rule is that the manifest is authoritative.
+     *
+     * Recordings are not here and must not be. They are the one thing on this
      * disk the viewer asked for, and a button that quietly deletes them is a
      * worse fault than the one it is solving.
-     *
-     * The guide index and cache live in filesDir rather than cacheDir, so
-     * Android's own "clear cache" leaves them; they are the second largest
-     * thing here and they rebuild from the next EPG fetch, so they belong in
-     * a cleanup the app offers itself.
      */
     fun clearCaches(context: Context): Long {
-        val before = report(context)
-        val cache = context.cacheDir
-        (cache.listFiles() ?: emptyArray()).forEach { it.deleteRecursively() }
-        File(context.filesDir, "epg-index.json.gz").delete()
-        File(context.filesDir, "epg-cache.json.gz").delete()
-        return before.reclaimableBytes
+        var freed = 0L
+        // Through Coil's own API, so the cache stays usable afterwards.
+        val images = File(context.cacheDir, IMAGE_CACHE_DIR).sizeOf()
+        runCatching { SingletonImageLoader.get(context).diskCache?.clear() }
+            .onSuccess { freed += images - File(context.cacheDir, IMAGE_CACHE_DIR).sizeOf() }
+        // Guide: the leftover pack temporaries and the index. The index lives
+        // in filesDir, where Android's own "clear cache" cannot reach it, and
+        // it rebuilds from the next fetch.
+        for (f in guideTemps(context.cacheDir)) {
+            val n = f.sizeOf()
+            if (f.deleteRecursively()) freed += n
+        }
+        File(context.filesDir, EPG_INDEX).let { if (it.isFile) { val n = it.length(); if (it.delete()) freed += n } }
+        // Whatever else has collected in cacheDir, minus what must survive.
+        val keep = protectedCacheNames() + setOf(IMAGE_CACHE_DIR, UPDATES_DIR)
+        for (f in context.cacheDir.listFiles() ?: emptyArray()) {
+            if (f.name in keep || f.name.startsWith("epg-pack")) continue
+            val n = f.sizeOf()
+            if (f.deleteRecursively()) freed += n
+        }
+        // Counted from what actually went, never from what was intended:
+        // deleteRecursively returns false on a partial failure, and reporting
+        // "Freed 300 MB" over a file still on disk is the panel lying about
+        // the one thing it exists to be right about.
+        return freed
     }
 
-    /** Coil's disk cache lives here; see NuxTvApp. */
     const val IMAGE_CACHE_DIR = "image_cache"
+    internal const val UPDATES_DIR = "updates"
+    private const val EPG_INDEX = "epg-index.json.gz"
 
     /**
      * The ceiling on cached artwork.

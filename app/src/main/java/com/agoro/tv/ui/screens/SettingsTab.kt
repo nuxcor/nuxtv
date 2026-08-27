@@ -156,6 +156,27 @@ internal fun SettingsTab(
         manageFocus.requestFocusRetrying()
     }
 
+    // Storage state lives HERE, not inside its item. A LazyColumn item is
+    // disposed the moment it scrolls out of view, so held in there the
+    // measurement was thrown away and re-walked — thousands of stat calls —
+    // every time the viewer moved past it, the "Freed 300 MB" confirmation
+    // vanished with no trace the button had done anything, and the
+    // rememberCoroutineScope running the clear was cancelled mid-flight if
+    // they scrolled away while it worked.
+    val storageScope = rememberCoroutineScope()
+    val storageContext = LocalContext.current
+    var storageReport by remember {
+        mutableStateOf<com.agoro.tv.data.StorageUsage.Report?>(null)
+    }
+    var storageFreed by remember { mutableStateOf<Long?>(null) }
+    var storageBusy by remember { mutableStateOf(false) }
+    var confirmClear by remember { mutableStateOf(false) }
+    LaunchedEffect(storageFreed) {
+        storageReport = withContext(Dispatchers.IO) {
+            com.agoro.tv.data.StorageUsage.report(storageContext)
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
     LazyColumn(
         state = listState,
@@ -461,66 +482,54 @@ internal fun SettingsTab(
         }
 
         item(key = "storage") {
-            val scope = rememberCoroutineScope()
-            val ctx = LocalContext.current
-            var report by remember {
-                mutableStateOf<com.agoro.tv.data.StorageUsage.Report?>(null)
-            }
-            var freed by remember { mutableStateOf<Long?>(null) }
-            // Off the main thread: walking the image cache is thousands of
-            // stat calls and this is the box that made the space a problem.
-            LaunchedEffect(freed) {
-                report = withContext(Dispatchers.IO) {
-                    com.agoro.tv.data.StorageUsage.report(ctx)
-                }
-            }
             SettingsGroup(title = "Storage", divider = true) {
-                val r = report
+                val r = storageReport
                 Text(
-                    text = when {
-                        r == null -> "Measuring…"
-                        else -> "${mb(r.reclaimableBytes)} of caches" +
-                            if (r.recordingsCount > 0) {
-                                " · ${mb(r.recordingsBytes)} in " +
-                                    "${r.recordingsCount} recording" +
-                                    if (r.recordingsCount == 1) "" else "s"
-                            } else ""
-                    },
+                    text = if (r == null) "Measuring…" else "${mb(r.reclaimableBytes)} of caches",
                     style = MaterialTheme.typography.labelMedium,
                     color = NuxColors.OnSurfaceDim,
                 )
-                if (r != null && r.reclaimableBytes > 0) {
+                if (r != null) {
                     Spacer(Modifier.height(Space.xs))
+                    // Every bucket in the headline is named, Other included.
+                    // Leaving it out meant the figures never added up to the
+                    // total, which is the "where did the space go" question
+                    // this panel exists to answer.
                     Text(
                         text = "Artwork ${mb(r.imagesBytes)} · Guide ${mb(r.guideBytes)} · " +
-                            "Downloads ${mb(r.updatesBytes)}",
+                            "Downloads ${mb(r.updatesBytes)} · Other ${mb(r.otherCacheBytes)}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = NuxColors.OnSurfaceDim,
+                    )
+                    // Counted, and plainly not on offer. A viewer who clears
+                    // everything and still sees hundreds of megabytes against
+                    // the app deserves to know what is holding them.
+                    Spacer(Modifier.height(Space.xs))
+                    Text(
+                        text = "Kept: catalogue ${mb(r.catalogueBytes)}" +
+                            if (r.recordingsCount > 0) {
+                                " · ${r.recordingsCount} recording" +
+                                    (if (r.recordingsCount == 1) "" else "s") +
+                                    " ${mb(r.recordingsBytes)}"
+                            } else "",
                         style = MaterialTheme.typography.labelMedium,
                         color = NuxColors.OnSurfaceDim,
                     )
                 }
-                freed?.let {
+                storageFreed?.let {
                     Spacer(Modifier.height(Space.xs))
                     Text(
-                        text = "Freed ${mb(it)}.",
+                        text = if (it > 0) "Freed ${mb(it)}." else "Nothing to free.",
                         style = MaterialTheme.typography.labelMedium,
                         color = NuxColors.Secondary,
                     )
                 }
                 Spacer(Modifier.height(Space.s))
-                // Caches only. Recordings are the one thing on this box the
-                // viewer asked for, so they are counted above and never
-                // touched here — a button that quietly deletes them would be
-                // a worse fault than the one it is solving. The Recordings
-                // tab is where those go.
-                Button(onClick = {
-                    scope.launch {
-                        val n = withContext(Dispatchers.IO) {
-                            com.agoro.tv.data.StorageUsage.clearCaches(ctx)
-                        }
-                        freed = n
-                    }
-                }) {
-                    Text("Clear caches")
+                // Confirmed, like Import backup on this same screen. One stray
+                // OK while walking the list would otherwise cost a full guide
+                // re-download on a Wi-Fi-only box.
+                Button(onClick = { confirmClear = true }) {
+                    Text(if (storageBusy) "Clearing…" else "Clear caches")
                 }
             }
         }
@@ -563,6 +572,27 @@ internal fun SettingsTab(
     // item: an item near the bottom only composes once scrolled to, so a
     // confirmation living there never appeared for actions triggered from
     // the top of the screen — Remove playlist silently did nothing.)
+    if (confirmClear) {
+        ConfirmDialog(
+            title = "Clear caches?",
+            message = "Artwork and the guide download again as you use them. " +
+                "Recordings and your catalogue are not touched.",
+            confirmLabel = "Clear",
+            onConfirm = {
+                confirmClear = false
+                storageBusy = true
+                storageScope.launch {
+                    val n = withContext(Dispatchers.IO) {
+                        com.agoro.tv.data.StorageUsage.clearCaches(storageContext)
+                    }
+                    storageBusy = false
+                    storageFreed = n
+                }
+            },
+            onDismiss = { confirmClear = false },
+        )
+    }
+
     if (pinGateOpen) {
         com.agoro.tv.ui.components.PinPrompt(
             onSubmit = { entered ->
@@ -633,11 +663,11 @@ internal fun SettingsTab(
     }
 }
 
-/** Whether a status line reports something that did not work. */
 /** Bytes as the viewer reads them: whole MB, or KB below a megabyte. */
 private fun mb(bytes: Long): String =
     if (bytes >= 1024L * 1024) "${bytes / (1024 * 1024)} MB" else "${bytes / 1024} KB"
 
+/** Whether a status line reports something that did not work. */
 private fun isFailure(message: String): Boolean =
     message.contains("failed", ignoreCase = true) ||
         message.startsWith("No backup") || message.startsWith("Couldn't")

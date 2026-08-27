@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
 import com.agoro.tv.BuildConfig
+import com.agoro.tv.data.StorageUsage.UPDATES_DIR
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -137,10 +138,14 @@ class UpdateManager(private val context: Context, private val http: OkHttpClient
 
     suspend fun download(apkUrl: String, expectedBytes: Long = 0L, onProgress: (Int) -> Unit): File =
         withContext(Dispatchers.IO) {
-            val dir = File(context.cacheDir, "updates").apply { mkdirs() }
-            dir.listFiles()?.forEach { it.delete() }
-            val out = File(dir, "agoro-update.apk")
-            // Ask the system for the room BEFORE writing a byte.
+            // Ask the system for the room BEFORE anything else — before the
+            // directory exists, and this order matters. allocateBytes frees
+            // space by clearing cached data, OURS INCLUDED, so allocating
+            // after mkdirs can delete the very directory the download is about
+            // to open; the write then fails outright on exactly the low-space
+            // box this call exists to rescue. Allocating against the data
+            // volume rather than a path inside cacheDir avoids asking about a
+            // directory that may not survive the asking.
             //
             // allocateBytes is the sanctioned way to do this and the app was
             // not using it: the download simply started writing and found out
@@ -152,15 +157,17 @@ class UpdateManager(private val context: Context, private val http: OkHttpClient
             // it is the OS's job to decide whose, not ours. Best effort: an
             // older device without the API, or one that cannot free enough,
             // just proceeds as before and verifyApk catches the fallout.
-            if (android.os.Build.VERSION.SDK_INT >= 26) {
+            if (android.os.Build.VERSION.SDK_INT >= 26 && expectedBytes > 0) {
                 runCatching {
                     val sm = context.getSystemService(android.os.storage.StorageManager::class.java)
-                    val uuid = sm.getUuidForPath(dir)
                     // Twice the archive: the installer stages a copy of its
                     // own, so room for one is room to download and then fail.
-                    sm.allocateBytes(uuid, expectedBytes.coerceAtLeast(0L) * 2)
+                    sm.allocateBytes(sm.getUuidForPath(context.dataDir), expectedBytes * 2)
                 }
             }
+            val dir = File(context.cacheDir, UPDATES_DIR).apply { mkdirs() }
+            dir.listFiles()?.forEach { it.delete() }
+            val out = File(dir, "agoro-update.apk")
             val request = Request.Builder()
                 .url(apkUrl)
                 .header("User-Agent", "Agoro/${BuildConfig.VERSION_NAME}")
@@ -191,7 +198,12 @@ class UpdateManager(private val context: Context, private val http: OkHttpClient
                 // the symptom and hides the cause, and install()'s only guard
                 // was length() == 0, which a truncated file walks straight
                 // past.
-                val expected = if (total > 0) total else -1L
+                // Content-Length first, the release feed's figure second.
+                // Threading expectedBytes only into the allocation left the
+                // truncation guard with nothing to check whenever the response
+                // was chunked or a proxy stripped the header — which is the
+                // case this whole guard exists for.
+                val expected = if (total > 0) total else expectedBytes
                 verifyApk(out, expected)?.let { why ->
                     out.delete()          // never leave a bad archive to be retried into
                     throw IOException(why)
