@@ -219,7 +219,34 @@ def _eff_region(s):
             c = mm.group(1).upper()
             r = alias.get(c, c)
     return r
-dropped_region = [s['stream_id'] for s in ls if _eff_region(s) not in KEEP_REGIONS]
+# --------------------------------------------- named keeps past the region gate
+# The mirror of NAMED_REMOVAL further down: a channel this catalogue wants that
+# the region gate would drop, and the shelf to put it on once it is through.
+#
+# KEEP_REGIONS is US/UK/AFR, so every Spanish channel goes, and that is right
+# for all of them but this one: LaLiga's own broadcaster carries LaLiga better
+# than anyone re-transmitting it. Asked for on 2026-08-26, "let's use Movistar
+# for now", after the fixture-row work established that ESPN+ is 720p60 at
+# source and every other LaLiga feed here measured 1080 or below.
+#
+# The value is the shelf, and it has to be one of KEEP_REGIONS — a survivor
+# left holding a region no shelf renders has nowhere to appear. UK, because
+# that is where LALIGA TV and the LA LIGA TEAM PPV channels already are, so
+# the competition's channels sit together rather than behind a shelf of one.
+#
+# Unmeasured, deliberately, and the reason is recorded here because the name
+# lies in a way that matters: the slot reads "M.LALIGA HDR 3840P" and Movistar
+# dropped 4K for LaLiga at the start of 2025/26 — the feed is 1080p50 HDR now,
+# rescaled from a 4K production. It is worth carrying for the progressive 50
+# and the HDR, not for a resolution it no longer has, and neither of those is
+# something probe_tiers.py can see: it records height. STREAM_LABEL below
+# renames it so the stale claim never reaches a viewer.
+NAMED_KEEP = {
+    1577208: 'UK',   # ES: M.LALIGA — Movistar's own LaLiga channel
+}
+
+dropped_region = [s['stream_id'] for s in ls
+                  if _eff_region(s) not in KEEP_REGIONS and s['stream_id'] not in NAMED_KEEP]
 timeshift = [s['stream_id'] for s in ls if TIMESHIFT.search(asc(s.get('name','')))]
 
 # series dedup
@@ -2115,6 +2142,10 @@ for st in ls:
         _eff = _eff_region(st)
         if _eff in KEEP_REGIONS:
             region_fix[str(sid)] = _eff
+    # Last word, over both passes above: a channel kept BY HAND past the region
+    # gate has, by definition, a region none of them can resolve to a shelf.
+    if sid in NAMED_KEEP:
+        region_fix[str(sid)] = NAMED_KEEP[sid]
     k = _alias_key(n)
     if not k: continue
     if k in _alias_best:                             # keep the best tier
@@ -2654,6 +2685,11 @@ STREAM_LABEL = {
     # TVG became FanDuel TV in 2022, and TVG2 became FanDuel Racing.
     '325906': 'FANDUEL TV',
     '325907': 'FANDUEL RACING',
+    # "M.LALIGA HDR 3840P" — the panel's abbreviation, and a resolution the
+    # channel stopped carrying when Movistar moved LaLiga to 1080p50 HDR for
+    # 2025/26. Named for the brand instead, so the shelf makes a promise the
+    # feed keeps. See NAMED_KEEP.
+    '1577208': 'MOVISTAR LALIGA',
 }
 for _k, _t in collapse.items():
     _forced = TILE_LABEL.get(_k.split('|')[0])
