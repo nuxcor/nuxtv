@@ -1942,9 +1942,34 @@ if not _crest_map: _crest_map = (_prev.get('sport') or {}).get('club_crest', {})
 # source writes SkySportsNews.uk, not the lowercase form the bad binding used.
 # The feed is deliberately NOT pinned: epg6 already carries 58 other .uk ids,
 # so the corrected id resolves in the feed the channel was already reading.
+#
+# The rest came out of an audit on the same day, run the other way round: not
+# "does the id's country match" but "does the id name the same channel at all".
+# 185 of the 919 bindings have an id that neither contains nor is contained by
+# the channel's name; these two are the ones where the id names something else
+# entirely AND a correct id could be verified to exist.
+#
+#   1290299 VIP: LFC TV     xfctv.nz -> LFCTV.uk   Liverpool FC's channel was
+#                           reading a New Zealand feed.
+#   325058  US: FUSE MUSIC   01TV.fr -> Fuse.us    a US music network reading
+#                           a French channel.
+#
+# Both land in a feed already carrying that country: epg6 has 59 .uk ids,
+# epg15 has 7 .us. Two more are just as wrong and are NOT pinned here, because
+# the right id sits in a feed this channel does not read and pinning a feed
+# unverified trades a wrong guide for a blank one:
+#
+#   787993  DSTV: ONE GOSPEL  nicktoons.us -> OneGospel.za, which is in the
+#                             "South Africa 1" feed, not epg2.
+#   788134  DSTV: GTV         hgtv.uk      -> GTV.gh, in "Ghana 1", not epg6.
+#
+# Checked and NOT a bug, recorded so it is not re-reported: US: DIY HD reads
+# magnolianetwork.us, which is right — DIY Network became Magnolia Network.
 EPG_PIN = {
     717697: 'SkyNews.uk',
     325773: 'ABC.us',
+    1290299: 'LFCTV.uk',
+    325058: 'Fuse.us',
 }
 for _sid, _eid in EPG_PIN.items():
     _cur = _epg_map.get(str(_sid))

@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-27T14:24:07+00:00",
+ "generated": "2026-08-27T14:27:42+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -18761,7 +18761,7 @@
    },
    "1290299": {
     "src": "repo",
-    "id": "xfctv.nz",
+    "id": "LFCTV.uk",
     "feed": "epg6"
    },
    "1290300": {
@@ -20226,7 +20226,7 @@
    },
    "325058": {
     "src": "repo",
-    "id": "01TV.fr",
+    "id": "Fuse.us",
     "feed": "epg15"
    },
    "325047": {
