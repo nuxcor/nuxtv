@@ -165,7 +165,6 @@ fun GuideTab(
     val pin by vm.parentalPin.collectAsState()
     val unlocked by vm.parentalUnlocked.collectAsState()
     var pinPromptOpen by remember { mutableStateOf(false) }
-    var categoryPanelOpen by remember { mutableStateOf(false) }
     // The category the PIN was asked for. Unlocking used to close the prompt
     // and leave the viewer on the category they came from — a typed PIN
     // that opened nothing.
@@ -550,7 +549,6 @@ fun GuideTab(
             // UP from the grid meets the day control first — it sits directly
             // above — and UP again reaches the category strip.
             upFromTopRow = if (maxDayOffset > 0) dayFocus else chipsFocus,
-            onOpenCategories = { categoryPanelOpen = true },
             channels = channels,
             // Remembered, not rebuilt per composition: an unstable lambda
             // is a changed parameter, and a changed parameter recomposes
@@ -620,42 +618,6 @@ fun GuideTab(
             },
         )
     }
-    if (categoryPanelOpen) {
-        // Drawn here, not inside the panel, and drawn BEFORE it so the panel
-        // sits on top. Without a scrim the panel was a lit slab standing on a
-        // fully lit guide with a preview still moving behind it — three things
-        // at one brightness — and since LEFT out of the channel column is what
-        // opens it, it arrives unannounced as well.
-        //
-        // It takes no input and is not focusable: BACK and RIGHT remain the
-        // panel's own. It only says which layer is live.
-        Box(
-            Modifier
-                .matchParentSize()
-                .background(NuxColors.Scrim.copy(alpha = 0.72f))
-        )
-        GuideCategoryPanel(
-            entries = strip,
-            selectedId = categoryId,
-            lockedIds = lockedIds,
-            onSelect = { onCategoryId(it.id) },
-            onLocked = { pinPendingCategory = it.id; pinPromptOpen = true },
-            // Focus goes back to the grid explicitly. Left to the geometric
-            // search it lands wherever the panel used to be, which is over
-            // the channel column of whatever row happens to be on screen —
-            // not the row the viewer left.
-            onDismiss = {
-                categoryPanelOpen = false
-                scope.launch { gridHandle.focusAnchor() }
-            },
-            modifier = Modifier.align(Alignment.CenterStart),
-        )
-    }
-    // LAST, so it is over the category panel's scrim rather than under it.
-    // "Recording scheduled" and "Catch-up isn't available" are answers to
-    // something the viewer just did, and dimming one to 28% because a drawer
-    // happens to be open loses it for the four seconds it exists.
-    //
     // Over the guide, not above it: as the Column's first child the toast
     // pushed strip, header, ruler and every row down for four seconds and
     // then snapped them back — the whole screen reflowed to say one line.
