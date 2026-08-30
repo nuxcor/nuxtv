@@ -105,6 +105,45 @@ class SportsParserTest {
      * took the row and brought its own earlier start with it.
      */
     @Test
+    fun `one club spelled two ways is still one fixture`() {
+        // The reported duplicate. Only ONE side has to match the roster for a
+        // fixture to parse, and the side that does not keeps whatever the
+        // provider typed — so a club the roster does not carry arrives spelled
+        // two ways and split the match across two rows.
+        // UTC: the slot's bracketed stamp carries no pack hint, so readStart
+        // reads it as UTC and the window has to be asked in the same clock.
+        val now = ms(2026, 8, 22, 4, 30, "UTC")
+        // Only the home side is on the roster, which is all a fixture needs to
+        // parse — so the away side reaches the row as the provider typed it.
+        val roster = mapOf("MLS" to listOf("Inter Miami"))
+        fun slot(id: Int, away: String) = SportsParser.parse(
+            id,
+            "MLS | $id Inter Miami v $away (2026-08-22 04:50:00)",
+            now, roster,
+        )!!
+        val rows = SportsParser.upcoming(
+            listOf(slot(20, "CF Montreal"), slot(21, "Montreal")),
+            now, cueMinutes = 60,
+        )
+        assertEquals("one row", 1, rows.size)
+        assertEquals("and the loser is reachable as a fallback", listOf(21), rows[0].alternates)
+    }
+
+    @Test
+    fun `the affix strip never merges two different clubs`() {
+        // The cost of being tolerant is folding two matches into one, which
+        // takes a game OFF the screen — worse than a duplicate. Milan and
+        // Inter Milan must stay apart.
+        assertEquals("MILAN", SportsParser.sideKey("AC Milan"))
+        assertEquals("INTER MILAN", SportsParser.sideKey("Inter Milan"))
+        assertEquals("BARCELONA", SportsParser.sideKey("FC Barcelona"))
+        assertEquals("BARCELONA", SportsParser.sideKey("Barcelona"))
+        // Nothing survives the strip, so the whole name stands rather than an
+        // empty key two different clubs could share.
+        assertEquals("FC", SportsParser.sideKey("FC"))
+    }
+
+    @Test
     fun `the match beats its own studio and camera feeds`() {
         val now = ms(2026, 8, 22, 4, 30, "Australia/Sydney")
         val roster = mapOf("Premier League" to listOf("Arsenal", "Coventry City"))
