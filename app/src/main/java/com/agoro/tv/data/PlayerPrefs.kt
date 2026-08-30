@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -83,6 +84,17 @@ private const val ARTWORK_FLUSH_MS = 2_000L
 private const val ARTWORK_BATCH = 24
 
 /** Player-related preferences: VOD resume positions, learned stream facts, viewer choices. */
+/**
+ * How many finished titles the watch history keeps.
+ *
+ * Deeper than the 200 resume positions on purpose: positions are a handful of
+ * things in flight, while this is what "next episode" is read from, and one
+ * box set watched to the end of season four is sixty entries of a single show.
+ * Written only on completion, so its size costs nothing on the per-second save
+ * path.
+ */
+private const val WATCHED_HISTORY = 2_000
+
 class PlayerPrefs(private val context: Context) {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -94,6 +106,13 @@ class PlayerPrefs(private val context: Context) {
     private val tmdbKeyKey = stringPreferencesKey("tmdb_api_key")
     private val pinKey = stringPreferencesKey("parental_pin")
     private val durationsKey = stringPreferencesKey("resume_durations")
+
+    /**
+     * url → when it was finished. Its own entry, like [durationsKey], so an
+     * install predating it decodes its positions exactly as before and simply
+     * has no watch history yet.
+     */
+    private val watchedKey = stringPreferencesKey("watched_at")
     private val videoQualityKey = stringPreferencesKey("video_quality")
     private val recentChannelsKey = stringPreferencesKey("recent_channels")
     private val aspectModeKey = stringPreferencesKey("aspect_mode")
@@ -146,6 +165,7 @@ class PlayerPrefs(private val context: Context) {
     private val artworkSlot = JsonSlot<Map<String, ArtEntry>>(emptyMap()) { json.decodeFromString(it) }
     private val resumePositionsSlot = JsonSlot<Map<String, Long>>(emptyMap()) { json.decodeFromString(it) }
     private val resumeDurationsSlot = JsonSlot<Map<String, Long>>(emptyMap()) { json.decodeFromString(it) }
+    private val watchedSlot = JsonSlot<Map<String, Long>>(emptyMap()) { json.decodeFromString(it) }
     private val favoritesSlot = JsonSlot<Set<String>>(emptySet()) { json.decodeFromString(it) }
     private val recentChannelsSlot = JsonSlot<List<String>>(emptyList()) { json.decodeFromString(it) }
     private val hiddenSlot = JsonSlot<Set<String>>(emptySet()) { json.decodeFromString(it) }
@@ -377,6 +397,33 @@ class PlayerPrefs(private val context: Context) {
         resumeDurationsSlot.read(prefs[durationsKey])
     }.flowOn(Dispatchers.Default)
 
+    /**
+     * url → when it was watched to the end.
+     *
+     * The app used to record only where you were PART-WAY through: reaching
+     * the end deleted the entry and nothing took its place. For a film that is
+     * right — it is finished, and it leaves Continue watching. For a series it
+     * threw away the only thing the next visit needed: finish an episode and
+     * the show vanished from Continue watching, the detail page's button fell
+     * back from "Resume S3E7" to "Play" (meaning S1E1), and the season strip
+     * reset to Season 1. Stopping at an episode boundary — the ordinary way to
+     * stop watching a series — was the one way to make the app forget you.
+     *
+     * Written for every VOD url, films included; only the series page and
+     * Continue watching read it today.
+     */
+    val watchedAt: Flow<Map<String, Long>> = context.playerDataStore.data
+        // DataStore re-emits the whole preference set on ANY write — a
+        // favourite, a hidden title, an artwork batch, a channel tier learned
+        // mid-playback. This is the longest map here (up to WATCHED_HISTORY),
+        // and decoding it for a write that did not touch it, then walking it
+        // again to see it had not changed, is work a 2GB box does not need.
+        // The raw string is the cheap thing to compare.
+        .map { prefs -> prefs[watchedKey] }
+        .distinctUntilChanged()
+        .map { watchedSlot.read(it) }
+        .flowOn(Dispatchers.Default)
+
     /** Saves (or clears, when near the end) a VOD resume position. Keeps the newest 200. */
     suspend fun saveResumePosition(url: String, positionMs: Long, durationMs: Long) {
         context.playerDataStore.edit { prefs ->
@@ -388,6 +435,26 @@ class PlayerPrefs(private val context: Context) {
             val nearEnd = durationMs > 0 && positionMs > durationMs * 95 / 100
             map.remove(url) // re-inserting moves the entry to the newest slot
             if (positionMs >= 30_000 && !nearEnd) map[url] = positionMs
+            // Only when it actually finishes. This runs every few seconds of
+            // playback and the watch history is the one map here that wants to
+            // be long, so it is decoded and re-encoded on completion alone —
+            // never on the ordinary position tick.
+            if (nearEnd) {
+                val watched = prefs[watchedKey]?.let {
+                    runCatching { json.decodeFromString<LinkedHashMap<String, Long>>(it) }.getOrNull()
+                } ?: LinkedHashMap()
+                watched.remove(url)
+                watched[url] = System.currentTimeMillis()
+                // Deeper than the 200 positions: this is what "next episode"
+                // is read from, and a box set watched to the end of season
+                // four is 60 entries of one show. Newest kept, like positions.
+                val trimmedWatched =
+                    if (watched.size > WATCHED_HISTORY) {
+                        watched.entries.drop(watched.size - WATCHED_HISTORY)
+                            .associate { it.toPair() }
+                    } else watched
+                prefs[watchedKey] = json.encodeToString(trimmedWatched)
+            }
             val trimmed =
                 if (map.size > 200) map.entries.drop(map.size - 200).associate { it.toPair() } else map
             prefs[positionsKey] = json.encodeToString(trimmed)
@@ -406,20 +473,38 @@ class PlayerPrefs(private val context: Context) {
      * Forgets one title's place, so "Remove from Continue watching" actually
      * removes it. Durations follow the positions they belong to; leaving an
      * orphan behind would resurrect a progress bar if the same URL came back.
+     *
+     * The watch mark goes too, and that is why this no longer gives up when
+     * there are no positions to clear: a show is now kept in Continue watching
+     * by a FINISHED episode as much as by a part-watched one, and that show
+     * has no position at all.
      */
     suspend fun clearResume(urls: Collection<String>) {
         if (urls.isEmpty()) return
         context.playerDataStore.edit { prefs ->
             val map = prefs[positionsKey]?.let {
                 runCatching { json.decodeFromString<LinkedHashMap<String, Long>>(it) }.getOrNull()
-            } ?: return@edit
-            if (!map.keys.removeAll(urls.toSet())) return@edit
-            prefs[positionsKey] = json.encodeToString(map)
-            prefs[durationsKey]?.let { raw ->
-                runCatching { json.decodeFromString<MutableMap<String, Long>>(raw) }.getOrNull()
-                    ?.let { durations ->
-                        durations.keys.retainAll(map.keys)
-                        prefs[durationsKey] = json.encodeToString(durations)
+            } ?: LinkedHashMap()
+            val drop = urls.toSet()
+            val forgotPosition = map.keys.removeAll(drop)
+            if (forgotPosition) {
+                prefs[positionsKey] = json.encodeToString(map)
+                prefs[durationsKey]?.let { raw ->
+                    runCatching { json.decodeFromString<MutableMap<String, Long>>(raw) }.getOrNull()
+                        ?.let { durations ->
+                            durations.keys.retainAll(map.keys)
+                            prefs[durationsKey] = json.encodeToString(durations)
+                        }
+                }
+            }
+            // A show kept in the row by a finished episode has no position to
+            // clear, so this is the half that actually removes it.
+            prefs[watchedKey]?.let { raw ->
+                runCatching { json.decodeFromString<LinkedHashMap<String, Long>>(raw) }.getOrNull()
+                    ?.let { watched ->
+                        if (watched.keys.removeAll(drop)) {
+                            prefs[watchedKey] = json.encodeToString(watched)
+                        }
                     }
             }
         }

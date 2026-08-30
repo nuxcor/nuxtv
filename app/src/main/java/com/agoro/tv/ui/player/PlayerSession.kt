@@ -477,6 +477,15 @@ class PlayerSession internal constructor(
             clearError()
         }
 
+        override fun onItemEnded(index: Int, durationMs: Long) {
+            // Saved at its own duration, which is what marks it watched:
+            // saveResumePosition clears the position past 95% and records the
+            // completion. Live and catch-up never finish in this sense.
+            if (request.isLive || request.isCatchup || durationMs <= 0) return
+            val url = request.items.getOrNull(index)?.url ?: return
+            onSaveResume(url, durationMs, durationMs)
+        }
+
         override fun onPlayingChanged(p: Boolean, b: Boolean) {
             if (p) {
                 tuning = false

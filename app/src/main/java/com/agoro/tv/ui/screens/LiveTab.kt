@@ -386,6 +386,13 @@ fun CategoryItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier.fillMaxWidth(),
     locked: Boolean = false,
+    /**
+     * Drawn before the name. The strip is a row of filters, so anything in
+     * it that is an ACTION rather than a filter has to say so at a glance —
+     * the browse tabs' "Search" chip is the one that does. Null for a real
+     * category, which is every other call site.
+     */
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     onFocus: () -> Unit = {},
     /**
      * Focus left the chip. Dwell-select owners cancel their pending select
@@ -431,6 +438,13 @@ fun CategoryItem(
             // Wider than it is tall, which is what makes a pill read as one.
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         ) {
+            if (leadingIcon != null) {
+                Icon(
+                    leadingIcon,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
             Text(
                 text = name,
                 style = MaterialTheme.typography.titleSmall,

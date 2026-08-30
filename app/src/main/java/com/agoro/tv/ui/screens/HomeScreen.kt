@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.input.key.nativeKeyCode
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.focus.onFocusChanged
 import kotlinx.coroutines.launch
@@ -68,6 +69,22 @@ fun HomeScreen(
     onEditPlaylist: (String) -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(HomeTab.Home) }
+    /**
+     * The tab search was opened from, which is where Back out of it returns.
+     *
+     * Search used to be reachable only from Home's pill, so "Back goes Home"
+     * and "Back goes where you came from" were the same sentence. They are
+     * not any more — the browse strips have a Search chip and the remote's
+     * search key opens it from anywhere — and sending a viewer who searched
+     * from Shows back to Home loses them the shelf they were standing in.
+     */
+    var searchOrigin by rememberSaveable { mutableStateOf(HomeTab.Home) }
+    val openSearch = {
+        // Guarded, so a second press while search is already up cannot make
+        // Search its own origin and strand Back on this screen.
+        if (tab != HomeTab.Search) searchOrigin = tab
+        tab = HomeTab.Search
+    }
     // Non-content tabs also work while the playlist is loading or failed.
     val contentState by vm.content.collectAsState()
     // The Home lounge's focused-card hero, hoisted so its backdrop can draw
@@ -189,7 +206,28 @@ fun HomeScreen(
                     lastKeyDownMs = android.os.SystemClock.uptimeMillis()
                     lastKeyCode = event.key.nativeKeyCode
                 }
-                false // observe only; never consume
+                // The remote's own search button. The only entry point that
+                // costs no screen and no D-pad travel, and the only one the
+                // guide and Live get at all — both are too dense to spend a
+                // chip on, and both are where a viewer is most likely to be
+                // hunting for something by name.
+                //
+                // Consumed on BOTH edges: taking the down and letting the up
+                // through leaves a stray KeyUp for whatever chip or cell is
+                // focused underneath. Nothing else in this app wants this
+                // key, so previewing it here — above the rail, the tabs and
+                // the guide — is the one place it cannot be swallowed first.
+                // Declined while the drawer is open: it would swap the tab
+                // behind a drawer the viewer still has to dismiss, and the
+                // rail is its own navigation. Not gated on text entry —
+                // Settings keeps its fields in dialogs, which carry their own
+                // window and never see this handler, and the only inline
+                // field in here belongs to search itself.
+                if (event.key == Key.Search && !railFocused) {
+                    if (event.type == KeyEventType.KeyDown) openSearch()
+                    return@onPreviewKeyEvent true
+                }
+                false // everything else: observe only, never consume
             },
     ) {
     // Content gets the whole panel: the drawer overlays it when summoned
@@ -306,16 +344,27 @@ fun HomeScreen(
                             onOpenSeries,
                             onPlay,
                             onHeroChange = { homeHero = it },
-                            onBrowse = { tab = it },
+                            // Home's own pill and empty-state action come
+                            // through here; routed so search seats its origin
+                            // however it was reached.
+                            onBrowse = { if (it == HomeTab.Search) openSearch() else tab = it },
                         )
                         HomeTab.Search -> SearchTab(
                             vm, onOpenMovie, onOpenSeries, onPlay,
-                            onBack = { tab = HomeTab.Home },
+                            onBack = { tab = searchOrigin },
                         )
                         HomeTab.Live -> LiveTab(vm, state.bundle, onPlay, onOpenSettings = { tab = HomeTab.Settings })
                         HomeTab.Sport -> SportTab(vm, state.bundle, onPlay, onBrowse = { tab = it })
-                        HomeTab.Movies -> MoviesTab(vm, state.bundle, onOpenMovie, onOpenSettings = { tab = HomeTab.Settings })
-                        HomeTab.Series -> SeriesTab(vm, state.bundle, onOpenSeries, onOpenSettings = { tab = HomeTab.Settings })
+                        HomeTab.Movies -> MoviesTab(
+                            vm, state.bundle, onOpenMovie,
+                            onOpenSettings = { tab = HomeTab.Settings },
+                            onOpenSearch = openSearch,
+                        )
+                        HomeTab.Series -> SeriesTab(
+                            vm, state.bundle, onOpenSeries,
+                            onOpenSettings = { tab = HomeTab.Settings },
+                            onOpenSearch = openSearch,
+                        )
                         HomeTab.Settings -> Unit // composed above, state-independent
                     }
                 }
@@ -420,7 +469,13 @@ fun HomeScreen(
         ),
     ) {
         NavRail(
-            selected = tab,
+            // Search is railless, so the rail borrows the tab it was opened
+            // from — which is also where Back out of search returns. Anchoring
+            // it to Home was right only while Home's pill was the one way in;
+            // opening search from Shows and then opening the rail put the
+            // cursor on Home while Back went to Shows, the two controls
+            // disagreeing about where the viewer had come from.
+            selected = if (tab == HomeTab.Search) searchOrigin else tab,
             // OK commits: switch the tab, close the drawer, and hand focus to
             // the content — the modal form of what the old rail did on dwell.
             // Selecting under an open drawer recomposed the screen beneath it

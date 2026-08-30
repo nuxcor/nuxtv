@@ -23,6 +23,8 @@ import com.agoro.tv.data.PlaylistSource
 import com.agoro.tv.data.indexAnswering
 import com.agoro.tv.data.Series
 import com.agoro.tv.recording.RecordingScheduler
+import com.agoro.tv.ui.screens.foldMovieVariants
+import com.agoro.tv.ui.screens.foldSeriesVariants
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -134,6 +136,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 if (duration <= 0) null else url to (position.toFloat() / duration).coerceIn(0f, 1f)
             }.toMap()
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    /**
+     * url → when it was watched to the end. What "next episode" is read from,
+     * and what keeps a show in Continue watching after an episode finishes;
+     * see [PlayerPrefs.watchedAt].
+     */
+    val watchedAt: StateFlow<Map<String, Long>> = playerPrefs.watchedAt
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     /** Episode stream URL → series id, Continue Watching's climb back to the series. */
     val episodeOrigins: StateFlow<Map<String, String>> = playerPrefs.episodeOrigins
@@ -467,11 +477,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
             .let { index ->
+                // combine tops out at five typed sources, and the catalogue
+                // now wants six: the two episode maps are paired first
+                // because they are read together — an origin says which show
+                // an episode belongs to, a watch mark says it finished.
+                val episodeState = kotlinx.coroutines.flow.combine(
+                    episodeOrigins, watchedAt,
+                ) { origins, watched -> origins to watched }
                 kotlinx.coroutines.flow.combine(
-                    index, resumePositions, resumeProgress, episodeOrigins, hiddenTitles,
-                ) { idx, positions, progress, origins, hidden ->
+                    index, resumePositions, resumeProgress, episodeState, hiddenTitles,
+                ) { idx, positions, progress, episodes, hidden ->
+                    val (origins, watched) = episodes
                     idx?.let {
-                        com.agoro.tv.ui.screens.buildCatalog(it, positions, progress, origins, hidden)
+                        com.agoro.tv.ui.screens.buildCatalog(
+                            it, positions, progress, origins, hidden, watchedAt = watched,
+                        )
                     }
                 }
             }
@@ -1320,6 +1340,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             categoryId: (T) -> String?,
             categoryHits: Set<String>,
             locked: Set<String>,
+            // Folded BEFORE the take, or a provider that lists one film at
+            // four rungs would spend a quarter of the results on it. Search
+            // reads the bundle rather than the index — it has to see locked
+            // categories to exclude them, and it runs per keystroke — so it
+            // does its own fold rather than inheriting the index's, and it
+            // folds the matches, never the 29,000 titles behind them.
+            fold: (List<T>) -> List<T> = { it },
         ): List<T> =
             items.mapNotNull { item ->
                 val category = categoryId(item)
@@ -1328,7 +1355,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     ?: CATEGORY_MATCH_RANK.takeIf { category in categoryHits }
                     ?: return@mapNotNull null
                 rank to item
-            }.sortedBy { it.first }.map { it.second }.take(30)
+            }.sortedBy { it.first }.map { it.second }.let(fold).take(30)
 
         val known = knownQualitiesNow.value
         val channels =
@@ -1364,9 +1391,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             channels = channels,
             movies = rankAndTake(
                 b.movies, { it.name }, { it.categoryId }, movieCatHits, lockedMovie,
+                fold = { it.foldMovieVariants() },
             ),
             series = rankAndTake(
                 b.series, { it.name }, { it.categoryId }, seriesCatHits, lockedSeries,
+                fold = { it.foldSeriesVariants() },
             ),
             programs = programs,
         )

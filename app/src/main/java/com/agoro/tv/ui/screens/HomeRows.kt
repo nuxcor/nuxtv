@@ -5,6 +5,7 @@ import com.agoro.tv.data.Category
 import com.agoro.tv.data.ContentBundle
 import com.agoro.tv.data.LiveChannel
 import com.agoro.tv.data.Movie
+import com.agoro.tv.data.QualityTag
 import com.agoro.tv.data.Series
 
 /**
@@ -39,10 +40,25 @@ internal fun buildContinueWatching(
     episodeOrigins: Map<String, String>,
     resumePositions: Map<String, Long>,
     resumeProgress: Map<String, Float>,
+    /**
+     * Episode url → when it finished; see [com.agoro.tv.data.PlayerPrefs.watchedAt].
+     *
+     * A show whose episode the viewer FINISHED belongs in this row — that is
+     * the moment they are most likely to want the next one — but finishing is
+     * exactly what deletes a resume position, so before this the show simply
+     * dropped out. Films are the opposite and are deliberately not read from
+     * here: a finished film is finished, and putting it back would be the row
+     * refusing to let anything go.
+     */
+    watchedAt: Map<String, Long> = emptyMap(),
     limit: Int = 20,
 ): List<ContinueCard> {
     val seenSeries = HashSet<String>()
     return buildList {
+        // Part-way through first, newest first. A thing the viewer is in the
+        // middle of is a stronger call to action than one they finished, and
+        // positions carry no timestamp to interleave the two by anyway —
+        // their recency is the map's own insertion order.
         for (url in resumePositions.keys.toList().asReversed()) {
             if (size >= limit) break
             val movie = movieByUrl[url]
@@ -55,8 +71,40 @@ internal fun buildContinueWatching(
                 add(ContinueCard.SeriesCard(fromSeries, resumeProgress[url]))
             }
         }
+        if (size >= limit || watchedAt.isEmpty()) return@buildList
+        // Then the shows whose last episode ran to the end, most recently
+        // finished first. No progress bar: the episode behind the card is
+        // done, and a full bar would say "nearly finished" about a show the
+        // viewer is in the middle of. Which episode comes next is the series
+        // page's answer — the episode list is fetched per show and is not
+        // known here.
+        for ((seriesId, _) in newestFinishBySeries(watchedAt, episodeOrigins)) {
+            if (size >= limit) break
+            if (seriesId in seenSeries) continue
+            val show = seriesById[seriesId] ?: continue
+            seenSeries.add(seriesId)
+            add(ContinueCard.SeriesCard(show, null))
+        }
     }
 }
+
+/**
+ * Series id → when its most recently finished episode finished, newest first.
+ *
+ * Both shelves that surface a finished show — Home's Continue watching row and
+ * the Shows tab's own — need exactly this, and had it written out twice. A
+ * recency cutoff or a cap would have been added to one of them.
+ */
+internal fun newestFinishBySeries(
+    watchedAt: Map<String, Long>,
+    episodeOrigins: Map<String, String>,
+): List<Pair<String, Long>> =
+    watchedAt.asSequence()
+        .mapNotNull { (url, at) -> episodeOrigins[url]?.let { it to at } }
+        .groupingBy { it.first }
+        .fold(0L) { newest, (_, at) -> maxOf(newest, at) }
+        .toList()
+        .sortedByDescending { it.second }
 
 /** One card in a plain catalogue row — Recently added, and the day-one shelves. */
 internal sealed interface CatalogCard {
@@ -167,14 +215,23 @@ internal class CatalogIndex(
     /** Categories outside the parental lock, in playlist order. */
     val movieCategories: List<Category>,
     val seriesCategories: List<Category>,
-    /** Titles outside locked categories, in playlist order. */
+    /**
+     * Titles outside locked categories, in playlist order, one card per
+     * title at its best rung; see [foldVariants]. Every list on this index
+     * is folded — only [movieByUrl] still knows the variants, because a
+     * resume position points at the exact stream that was played.
+     */
     val movies: List<Movie>,
     val series: List<Series>,
     val movieByUrl: Map<String, Movie>,
     val seriesById: Map<String, Series>,
     /**
-     * Category id → its titles. Anything filed under a category the playlist
-     * never declared sits under [VOD_MORE], so it stays reachable.
+     * Category id → its titles, folded. Anything filed under a category the
+     * playlist never declared sits under [VOD_MORE], so it stays reachable.
+     *
+     * Folded per category, not once across the catalogue: a film the
+     * provider filed under two categories belongs on both shelves, and it
+     * is only a duplicate when it appears twice on the SAME one.
      */
     val moviesByCategory: Map<String, List<Movie>>,
     val seriesByCategory: Map<String, List<Series>>,
@@ -211,6 +268,14 @@ internal class CatalogIndex(
  * titles are still reachable from their category and from search.
  */
 internal const val GENRE_MIN_TITLES = 8
+
+/**
+ * How many titles a "Continue watching" shelf carries. Home's row has always
+ * had a limit; the tabs' own shelves were bounded only by however many resume
+ * positions existed, which stopped being a bound once a FINISHED episode
+ * could hold a show there too.
+ */
+internal const val CONTINUE_SHELF_LIMIT = 20
 
 /**
  * The chip a genre is shown under, when it is not shown under its own name.
@@ -311,23 +376,84 @@ internal fun isRecentRelease(year: Int?, nowYear: Int): Boolean =
 internal fun currentYear(): Int = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
 
 /**
- * One entry per (title, year), keeping the first — used on a list already in
- * newest-first order so the survivor is the newest. The title is compared
- * case- and space-insensitively; the year disambiguates a remake from its
- * original, so two different films that share a name are both kept.
+ * One entry per (title, year), keeping the best advertised quality.
+ *
+ * Providers list the same title several times — a 4K rung beside an HD one,
+ * an SD copy beside both — each a distinct stream with its own id. Live has
+ * always folded those ([QualityTag.mergeBestQuality]); VOD folded only
+ * "Recently added", so every category grid, every genre chip and the All
+ * view showed the pile, with the 4K copy and the SD copy sitting next to
+ * each other as two cards. Worse, whichever one the playlist happened to
+ * list first is the one a viewer reached for.
+ *
+ * The survivor keeps the FIRST variant's POSITION, so whatever order the
+ * caller built — playlist order, newest-added first — is untouched; the
+ * fold changes only which stream the card at that spot opens. A list with
+ * nothing to fold is returned as itself, so the common case allocates
+ * nothing and a screen keying a remember on the list still sees the same
+ * instance across rebuilds.
+ *
+ * The title is compared case- and space-insensitively. [Movie.name] and
+ * [Series.name] are already the cleaned title, with the quality token and
+ * the year stripped into their own fields ([ContentClassifier.cleanTitle]),
+ * so "Title 4K" and "Title HD" reduce to one key. The year disambiguates a
+ * remake from its original — two different films that share a name are both
+ * kept — and an unknown year folds with an unknown year, which for a
+ * catalogue that repeats a title is what it almost always means.
+ *
+ * Ranked by [QualityTag.rank], which puts an unknown quality BELOW SD: a
+ * variant whose name never said what it was loses to one that did, and only
+ * wins when it is the sole copy. Ties keep the first, so a fold decides
+ * nothing it has no evidence for — and where the year is unknown too, a tie
+ * keeps BOTH, because then nothing at all distinguishes a second rung of one
+ * show from a second show of the same name.
  */
-internal inline fun <T> List<T>.dedupeByTitle(
+internal inline fun <T> List<T>.foldVariants(
     name: (T) -> String,
     year: (T) -> Int?,
+    quality: (T) -> String?,
 ): List<T> {
-    val seen = HashSet<String>(size)
+    if (size < 2) return this
+    // Key -> where its survivor sits in [out], so a better rung can replace
+    // the one standing there without a second pass or a list per group.
+    val at = HashMap<String, Int>(size * 2)
     val out = ArrayList<T>(size)
     for (item in this) {
-        val key = name(item).trim().lowercase(java.util.Locale.ROOT) + "|" + (year(item) ?: 0)
-        if (seen.add(key)) out.add(item)
+        val releaseYear = year(item)
+        val key = name(item).trim().lowercase(java.util.Locale.ROOT) + "|" + (releaseYear ?: 0)
+        val held = at[key]
+        if (held == null) {
+            at[key] = out.size
+            out.add(item)
+            continue
+        }
+        val challenger = QualityTag.rank(quality(item))
+        val standing = QualityTag.rank(quality(out[held]))
+        when {
+            challenger > standing -> out[held] = item
+            challenger < standing -> Unit // folded away; the better rung stands
+            // Same name, same year, same rung: a duplicate listing.
+            releaseYear != null -> Unit
+            // Same name, same rung, and NO year on either — there is nothing
+            // here that says these are one title. The provider strips region
+            // tags into the cleaned name, so "The Office (US)" and "The
+            // Office (UK)" arrive as one name with no year between them, and
+            // folding would take a whole show off the shelf. The key keeps
+            // pointing at the first, so a genuine 4K rung arriving later
+            // still upgrades it.
+            else -> out.add(item)
+        }
     }
-    return out
+    return if (out.size == size) this else out
 }
+
+/** [foldVariants] over films; see there for the rule. */
+internal fun List<Movie>.foldMovieVariants(): List<Movie> =
+    foldVariants({ it.name }, { it.year }, { it.quality })
+
+/** [foldVariants] over box sets; see there for the rule. */
+internal fun List<Series>.foldSeriesVariants(): List<Series> =
+    foldVariants({ it.name }, { it.year }, { it.quality })
 
 internal fun buildCatalogIndex(
     bundle: ContentBundle,
@@ -373,14 +499,6 @@ internal fun buildCatalogIndex(
     }
     // Stable: titles the provider dated identically keep playlist order.
     newMovies.sortByDescending { it.addedMs }
-    // One card per title. Providers list the same film several times — a
-    // 4K rung beside an HD one, the same movie dropped into two categories —
-    // each a distinct stream with its own id, all dated within days. Recently
-    // added is the one row that walks the flat list newest-first, so it was
-    // the one that showed the pile. The name is already the cleaned title
-    // (quality and year live in their own fields) and every entry here has a
-    // year, so (name, year) folds the variants and keeps the newest-added.
-    val dedupedMovies = newMovies.dedupeByTitle({ it.name }, { it.year })
 
     val knownSeriesCategories = seriesCategories.mapTo(HashSet()) { it.id }
     val seriesById = HashMap<String, Series>(series.size * 2)
@@ -399,30 +517,51 @@ internal fun buildCatalogIndex(
         if (show.addedMs != null && isRecentRelease(show.year, nowYear)) newSeries.add(show)
     }
     newSeries.sortByDescending { it.addedMs }
-    val dedupedSeries = newSeries.dedupeByTitle({ it.name }, { it.year })
+
+    // One card per title, at its best rung — everywhere, not only in
+    // "Recently added". Folded per SHELF rather than once over the
+    // catalogue: a film filed under two categories belongs on both, and a
+    // single global fold would take it off one of them. Within any one list
+    // it now appears once, and the card opens the 4K copy rather than
+    // whichever rung the playlist happened to name first. See [foldVariants].
+    //
+    // Done here, off the main thread with the rest of the index, so no
+    // screen pays for it per category switch — the folds are linear and the
+    // buckets were already built.
+    val foldedMovies = movies.foldMovieVariants()
+    val foldedSeries = series.foldSeriesVariants()
+    val foldedMoviesByCategory = moviesByCategory.mapValues { it.value.foldMovieVariants() }
+    val foldedSeriesByCategory = seriesByCategory.mapValues { it.value.foldSeriesVariants() }
+    val foldedMoviesByGenre = moviesByGenre.mapValues { it.value.foldMovieVariants() }
+    val foldedSeriesByGenre = seriesByGenre.mapValues { it.value.foldSeriesVariants() }
 
     return CatalogIndex(
         bundle = bundle,
         movieCategories = movieCategories,
         seriesCategories = seriesCategories,
-        movies = movies,
-        series = series,
+        movies = foldedMovies,
+        series = foldedSeries,
+        // Keyed on EVERY variant's url, folded-away ones included: a resume
+        // position was recorded against the stream the viewer actually
+        // played, and folding a shelf must not lose them their place in it.
         movieByUrl = movieByUrl,
         seriesById = seriesById,
-        moviesByCategory = moviesByCategory,
-        seriesByCategory = seriesByCategory,
-        newMovies = dedupedMovies,
-        newSeries = dedupedSeries,
-        movieGenres = moviesByGenre.keys
-            .filter { moviesByGenre.getValue(it).size >= GENRE_MIN_TITLES }
+        moviesByCategory = foldedMoviesByCategory,
+        seriesByCategory = foldedSeriesByCategory,
+        newMovies = newMovies.foldMovieVariants(),
+        newSeries = newSeries.foldSeriesVariants(),
+        // Counted on the folded lists: a genre earns a chip on how many
+        // titles it holds, not on how many times the provider listed them.
+        movieGenres = foldedMoviesByGenre.keys
+            .filter { foldedMoviesByGenre.getValue(it).size >= GENRE_MIN_TITLES }
             .map { movieGenreLabels.getValue(it) }
             .sorted(),
-        seriesGenres = seriesByGenre.keys
-            .filter { seriesByGenre.getValue(it).size >= GENRE_MIN_TITLES }
+        seriesGenres = foldedSeriesByGenre.keys
+            .filter { foldedSeriesByGenre.getValue(it).size >= GENRE_MIN_TITLES }
             .map { seriesGenreLabels.getValue(it) }
             .sorted(),
-        moviesByGenre = moviesByGenre,
-        seriesByGenre = seriesByGenre,
+        moviesByGenre = foldedMoviesByGenre,
+        seriesByGenre = foldedSeriesByGenre,
     )
 }
 
@@ -459,10 +598,13 @@ internal fun buildCatalog(
     resumeProgress: Map<String, Float>,
     episodeOrigins: Map<String, String>,
     hiddenTitles: Set<String>,
+    /** Episode url → when it finished; see [buildContinueWatching]. */
+    watchedAt: Map<String, Long> = emptyMap(),
     starterLength: Int = STARTER_ROW_LENGTH,
 ): Catalog {
     val continueWatching = buildContinueWatching(
         index.movieByUrl, index.seriesById, episodeOrigins, resumePositions, resumeProgress,
+        watchedAt = watchedAt,
     )
     // Resume positions run oldest-first; both resumed lists read newest-first,
     // like Home's shelf — not playlist order.
@@ -480,11 +622,27 @@ internal fun buildCatalog(
     val fromOrigins = newestFirst.mapNotNull { episodeOrigins[it] }.distinct()
         .mapNotNull { index.seriesById[it] }
     // M3U series carry their episodes inline, so a watched episode can be
-    // found without an origin record.
-    val fromEpisodes = index.series.filter { show ->
+    // found without an origin record. Read from seriesById, which is every
+    // show: index.series is FOLDED, so a variant that lost the fold would
+    // take its own episodes' resume positions off this shelf with it.
+    val fromEpisodes = index.seriesById.values.filter { show ->
         show.id !in seriesProgress &&
             show.episodes?.any { it.url in resumePositions } == true
     }
+    // And the shows whose last episode finished, which have no position left
+    // to be found by — the Shows tab's own Continue watching had the same
+    // hole as Home's row. Newest finish first, and never one already listed.
+    //
+    // Capped, unlike the two lists above. Those are bounded by the 200 resume
+    // positions; the watch history holds 2,000 marks, so without this a
+    // viewer who has finished an episode of 150 shows got a 150-card
+    // "Continue watching" shelf — which is a library, not a shortcut.
+    val listed = (fromOrigins + fromEpisodes).mapTo(HashSet()) { it.id }
+    val fromFinished = newestFinishBySeries(watchedAt, episodeOrigins)
+        .asSequence()
+        .mapNotNull { (seriesId, _) -> seriesId.takeIf { it !in listed }?.let { index.seriesById[it] } }
+        .take((CONTINUE_SHELF_LIMIT - listed.size).coerceAtLeast(0))
+        .toList()
 
     val recentlyAdded = buildRecentlyAdded(index.newMovies, index.newSeries)
         .filterNot { card ->
@@ -513,7 +671,7 @@ internal fun buildCatalog(
         starterSeries = starterSeries,
         resumedMovies = resumedMovies,
         seriesProgress = seriesProgress,
-        resumedSeries = fromOrigins + fromEpisodes,
+        resumedSeries = fromOrigins + fromEpisodes + fromFinished,
     )
 }
 

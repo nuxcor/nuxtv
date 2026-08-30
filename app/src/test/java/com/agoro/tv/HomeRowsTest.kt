@@ -45,11 +45,109 @@ class HomeRowsTest {
         episodeOrigins: Map<String, String>,
         resumePositions: Map<String, Long>,
         resumeProgress: Map<String, Float>,
+        watchedAt: Map<String, Long> = emptyMap(),
     ): List<ContinueCard> {
         val index = buildCatalogIndex(ContentBundle(movies = movies, series = series)) { false }
         return buildContinueWatching(
             index.movieByUrl, index.seriesById, episodeOrigins, resumePositions, resumeProgress,
+            watchedAt = watchedAt,
         )
+    }
+
+    // --- watch state ---------------------------------------------------------
+    //
+    // Finishing an episode DELETES its resume position (PlayerPrefs: near the
+    // end clears the entry), so before watchedAt a show the viewer had watched
+    // cleanly to an episode boundary left no trace anywhere.
+
+    @Test
+    fun `a show whose episode finished stays in continue watching`() {
+        val row = buildContinueWatching(
+            movies = emptyList(),
+            series = listOf(series("s1")),
+            episodeOrigins = mapOf("http://x/ep1" to "s1"),
+            resumePositions = emptyMap(), // finished: the position is gone
+            resumeProgress = emptyMap(),
+            watchedAt = mapOf("http://x/ep1" to 5_000L),
+        )
+        assertEquals(1, row.size)
+        assertEquals("s1", (row.first() as ContinueCard.SeriesCard).series.id)
+        // No bar: the episode behind the card is done, and a full one would
+        // say "nearly finished" about a show being carried on.
+        assertNull(row.first().progress)
+    }
+
+    @Test
+    fun `a finished film does not come back to continue watching`() {
+        val row = buildContinueWatching(
+            movies = listOf(movie("m1")),
+            series = emptyList(),
+            episodeOrigins = emptyMap(),
+            resumePositions = emptyMap(),
+            resumeProgress = emptyMap(),
+            watchedAt = mapOf("http://x/movie/m1" to 5_000L),
+        )
+        assertTrue(row.isEmpty())
+    }
+
+    @Test
+    fun `a part-watched show is listed once, not twice`() {
+        // Episode 1 finished, episode 2 part-way: one card, and it comes from
+        // the part-watched side so it keeps its progress bar.
+        val row = buildContinueWatching(
+            movies = emptyList(),
+            series = listOf(series("s1")),
+            episodeOrigins = mapOf("http://x/ep1" to "s1", "http://x/ep2" to "s1"),
+            resumePositions = mapOf("http://x/ep2" to 60_000L),
+            resumeProgress = mapOf("http://x/ep2" to 0.4f),
+            watchedAt = mapOf("http://x/ep1" to 5_000L),
+        )
+        assertEquals(1, row.size)
+        assertEquals(0.4f, row.first().progress)
+    }
+
+    @Test
+    fun `part-watched titles come before finished ones`() {
+        val row = buildContinueWatching(
+            movies = listOf(movie("m1")),
+            series = listOf(series("s1")),
+            episodeOrigins = mapOf("http://x/ep1" to "s1"),
+            resumePositions = positions("http://x/movie/m1"),
+            resumeProgress = emptyMap(),
+            watchedAt = mapOf("http://x/ep1" to 9_000L),
+        )
+        assertEquals(2, row.size)
+        assertTrue(row.first() is ContinueCard.MovieCard)
+        assertTrue(row[1] is ContinueCard.SeriesCard)
+    }
+
+    @Test
+    fun `finished shows read newest finish first`() {
+        val row = buildContinueWatching(
+            movies = emptyList(),
+            series = listOf(series("old"), series("new")),
+            episodeOrigins = mapOf("http://x/a" to "old", "http://x/b" to "new"),
+            resumePositions = emptyMap(),
+            resumeProgress = emptyMap(),
+            watchedAt = mapOf("http://x/a" to 1_000L, "http://x/b" to 9_000L),
+        )
+        assertEquals(listOf("new", "old"), row.map { (it as ContinueCard.SeriesCard).series.id })
+    }
+
+    @Test
+    fun `the shows shelf keeps a show whose last episode finished`() {
+        val index = buildCatalogIndex(
+            ContentBundle(series = listOf(series("s1"), series("s2")))
+        ) { false }
+        val catalog = buildCatalog(
+            index,
+            resumePositions = emptyMap(),
+            resumeProgress = emptyMap(),
+            episodeOrigins = mapOf("http://x/ep1" to "s1"),
+            hiddenTitles = emptySet(),
+            watchedAt = mapOf("http://x/ep1" to 5_000L),
+        )
+        assertEquals(listOf("s1"), catalog.resumedSeries.map { it.id })
     }
 
     @Test
@@ -69,6 +167,118 @@ class HomeRowsTest {
         assertEquals(1, index.newMovies.size)
         // The survivor is the newest-added of the three.
         assertEquals("a", index.newMovies.first().id)
+    }
+
+    /** The same film at three rungs, as a provider actually lists it. */
+    private fun variant(
+        id: String,
+        quality: String?,
+        categoryId: String? = "drama",
+        genre: String? = null,
+    ) = Movie(
+        id = id, name = "Heat", poster = null, url = "http://x/movie/$id",
+        categoryId = categoryId, year = 1995, quality = quality, genre = genre,
+    )
+
+    @Test
+    fun `a category grid keeps one card per title, at its best rung`() {
+        // What the viewer reported: the 4K copy and the SD copy side by side.
+        val b = bundle(variant("sd", "SD"), variant("uhd", "4K"), variant("hd", "HD"))
+        val index = buildCatalogIndex(b) { false }
+        assertEquals(listOf("uhd"), index.moviesByCategory["drama"]!!.map { it.id })
+        // And the All view, which walks the flat list.
+        assertEquals(listOf("uhd"), index.movies.map { it.id })
+    }
+
+    @Test
+    fun `the survivor stands where the first variant stood`() {
+        // Order is the caller's — playlist order here — and folding must
+        // change which stream the card opens, never where the card sits.
+        val b = bundle(movie("before"), variant("sd", "SD"), variant("uhd", "4K"), movie("after"))
+        val index = buildCatalogIndex(b) { false }
+        assertEquals(listOf("before", "uhd", "after"), index.movies.map { it.id })
+    }
+
+    @Test
+    fun `a named rung beats an unnamed one and a tie keeps the first`() {
+        // rank() puts an unknown quality below SD: a variant whose name never
+        // said what it was only wins when it is the sole copy.
+        val named = buildCatalogIndex(bundle(variant("unknown", null), variant("sd", "SD"))) { false }
+        assertEquals(listOf("sd"), named.movies.map { it.id })
+        val tied = buildCatalogIndex(bundle(variant("first", "HD"), variant("second", "HD"))) { false }
+        assertEquals(listOf("first"), tied.movies.map { it.id })
+    }
+
+    @Test
+    fun `two yearless titles of the same name at the same rung are both kept`() {
+        // cleanTitle strips region tags, so "The Office (US)" and "The Office
+        // (UK)" arrive as one name — and series often carry no year. With
+        // nothing separating them, folding would take a whole show off the
+        // shelf, so a tie without a year keeps both.
+        fun show(id: String, quality: String? = null) =
+            Series(id = id, name = "The Office", poster = null, categoryId = "drama", quality = quality)
+        val index = buildCatalogIndex(bundle(series = listOf(show("us"), show("uk")))) { false }
+        assertEquals(listOf("us", "uk"), index.series.map { it.id })
+    }
+
+    @Test
+    fun `a yearless title still folds when the rungs differ`() {
+        fun show(id: String, quality: String?) =
+            Series(id = id, name = "The Office", poster = null, categoryId = "drama", quality = quality)
+        val index = buildCatalogIndex(
+            bundle(series = listOf(show("hd", "HD"), show("uhd", "4K")))
+        ) { false }
+        assertEquals(listOf("uhd"), index.series.map { it.id })
+    }
+
+    @Test
+    fun `a known year folds a tie, because the year is the evidence`() {
+        val index = buildCatalogIndex(bundle(variant("a", "HD"), variant("b", "HD"))) { false }
+        assertEquals(listOf("a"), index.movies.map { it.id })
+    }
+
+    @Test
+    fun `genre grids fold too`() {
+        val b = bundle(
+            variant("sd", "SD", genre = "Crime"),
+            variant("uhd", "4K", genre = "Crime"),
+        )
+        val index = buildCatalogIndex(b) { false }
+        assertEquals(listOf("uhd"), index.moviesByGenre["crime"]!!.map { it.id })
+    }
+
+    @Test
+    fun `a film filed under two categories stays on both shelves`() {
+        // Folded per shelf, not once over the catalogue: this is the same
+        // title twice, but not a duplicate on either grid it appears on.
+        val b = bundle(variant("inDrama", "HD", categoryId = "drama"), variant("inGhost", "HD", categoryId = "ghost"))
+        val index = buildCatalogIndex(b) { false }
+        assertEquals(listOf("inDrama"), index.moviesByCategory["drama"]!!.map { it.id })
+        assertEquals(listOf("inGhost"), index.moviesByCategory[VOD_MORE]!!.map { it.id })
+    }
+
+    @Test
+    fun `shows fold on their own quality rung`() {
+        fun show(id: String, quality: String?) =
+            Series(id = id, name = "The Wire", poster = null, categoryId = "drama", year = 2002, quality = quality)
+        val b = bundle(series = listOf(show("hd", "HD"), show("uhd", "4K")))
+        val index = buildCatalogIndex(b) { false }
+        assertEquals(listOf("uhd"), index.series.map { it.id })
+        assertEquals(listOf("uhd"), index.seriesByCategory["drama"]!!.map { it.id })
+    }
+
+    @Test
+    fun `recently added takes the best rung, not merely the newest-added`() {
+        // The row is newest-first, so the SD copy dated a day later used to
+        // be the one card the row kept.
+        fun rung(id: String, quality: String?, addedMs: Long) = Movie(
+            id = id, name = "Oppenheimer", poster = null, url = "http://x/movie/$id",
+            categoryId = null, year = currentYear(), quality = quality, addedMs = addedMs,
+        )
+        val index = buildCatalogIndex(
+            ContentBundle(movies = listOf(rung("sd", "SD", 3_000L), rung("uhd", "4K", 2_000L)))
+        ) { false }
+        assertEquals(listOf("uhd"), index.newMovies.map { it.id })
     }
 
     @Test

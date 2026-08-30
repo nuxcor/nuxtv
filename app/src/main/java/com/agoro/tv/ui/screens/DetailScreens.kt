@@ -24,6 +24,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -328,20 +330,16 @@ fun SeriesDetailScreen(
 
     val resumePositions by vm.resumePositions.collectAsState()
     val resumeProgress by vm.resumeProgress.collectAsState()
+    val watchedAt by vm.watchedAt.collectAsState()
     var menuEpisode by remember { mutableStateOf<Pair<Episode, Int>?>(null) }
 
     val eps = episodes
 
-    /**
-     * Where the viewer got to: the furthest episode carrying a resume position.
-     * Continue Watching promises resumption, and following it used to land here
-     * with no primary action, focus wherever Compose put it, and the season list
-     * parked on Season 1 while the part-watched episode sat in Season 3.
-     */
-    val resumeTarget = remember(eps, resumePositions) {
-        eps?.filter { (resumePositions[it.url] ?: 0L) > 0L }
-            ?.maxWithOrNull(compareBy({ it.season }, { it.episodeNum }))
+    /** Where the viewer is in this show; the whole rule lives in [upNext]. */
+    val target = remember(eps, resumePositions, watchedAt) {
+        upNext(eps.orEmpty(), resumePositions, watchedAt)
     }
+    val nextUp = target?.episode
     val playFocus = remember { FocusRequester() }
     LaunchedEffect(seriesId, eps != null) {
         if (eps.isNullOrEmpty()) return@LaunchedEffect
@@ -387,33 +385,47 @@ fun SeriesDetailScreen(
                         text = series.plot.orEmpty(),
                         style = MaterialTheme.typography.bodyMedium,
                         color = NuxColors.OnSurfaceDim,
-                        maxLines = 3,
+                        // Five, not three. The header does not scroll — the
+                        // episode list below it owns the D-pad — so whatever
+                        // the ellipsis cut was unreachable, and a TMDB show
+                        // overview is three to five lines at this size. The
+                        // ellipsis stays for the rare long one; it is no
+                        // longer the ordinary case.
+                        maxLines = 5,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     )
                 }
-                // The header is compact, so credits get one line, not two.
-                (series.cast ?: series.director)?.let {
+                // Both, when the provider sends both. `cast ?: director` gave
+                // a show with a cast list no director at all, and one line was
+                // never the constraint — the header has the room the poster
+                // beside it takes up anyway.
+                series.cast?.takeIf { it.isNotBlank() }?.let {
                     Spacer(Modifier.height(4.dp))
-                    CreditLine(if (series.cast != null) "Starring" else "Director", it)
+                    CreditLine("Starring", it)
+                }
+                series.director?.takeIf { it.isNotBlank() }?.let {
+                    Spacer(Modifier.height(4.dp))
+                    CreditLine("Director", it)
                 }
 
                 // The primary action, focused on arrival — the same shape the
                 // movie page has. Without it this screen was a list of episodes
                 // and nothing else, so Continue Watching handed the viewer a
                 // page and left them to find their own place in it again.
-                if (!eps.isNullOrEmpty()) {
+                if (!eps.isNullOrEmpty() && target != null) {
                     Spacer(Modifier.height(14.dp))
-                    val target = resumeTarget
+                    val episode = target.episode
+                    fun play(startOver: Boolean) {
+                        val list = eps.filter { it.season == episode.season }
+                        vm.playEpisodes(
+                            series, list, list.indexOf(episode).coerceAtLeast(0),
+                            startOver = startOver,
+                        )
+                        onPlay()
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(
-                            onClick = {
-                                val season = target?.season ?: eps.first().season
-                                val list = eps.filter { it.season == season }
-                                val index = target
-                                    ?.let { list.indexOf(it).coerceAtLeast(0) } ?: 0
-                                vm.playEpisodes(series, list, index)
-                                onPlay()
-                            },
+                            onClick = { play(startOver = false) },
                             modifier = Modifier.focusRequester(playFocus),
                         ) {
                             Icon(
@@ -422,23 +434,17 @@ fun SeriesDetailScreen(
                                 modifier = Modifier.size(20.dp),
                             )
                             Spacer(Modifier.width(8.dp))
-                            Text(
-                                if (target != null) {
-                                    "Resume S${target.season}E${target.episodeNum}"
-                                } else "Play"
-                            )
+                            // Names the episode. "Play" alone was the whole
+                            // defect from where the viewer sits: it read as
+                            // "carry on" and started the show again.
+                            Text(upNextLabel(target))
                         }
-                        if (target != null) {
-                            OutlinedButton(onClick = {
-                                val list = eps.filter { it.season == target.season }
-                                vm.playEpisodes(
-                                    series,
-                                    list,
-                                    list.indexOf(target).coerceAtLeast(0),
-                                    startOver = true,
-                                )
-                                onPlay()
-                            }) { Text("Start episode over") }
+                        // Only for a part-watched episode: "start over" on one
+                        // that was never started says nothing.
+                        if (target.resuming) {
+                            OutlinedButton(onClick = { play(startOver = true) }) {
+                                Text("Start episode over")
+                            }
                         }
                         // See the movie screen: BACK is a hardware key.
                     }
@@ -479,18 +485,24 @@ fun SeriesDetailScreen(
             )
             else -> {
                 val seasons = remember(eps) { eps.map { it.season }.distinct().sorted() }
-                // Opens on the season the viewer is part-way through, not on
-                // Season 1 — otherwise resuming a late season means finding it
-                // again by hand every time.
-                var selectedSeason by remember(eps, resumeTarget) {
-                    mutableStateOf(resumeTarget?.season ?: seasons.first())
+                // Opens on the season the next episode is in — the one being
+                // resumed, or the one after the last one finished. Season 1
+                // was where a viewer four seasons deep landed every time.
+                var selectedSeason by remember(eps, nextUp) {
+                    mutableStateOf(nextUp?.season ?: seasons.first())
                 }
                 val seasonEpisodes = remember(eps, selectedSeason) {
                     eps.filter { it.season == selectedSeason }
                 }
 
                 if (seasons.size > 1) {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        // The strip a viewer walks back up to must still be on
+                        // the season they were reading. Every other chip strip
+                        // in the app restores; this one was the exception.
+                        modifier = Modifier.focusRestorer(),
+                    ) {
                         itemsIndexed(seasons) { _, season ->
                             CategoryItem(
                                 name = "Season $season",
@@ -502,37 +514,78 @@ fun SeriesDetailScreen(
                     Spacer(Modifier.height(14.dp))
                 }
 
+                val episodeList = androidx.compose.foundation.lazy.rememberLazyListState()
+                // Open on the episode the button is offering, not on episode 1
+                // of the season. "Resume S3E40" over a list scrolled to S3E01
+                // is the page describing something the viewer cannot see, and
+                // finding it again by hand is forty rows of D-pad.
+                LaunchedEffect(seasonEpisodes, nextUp) {
+                    // One list state serves every season, so a season the
+                    // up-next episode is NOT in must be put back to the top:
+                    // left alone it kept the previous season's offset, and a
+                    // ten-episode Season 1 opened clamped at its bottom after
+                    // Season 3 had been scrolled to episode 40.
+                    val index = nextUp?.let { seasonEpisodes.indexOf(it) } ?: -1
+                    episodeList.scrollToItem(index.coerceAtLeast(0))
+                }
+
                 LazyColumn(
+                    state = episodeList,
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     contentPadding = PaddingValues(bottom = 36.dp),
-                    modifier = Modifier.fillMaxWidth(),
+                    // As on the browse grid: coming back from an episode
+                    // returns to the row it was played from.
+                    modifier = Modifier.fillMaxWidth().focusRestorer(),
                 ) {
                     itemsIndexed(seasonEpisodes, key = { _, e -> e.id }) { index, episode ->
                         val watchedTo = resumePositions[episode.url] ?: 0L
+                        val seen = episode.url in watchedAt
                         WideItem(
                             // No "0." — a panel that numbers nothing gets a
                             // plain title, not a numbering it didn't supply.
                             title = if (episode.episodeNum > 0) {
                                 "${episode.episodeNum}. ${episode.title}"
                             } else episode.title,
-                            subtitle = if (watchedTo > 0) {
-                                "Resume from ${formatOffset(watchedTo)}"
-                            } else {
+                            subtitle = when {
+                                watchedTo > 0 -> "Resume from ${formatOffset(watchedTo)}"
                                 // The season is the strip above; repeating it
                                 // under every row said nothing.
-                                episode.durationText?.let(::prettyDuration)
+                                else -> episode.durationText?.let(::prettyDuration)
                             },
                             // The series synopsis on every episode row is the
                             // same paragraph N times; rows without their own
                             // keep the line for the layout and leave it blank.
                             body = episode.plot ?: series.plot?.let { "" },
-                            imageUrl = episode.poster ?: series.backdrop ?: series.poster,
+                            // The EPISODE's own still, or nothing. Falling
+                            // back to the series art painted the same picture
+                            // down all thirty rows, which reads as a rendering
+                            // fault; Artwork's monogram at least differs per
+                            // episode. See WideItem.
+                            imageUrl = episode.poster,
                             progress = resumeProgress[episode.url],
+                            // A tick, not a word: the row already carries a
+                            // number, a title, a runtime and a synopsis, and
+                            // "Watched" spelled out on half a season is more
+                            // reading than the state is worth.
+                            trailing = if (seen && watchedTo == 0L) {
+                                {
+                                    Icon(
+                                        Icons.Default.CheckCircle,
+                                        contentDescription = "Watched",
+                                        tint = NuxColors.OnSurfaceDim,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            } else null,
                             onClick = {
                                 vm.playEpisodes(series, seasonEpisodes, index)
                                 onPlay()
                             },
-                            onLongClick = if (watchedTo > 0) {
+                            // Reachable for anything with a place to forget —
+                            // part-watched or finished. Before, a finished
+                            // episode had no menu because it had no position,
+                            // which is now the state most worth clearing.
+                            onLongClick = if (watchedTo > 0 || seen) {
                                 { menuEpisode = episode to index }
                             } else null,
                         )
@@ -540,18 +593,34 @@ fun SeriesDetailScreen(
                 }
 
                 menuEpisode?.let { (episode, index) ->
+                    val partWatched = (resumePositions[episode.url] ?: 0L) > 0L
                     ContextMenu(
                         title = "${episode.episodeNum}. ${episode.title}",
-                        actions = listOf(
-                            MenuAction("Resume") {
-                                vm.playEpisodes(series, seasonEpisodes, index)
-                                onPlay()
-                            },
-                            MenuAction("Start over") {
-                                vm.playEpisodes(series, seasonEpisodes, index, startOver = true)
-                                onPlay()
-                            },
-                        ),
+                        actions = buildList {
+                            if (partWatched) {
+                                add(
+                                    MenuAction("Resume") {
+                                        vm.playEpisodes(series, seasonEpisodes, index)
+                                        onPlay()
+                                    }
+                                )
+                            }
+                            add(
+                                MenuAction(if (partWatched) "Start over" else "Play") {
+                                    vm.playEpisodes(series, seasonEpisodes, index, startOver = true)
+                                    onPlay()
+                                }
+                            )
+                            // The way out of a wrong mark — an episode left
+                            // running to the end in another room, a show the
+                            // viewer wants back at the start. Nothing else
+                            // could undo a watch mark.
+                            add(
+                                MenuAction("Mark as unwatched") {
+                                    vm.forgetResume(episode.url)
+                                }
+                            )
+                        },
                         onDismiss = { menuEpisode = null },
                     )
                 }
