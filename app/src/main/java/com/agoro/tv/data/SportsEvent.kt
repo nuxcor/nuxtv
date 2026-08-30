@@ -613,6 +613,41 @@ object SportsParser {
     )
 
     /** Letters and digits only, accents folded, spacing kept as a separator. */
+    /**
+     * Club-name prefixes and suffixes that carry no identity, dropped when two
+     * slots are asked whether they are the same match.
+     *
+     * A side the roster MATCHED is rewritten to the roster's own spelling by
+     * [resolveSides], and two slots then agree. A side it did not match keeps
+     * whatever the provider typed — and only one of the two sides has to match
+     * for a fixture to parse at all — so "SK Slovan Bratislava" on one slot and
+     * "Slovan Bratislava" on another produced two keys, two groups and two
+     * rows for one match. That is the whole of "sometimes I see duplicates":
+     * it happens to the clubs the roster does not cover.
+     */
+    private val clubAffix = setOf(
+        "FC", "CF", "SC", "SK", "SV", "AC", "AS", "SS", "CD", "CA", "AFC", "RC", "RCD",
+        "BK", "IF", "IK", "FK", "NK", "HK", "GKS", "KS", "VFL", "VFB", "TSG", "TSV",
+        "FSV", "MSV", "BSC", "SPVGG", "CFR", "UD", "SD", "AD", "CS", "OGC",
+    )
+
+    /**
+     * One side of a fixture, reduced to the words that identify the club.
+     *
+     * Falls back to the whole normalised name when nothing survives — a club
+     * billed as nothing but an affix is unlikely, and two of them colliding on
+     * an empty key would fold two different matches into one row, which is a
+     * match taken OFF the screen. A duplicate is the cheaper mistake.
+     */
+    internal fun sideKey(side: String): String {
+        val words = norm(side).split(' ').filter { it.isNotEmpty() && it !in clubAffix }
+        return if (words.isEmpty()) norm(side) else words.joinToString(" ")
+    }
+
+    /** The identity two slots share when they carry the same match. */
+    internal fun fixtureKey(event: SportsEvent): String =
+        sideKey(event.home) + "|" + sideKey(event.away)
+
     private fun norm(s: String) = s.uppercase(Locale.ROOT)
         .replace("Ö", "O").replace("Ü", "U").replace("Ä", "A")
         .replace("É", "E").replace("È", "E").replace("Á", "A").replace("Í", "I")
@@ -863,7 +898,7 @@ object SportsParser {
      * has somewhere to go.
      */
     internal fun bestPerFixture(events: List<SportsEvent>): List<SportsEvent> =
-        events.groupBy { norm(it.home) + "|" + norm(it.away) }
+        events.groupBy { fixtureKey(it) }
             .map { (_, sameMatch) ->
                 // The match itself first — over another language's call,
                 // over a side camera — and only then the better picture. A
@@ -933,7 +968,7 @@ object SportsParser {
         // ladder should still be able to reach it when the chosen feed will
         // not open. Excluding them outright was the first cut of this and it
         // quietly cost the row a source.
-        val extras = misshelved.groupBy { norm(it.home) + "|" + norm(it.away) }
+        val extras = misshelved.groupBy { fixtureKey(it) }
         // A fixture carried ONLY by mis-shelved slots still has to reach the
         // screen. Excluding them outright was right for the clock and wrong
         // for the match: a soccer shelf that has the sport wrong can still be
@@ -947,10 +982,10 @@ object SportsParser {
         // had Steelers v Bills correctly at 23:00, that is outside the cue so
         // it produced no row, and the soccer shelf walked in as an "orphan" at
         // 16:00. A trusted slot that says the match is not on yet has spoken.
-        val spokenFor = trusted.mapTo(HashSet()) { norm(it.home) + "|" + norm(it.away) }
+        val spokenFor = trusted.mapTo(HashSet()) { fixtureKey(it) }
         val orphans = bestPerFixture(
             misshelved.filter {
-                inWindow(it) && (norm(it.home) + "|" + norm(it.away)) !in spokenFor
+                inWindow(it) && fixtureKey(it) !in spokenFor
             }
         )
         return (rows + orphans).map { row ->
@@ -958,7 +993,7 @@ object SportsParser {
             // also be a studio show, and unranked it became the first thing
             // the player's ladder reached for when the match feed would not
             // open — the pre-match programme instead of the match.
-            val also = extras[norm(row.home) + "|" + norm(row.away)]
+            val also = extras[fixtureKey(row)]
                 ?.sortedWith(
                     compareBy(
                         { if (it.sideFeed) 2 else if (it.languageFeed) 1 else 0 },

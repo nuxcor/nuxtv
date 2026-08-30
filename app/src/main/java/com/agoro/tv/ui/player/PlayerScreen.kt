@@ -569,7 +569,23 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     // play control on a live remote. VOD stays paused: a film picks up
     // where the viewer chooses.
     DisposableEffect(lifecycleOwner, engine) {
-        var pausedByLifecycle = false
+        // Whether the app has actually been away, as opposed to this observer
+        // being attached — addObserver replays ON_START for an owner that is
+        // already started, and the resume below must not fire on a stream
+        // that has simply not begun yet.
+        //
+        // It replaces a `pausedByLifecycle` flag that was only set when WE
+        // paused a PLAYING engine, which is the narrower question and the
+        // wrong one: a live stream that was stalled or buffering when the app
+        // went away failed that test, so nothing resumed it on return — and
+        // the death timer, which stands down while the app is in the
+        // background (appForeground, below), had already been silenced. The
+        // viewer came back to a black, silent screen with no card on it,
+        // because the surface is cleared on reset (keepContentOnPlayerReset
+        // is false) and nothing had put either the tune card or an error over
+        // it. Leaving the player and coming back in was the only way out —
+        // which is exactly what it re-does: it re-opens the stream.
+        var wasBackgrounded = false
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             when (event) {
                 androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
@@ -579,17 +595,23 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     // below cannot speak for it — the death watchdog reads
                     // this instead rather than reconnecting into the launcher.
                     session.appForeground = pip
-                    if (!pip && engine.isPlaying) {
-                        engine.playPause()
-                        pausedByLifecycle = true
+                    if (!pip) {
+                        wasBackgrounded = true
+                        if (engine.isPlaying) engine.playPause()
                     }
                 }
                 androidx.lifecycle.Lifecycle.Event.ON_START -> {
                     session.appForeground = true
-                    if (pausedByLifecycle && request.isLive && !engine.isPlaying) {
-                        session.togglePlayPause()
+                    // Live comes back playing however it stopped — the way a
+                    // television does when the input is switched back to it.
+                    // A re-open, not a resume: the stream may have been dead
+                    // for the whole time the app was away, and playWhenReady
+                    // on a closed socket puts nothing on screen. VOD is left
+                    // alone; a film picks up where the viewer chooses.
+                    if (wasBackgrounded && request.isLive && !engine.isPlaying) {
+                        session.rejoinLive()
                     }
-                    pausedByLifecycle = false
+                    wasBackgrounded = false
                 }
                 else -> Unit
             }

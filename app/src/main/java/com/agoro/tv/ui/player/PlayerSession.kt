@@ -1005,6 +1005,25 @@ class PlayerSession internal constructor(
      * paused past [LIVE_PAUSE_REJOIN_MS] re-tunes to the live edge instead of
      * playing out a stale buffer the provider has likely dropped anyway.
      */
+    /**
+     * Re-opens the current live stream at the edge, whatever state it left off
+     * in — paused by us, stalled, or idle behind a socket that died.
+     *
+     * [togglePlayPause] cannot do this job. Its re-tune is gated on
+     * [pauseStartedMs], which is only ever set when playback stopped while the
+     * VIEWER was watching it stop; a stream that died on its own leaves it at
+     * zero, so the toggle fell through to `playPause()` — playWhenReady = true
+     * on a player whose connection is gone, which changes nothing on screen.
+     */
+    fun rejoinLive() {
+        val engine = engine ?: return
+        pauseStartedMs = 0L
+        clearError()
+        resetLadder(engine.currentIndex)
+        tuning = true
+        engine.playAt(engine.currentIndex)
+    }
+
     fun togglePlayPause() {
         val engine = engine ?: return
         if (!engine.isPlaying && request.isLive && pauseStartedMs > 0 &&
