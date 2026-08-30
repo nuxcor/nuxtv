@@ -39,8 +39,15 @@ object ContentClassifier {
     private val vodExtensions = setOf("mp4", "mkv", "avi", "mov", "flv", "wmv", "m4v", "webm", "mpg", "mpeg")
 
     private val yearPattern = Regex("""[(\[]?((?:19|20)\d{2})[)\]]?""")
+    // Must cover every token [QualityTag.of] can recognise, or the two
+    // disagree about what a title is called: "Heat 480p" kept its rung here
+    // and cleaned to "Heat 480p" while "Heat 4K" cleaned to "Heat", so the
+    // two never shared a key and the fold that exists to collapse them never
+    // saw them as the same film. 2K, 1440p, 480p, 576p, 3840p and "full hd"
+    // were all in QualityTag and missing here.
     private val qualityNoise = Regex(
-        """(?i)[\[(]?\b(4k|uhd|fhd|hd|sd|hevc|h\.?26[45]|x26[45]|1080p?|720p?|2160p?|multi(?:sub)?|vip)\b[\])]?"""
+        """(?i)[\[(]?\b(4k|8k|uhd|2k|fhd|full\s?hd|hd|sd|hevc|h\.?26[45]|x26[45]|""" +
+            """1080p?|720p?|1440p?|2160p?|3840p|4320p|480p?|576p?|multi(?:sub)?|vip)\b[\])]?"""
     )
 
     fun classify(entries: List<M3uEntry>): ContentBundle {

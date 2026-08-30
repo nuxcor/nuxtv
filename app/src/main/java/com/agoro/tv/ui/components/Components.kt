@@ -581,6 +581,13 @@ fun WideItem(
     progress: Float? = null,
     selected: Boolean = false,
     leading: (@Composable () -> Unit)? = null,
+    /**
+     * Drawn at the far end, after [badge]. A state mark rather than a label —
+     * the episode list's watched tick is what it exists for, and a row that
+     * already carries a number, a title, a runtime and a synopsis has no room
+     * left for another word.
+     */
+    trailing: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
@@ -689,6 +696,9 @@ fun WideItem(
                 Box(modifier = Modifier.padding(start = 4.dp)) {
                     MetaChip(badge, accent = true)
                 }
+            }
+            if (trailing != null) {
+                Box(modifier = Modifier.padding(start = 4.dp)) { trailing() }
             }
         }
     }

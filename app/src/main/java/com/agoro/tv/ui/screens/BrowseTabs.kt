@@ -64,6 +64,7 @@ import com.agoro.tv.ui.components.Artwork
 import com.agoro.tv.ui.components.BackdropLayer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.VideoLibrary
 import com.agoro.tv.ui.components.StatusAction
 import com.agoro.tv.ui.components.StatusPane
@@ -135,6 +136,16 @@ private val FOCUS_OVERHANG = 12.dp
 private fun gridColumnsFor(width: Dp): Int =
     ((width + GRID_GAP) / (POSTER_TARGET_WIDTH + GRID_GAP)).let { kotlin.math.round(it).toInt() }
         .coerceIn(3, 7)
+/**
+ * The strip's "Search" chip. An ACTION wearing a filter's clothes: it is in
+ * [VodBrowser]'s `shown` list so it rides the same LazyRow, the same focus
+ * travel and the same restorer as the categories around it, but nothing ever
+ * assigns it to `selectedCategory` — the item block branches on this id
+ * before a [CategoryItem] with an onClick is ever built. So `activeCategory`
+ * cannot land here, and `entriesFor` is never asked about it.
+ */
+internal const val VOD_SEARCH = "__search__"
+
 internal const val VOD_CONTINUE = "__continue__"
 
 /** Titles filed under a category the playlist never declared — see [CatalogIndex]. */
@@ -327,11 +338,22 @@ private fun VodBrowser(
     continueWatching: List<VodEntry>,
     entriesFor: (String) -> VodPage,
     initialHero: HeroInfo?,
+    onOpenSearch: () -> Unit,
 ) {
     var selectedCategory by rememberSaveable { mutableStateOf(VOD_ALL) }
     val shown = remember(categories, continueWatching.isNotEmpty()) {
         buildList {
             add(Category(id = VOD_ALL, name = "All"))
+            // SECOND, never first. Arrival focus lands on this row's first
+            // child on a fresh visit — focusRestorer only restores a child it
+            // has already seen — and a viewer opening Movies must land on
+            // their library, not on a search box. This app has shipped
+            // "boots on Search" once already. Second costs one RIGHT press
+            // from where arrival lands AND from where UP out of the grid
+            // lands, which is as close as it gets without taking the head of
+            // the row. Fixed position, so it does not move when "Continue
+            // watching" appears.
+            add(Category(id = VOD_SEARCH, name = "Search"))
             // Only once there is something in it: an empty shortcut is a dead
             // end that still costs a D-pad press to walk past.
             if (continueWatching.isNotEmpty()) {
@@ -461,11 +483,17 @@ private fun VodBrowser(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(end = 16.dp),
         ) {
-            itemsIndexed(shown, key = { _, c -> c.id }) { index, category ->
+            itemsIndexed(shown, key = { _, c -> c.id }) { _, category ->
+                // Search navigates and never selects — the icon is what tells
+                // the eye it is not a filter, and `selected` is wired false so
+                // it can never wear the strip's gold. One call, so the arrival
+                // guard below has one place to live rather than two.
+                val isSearch = category.id == VOD_SEARCH
                 CategoryItem(
                     name = category.name,
-                    selected = category.id == activeCategory,
-                    onClick = { selectedCategory = category.id },
+                    selected = !isSearch && category.id == activeCategory,
+                    onClick = { if (isSearch) onOpenSearch() else selectedCategory = category.id },
+                    leadingIcon = Icons.Default.Search.takeIf { isSearch },
                     onFocus = {
                         if (arriving[0]) return@CategoryItem
                         browsingGrid = false
@@ -675,6 +703,7 @@ fun MoviesTab(
     bundle: ContentBundle,
     onOpenMovie: (Movie) -> Unit,
     onOpenSettings: () -> Unit = {},
+    onOpenSearch: () -> Unit = {},
 ) {
     if (bundle.movies.isEmpty()) {
         // Every empty state carries the same three things: a mark, one line
@@ -760,6 +789,7 @@ fun MoviesTab(
             VodPage(list.size, { list[it].id }, { list[it].entry() })
         },
         initialHero = remember(index) { index.movies.firstOrNull()?.toHero() },
+        onOpenSearch = onOpenSearch,
     )
 }
 
@@ -769,6 +799,7 @@ fun SeriesTab(
     bundle: ContentBundle,
     onOpenSeries: (Series) -> Unit,
     onOpenSettings: () -> Unit = {},
+    onOpenSearch: () -> Unit = {},
 ) {
     if (bundle.series.isEmpty()) {
         StatusPane(
@@ -853,6 +884,7 @@ fun SeriesTab(
             VodPage(list.size, { list[it].id }, { list[it].entry() })
         },
         initialHero = remember(index) { index.series.firstOrNull()?.toHero() },
+        onOpenSearch = onOpenSearch,
     )
 }
 

@@ -178,6 +178,14 @@ data class Series(
     /** Present for M3U sources; null for Xtream (fetched lazily). */
     val episodes: List<Episode>? = null,
     val xtreamId: Int? = null,
+    /**
+     * Advertised quality parsed from the raw name (4K/FHD/HD/SD), the same
+     * field [Movie] carries and for the same reason: providers list one show
+     * several times at different rungs, [name] is the cleaned title so the
+     * rungs all reduce to it, and something has to say which of them is the
+     * one worth keeping. See `foldVariants`.
+     */
+    val quality: String? = null,
     /** Review excerpts ("author — text"), populated from TMDB when a key is set. */
     val reviews: List<String> = emptyList(),
     val voteCount: Int? = null,

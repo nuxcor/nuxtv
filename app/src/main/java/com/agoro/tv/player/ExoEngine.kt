@@ -221,6 +221,53 @@ class ExoEngine(
 
     private val underruns = ArrayDeque<Long>()
 
+    // --- stall watchdog ----------------------------------------------------
+    //
+    // "It says it's live and the screen is black" — no picture, no sound, no
+    // error card, cleared only by leaving the player and coming back in. The
+    // rule, and why none of the watchdogs above catches it, is in
+    // [StallMonitor]; this is the polling and what the verdict costs.
+
+    private val stall = StallMonitor(STUCK_GRACE_MS)
+
+    private val stallCheck = object : Runnable {
+        override fun run() {
+            if (released || !main || !player.isPlaying) return
+            val now = android.os.SystemClock.elapsedRealtime()
+            val position = player.currentPosition
+            // A renderer reconfiguration empties the decoders and refills
+            // them — the same window [noteBuffering] ignores, and for the
+            // same reason.
+            val settling = now - reconfiguredAtMs < RECONFIGURE_GRACE_MS
+            if (stall.sample(position, now, settling)) {
+                android.util.Log.w(
+                    "Agoro",
+                    "Playing but the clock stood still for ${STUCK_GRACE_MS}ms at ${position}ms: " +
+                        "buffered=${player.totalBufferedDuration}ms tunnelled=$tunnelling live=$live " +
+                        "video=${videoDecoderName ?: "none"} audio=${audioDecoderName ?: "passthrough"} " +
+                        "frameDrawn=$firstFrameDrawn audioAdvancing=$audioAdvancing; reopening the stream",
+                )
+                // Let go of the connection before the ladder asks for another.
+                // The session stops only an engine that admits it is not
+                // playing — this one does not — and on a one-connection line
+                // the re-open would then be racing our own dead socket for the
+                // slot it still holds. Nothing is coming out of it, so nothing
+                // is lost; stop() keeps the position for a film to resume from.
+                stop()
+                listener?.onError("the stream stopped sending", PlaybackFault.TRANSIENT)
+                return
+            }
+            mainHandler.postDelayed(this, STUCK_POLL_MS)
+        }
+    }
+
+    /** (Re)starts the stall poll from a clean baseline; only playing time counts. */
+    private fun scheduleStallCheck() {
+        mainHandler.removeCallbacks(stallCheck)
+        stall.reset()
+        if (main && !released && player.isPlaying) mainHandler.postDelayed(stallCheck, STUCK_POLL_MS)
+    }
+
     private fun resetWatchdog() {
         audioArmed = false
         audioAdvancing = false
@@ -232,7 +279,9 @@ class ExoEngine(
         firstFrameDrawn = false
         surfaceLost = false
         underruns.clear()
+        stall.reset()
         mainHandler.removeCallbacks(outputCheck)
+        mainHandler.removeCallbacks(stallCheck)
     }
 
     /** (Re)starts the grace clock; only playing time counts, so it is armed by playing. */
@@ -504,6 +553,11 @@ class ExoEngine(
     /** Any track change re-buffers with a full buffer; [noteBuffering] must not read that as a freeze. */
     private fun markReconfigured() {
         reconfiguredAtMs = android.os.SystemClock.elapsedRealtime()
+        // The stall poll reads this same clock through its `settling` flag —
+        // a seek is the one thing that moves the position BACKWARDS, and
+        // inside the window that counts as the clock still running. It is NOT
+        // also reset here: two mechanisms for one job meant the reset always
+        // won, and `settling` was a branch nothing could reach.
     }
 
     /** The first decoded format tells whether this stream is one worth tunnelling. */
@@ -606,6 +660,20 @@ class ExoEngine(
          * BUFFERING inside this window is theirs, not the device's.
          */
         const val RECONFIGURE_GRACE_MS = 5_000L
+
+        /**
+         * How often the stall watchdog reads the player's clock, and how long
+         * that clock may stand still while the player claims to be playing
+         * before the stream is taken as dead.
+         *
+         * Six seconds to match [OUTPUT_GRACE_MS] — the same "this is no
+         * longer a hiccup" figure the output watchdogs use — polled at two so
+         * the verdict lands within a couple of seconds of earning it rather
+         * than a whole grace period later. The poll reads one long off the
+         * player and only runs while it is playing.
+         */
+        const val STUCK_GRACE_MS = 6_000L
+        const val STUCK_POLL_MS = 2_000L
     }
 
     /**
@@ -680,15 +748,26 @@ class ExoEngine(
             // whose provider closed the connection reads to ExoPlayer as a
             // clean end of stream, and with the category as its playlist it
             // used to answer that by quietly advancing to the next channel.
-            when {
-                live -> listener?.onError("The stream ended unexpectedly", PlaybackFault.TRANSIENT)
-                index < items.size - 1 -> playAt(index + 1)
+            if (live) {
+                listener?.onError("The stream ended unexpectedly", PlaybackFault.TRANSIENT)
+                return
             }
+            // Announced BEFORE the advance, while the duration still belongs
+            // to the item that just finished — this is the only moment anyone
+            // learns that it did.
+            listener?.onItemEnded(index, player.duration.takeIf { it != C.TIME_UNSET } ?: 0L)
+            if (index < items.size - 1) playAt(index + 1)
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             wasPlaying = isPlaying
-            if (isPlaying) scheduleOutputCheck() else mainHandler.removeCallbacks(outputCheck)
+            if (isPlaying) {
+                scheduleOutputCheck()
+                scheduleStallCheck()
+            } else {
+                mainHandler.removeCallbacks(outputCheck)
+                mainHandler.removeCallbacks(stallCheck)
+            }
             listener?.onPlayingChanged(
                 playing = isPlaying,
                 buffering = player.playbackState == Player.STATE_BUFFERING,

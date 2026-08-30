@@ -244,6 +244,21 @@ interface PlayerEngine {
 
     interface Listener {
         fun onItemChanged(index: Int)
+
+        /**
+         * `items[index]` played through to its end.
+         *
+         * Nothing else says so. A resume position is persisted only when the
+         * engine is torn down, and an item that ends mid-playlist is replaced
+         * without one — so a box set watched straight through recorded
+         * nothing at all for every episode but the last. That is the whole of
+         * "the app forgot where I was" for anyone who binges.
+         *
+         * @param durationMs the finished item's duration, passed rather than
+         * read back: by the time a listener could ask, the engine has already
+         * opened the next item.
+         */
+        fun onItemEnded(index: Int, durationMs: Long) {}
         fun onPlayingChanged(playing: Boolean, buffering: Boolean)
         /**
          * @param message the reason, in words a viewer can act on.

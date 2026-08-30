@@ -286,6 +286,11 @@ class XtreamClient(
                 cast = (obj.str("cast") ?: obj.str("actors"))?.takeIf { it.isNotBlank() },
                 director = obj.str("director")?.takeIf { it.isNotBlank() },
                 xtreamId = id,
+                // Read from the RAW name, before cleanTitle strips the token:
+                // that strip is what makes "Show 4K" and "Show HD" reduce to
+                // one title, and without this the fold that follows would
+                // have no way to tell which of them is the 4K one.
+                quality = obj.str("name")?.let { QualityTag.of(it) },
                 // Series have no `added`; `last_modified` is the panel's
                 // equivalent — it moves when a new episode lands, which is
                 // exactly what "recently added" should surface for a box set.
