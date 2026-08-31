@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,9 +41,7 @@ import com.agoro.tv.data.ContentBundle
 import com.agoro.tv.ui.components.ScreenTitle
 import com.agoro.tv.ui.components.WideItem
 import com.agoro.tv.ui.theme.NuxColors
-import com.agoro.tv.ui.theme.NuxMotion
 import com.agoro.tv.ui.theme.Space
-import kotlinx.coroutines.delay
 
 @Composable
 internal fun ChannelManager(vm: MainViewModel, bundle: ContentBundle, onClose: () -> Unit) {
@@ -75,12 +72,13 @@ internal fun ChannelManager(vm: MainViewModel, bundle: ContentBundle, onClose: (
             listOf(Category(id = CATEGORY_ALL, name = "All channels")) + bundle.liveCategories
         }
         val activeCategory = resolveCategoryId(selectedCategory, categories)
-        var focusedCategory by remember { mutableStateOf<String?>(null) }
-        LaunchedEffect(focusedCategory) {
-            val id = focusedCategory ?: return@LaunchedEffect
-            delay(NuxMotion.FocusDwellMs.toLong())
-            selectedCategory = id
-        }
+        // No dwell-select. This was the last one left in the app: Live TV, the
+        // guide, Movies, Shows and the player's guide all moved to OK-selects,
+        // on the reasoning the guide writes down — two category controls
+        // disagreeing about whether resting counts as choosing is exactly the
+        // inconsistency that reads as a bug. It bit hardest here, where the
+        // whole job is travelling a few hundred categories to find one channel,
+        // so every name passed over re-filtered the list beside it.
         val channels = remember(bundle, activeCategory) {
             if (activeCategory == CATEGORY_ALL) bundle.channels
             else bundle.channels.filter { it.categoryId == activeCategory }
@@ -110,8 +108,6 @@ internal fun ChannelManager(vm: MainViewModel, bundle: ContentBundle, onClose: (
                         name = category.name,
                         selected = category.id == activeCategory,
                         onClick = { selectedCategory = category.id },
-                        onFocus = { focusedCategory = category.id },
-                        onBlur = { if (focusedCategory == category.id) focusedCategory = null },
                         modifier = if (index == 0) {
                             Modifier.fillMaxWidth().focusRequester(arrival)
                         } else Modifier.fillMaxWidth(),

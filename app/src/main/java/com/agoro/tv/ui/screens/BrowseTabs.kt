@@ -61,6 +61,8 @@ import com.agoro.tv.data.ContentBundle
 import com.agoro.tv.data.Movie
 import com.agoro.tv.data.Series
 import com.agoro.tv.ui.components.Artwork
+import com.agoro.tv.ui.components.ContextMenu
+import com.agoro.tv.ui.components.MenuAction
 import com.agoro.tv.ui.components.BackdropLayer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Movie
@@ -249,6 +251,18 @@ internal data class VodEntry(
     val onOpen: () -> Unit,
     /** Fired once when the tile gains focus — series use it to warm episodes. */
     val onFocus: () -> Unit = {},
+    /**
+     * Hold OK. Empty means the card has no menu, and that is the common case
+     * on purpose: a menu offering only what OK already does is a second way to
+     * do nothing new (the rule [HomeMenu] states). A film qualifies because
+     * Play is an action its detail screen owns and OK does not; a show does
+     * not, because which episode its card means is a question only the detail
+     * screen can answer.
+     *
+     * "Not interested" stays off this list. It hides a title from HOME, and
+     * offering it on the shelf the title lives in would read as a delete.
+     */
+    val menuActions: List<MenuAction> = emptyList(),
 )
 
 data class HeroInfo(
@@ -461,6 +475,27 @@ private fun VodBrowser(
         }
     }
 
+    // Hold-OK's menu, and the cell it was opened on so focus can come back:
+    // left to Compose, a dismissed menu drops focus on the nearest node — the
+    // category strip, clear above the grid. Armed by the dismissal and run by
+    // the effect in the frame the menu unmounts, before the next key event can
+    // arrive; the dialog scaffold refuses a request made any earlier. The
+    // index is read in the cell block below, which costs one recomposition of
+    // the composed cells per menu open — not per keypress.
+    var menuEntry by remember { mutableStateOf<VodEntry?>(null) }
+    var menuIndex by remember { mutableStateOf(-1) }
+    val menuOriginFocus = remember { FocusRequester() }
+    val menuReturnPending = remember { booleanArrayOf(false) }
+    LaunchedEffect(menuEntry) {
+        if (menuEntry != null || !menuReturnPending[0]) return@LaunchedEffect
+        menuReturnPending[0] = false
+        menuOriginFocus.requestFocusRetrying(retries = 5, intervalMs = 60)
+        // Released once focus has landed. Left set it would follow the index
+        // into another category, where cell N is an unrelated film still
+        // carrying a requester no menu was opened on.
+        menuIndex = -1
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
     // Ambient artwork for the focused entry behind the whole browse pane. The
     // poster is the stand-in, not the request: asking for the 16:9 art even
@@ -616,10 +651,25 @@ private fun VodBrowser(
                         // The arrival requester rides on exactly one cell —
                         // the one chosen at composition — and is never asked
                         // for again, so no cell needs to watch the index.
-                        modifier = if (index == returnIndex) {
-                            Modifier.focusRequester(posterFocus)
-                        } else Modifier,
+                        // The MENU anchor is tested first. The other way round,
+                        // long-pressing the very poster the viewer arrived back
+                        // on gave that cell the arrival requester and left
+                        // menuOriginFocus attached to nothing — so the return
+                        // failed on exactly the card most likely to be held.
+                        // Safe in that order because the arrival requester is
+                        // spent once, at composition, when menuIndex is still -1.
+                        modifier = when (index) {
+                            menuIndex -> Modifier.focusRequester(menuOriginFocus)
+                            returnIndex -> Modifier.focusRequester(posterFocus)
+                            else -> Modifier
+                        },
                         onClick = entry.onOpen,
+                        onLongClick = if (entry.menuActions.isEmpty()) null else {
+                            {
+                                menuIndex = index
+                                menuEntry = entry
+                            }
+                        },
                         onFocus = {
                             browsingGrid = true
                             focusedEntryIndex = index
@@ -630,6 +680,21 @@ private fun VodBrowser(
             }
         }
         }
+    }
+    menuEntry?.let { entry ->
+        ContextMenu(
+            title = entry.title,
+            // ContextMenu closes itself after a choice, so onDismiss below is
+            // the single place the return is armed — for a pick and a cancel
+            // alike.
+            actions = entry.menuActions,
+            onDismiss = {
+                // Arm the return first, then unmount: the effect above runs in
+                // the frame the menu leaves and finds the flag set.
+                menuReturnPending[0] = true
+                menuEntry = null
+            },
+        )
     }
     }
 }
@@ -657,7 +722,7 @@ private fun BrowseHeroSlot(hero: State<HeroInfo?>) {
 }
 
 /** The pinned hero's slot — one line of title and chips. */
-private val BROWSE_HERO_HEIGHT = 52.dp
+internal val BROWSE_HERO_HEIGHT = 52.dp
 
 /**
  * Title and chips on one line, for the browse grids. Home's two-deck
@@ -666,7 +731,7 @@ private val BROWSE_HERO_HEIGHT = 52.dp
  * the detail page anyway.
  */
 @Composable
-private fun BrowseHero(hero: HeroInfo?) {
+internal fun BrowseHero(hero: HeroInfo?) {
     if (hero == null) return
     androidx.compose.animation.AnimatedContent(
         targetState = hero,
@@ -702,6 +767,8 @@ fun MoviesTab(
     vm: MainViewModel,
     bundle: ContentBundle,
     onOpenMovie: (Movie) -> Unit,
+    /** Hold OK on a poster offers Play, which is the one action OK doesn't. */
+    onPlay: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenSearch: () -> Unit = {},
 ) {
@@ -763,6 +830,14 @@ fun MoviesTab(
         progress = resumeProgress[url],
         hero = toHero(),
         onOpen = { onOpenMovie(this) },
+        // The same two words Home's catalogue menu uses, in the same order, so
+        // the same hold on the same film reads the same on both screens. "Not
+        // interested" is absent by design: it hides a title from HOME, and on
+        // the shelf the title lives in it would read as a delete.
+        menuActions = listOf(
+            MenuAction("Play") { vm.playMovie(this); onPlay() },
+            MenuAction("Details") { onOpenMovie(this) },
+        ),
     )
 
     // Newest first, like Home's shelf — the index already orders it so.

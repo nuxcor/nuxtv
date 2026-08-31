@@ -332,6 +332,34 @@ fun SeriesDetailScreen(
     val resumeProgress by vm.resumeProgress.collectAsState()
     val watchedAt by vm.watchedAt.collectAsState()
     var menuEpisode by remember { mutableStateOf<Pair<Episode, Int>?>(null) }
+    // The row the menu was opened on keeps a requester so focus can come back
+    // to it. This was the one ContextMenu in the app without the return: left
+    // to Compose, a dismissed menu reseats focus on the nearest node — here
+    // the Resume button at the top of the page, which on a forty-episode
+    // season is a long way from the row the viewer was standing on.
+    //
+    // Armed by the dismissal (a plain holder: nothing in composition reads it)
+    // and run by the effect below in the frame the menu unmounts, before the
+    // next key event can arrive. It cannot be asked any earlier: the dialog
+    // scaffold cancels any focus exit while it stands.
+    val menuOriginFocus = remember { FocusRequester() }
+    // The anchor is its OWN state, and that is the whole trick: derived from
+    // menuEpisode it would go null in the very composition that unmounts the
+    // menu, detaching the requester a frame before the effect below asks it
+    // for anything — requestFocus on a requester with no node fails every
+    // retry, and focus stays where Compose put it. Which is the bug this
+    // exists to fix. Search and the browse grid keep theirs the same way.
+    var menuOriginId by remember { mutableStateOf<String?>(null) }
+    val returnFocusPending = remember { booleanArrayOf(false) }
+    LaunchedEffect(menuEpisode) {
+        if (menuEpisode != null || !returnFocusPending[0]) return@LaunchedEffect
+        returnFocusPending[0] = false
+        menuOriginFocus.requestFocusRetrying(retries = 5, intervalMs = 60)
+        // Released only once focus has landed; a detached requester is fine
+        // from here, and leaving it attached would keep a live branch on a row
+        // no menu is open on.
+        menuOriginId = null
+    }
 
     val eps = episodes
 
@@ -563,6 +591,9 @@ fun SeriesDetailScreen(
                             // episode. See WideItem.
                             imageUrl = episode.poster,
                             progress = resumeProgress[episode.url],
+                            modifier = if (episode.id == menuOriginId) {
+                                Modifier.focusRequester(menuOriginFocus)
+                            } else Modifier,
                             // A tick, not a word: the row already carries a
                             // number, a title, a runtime and a synopsis, and
                             // "Watched" spelled out on half a season is more
@@ -586,7 +617,10 @@ fun SeriesDetailScreen(
                             // episode had no menu because it had no position,
                             // which is now the state most worth clearing.
                             onLongClick = if (watchedTo > 0 || seen) {
-                                { menuEpisode = episode to index }
+                                {
+                                    menuOriginId = episode.id
+                                    menuEpisode = episode to index
+                                }
                             } else null,
                         )
                     }
@@ -621,7 +655,13 @@ fun SeriesDetailScreen(
                                 }
                             )
                         },
-                        onDismiss = { menuEpisode = null },
+                        onDismiss = {
+                            // Arm the return first, then unmount: the effect
+                            // above runs in the frame the menu leaves and
+                            // finds the flag set.
+                            returnFocusPending[0] = true
+                            menuEpisode = null
+                        },
                     )
                 }
             }

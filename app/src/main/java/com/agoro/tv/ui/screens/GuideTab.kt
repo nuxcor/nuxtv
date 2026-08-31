@@ -529,7 +529,7 @@ fun GuideTab(
             windowStart, windowEnd, nowTick,
             nowTick + dayOffset * 24 * 3600_000L, timelineScroll, dpPerMinute,
             laneWidth = laneWidth,
-            dayLabel = if (maxDayOffset > 0) dayLabel(baseStart, dayOffset) else null,
+            dayLabel = if (maxDayOffset > 0) dayLabel(dayOffset) else null,
             // Cycles rather than clamping: one control, and the way back from
             // the last day is never a hunt for a second one that has quietly
             // greyed itself out.
@@ -942,13 +942,27 @@ private fun GuideNoticeBar(notice: GuideNotice) {
  * here made the first focus entry into the tab land on an invisible, inert
  * control.
  */
-/** "Today", "Tomorrow", then the date itself — never a bare offset. */
-private fun dayLabel(baseStartMs: Long, offset: Int): String = when (offset) {
-    0 -> "Today"
-    1 -> "Tomorrow"
-    else -> SimpleDateFormat("EEE d MMM", Locale.getDefault())
-        .format(Date(baseStartMs + offset * 24 * 3600_000L))
-}
+/**
+ * "Today", "Tomorrow", then the date itself — never a bare offset.
+ *
+ * Dated from TODAY, not from the guide's [baseStartMs]. That anchor is "now,
+ * floored to the half hour, minus an hour" — a scroll position, not a date —
+ * so between midnight and 1am it sits on yesterday and every dated chip read a
+ * day early. Offsets 0 and 1 are words, so only the third day forward and
+ * beyond ever showed it, which is why it survived this long.
+ */
+internal fun dayLabel(offset: Int, nowMs: Long = System.currentTimeMillis()): String =
+    when (offset) {
+        0 -> "Today"
+        1 -> "Tomorrow"
+        else -> {
+            val day = java.util.Calendar.getInstance().apply {
+                timeInMillis = nowMs
+                add(java.util.Calendar.DAY_OF_YEAR, offset)
+            }
+            SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(day.time)
+        }
+    }
 
 /** One entry in the category strip: a territory's name, or a shelf. */
 internal sealed interface StripEntry {

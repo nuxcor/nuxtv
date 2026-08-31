@@ -182,7 +182,23 @@ internal fun LiveTab(
     val categories = remember(bundle, favorites, recents, allVisible) {
         liveCategoryList(bundle, allVisible, favorites, recents)
     }
-    var selectedCategory by rememberSaveable(bundle.channels.size) { mutableStateOf(CATEGORY_ALL) }
+    // Keyed on the PLAYLIST, which is the identity the old key was groping
+    // for. It was the channel count, and a count is not an identity:
+    // refreshIfStale runs on every ON_RESUME and the in-app cycle is hourly, so
+    // a provider adding or dropping one channel discarded the saved value and
+    // dumped the viewer back on the first chip with the grid re-filtered under
+    // them.
+    //
+    // No key at all was the other half-answer. Xtream category ids are bare
+    // numbers, so "12" is Sports on one panel and something else entirely on
+    // the next — and because that id DOES exist in the new list,
+    // resolveCategoryId happily keeps it and opens on a category the viewer
+    // never chose. The source id separates the two cases: a refresh keeps your
+    // place, a different playlist starts fresh.
+    val activeSource by vm.activeSource.collectAsState()
+    var selectedCategory by rememberSaveable(activeSource?.id) {
+        mutableStateOf(CATEGORY_ALL)
+    }
     // Recent and Favorites come and go as the viewer watches and stars things,
     // so the selection can outlive the category it names.
     val activeCategory = resolveCategoryId(selectedCategory, categories)
@@ -393,18 +409,14 @@ fun CategoryItem(
      * category, which is every other call site.
      */
     leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    // No onBlur. It existed for dwell-select owners to cancel a pending
+    // select, and there are none left in the app — the last of them was
+    // Manage channels' category column.
     onFocus: () -> Unit = {},
-    /**
-     * Focus left the chip. Dwell-select owners cancel their pending select
-     * here: a chip focus passes over on its way somewhere else — the shell's
-     * parking on a return from the player, a grid's UP redirect — must not
-     * go on to switch the category a quarter-second after focus has gone.
-     */
-    onBlur: () -> Unit = {},
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.onFocusChanged { if (it.isFocused) onFocus() else onBlur() },
+        modifier = modifier.onFocusChanged { if (it.isFocused) onFocus() },
         // 14dp: at 8dp these read as rectangles with the corners knocked
         // off, and at a full capsule they read as lozenges — more shape than
         // the word inside needs on something this wide and short.

@@ -50,6 +50,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.agoro.tv.MainViewModel
 import com.agoro.tv.data.LiveChannel
+import com.agoro.tv.ui.components.focusTrap
 import com.agoro.tv.ui.components.requestFocusRetrying
 import com.agoro.tv.ui.screens.channelsInCategory
 import com.agoro.tv.ui.screens.liveCategoryList
@@ -137,8 +138,28 @@ internal fun ChannelListPanel(
         listState.scrollToItem(target)
         firstFocus.requestFocusRetrying()
     }
+    // The column opens ON the category being browsed, not at the top of the
+    // list. It used to put the requester on row zero and never scroll, so on a
+    // nineteen-shelf lineup every walk out to the categories landed at the head
+    // of a list with nothing saying where in it the viewer already was. Every
+    // other chip strip in the app restores its place; this one is the last that
+    // did not.
+    //
+    // Re-seated on every open, and not because the state is thrown away — it is
+    // hoisted here, so it survives the AnimatedVisibility. That is exactly why:
+    // left alone it would restore the PREVIOUS open's offset, which is the
+    // wrong place as soon as the category has changed since.
+    val categoryListState = rememberLazyListState()
+    // Remembered: this scope recomposes on categoryId, categoriesOpen and
+    // returnTick, and a full Xtream lineup is several hundred categories to
+    // walk for an index that only moves when one of two things changes.
+    val selectedCategoryIndex = remember(categories, categoryId) {
+        categories.indexOfFirst { it.id == categoryId }
+    }
     LaunchedEffect(categoriesOpen) {
         if (!categoriesOpen) return@LaunchedEffect
+        if (selectedCategoryIndex >= 0) categoryListState.scrollToItem(selectedCategoryIndex)
+        // The row composes a frame after the scroll; retry briefly.
         categoryFocus.requestFocusRetrying()
     }
 
@@ -150,7 +171,12 @@ internal fun ChannelListPanel(
         returnTick++
     }
 
-    Row(modifier = Modifier.fillMaxSize()) {
+    // One trap around BOTH columns, not one each: LEFT and RIGHT between them
+    // are handled by the key blocks below, but the walk between the two levels
+    // is an explicit requestFocus, and a trap per column would refuse it. The
+    // ends of the lists are what this catches — DOWN off the last channel found
+    // no candidate inside and escalated to the player's root Box.
+    Row(modifier = Modifier.fillMaxSize().focusTrap()) {
         // --- category column (second level, revealed by LEFT) ---------------
         AnimatedVisibility(
             visible = categoriesOpen,
@@ -189,6 +215,7 @@ internal fun ChannelListPanel(
                     )
                     Spacer(Modifier.height(10.dp))
                     LazyColumn(
+                        state = categoryListState,
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier.fillMaxHeight(),
                     ) {
@@ -200,7 +227,14 @@ internal fun ChannelListPanel(
                                     categoryId = category.id
                                     categoriesOpen = false
                                 },
-                                modifier = if (index == 0) {
+                                // On the SELECTED row, falling back to the
+                                // first when nothing is selected yet (the panel
+                                // opens with categoryId null — "whatever is
+                                // already playing").
+                                modifier = if (
+                                    index == selectedCategoryIndex ||
+                                    (selectedCategoryIndex < 0 && index == 0)
+                                ) {
                                     Modifier.fillMaxWidth().focusRequester(categoryFocus)
                                 } else {
                                     Modifier.fillMaxWidth()

@@ -357,6 +357,7 @@ fun HomeScreen(
                         HomeTab.Sport -> SportTab(vm, state.bundle, onPlay, onBrowse = { tab = it })
                         HomeTab.Movies -> MoviesTab(
                             vm, state.bundle, onOpenMovie,
+                            onPlay = onPlay,
                             onOpenSettings = { tab = HomeTab.Settings },
                             onOpenSearch = openSearch,
                         )

@@ -209,6 +209,7 @@ fun OnboardingScreen(
                         vm = vm,
                         cancellable = cancellable,
                         onXtream = { vm.resetAddState(); step = Step.Xtream },
+                        onM3u = { vm.resetAddState(); step = Step.M3u },
                         onCancel = onCancel,
                         onDone = onDone,
                     )
@@ -271,6 +272,12 @@ private fun ChooseStep(
     vm: MainViewModel,
     cancellable: Boolean,
     onXtream: () -> Unit,
+    /**
+     * Offered only on a build with no provider baked in — see the button below.
+     * [Step.M3u] had no route into it at all: the form existed, and the only
+     * way to reach it was to already own an M3U playlist and edit it.
+     */
+    onM3u: () -> Unit,
     onCancel: () -> Unit,
     onDone: () -> Unit,
 ) {
@@ -367,6 +374,14 @@ private fun ChooseStep(
                     // "Instead" of the phone — only when there is a phone
                     // route on screen to be instead of.
                 ) { Text(if (pairingUrl != null) "Enter on TV instead" else "Enter details") }
+                // A build that carries its provider's address has one kind of
+                // account and no use for a second source type; the generic
+                // build is where managing sources is the point, and it is the
+                // only place this belongs. Without it the M3U form was
+                // unreachable except by editing a playlist you already had.
+                if (com.agoro.tv.BuildConfig.PROVIDER_HOST.isBlank()) {
+                    OutlinedButton(onClick = onM3u) { Text("Use an M3U link") }
+                }
                 if (cancellable) {
                     OutlinedButton(onClick = onCancel) { Text("Cancel") }
                 }
