@@ -1,9 +1,14 @@
+@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+
 package com.agoro.tv.ui.components
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import kotlinx.coroutines.delay
 
 /**
@@ -76,3 +81,24 @@ fun rememberInitialFocus(vararg keys: Any?): FocusRequester {
     }
     return requester
 }
+
+/**
+ * A focus group the D-pad cannot escape.
+ *
+ * [androidx.compose.foundation.focusGroup] alone does not contain anything.
+ * When nothing inside the group lies in the pressed direction, Compose's search
+ * escalates to the ancestors and lands focus on whatever is behind — which for a
+ * player overlay is the player's own root Box: full-screen and focusable. Once
+ * focus is there, `playerKeyAction` returns Ignored for almost every key on the
+ * Options, Tracks and Catchup layers, so the panel is still on screen and
+ * nothing but BACK does anything. That is the "the remote went dead" report,
+ * reached by one press in a direction with nothing in it.
+ *
+ * [DialogScaffold] has always done this; these two lines are that rule, named,
+ * so every panel that owns the screen can carry it instead of intercepting
+ * LEFT and RIGHT by hand. Cancelling the exit is what a scrim promises: the
+ * remote stays on the panel until the panel itself closes.
+ */
+fun Modifier.focusTrap(): Modifier = this
+    .focusProperties { exit = { FocusRequester.Cancel } }
+    .focusGroup()

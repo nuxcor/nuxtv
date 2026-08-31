@@ -10,7 +10,6 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -25,8 +24,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -131,15 +128,10 @@ fun DialogScaffold(
                     DialogCenterKey.Pass -> false
                 }
             }
-            // A focus group alone does not contain the D-pad: when nothing
-            // inside the panel lies in the pressed direction, Compose's
-            // search escalates to the ancestors and lands on whatever sits
-            // under the scrim — a settings chip, a poster, or the shell's
-            // edge catcher, which then slid the drawer open over the dialog.
-            // Cancelling the exit keeps the remote on the dialog until the
-            // dialog itself closes, which is what a scrim promises.
-            .focusProperties { exit = { FocusRequester.Cancel } }
-            .focusGroup(),
+            // The rule this scaffold has always carried, now named and shared
+            // with the player's panels — see Modifier.focusTrap, which holds
+            // the reasoning that used to live here.
+            .focusTrap(),
         contentAlignment = contentAlignment,
     ) {
         Column(

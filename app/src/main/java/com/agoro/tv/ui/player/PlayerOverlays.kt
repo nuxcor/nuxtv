@@ -3,7 +3,6 @@
 package com.agoro.tv.ui.player
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +42,7 @@ import com.agoro.tv.data.EpgProgram
 import com.agoro.tv.data.LiveChannel
 import com.agoro.tv.player.PlayerEngine
 import com.agoro.tv.player.Track
+import com.agoro.tv.ui.components.focusTrap
 import com.agoro.tv.ui.components.requestFocusRetrying
 import com.agoro.tv.ui.theme.NuxColors
 import com.agoro.tv.ui.theme.NuxFocus
@@ -135,7 +135,8 @@ internal fun CatchupOverlay(
         modifier = Modifier
             .fillMaxSize()
             .background(PlayerTheme.ScrimStrong)
-            .focusGroup()
+            // Contained, not merely grouped — see Modifier.focusTrap.
+            .focusTrap()
             .padding(horizontal = 64.dp, vertical = 40.dp)
     ) {
         Column {
@@ -288,7 +289,8 @@ internal fun TracksOverlay(
         modifier = Modifier
             .fillMaxSize()
             .background(PlayerTheme.ScrimStrong)
-            .focusGroup()
+            // Contained, not merely grouped — see Modifier.focusTrap.
+            .focusTrap()
             .padding(horizontal = 64.dp, vertical = 40.dp)
     ) {
         Column {
@@ -569,7 +571,8 @@ internal fun PlaybackErrorCard(
             .widthIn(max = 640.dp)
             .clip(NuxShape.Dialog)
             .background(NuxColors.Surface)
-            .focusGroup()
+            // Contained, not merely grouped — see Modifier.focusTrap.
+            .focusTrap()
             .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

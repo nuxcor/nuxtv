@@ -241,12 +241,14 @@ class BaselineProfileGenerator {
         repeat(index) {
             device.pressDPadDown()
             device.waitForIdle()
-            // The dwell is what commits the selection; moving faster than it
-            // skims past every tab and selects only the last.
-            Thread.sleep(FOCUS_DWELL_MS)
         }
         settle(1_500)
-        device.pressDPadRight()
+        // OK commits. The rail used to select on dwell, and this walk relied on
+        // it — but the rail became a modal drawer that navigates freely and
+        // commits on press, so the DOWN presses were only ever moving focus and
+        // the RIGHT that followed never entered a tab at all. The profile was
+        // quietly covering Home and nothing else.
+        device.pressDPadCenter()
         settle(2_000)
     }
 
@@ -296,7 +298,7 @@ class BaselineProfileGenerator {
         /** Enough LEFT presses to cross the widest scrolled row and still arrive. */
         const val RAIL_ENTRY_STEPS = 12
 
-        /** NuxMotion.FocusDwellMs, plus room for the emulator to keep up. */
-        const val FOCUS_DWELL_MS = 500L
+        // FOCUS_DWELL_MS is gone with the dwell it named; openTab commits with
+        // OK now, and NuxMotion carries no dwell constant to mirror.
     }
 }

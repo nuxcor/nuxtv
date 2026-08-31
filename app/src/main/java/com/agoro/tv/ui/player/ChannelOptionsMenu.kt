@@ -3,7 +3,6 @@
 package com.agoro.tv.ui.player
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +40,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.agoro.tv.ui.components.focusTrap
 import com.agoro.tv.ui.components.requestFocusRetrying
 import com.agoro.tv.ui.theme.NuxColors
 import com.agoro.tv.ui.theme.NuxFocus
@@ -78,7 +78,11 @@ internal fun ChannelOptionsMenu(
                 .width(PlayerTheme.CategoryWidth)
                 .fillMaxHeight()
                 .background(PlayerTheme.ScrimStrong)
-                .focusGroup()
+                // The D-pad stays on the panel; see Modifier.focusTrap. LEFT
+                // out of this column used to find the player's own root Box,
+                // which is full-screen and focusable, and the Options layer
+                // ignores nearly every key — so the menu sat there deaf.
+                .focusTrap()
                 .padding(start = 18.dp, end = 18.dp, top = 22.dp, bottom = 22.dp),
         ) {
             Column {

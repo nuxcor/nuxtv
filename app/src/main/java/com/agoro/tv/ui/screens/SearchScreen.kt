@@ -33,6 +33,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
@@ -82,6 +83,25 @@ fun SearchTab(
     val favorites by vm.favorites.collectAsState()
     val nowNext by vm.nowNext.collectAsState()
     var menuChannel by remember { mutableStateOf<LiveChannel?>(null) }
+    // Hold OK on a film, the same two words Home and Movies offer. Shows get
+    // none: which episode a series card means is a question only the detail
+    // screen answers, so OK already does the only thing there is to do.
+    var menuMovie by remember { mutableStateOf<Movie?>(null) }
+    /**
+     * What the focused card is, for the pinned hero below the query field.
+     *
+     * A State holder read only by [SearchHeroSlot], never in this scope: read
+     * here it would recompose the whole tab — every shelf and every composed
+     * card — on each poster the cursor passes over.
+     *
+     * Search is the one poster surface that had no hero, and [PosterCard] is
+     * captionless on purpose (the title lives in the hero on Home and in the
+     * browse grids). So the screen where confirming a title match matters most
+     * was the only one that never printed one. Channels and programmes clear
+     * it: their rows carry their own names, and a stale film title over them
+     * would be describing something that is no longer focused.
+     */
+    val shownHero = remember { mutableStateOf<HeroInfo?>(null) }
     // The card the menu was opened on keeps a requester after the menu
     // closes, so focus can come back to it: left to Compose, a dismissed
     // menu dropped focus onto the query field and the keyboard popped up
@@ -100,8 +120,10 @@ fun SearchTab(
     // bounded fallback for a shelf still recomposing; a hidden channel
     // leaves the shelf, so a refusal there just means the card is gone.
     val returnFocusPending = remember { booleanArrayOf(false) }
-    LaunchedEffect(menuChannel) {
-        if (menuChannel != null || !returnFocusPending[0]) return@LaunchedEffect
+    LaunchedEffect(menuChannel, menuMovie) {
+        if (menuChannel != null || menuMovie != null || !returnFocusPending[0]) {
+            return@LaunchedEffect
+        }
         returnFocusPending[0] = false
         menuOriginFocus.requestFocusRetrying(retries = 5, intervalMs = 60)
     }
@@ -114,6 +136,8 @@ fun SearchTab(
             val allowed = visible.mapTo(HashSet()) { it.id }
             base.copy(channels = base.channels.filter { it.id in allowed })
         }
+        // The old result's name must not stand over the new results.
+        shownHero.value = null
     }
 
     val timeFmt = rememberClockFormat()
@@ -176,7 +200,14 @@ fun SearchTab(
         }
 
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                // Coming back UP to the query row is leaving the shelves, so
+                // the hero stops describing a poster — same rule the channel
+                // and programme rows follow, from the other direction. Without
+                // it a film's name stood over the field being edited, naming
+                // something about to stop being a result at all.
+                .onFocusChanged { if (it.hasFocus) shownHero.value = null },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Space.s),
         ) {
@@ -206,7 +237,24 @@ fun SearchTab(
                 }
             }
         }
-        Spacer(Modifier.height(20.dp))
+        // Pinned above the results, one line tall, exactly as the browse grids
+        // pin theirs: the shelves scroll, so a focused poster's name has to
+        // live somewhere that does not scroll away with it. A fixed height, so
+        // the results below do not shift as the hero fills in and empties.
+        //
+        // Only where there are posters to describe. Channel and programme rows
+        // carry their own names, and the two empty states have nothing to
+        // name — reserving the band there is 52dp of blank above a message.
+        if (results.movies.isNotEmpty() || results.series.isNotEmpty()) {
+            Box(modifier = Modifier.fillMaxWidth().height(BROWSE_HERO_HEIGHT)) {
+                SearchHeroSlot(shownHero)
+            }
+        } else {
+            // The band replaces the plain gap that used to sit here, so the
+            // other states still need one — without it a channel shelf, or the
+            // "no results" pane, butted straight against the query field.
+            Spacer(Modifier.height(20.dp))
+        }
 
         val empty = results.channels.isEmpty() && results.movies.isEmpty() &&
             results.series.isEmpty() && results.programs.isEmpty()
@@ -242,7 +290,15 @@ fun SearchTab(
                                         title = movie.name,
                                         imageUrl = borrowedArt(vm, movie.artRef(), movie.poster),
                                         year = movie.year,
+                                        modifier = if (movie.id == menuOrigin) {
+                                            Modifier.focusRequester(menuOriginFocus)
+                                        } else Modifier,
                                         onClick = { onOpenMovie(movie) },
+                                        onLongClick = {
+                                            menuOrigin = movie.id
+                                            menuMovie = movie
+                                        },
+                                        onFocus = { shownHero.value = movie.toHero() },
                                     )
                                 }
                             }
@@ -264,7 +320,10 @@ fun SearchTab(
                                         imageUrl = borrowedArt(vm, series.artRef(), series.poster),
                                         year = series.year,
                                         onClick = { onOpenSeries(series) },
-                                        onFocus = { vm.prefetchEpisodes(series) },
+                                        onFocus = {
+                                            shownHero.value = series.toHero()
+                                            vm.prefetchEpisodes(series)
+                                        },
                                     )
                                 }
                             }
@@ -303,6 +362,10 @@ fun SearchTab(
                                             menuOrigin = channel.id
                                             menuChannel = channel
                                         },
+                                        // The card names itself; a film title
+                                        // left standing above it would be
+                                        // describing the wrong thing.
+                                        onFocus = { shownHero.value = null },
                                     )
                                 }
                             }
@@ -324,6 +387,7 @@ fun SearchTab(
                             // so OK does what the row says it does.
                             badge = if (airing) "ON NOW" else "OK to remind",
                             imageUrl = hit.channel.logo,
+                            onFocus = { shownHero.value = null },
                             onClick = {
                                 // The guide's rule: a programme on now plays,
                                 // one still to come is remembered. Tuning a
@@ -351,6 +415,19 @@ fun SearchTab(
             .padding(bottom = Space.m, end = Space.m),
     )
     }
+    menuMovie?.let { movie ->
+        ContextMenu(
+            title = movie.name,
+            actions = listOf(
+                MenuAction("Play") { vm.playMovie(movie); onPlay() },
+                MenuAction("Details") { onOpenMovie(movie) },
+            ),
+            onDismiss = {
+                returnFocusPending[0] = true
+                menuMovie = null
+            },
+        )
+    }
     menuChannel?.let { channel ->
         val isFav = channel.isFavorite(favorites)
         ContextMenu(
@@ -376,4 +453,14 @@ fun SearchTab(
             },
         )
     }
+}
+
+/**
+ * The hero reads its own State, so a focus move recomposes this and nothing
+ * else — not the tab, its shelves, or the cards in them. Same split as
+ * [HomeHeroSlot] and the browse grids' [BrowseHeroSlot].
+ */
+@Composable
+private fun SearchHeroSlot(hero: androidx.compose.runtime.State<HeroInfo?>) {
+    BrowseHero(hero.value)
 }

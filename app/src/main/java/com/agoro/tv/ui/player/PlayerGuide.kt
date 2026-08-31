@@ -7,7 +7,6 @@ import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,6 +53,7 @@ import com.agoro.tv.ui.components.rememberClockFormat
 import com.agoro.tv.ui.screens.defaultCategoryId
 import com.agoro.tv.ui.screens.CHANNEL_COLUMN_GAP
 import com.agoro.tv.ui.screens.CHANNEL_COLUMN_WIDTH
+import com.agoro.tv.ui.components.focusTrap
 import com.agoro.tv.ui.screens.CategoryItem
 import com.agoro.tv.ui.screens.GuideGrid
 import com.agoro.tv.ui.screens.TimeRuler
@@ -195,7 +195,8 @@ internal fun PlayerGuideOverlay(
         // view to show through.
         modifier = Modifier
             .fillMaxSize()
-            .focusGroup()
+            // Contained, not merely grouped — see Modifier.focusTrap.
+            .focusTrap()
             .padding(
                 start = PLAYER_GUIDE_PADDING,
                 end = PLAYER_GUIDE_PADDING,

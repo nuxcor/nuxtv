@@ -169,17 +169,12 @@ object NuxMotion {
     const val StaggerStepMs = 28
     const val StaggerCap = 8
 
-    /** Dwell before a focused category item selects itself. */
-    const val FocusDwellMs = 250
+    // No dwell constants. Every chip strip and the rail select on OK now —
+    // the drawer navigates freely and commits on press, and the last
+    // dwell-select (Manage channels' category column) went with it. A dwell
+    // that switches what is on screen is a control acting on travel rather
+    // than on a choice.
 
-    /**
-     * Dwell before a focused rail TAB selects itself — deliberately longer
-     * than [FocusDwellMs]: a tab switch replaces the whole screen, and at
-     * 250ms merely pausing on Recordings while travelling the rail swapped
-     * the pane out from under the viewer. Deliberate rests still switch;
-     * pass-through travel no longer does.
-     */
-    const val TabDwellMs = 450
     /** Debounce before the browse hero swaps to the focused item. */
     const val HeroDebounceMs = 180
     /** Coil image crossfade. */
