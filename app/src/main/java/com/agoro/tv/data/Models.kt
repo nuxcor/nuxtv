@@ -273,6 +273,19 @@ data class PlayableItem(
     val recordUrl: String? = null,
     /** Alternate sources for this same channel, best first; see [LiveChannel.fallbackUrls]. */
     val fallbackUrls: List<String> = emptyList(),
+    /**
+     * What to call each of [fallbackUrls] once the ladder is playing it, index
+     * for index. Empty — the usual case — means the title stands whichever
+     * source is up, which is right for a channel: its alternates are the same
+     * channel at another quality.
+     *
+     * A fixture's are not. Its alternates are different PPV slots carrying the
+     * same match — another pack's feed, the Spanish call, the pre-match studio
+     * show — so the ladder stepping down changes what is on screen, and a
+     * title that does not follow it is simply wrong. Populated by
+     * MainViewModel.playEvent; read by PlayerSession.swapSource.
+     */
+    val fallbackTitles: List<String> = emptyList(),
 )
 
 data class PlaybackRequest(

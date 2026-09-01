@@ -56,6 +56,11 @@ import com.agoro.tv.MainViewModel
 import com.agoro.tv.data.ContentBundle
 import com.agoro.tv.data.SportsEvent
 import com.agoro.tv.data.SportsParser
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.focus.FocusRequester
+import com.agoro.tv.ui.components.ContextMenu
+import com.agoro.tv.ui.components.MenuAction
+import com.agoro.tv.ui.components.requestFocusRetrying
 import com.agoro.tv.ui.components.SectionTitle
 import com.agoro.tv.ui.components.StatusPane
 import com.agoro.tv.ui.components.StatusAction
@@ -87,6 +92,12 @@ fun SportTab(
     onBrowse: (HomeTab) -> Unit = {},
 ) {
     val sport by vm.sport.collectAsState()
+    // Before anything is read: the slot NAMES are the fixture schedule, and
+    // the catalogue they live in refreshes twice a day. Opening Sport is the
+    // moment their age matters, so it is the moment to ask for a newer one —
+    // a no-op when the playlist is already young. See
+    // [MainViewModel.refreshFixturesIfStale].
+    LaunchedEffect(Unit) { vm.refreshFixturesIfStale() }
     val leagues = sport?.leagues.orEmpty()
     val cue = sport?.cueMinutes ?: 60
     val leagueOrder = remember(leagues) { leagues.keys.toList() }
@@ -134,7 +145,9 @@ fun SportTab(
     // recompose the whole of SportTab every thirty seconds — the manifest
     // collect and the fixtures collect — so that a label could say "in 5
     // min". Only the part that reads the clock should answer to it.
-    Fixtures(parsed.orEmpty(), leagueOrder, cue, sport?.clubCrest.orEmpty(), onPlay, onBrowse, vm)
+    Fixtures(
+        parsed.orEmpty(), leagueOrder, cue, sport?.clubCrest.orEmpty(), onPlay, onBrowse, vm,
+    )
 }
 
 /**
@@ -280,8 +293,13 @@ private fun Fixtures(
         }
     }
 
-    val fixtures = remember(parsed, now / 60_000, cue) {
-        SportsParser.upcoming(parsed, now, cue)
+    // How old the playlist these slots were read from is. A fixture row whose
+    // only claim to being on is a slot saying "LIVE" — no kick-off anywhere in
+    // its group — is worth exactly as much as that fetch is fresh, and the
+    // parser drops it once it isn't. See SportsParser.upcoming.
+    val fetchedAt by vm.catalogueFetchedAtMs.collectAsState()
+    val fixtures = remember(parsed, now / 60_000, cue, fetchedAt) {
+        SportsParser.upcoming(parsed, now, cue, fetchedAt?.let { now - it } ?: 0L)
     }
     if (fixtures.isEmpty()) {
         StatusPane(
@@ -328,6 +346,37 @@ private fun Fixtures(
     val firstShown = lines.indexOfFirst { it is FixtureLine.Fixture }
     val clock = rememberClockFormat()
 
+    // The fixture whose kick-off has not come yet and that the viewer pressed
+    // anyway; null when no confirmation is up. Hoisted out of the lazy list so
+    // the sheet is not a child of a row that can scroll out from under it.
+    var pending by remember { mutableStateOf<SportsEvent?>(null) }
+    // The row to hand focus back to, kept by stream id and NEVER cleared: the
+    // anchor has to outlive the menu it opened, or dismissing lands focus
+    // nowhere and the remote is dead until BACK. Held past the dismissal for
+    // the same reason — the requester must still be attached in the frame the
+    // sheet leaves.
+    var lastPressed by remember { mutableStateOf<Int?>(null) }
+    val returnFocus = remember { FocusRequester() }
+    // Armed by the dismissal and spent by the effect below, once the frame
+    // that removed the sheet has applied.
+    val returnPending = remember { booleanArrayOf(false) }
+    // Set by the sheet's own action, so the dismissal that follows it knows
+    // the player is opening and leaves focus alone.
+    val launched = remember { booleanArrayOf(false) }
+    LaunchedEffect(pending) {
+        if (pending != null || !returnPending[0]) return@LaunchedEffect
+        returnPending[0] = false
+        // The row it came from, then the top of the list: a fixture list
+        // re-sorts on the 30-second tick, and the row that was pressed can
+        // have moved off screen while the sheet was up.
+        if (!returnFocus.requestFocusRetrying()) firstRowFocus.requestFocusRetrying()
+    }
+
+    fun play(event: SportsEvent) {
+        vm.playEvent(event.streamId, event.alternates, event.title)
+        onPlay()
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         // Leagues need air between them; fixtures inside one belong together.
@@ -359,10 +408,21 @@ private fun Fixtures(
                     // fresh copies each minute, and a lambda capturing a new
                     // instance is a new lambda, which is a changed parameter,
                     // which is a recomposed row.
-                    val play = remember(event) {
+                    // Keyed on the live-ness the lambda actually branches on,
+                    // not on the status text it used to be: `now` is captured,
+                    // and `fixtures` only rebuilds the event on the minute, so
+                    // a match that kicked off seconds ago would have been shown
+                    // the "not started" sheet on a press that should just play.
+                    val live = event.isLive(now)
+                    val press = remember(event, live) {
                         {
-                            vm.playEvent(event.streamId, event.alternates)
-                            onPlay()
+                            lastPressed = event.streamId
+                            // A PPV slot is a pipe, and before kick-off there
+                            // is nothing in it: pressing OK on "in 45 min"
+                            // opened a black screen and sat there. Ask rather
+                            // than refuse — some packs do run a countdown, and
+                            // a row that will not open is its own fault report.
+                            if (live) play(event) else pending = event
                         }
                     }
                     FixtureRow(
@@ -374,14 +434,53 @@ private fun Fixtures(
                         // Fixtures inside a league belong together; the
                         // first one sits straight under its heading.
                         gapAbove = if (lines[index - 1] is FixtureLine.Fixture) Space.xs else 0.dp,
-                        focus = if (index == firstShown) {
-                            Modifier.focusRequester(firstRowFocus)
-                        } else Modifier,
-                        onClick = play,
+                        focus = when {
+                            // The arrival anchor FIRST, and it has to be. The
+                            // return anchor is claimed by whichever row was
+                            // last pressed and is never released, so putting
+                            // it first meant that pressing the top row left
+                            // firstRowFocus attached to nothing at all — and
+                            // the fallback below, the one thing standing
+                            // between a recycled row and a dead remote, could
+                            // never land. This way the pressed row keeps the
+                            // return anchor unless it is also the first row,
+                            // in which case the fallback lands on it anyway.
+                            index == firstShown -> Modifier.focusRequester(firstRowFocus)
+                            event.streamId == lastPressed ->
+                                Modifier.focusRequester(returnFocus)
+                            else -> Modifier
+                        },
+                        onClick = press,
                     )
                 }
             }
         }
+    }
+
+    // Outside the list, so the sheet does not belong to a row: the fixture
+    // order changes on the 30-second tick, and a menu hosted by an item that
+    // moves goes with it.
+    pending?.let { event ->
+        ContextMenu(
+            // The clock, not just the fixture — the whole point of the sheet
+            // is the thing the row's status column was already saying and the
+            // press ignored.
+            title = "${event.title} · ${fixtureStatus(event, now, clock) ?: "not started"}",
+            actions = listOf(
+                MenuAction("Open anyway") { launched[0] = true; play(event) },
+            ),
+            onDismiss = {
+                // Arm the return first, then unmount: the effect above runs in
+                // the frame the sheet leaves and finds the flag set. NOT armed
+                // when the sheet closed by opening the player — ContextMenu
+                // dismisses after its action either way, and pulling focus
+                // back to a fixture row on the way out would take it off the
+                // player that is opening over this list.
+                returnPending[0] = !launched[0]
+                launched[0] = false
+                pending = null
+            },
+        )
     }
 }
 

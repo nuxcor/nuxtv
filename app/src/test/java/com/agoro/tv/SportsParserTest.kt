@@ -663,4 +663,199 @@ class SportsParserTest {
         assertEquals("Ipswich Town", short.home)
         assertEquals(1, SportsParser.upcoming(listOf(short, long), now, 60).size)
     }
+
+    // --- the listings packs' clock, and what a row does without one ---------
+
+    /**
+     * ESPN+, FIFA+, NFHS, MAX and Sportsnet all write the kick-off this way,
+     * and 320 slots on this panel do. Every one of them used to reach the row
+     * with no clock at all — see the blank-screen note on [SportsParser].
+     */
+    @Test
+    fun `reads the listings packs' weekday clock`() {
+        val now = ms(2026, 8, 27, 14, 0, "America/New_York")
+        val roster = mapOf("La Liga" to listOf("Celta Vigo", "Osasuna", "Barcelona"))
+        val e = SportsParser.parse(
+            1,
+            "LIVE | CELTA VIGO VS. OSASUNA (MATCHDAY #1) | Thu 27 Aug 14:20 EDT (US) | " +
+                "8K EXCLUSIVE | US: ESPN+ PPV 33",
+            now, roster,
+        )!!
+        assertEquals(ms(2026, 8, 27, 14, 20, "America/New_York"), e.startMs)
+        assertTrue("kick-off is twenty minutes away", !e.isLive(now))
+    }
+
+    /** The zone token is believed over the pack prefix that would default it. */
+    @Test
+    fun `the zone abbreviation decides the kick-off`() {
+        val now = ms(2026, 8, 27, 14, 0, "UTC")
+        val roster = mapOf("Premier League" to listOf("Arsenal", "Chelsea"))
+        val eastern = SportsParser.parse(
+            1, "LIVE | ARSENAL VS. CHELSEA | Thu 27 Aug 15:00 EDT (US) | US: ESPN+ PPV 1",
+            now, roster,
+        )!!
+        val british = SportsParser.parse(
+            2, "LIVE | ARSENAL VS. CHELSEA | Thu 27 Aug 15:00 BST (UK) | UK: SKY PPV 1",
+            now, roster,
+        )!!
+        assertEquals(ms(2026, 8, 27, 15, 0, "America/New_York"), eastern.startMs)
+        assertEquals(ms(2026, 8, 27, 15, 0, "Europe/London"), british.startMs)
+    }
+
+    /** "GMT" means GMT in August, not Europe/London, which is BST by then. */
+    @Test
+    fun `GMT is not read as London in summer`() {
+        val now = ms(2026, 8, 27, 14, 0, "UTC")
+        val roster = mapOf("Premier League" to listOf("Arsenal", "Chelsea"))
+        val e = SportsParser.parse(
+            1, "LIVE | ARSENAL VS. CHELSEA | Thu 27 Aug 15:00 GMT | UK: SKY PPV 1", now, roster,
+        )!!
+        assertEquals(ms(2026, 8, 27, 15, 0, "UTC"), e.startMs)
+    }
+
+    /**
+     * The best FEED need not be the slot that knows when the match is. This is
+     * Barcelona v Athletic Club as the panel carried it: the winner said only
+     * "Live", a sibling said 14:30, and the row wore a LIVE badge half an hour
+     * before kick-off on a pipe that was not carrying yet.
+     */
+    @Test
+    fun `a row with no clock borrows one from a slot that has it`() {
+        val now = ms(2026, 8, 27, 14, 0, "America/New_York")
+        val roster = mapOf("La Liga" to listOf("Barcelona", "Athletic Club"))
+        val timeless = SportsParser.parse(
+            1, "Live | Barcelona vs. Athletic Club | all | 8K EXCLUSIVE | CA: SOCCER PPV 3",
+            now, roster,
+        )!!
+        val timed = SportsParser.parse(
+            2, "LaLiga: Barcelona vs. Athletic Club @ Aug 27 14:30 :TSN+  47", now, roster,
+        )!!
+        assertNull("the winner brought no clock of its own", timeless.startMs)
+        val rows = SportsParser.upcoming(listOf(timeless, timed), now, 60)
+        assertEquals(1, rows.size)
+        assertEquals("the better feed still opens", 1, rows[0].streamId)
+        assertEquals(ms(2026, 8, 27, 14, 30, "America/New_York"), rows[0].startMs)
+        assertTrue("half an hour out is not live", !rows[0].isLive(now))
+        assertEquals(listOf(2), rows[0].alternates)
+    }
+
+    /**
+     * A bare "LIVE" is only as true as the fetch that read it. These slots are
+     * pipes and the provider renames them for the next event, so an old
+     * snapshot's word that something is on is worth nothing.
+     */
+    @Test
+    fun `a clockless row is dropped once its snapshot is stale`() {
+        val now = ms(2026, 8, 27, 14, 0, "America/New_York")
+        val roster = mapOf("La Liga" to listOf("Barcelona", "Athletic Club"))
+        val timeless = SportsParser.parse(
+            1, "Live | Barcelona vs. Athletic Club | all | 8K EXCLUSIVE | CA: SOCCER PPV 3",
+            now, roster,
+        )!!
+        val fresh = SportsParser.upcoming(listOf(timeless), now, 60, 10 * 60_000L)
+        assertEquals("a fresh snapshot is believed", 1, fresh.size)
+        val stale = SportsParser.upcoming(listOf(timeless), now, 60, 6L * 60 * 60 * 1000)
+        assertTrue("a six-hour-old claim is not", stale.isEmpty())
+    }
+
+    /** A row that HAS a kick-off ages on its own clock, whatever the snapshot. */
+    @Test
+    fun `a stale snapshot does not drop a fixture that knows its kick-off`() {
+        val now = ms(2026, 8, 27, 14, 0, "America/New_York")
+        val roster = mapOf("La Liga" to listOf("Barcelona", "Athletic Club"))
+        val timed = SportsParser.parse(
+            2, "LaLiga: Barcelona vs. Athletic Club @ Aug 27 14:30 :TSN+  47", now, roster,
+        )!!
+        assertEquals(
+            1, SportsParser.upcoming(listOf(timed), now, 60, 6L * 60 * 60 * 1000).size,
+        )
+    }
+
+    /**
+     * What the player puts up when the ladder steps onto an alternate. The
+     * alternates of a fixture are different slots, so the title has to move
+     * with them; see PlayerSession.swapSource.
+     */
+    @Test
+    fun `an alternate feed says what it is`() {
+        assertEquals(
+            "Spanish commentary",
+            SportsParser.feedNote("LIVE | EN ESPAÑOL-FC BARCELONA VS. ATHLETIC CLUB (JORNADA 1)"),
+        )
+        assertEquals(
+            "studio feed",
+            SportsParser.feedNote("Studio Coverage: Chelsea v Brighton"),
+        )
+        assertNull(
+            "another pack's feed of the same match needs no note",
+            SportsParser.feedNote("LaLiga: Barcelona vs. Athletic Club @ Aug 27 14:30 :TSN+  47"),
+        )
+    }
+
+    /**
+     * The borrow has to reach a sibling the WINDOW would have dropped, which
+     * is the case that matters most: the silent slot admits itself on its bare
+     * "LIVE" while the slot that knows the kick-off is six hours out and never
+     * reaches the fold at all.
+     */
+    @Test
+    fun `a clockless slot borrows from a sibling outside the window`() {
+        val now = ms(2026, 8, 27, 14, 0, "America/New_York")
+        val roster = mapOf("La Liga" to listOf("Barcelona", "Athletic Club"))
+        val timeless = SportsParser.parse(
+            1, "Live | Barcelona vs. Athletic Club | all | 8K EXCLUSIVE | CA: SOCCER PPV 3",
+            now, roster,
+        )!!
+        val tonight = SportsParser.parse(
+            2, "LaLiga: Barcelona vs. Athletic Club @ Aug 27 20:30 :TSN+  47", now, roster,
+        )!!
+        assertNull(timeless.startMs)
+        val rows = SportsParser.upcoming(listOf(timeless, tonight), now, 60)
+        assertTrue("six and a half hours early is not on now", rows.isEmpty())
+    }
+
+    /** And it still appears once the cue comes round. */
+    @Test
+    fun `the borrowed clock lets the fixture in at the cue`() {
+        val now = ms(2026, 8, 27, 20, 0, "America/New_York")
+        val roster = mapOf("La Liga" to listOf("Barcelona", "Athletic Club"))
+        val timeless = SportsParser.parse(
+            1, "Live | Barcelona vs. Athletic Club | all | 8K EXCLUSIVE | CA: SOCCER PPV 3",
+            now, roster,
+        )!!
+        val tonight = SportsParser.parse(
+            2, "LaLiga: Barcelona vs. Athletic Club @ Aug 27 20:30 :TSN+  47", now, roster,
+        )!!
+        val rows = SportsParser.upcoming(listOf(timeless, tonight), now, 60)
+        assertEquals(1, rows.size)
+        assertEquals("the better feed still opens", 1, rows[0].streamId)
+        assertEquals(ms(2026, 8, 27, 20, 30, "America/New_York"), rows[0].startMs)
+    }
+
+    /**
+     * Some of these names carry a 12-hour clock, and the meridiem has to be
+     * read before the zone token or "pm" is swallowed as an unknown zone and
+     * the kick-off lands twelve hours early.
+     */
+    @Test
+    fun `the weekday clock reads a meridiem, not just 24-hour`() {
+        val now = ms(2026, 2, 3, 12, 0, "UTC")
+        val roster = mapOf("Premier League" to listOf("Arsenal", "Chelsea"))
+        val e = SportsParser.parse(
+            1, "Arsenal vs Chelsea // UK Sat 3 Feb 3:30pm", now, roster,
+        )!!
+        assertEquals(ms(2026, 2, 3, 15, 30, "UTC"), e.startMs)
+    }
+
+    /** Newfoundland is the half-hour offset no fallback would ever guess. */
+    @Test
+    fun `the Canadian packs' half-hour zone is read`() {
+        val now = ms(2026, 8, 27, 16, 0, "UTC")
+        val roster = mapOf("Premier League" to listOf("Arsenal", "Chelsea"))
+        val e = SportsParser.parse(
+            1, "NEXT | ARSENAL VS. CHELSEA | Thu 27 Aug 16:20 NDT (CA) | CA: SPORTSNET PPV 4",
+            now, roster,
+        )!!
+        assertEquals(ms(2026, 8, 27, 16, 20, "America/St_Johns"), e.startMs)
+    }
 }

@@ -100,14 +100,98 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * Plays a fixture on its best slot, with the lower-tier slots carrying the
      * same match behind it — the same match is routinely on four at once, and
      * the best one is not always the one that opens.
+     *
+     * Built as a [PlayableItem] here rather than handed to [playChannels],
+     * because a fixture's fallbacks are not what a channel's are. A channel's
+     * alternates are the same channel at another quality and the title holds
+     * whichever one plays; a fixture's are different SLOTS — the Spanish call,
+     * the studio show, another pack's feed — so each one is given its own
+     * title and [PlayerSession.swapSource] puts it up when it steps onto it.
+     * Without that the screen kept naming the match while playing the
+     * build-up, which is the "the title is not what is playing" report.
+     *
+     * [title] is the fixture as the row shows it ("Chelsea v Luton Town").
+     * The slot's own name is the raw provider string — "Carabao Cup: Chelsea
+     * vs Luton Town @ Aug 27 2:20 PM :Paramount+  01" — which is what the
+     * player used to show, and it is not what the viewer pressed.
      */
-    fun playEvent(streamId: Int, alternates: List<Int> = emptyList()) {
+    fun playEvent(streamId: Int, alternates: List<Int> = emptyList(), title: String? = null) {
         val slots = content.value.let { it as? ContentState.Ready }?.bundle?.events ?: return
         val best = slots.firstOrNull { it.xtreamId == streamId } ?: return
-        val fallbacks = alternates.mapNotNull { alt ->
-            slots.firstOrNull { it.xtreamId == alt }?.url
-        }
-        playChannels(listOf(best.copy(fallbackUrls = fallbacks)), 0)
+        val fallbacks = alternates.mapNotNull { alt -> slots.firstOrNull { it.xtreamId == alt } }
+        val shown = title?.takeIf { it.isNotBlank() } ?: best.displayName
+        playback = PlaybackRequest(
+            items = listOf(
+                PlayableItem(
+                    url = best.url,
+                    title = shown,
+                    subtitle = "Live",
+                    artwork = best.logo,
+                    channelId = best.id,
+                    recordUrl = best.recordUrl,
+                    fallbackUrls = fallbacks.map { it.url },
+                    fallbackTitles = fallbacks.map { slot ->
+                        com.agoro.tv.data.SportsParser.feedNote(slot.name)
+                            ?.let { "$shown · $it" } ?: shown
+                    },
+                )
+            ),
+            startIndex = 0,
+            isLive = true,
+        )
+    }
+
+    /**
+     * How old the fixture list may be before the Sport destination asks for a
+     * newer playlist.
+     *
+     * Two hours against the catalogue's twelve, and the gap is the point: PPV
+     * slot names ARE the schedule — the provider rewrites them for the next
+     * event on the same stream id — so a channel list that is fine half a day
+     * old is a fixture list that has been wrong since lunchtime.
+     *
+     * Deliberately the same two hours as SportsParser's TIMELESS_MAX_AGE_MS,
+     * and they have to move together: that is when the parser stops believing
+     * a slot that claims to be live without saying when, so this is when the
+     * app has to have tried for a newer answer. Refreshing later would leave a
+     * window where rows are dropped and nothing is being done about it.
+     *
+     * It is not free — a quiet refresh re-fetches the whole catalogue, and on
+     * this provider that is about 26MB, only 7 of which is the live list the
+     * fixtures come from. It is charged only when Sport is actually opened, so
+     * a viewer who never goes there never pays it, and the existing twelve-hour
+     * cycle still covers everything else. A live-only refresh path would be the
+     * proper fix if this ever shows up on the box as a stall on opening Sport.
+     */
+    private val sportSnapshotMaxAgeMs = 2L * 60 * 60 * 1000
+
+    /**
+     * When the playlist behind the fixture list was fetched, or null before a
+     * catalogue exists. Drives SportsParser.upcoming's snapshotAgeMs.
+     *
+     * Derived from [content] rather than stamped by [refreshFixturesIfStale],
+     * because the fetch this reports is not only the one Sport asks for: the
+     * repository runs its own hourly staleness check, and a TV app stays open
+     * for days. Stamped on entry alone it would freeze at whatever it read
+     * when the tab opened, and after two hours on screen the parser would
+     * start dropping every clockless fixture as stale — emptying a live list
+     * into "Nothing on right now" behind a playlist that had been refreshed
+     * minutes earlier. A new bundle is published exactly when the cache file
+     * is rewritten, so that is the signal to re-read it.
+     */
+    val catalogueFetchedAtMs: StateFlow<Long?> = content
+        .map { (it as? ContentState.Ready)?.bundle }
+        .distinctUntilChanged { a, b -> a === b }
+        .map { bundle -> if (bundle == null) null else repo.catalogueFetchedAtMs() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(60_000), null)
+
+    /** Called when the Sport destination opens; see [sportSnapshotMaxAgeMs]. */
+    fun refreshFixturesIfStale() {
+        // A no-op when the catalogue is younger than this, and a quiet
+        // background refresh when it is not — the fixtures on screen stay up
+        // while it runs, and the new bundle re-stamps [catalogueFetchedAtMs]
+        // on its own.
+        viewModelScope.launch { runCatching { repo.refreshIfStale(sportSnapshotMaxAgeMs) } }
     }
 
     val hiddenTitles: StateFlow<Set<String>> = playerPrefs.hiddenTitles
