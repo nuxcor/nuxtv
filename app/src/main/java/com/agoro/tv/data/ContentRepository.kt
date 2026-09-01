@@ -368,6 +368,21 @@ class ContentRepository(context: Context) {
         if (stamp == 0L) Long.MAX_VALUE else System.currentTimeMillis() - stamp
     }
 
+    /**
+     * When the persisted catalogue was last written, or null when there is
+     * none yet.
+     *
+     * The same stamp [refreshIfStale] gates on — the cache file's mtime, which
+     * [writeCache] rewrites on every successful load. Exposed because the
+     * Sport destination has to know how old the PPV slot NAMES are: they are
+     * the fixture schedule, not a channel list, and a name is only as true as
+     * the fetch that read it. See SportsParser.upcoming's snapshotAgeMs.
+     */
+    suspend fun catalogueFetchedAtMs(): Long? = withContext(Dispatchers.IO) {
+        val source = activeSource.first() ?: return@withContext null
+        cacheFile(source.id).lastModified().takeIf { it > 0L }
+    }
+
     suspend fun refresh() {
         activeSource.first()?.let { load(it) }
     }

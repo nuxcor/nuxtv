@@ -862,14 +862,25 @@ class PlayerSession internal constructor(
      * new source starts the format ladder over, because which of `.ts`,
      * `.m3u8` or the bare path a panel answers is a property of the stream,
      * not of the channel.
+     *
+     * The title follows the source when the item brought one along. For a
+     * channel it never does and the title stands, which is correct — the
+     * alternates there are the same channel. For a sport fixture they are
+     * different SLOTS, so stepping down can put the Spanish commentary or the
+     * pre-match studio show on screen; saying so is the difference between a
+     * recovery and a screen that lies about what it is playing. See
+     * [PlayableItem.fallbackTitles].
      */
     private fun swapSource(): Boolean {
         val idx = currentIndex
         val item = request.items.getOrNull(idx) ?: return false
         val next = item.fallbackUrls.getOrNull(sourceStage) ?: return false
+        val title = item.fallbackTitles.getOrNull(sourceStage) ?: item.title
         sourceStage++
         liveFormatStage = 0
-        request = request.copy(items = PatchedList(request.items, idx, item.copy(url = next)))
+        request = request.copy(
+            items = PatchedList(request.items, idx, item.copy(url = next, title = title)),
+        )
         return true
     }
 

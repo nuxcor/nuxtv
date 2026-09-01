@@ -120,6 +120,80 @@ object SportsParser {
     /** NFL: "8/20 8pm" — no year, no zone. */
     private val slashDay = Regex("""(?i)\b(\d{1,2})/(\d{1,2})\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)""")
 
+    /**
+     * The listings packs' own clock: "Thu 27 Aug 14:20 EDT (US)".
+     *
+     * Counted on this panel: 320 slots write it — ESPN+ 82, NFHS 54, FIFA+ 39,
+     * MAX 18, Sportsnet 9 — and not one of the five formats above can read it.
+     * [monthDay] wants the month FIRST ("Aug 27 14:20"); everything else wants
+     * a numeric date. So every one of these reached [parseIndexed] with no
+     * kick-off, and the LIVE-flagged ones became rows with `startMs = null`.
+     *
+     * That is the whole of "live sport opens on a blank screen". A fixture
+     * with no clock cannot be aged: [upcoming]'s window falls through to the
+     * parse-time `live` flag, [SportsEvent.isLive] does the same, so the row
+     * wears a LIVE badge from the moment it is read until the playlist behind
+     * it is fetched again — hours after the match finished, by which time the
+     * PPV pipe it opens has moved on to something else or gone dark. It also
+     * showed matches as LIVE up to half an hour BEFORE kick-off, which opens
+     * the same dead pipe from the other side.
+     *
+     * The weekday is the anchor, and it is what makes this safe to try ahead
+     * of [monthDay]: no other pack leads a time with a day name. It is tried
+     * AFTER [dmyGmt] all the same, because the pipe pack fields a club called
+     * Sheffield Wednesday.
+     *
+     * The meridiem is read BEFORE the zone and it has to be: some of these
+     * names carry a 12-hour clock ("UK Sat 3 Feb 3:30pm"), and with only a
+     * zone slot after the minutes the "pm" landed in it — an unknown token,
+     * discarded, leaving 3:30am. Twelve hours out, on 37 slots.
+     */
+    private val dowDayMonth = Regex(
+        """(?i)\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*\s+(\d{1,2})\s+([A-Z][a-z]{2})[a-z]*""" +
+            """\s+(\d{1,2}):(\d{2})\s*(AM|PM)?\s*([A-Z]{2,5})?"""
+    )
+
+    /**
+     * The zone abbreviations those packs write, as named zones.
+     *
+     * Named rather than fixed offsets so the daylight saving the abbreviation
+     * is already announcing is applied on the FIXTURE's date rather than on
+     * today's. They have to be spelled out because `TimeZone.getTimeZone("EDT")`
+     * does not resolve — Java answers GMT for an id it does not know, silently,
+     * and a wrong zone here is a kick-off an hour or five out, which is the
+     * same broken row this was written to fix.
+     *
+     * GMT and UTC map to UTC exactly, never to Europe/London: London is BST
+     * for half the year, and a pack that writes "15:00 GMT" in August means
+     * 15:00 GMT. BST is only ever summer, so it can safely be the named zone.
+     */
+    private val zoneTokens = mapOf(
+        "EDT" to "America/New_York", "EST" to "America/New_York",
+        "CDT" to "America/Chicago", "CST" to "America/Chicago",
+        "MDT" to "America/Denver", "MST" to "America/Denver",
+        "PDT" to "America/Los_Angeles", "PST" to "America/Los_Angeles",
+        "AKDT" to "America/Anchorage", "AKST" to "America/Anchorage",
+        "HST" to "Pacific/Honolulu",
+        // The bare forms, which say the zone without saying the season.
+        "ET" to "America/New_York", "CT" to "America/Chicago",
+        "MT" to "America/Denver", "PT" to "America/Los_Angeles",
+        // Atlantic and Newfoundland: the Canadian packs write them, and
+        // Newfoundland is the half-hour offset that no fallback would guess —
+        // 9 Sportsnet slots read 2½ hours out without this.
+        "ADT" to "America/Halifax", "AST" to "America/Halifax",
+        "NDT" to "America/St_Johns", "NST" to "America/St_Johns",
+        "GMT" to "UTC", "UTC" to "UTC", "BST" to "Europe/London",
+        "WET" to "Europe/Lisbon", "WEST" to "Europe/Lisbon",
+        "CET" to "Europe/Paris", "CEST" to "Europe/Paris",
+        "EET" to "Europe/Athens", "EEST" to "Europe/Athens",
+        "AEST" to "Australia/Sydney", "AEDT" to "Australia/Sydney",
+        "NZST" to "Pacific/Auckland", "NZDT" to "Pacific/Auckland",
+    )
+
+    /** The zone a slot names outright, or null when it names none we know. */
+    private fun zoneFromToken(token: String): TimeZone? =
+        zoneTokens[token.uppercase(Locale.ROOT)]?.let { TimeZone.getTimeZone(it) }
+
     private val months = listOf(
         "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
     )
@@ -669,6 +743,25 @@ object SportsParser {
             val (d, mo, y, h, mi) = m.destructured
             return at(y.toInt(), mo.toInt() - 1, d.toInt(), h.toInt(), mi.toInt(), utc())
         }
+        // Before monthDay, after dmyGmt — see [dowDayMonth] for why both.
+        dowDayMonth.find(name)?.let { m ->
+            val mo = months.indexOf(m.groupValues[2].lowercase(Locale.ROOT))
+            if (mo >= 0) {
+                return nearestYear(
+                    mo,
+                    m.groupValues[1].toInt(),
+                    // hour24, because some of these packs write a 12-hour
+                    // clock. A blank meridiem leaves the hour alone, which is
+                    // what the 24-hour majority need.
+                    hour24(m.groupValues[3].toInt(), m.groupValues[5]),
+                    m.groupValues[4].toInt(),
+                    nowMs,
+                    // The token if it wrote one, else the pack prefix's zone —
+                    // the same rule the bracketed listings already follow.
+                    zoneFromToken(m.groupValues[6]) ?: zoneOf(name),
+                )
+            }
+        }
         monthDay.find(name)?.let { m ->
             val mo = months.indexOf(m.groupValues[1].lowercase(Locale.ROOT))
             val minutes = m.groupValues[4]
@@ -735,12 +828,24 @@ object SportsParser {
      * A date with no year. Whichever year puts it closest to now wins, so a
      * fixture on 1 January read on 31 December lands next year rather than
      * eleven months ago.
+     *
+     * [zone] defaults to [americanZone] because the two packs that reach here
+     * without one — NFL's "8/20 8pm" and MLS's "@ Aug 19 7:30 PM" — are US
+     * feeds quoting US kick-offs. The listings packs name their zone and pass
+     * it in.
      */
-    private fun nearestYear(month: Int, day: Int, hour: Int, minute: Int, nowMs: Long): Long {
-        val thisYear = Calendar.getInstance(americanZone).apply { timeInMillis = nowMs }
+    private fun nearestYear(
+        month: Int,
+        day: Int,
+        hour: Int,
+        minute: Int,
+        nowMs: Long,
+        zone: TimeZone = americanZone,
+    ): Long {
+        val thisYear = Calendar.getInstance(zone).apply { timeInMillis = nowMs }
             .get(Calendar.YEAR)
         return (thisYear - 1..thisYear + 1)
-            .map { at(it, month, day, hour, minute, americanZone) }
+            .map { at(it, month, day, hour, minute, zone) }
             .minByOrNull { kotlin.math.abs(it - nowMs) }!!
     }
 
@@ -764,12 +869,59 @@ object SportsParser {
 
     internal fun isSideFeed(name: String) = sideFeedWords.containsMatchIn(name)
 
-    /** "EN ESPAÑOL", "SPANISH", "(FR)": the same match, another commentary. */
-    private val languageFeedWords = Regex(
-        """(?i)\b(EN\s+ESPA[ÑN]OL|ESPA[ÑN]OL|SPANISH|EN\s+FRAN[ÇC]AIS|FRENCH|ARABIC|PORTUGU[EÊ]S|DEUTSCH|ITALIANO)\b"""
+    /**
+     * "EN ESPAÑOL", "SPANISH", "DEUTSCH": the same match, another commentary.
+     *
+     * Kept as one list per language rather than a single alternation so that
+     * [feedNote] can say WHICH one. The ladder swaps a failed stream for the
+     * next alternate and keeps the title it opened with, so a viewer dropped
+     * onto the Spanish call has to be told; naming the language is the whole
+     * difference between "this is not the match I chose" and "this is my
+     * match, in Spanish". [isLanguageFeed] is this list, asked as a yes/no.
+     */
+    private val languageFeeds: List<Pair<Regex, String>> = listOf(
+        Regex("""(?i)\b(EN\s+ESPA[ÑN]OL|ESPA[ÑN]OL|SPANISH)\b""") to "Spanish commentary",
+        Regex("""(?i)\b(EN\s+FRAN[ÇC]AIS|FRENCH)\b""") to "French commentary",
+        Regex("""(?i)\bARABIC\b""") to "Arabic commentary",
+        Regex("""(?i)\bPORTUGU[EÊ]S\b""") to "Portuguese commentary",
+        Regex("""(?i)\bDEUTSCH\b""") to "German commentary",
+        Regex("""(?i)\bITALIANO\b""") to "Italian commentary",
     )
 
-    internal fun isLanguageFeed(name: String) = languageFeedWords.containsMatchIn(name)
+    /**
+     * The same markers as one pass, for [stripNoise].
+     *
+     * Built FROM [languageFeeds] so the two cannot drift: a language this
+     * knows to classify but not to strip leaves "EN ESPAÑOL-CELTA DE VIGO"
+     * keying as a different club from "CELTA DE VIGO", which is two rows for
+     * one match. Declared after the list it is built from — an object's
+     * properties initialise in file order, and reading one above its source
+     * gets null. [stripNoise] is a function, so its position does not matter.
+     */
+    private val languageFeedWords = Regex(
+        languageFeeds.joinToString("|") { it.first.pattern.removePrefix("(?i)") },
+        RegexOption.IGNORE_CASE,
+    )
+
+    internal fun isLanguageFeed(name: String) = feedLanguage(name) != null
+
+    private fun feedLanguage(name: String): String? =
+        languageFeeds.firstOrNull { it.first.containsMatchIn(name) }?.second
+
+    /**
+     * What an alternate slot IS, in the words a viewer would use, or null when
+     * it is simply another feed of the same match.
+     *
+     * [com.agoro.tv.ui.player.PlayerSession] recovers a stream that will not
+     * open by stepping onto the next alternate, and it keeps the title it
+     * opened with. For a channel that is right: the alternates there are the
+     * same channel at another quality. For a fixture they are different SLOTS
+     * — the Spanish call, the pre-match studio show, another pack's feed — so
+     * without this the screen names a match while playing the build-up. Dead
+     * PPV pipes are routine, so that ladder runs often.
+     */
+    fun feedNote(name: String): String? =
+        feedLanguage(name) ?: "studio feed".takeIf { isSideFeed(name) }
 
     /**
      * What the slot claims its picture is. The advertised token is all there
@@ -900,37 +1052,92 @@ object SportsParser {
     internal fun bestPerFixture(events: List<SportsEvent>): List<SportsEvent> =
         events.groupBy { fixtureKey(it) }
             .map { (_, sameMatch) ->
-                // The match itself first — over another language's call,
-                // over a side camera — and only then the better picture. A
-                // studio show in 8K is still not the match. Arsenal v
-                // Coventry arrived on four slots at the same tier — studio
-                // coverage, a player camera, a multi camera and the match —
-                // and with nothing separating them the tie broke on
-                // whichever landed first: the pre-match studio show took the
-                // row, bringing its own earlier start time as the kick-off.
-                val ranked = sameMatch.sortedWith(
-                    compareBy(
-                        { if (it.sideFeed) 2 else if (it.languageFeed) 1 else 0 },
-                        // Before any question of picture. A pack that has the
-                        // sport wrong has earned no say in the kick-off, and
-                        // the row takes its time from whoever wins here.
-                        { if (it.wrongSport) 1 else 0 },
-                        { it.tierRank },
-                        // Only reached when the two advertise the same picture,
-                        // which for the bracketed packs means neither said
-                        // anything at all. See sourceOf.
-                        { it.sourceRank },
-                    )
-                )
+                val ranked = sameMatch.sortedWith(byFeed)
                 ranked.first().copy(alternates = ranked.drop(1).map { it.streamId })
             }
+
+    /**
+     * Which slot speaks for a fixture, best first.
+     *
+     * One comparator, shared by [bestPerFixture], by [lendClocks] and by the
+     * mis-shelved extras in [upcoming]. They were three copies, and three
+     * copies of a rule this subtle is three chances for it to drift.
+     *
+     * The match itself first — over another language's call, over a side
+     * camera — and only then the better picture. A studio show in 8K is still
+     * not the match. Arsenal v Coventry arrived on four slots at the same tier
+     * (studio coverage, a player camera, a multi camera and the match) and
+     * with nothing separating them the tie broke on whichever landed first:
+     * the pre-match studio show took the row, bringing its own earlier start
+     * time as the kick-off.
+     */
+    private val byFeed = compareBy<SportsEvent>(
+        { if (it.sideFeed) 2 else if (it.languageFeed) 1 else 0 },
+        // Before any question of picture. A pack that has the sport wrong has
+        // earned no say in the kick-off, and the row takes its time from
+        // whoever wins here.
+        { if (it.wrongSport) 1 else 0 },
+        { it.tierRank },
+        // Only reached when the two advertise the same picture, which for the
+        // bracketed packs means neither said anything at all. See sourceOf.
+        { it.sourceRank },
+    )
+
+    /**
+     * Gives a slot that carries no clock the kick-off a sibling slot knows.
+     *
+     * The same match is routinely on four slots and only some of them say
+     * when it is. A slot with no clock cannot be windowed, cannot expire and
+     * cannot stop claiming to be live — see [dowDayMonth] — so a fixture that
+     * one slot times perfectly still produced a permanently-live row off the
+     * slot that stayed silent.
+     *
+     * **Before the window, not inside the fold.** Lending inside
+     * [bestPerFixture] only reaches siblings that were already admitted, and
+     * the case that matters most is the one where they were not: at 14:00,
+     * SOCCER PPV says "Live | Barcelona vs. Athletic Club" with no clock while
+     * TSN+ has the same match at 20:30. The TSN+ slot is six hours out, so the
+     * window drops it first, the fold never sees it, and the silent slot is
+     * admitted on its bare word and badged LIVE six and a half hours early.
+     * Lent here, the silent slot carries 20:30 into the window and is
+     * correctly held back until the cue.
+     *
+     * The lender is the best-ranked slot that has a clock, which is the same
+     * order the fold picks a feed in. Slots that HAVE a clock keep their own —
+     * each one still gets its own say on whether the fixture is on, which is
+     * the rule that stopped one late clock among three taking a match off the
+     * screen.
+     */
+    private fun lendClocks(events: List<SportsEvent>): List<SportsEvent> {
+        if (events.none { it.startMs == null }) return events
+        val known = HashMap<String, Long>()
+        for (e in events.sortedWith(byFeed)) {
+            val at = e.startMs ?: continue
+            known.putIfAbsent(fixtureKey(e), at)
+        }
+        if (known.isEmpty()) return events
+        return events.map { e ->
+            if (e.startMs != null) e
+            else known[fixtureKey(e)]?.let { e.copy(startMs = it) } ?: e
+        }
+    }
 
     /**
      * The fixtures worth putting on screen: on now, or starting within the cue.
      * Live first, then soonest — a match already running outranks one that has
      * not started however close its kick-off.
      */
-    fun upcoming(events: List<SportsEvent>, nowMs: Long, cueMinutes: Int): List<SportsEvent> {
+    fun upcoming(
+        events: List<SportsEvent>,
+        nowMs: Long,
+        cueMinutes: Int,
+        /**
+         * How old the playlist these slots were read from is. Zero, the
+         * default, means "just fetched" and trusts everything; see
+         * [TIMELESS_MAX_AGE_MS] for what it buys.
+         */
+        snapshotAgeMs: Long = 0L,
+    ): List<SportsEvent> {
         val cue = cueMinutes * 60_000L
         // Drop the slots that cannot be trusted with a clock, THEN window,
         // then fold. All three steps, in that order, and each one is there
@@ -954,7 +1161,14 @@ object SportsParser {
         // its own say on whether the fixture is on, so one late clock among
         // three can no longer take the match off the screen. The fold then
         // chooses the FEED, which is all it was ever good at.
-        val (trusted, misshelved) = events.partition { !it.wrongSport }
+        // Clocks are lent BEFORE the window, so a slot that says only "LIVE"
+        // is judged on its fixture's real kick-off rather than admitting
+        // itself. Lent within each partition, never across: a pack that has
+        // filed American football under SOCCER must not hand its clock to a
+        // trusted slot, which is the seven-hours-early lesson above.
+        val (trustedRaw, misshelvedRaw) = events.partition { !it.wrongSport }
+        val trusted = lendClocks(trustedRaw)
+        val misshelved = lendClocks(misshelvedRaw)
         fun inWindow(e: SportsEvent): Boolean {
             val s = e.startMs ?: return e.live
             return s <= nowMs + cue && nowMs <= s + FIXTURE_LENGTH_MS
@@ -988,19 +1202,22 @@ object SportsParser {
                 inWindow(it) && fixtureKey(it) !in spokenFor
             }
         )
-        return (rows + orphans).map { row ->
+        return (rows + orphans).filter {
+            // A row that still has no clock after the fold had a chance to
+            // lend it one is a slot's bare word that something is on, and
+            // that word is exactly as old as the playlist it was read from.
+            // Nothing can age it: the window above falls through to the parse
+            // flag, and so does [SportsEvent.isLive], so it wears a LIVE badge
+            // for as long as it is kept. Believe it while the snapshot is
+            // fresh, stop believing it after that.
+            it.startMs != null || snapshotAgeMs < TIMELESS_MAX_AGE_MS
+        }.map { row ->
             // Ranked, not appended in playlist order. A mis-shelved slot can
             // also be a studio show, and unranked it became the first thing
             // the player's ladder reached for when the match feed would not
             // open — the pre-match programme instead of the match.
             val also = extras[fixtureKey(row)]
-                ?.sortedWith(
-                    compareBy(
-                        { if (it.sideFeed) 2 else if (it.languageFeed) 1 else 0 },
-                        { it.tierRank },
-                        { it.sourceRank },
-                    )
-                )
+                ?.sortedWith(byFeed)
                 ?.map { it.streamId }
                 ?.filterNot { it == row.streamId || it in row.alternates }
                 .orEmpty()
@@ -1016,4 +1233,22 @@ object SportsParser {
      * slot still named for it has almost certainly moved on.
      */
     private const val FIXTURE_LENGTH_MS = 3L * 60 * 60 * 1000
+
+    /**
+     * How long a bare "LIVE" with no kick-off on it is worth believing.
+     *
+     * Two hours, which is a football match with its build-up: past that the
+     * claim is older than any event it could have been describing, and a PPV
+     * pipe whose name still says so has almost certainly been re-pointed —
+     * these slots are pipes, and the provider rewrites the name for the next
+     * event on the same stream id.
+     *
+     * It only ever fires when the app cannot get a newer playlist, because
+     * opening the Sport destination asks for one at this same age (see
+     * MainViewModel.refreshFixturesIfStale). So the ordinary path is a fresh
+     * snapshot and nothing is dropped; this is what happens when the panel is
+     * unreachable, and dropping the row is the honest answer there. Leaving it
+     * up is how a viewer presses OK on a match that ended at lunchtime.
+     */
+    private const val TIMELESS_MAX_AGE_MS = 2L * 60 * 60 * 1000
 }
