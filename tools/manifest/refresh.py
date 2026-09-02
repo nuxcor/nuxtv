@@ -26,6 +26,7 @@ how to test everything downstream of the panel without touching it.
 import argparse
 import json
 import os
+import ssl
 import subprocess
 import sys
 import urllib.error
@@ -50,6 +51,30 @@ DUMPS = {
 UA = "Agoro/2.9"
 
 
+def _get(url, timeout):
+    """One request, one body. Kept apart so the https attempt and the http
+    fallback below cannot drift into two different requests."""
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read()
+
+
+def _http_message(action, e):
+    hint = " (513 from this panel means bad credentials or anti-flood)" \
+        if e.code == 513 else ""
+    return f"{action}: panel answered HTTP {e.code}{hint}"
+
+
+def _tls_problem(reason):
+    """Whether a URLError is the certificate/handshake kind, not a dead host.
+
+    A refused connection or an unknown name must NOT silently downgrade to
+    http — that is a panel that is down or a typo, and retrying it in clear
+    just leaks the password to no purpose.
+    """
+    return isinstance(reason, ssl.SSLError) or "certificate" in str(reason).lower()
+
+
 def fetch(host, user, password, timeout=180):
     """Pull each dump to a temp file, then move it into place.
 
@@ -65,20 +90,45 @@ def fetch(host, user, password, timeout=180):
         q = urllib.parse.urlencode(
             {"username": user, "password": password, "action": action}
         )
-        url = f"http://{host}/player_api.php?{q}"
-        req = urllib.request.Request(url, headers={"User-Agent": UA})
-        # One line, not a traceback. This runs unattended and its log is read
-        # weeks later by someone deciding whether the panel was down or the
-        # credentials went stale; a stack of urllib frames answers neither.
+        # HTTPS. The username and password ride in this query string, so over
+        # plain HTTP they are readable by everyone between here and the panel.
+        # Verified 2026-09-02: this panel presents a valid certificate (Google
+        # Trust Services, SAN *.dzidzi.online) and answers player_api.php
+        # identically over TLS, marginally faster.
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                body = r.read()
+            body = _get(f"https://{host}/player_api.php?{q}", timeout)
         except urllib.error.HTTPError as e:
-            hint = " (513 from this panel means bad credentials or anti-flood)" \
-                if e.code == 513 else ""
-            raise SystemExit(f"{action}: panel answered HTTP {e.code}{hint}") from None
-        except urllib.error.URLError as e:
-            raise SystemExit(f"{action}: cannot reach {host} — {e.reason}") from None
+            # A real answer, just not the one we wanted. Never downgrade on
+            # this: the panel is reachable over TLS and re-asking in clear
+            # would leak the password to learn nothing.
+            raise SystemExit(_http_message(action, e)) from None
+        # OSError, not URLError: urllib wraps most socket failures but not
+        # all of them — a peer that resets mid-response raises
+        # ConnectionResetError straight through, which used to escape as a
+        # traceback. URLError and SSLError are both OSError subclasses, so
+        # this one clause covers every transport failure there is.
+        except OSError as e:
+            reason = getattr(e, "reason", e)
+            if not _tls_problem(reason):
+                # A refused connection or an unknown name: the panel is down
+                # or the host is a typo. Retrying in clear leaks the password
+                # for nothing.
+                raise SystemExit(
+                    f"{action}: cannot reach {host} — {reason}") from None
+            # The certificate or the handshake. Falling back rather than
+            # failing, because this is a maintenance job and a panel that
+            # loses its certificate should cost the fetch its privacy, not
+            # its existence — but it says so, every time.
+            print(f"  ! TLS to {host} failed ({reason}); falling back to http "
+                  f"— the password will be sent in clear")
+            try:
+                body = _get(f"http://{host}/player_api.php?{q}", timeout)
+            except urllib.error.HTTPError as e2:
+                raise SystemExit(_http_message(action, e2)) from None
+            except OSError as e2:
+                raise SystemExit(
+                    f"{action}: cannot reach {host} over http either — "
+                    f"{getattr(e2, 'reason', e2)}") from None
         # A panel that refuses returns a short JSON object or an HTML error
         # page with a 200, so parse before believing it.
         try:

@@ -104,7 +104,7 @@ if queue is None:
 
 
 def probe(sid):
-    url = f"http://{HOST}/live/{USER}/{PASS}/{sid}.ts"
+    url = f"https://{HOST}/live/{USER}/{PASS}/{sid}.ts"
     try:
         r = subprocess.run(
             ['ffprobe', '-v', 'error', '-select_streams', 'v:0',

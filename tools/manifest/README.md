@@ -40,6 +40,19 @@ directly after the merged Entertainment, not past Streaming Networks.
 
 Never in a file — this repository is public.
 
+The scripts talk to the panel over **HTTPS**. Xtream puts the username and
+password in the URL — in the query string for `player_api.php` and in the PATH
+for every stream (`/live/user/pass/id.ts`) — so over plain HTTP they are
+readable by everyone between here and the panel. Checked 2026-09-02: this
+panel presents a valid certificate (Google Trust Services, SAN
+`*.dzidzi.online`) and answers identically over TLS, marginally faster.
+
+`refresh.py` falls back to http if the TLS handshake or the certificate
+fails, and says so loudly each time — a maintenance job should lose its
+privacy rather than its existence when a certificate lapses. It does NOT fall
+back on a refused connection or an unknown host: that is a panel that is down
+or a typo, and re-asking in clear would leak the password to learn nothing.
+
 ```sh
 export AGORO_HOST=pro.example.online
 export AGORO_USER=...

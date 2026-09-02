@@ -23,7 +23,7 @@ def iter_eps(n):
 
 def fetch(sid):
     q=urllib.parse.urlencode({"username":U,"password":P,"action":"get_series_info","series_id":sid})
-    r=urllib.request.Request(f"http://{H}/player_api.php?{q}",headers={"User-Agent":UA})
+    r=urllib.request.Request(f"https://{H}/player_api.php?{q}",headers={"User-Agent":UA})
     for a in range(4):
         try:
             with urllib.request.urlopen(r,timeout=45) as resp:
