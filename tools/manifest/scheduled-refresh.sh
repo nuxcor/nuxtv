@@ -10,6 +10,9 @@
 # Credentials are read from a file OUTSIDE the repository, which is public.
 # The file is yours alone (chmod 600) and its contents never reach the clone.
 #
+# Runs on macOS under launchd and on Linux under systemd; see INSTALL and
+# INSTALL (LINUX) below. Nothing in it is specific to either.
+#
 # INSTALL
 #   mkdir -p ~/.config/nuxtv && chmod 700 ~/.config/nuxtv
 #   cat > ~/.config/nuxtv/panel.env <<'EOF'
@@ -23,10 +26,17 @@
 # UNINSTALL
 #   launchctl unload ~/Library/LaunchAgents/com.agoro.manifest-refresh.plist
 #   rm ~/Library/LaunchAgents/com.agoro.manifest-refresh.plist
+#
+# INSTALL (LINUX, systemd --user) — see tools/manifest/systemd/ for the units
+#   the machine needs git, python3 and gh, a gh login that can open a pull
+#   request, and a key that can push. `loginctl enable-linger $USER` is what
+#   lets a --user timer fire while nobody is logged in, which on a home server
+#   is the whole point.
 set -euo pipefail
 
-# launchd hands a job almost no PATH, so git, gh and python are named the way
-# a login shell would find them rather than assumed.
+# launchd and systemd both hand a job almost no PATH, so the places git, gh
+# and python actually live are named rather than assumed. Homebrew's two
+# prefixes are harmless on a machine that has neither.
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 REPO="${MANIFEST_REPO_URL:-git@github.com:nuxcor/nuxtv.git}"
@@ -52,7 +62,11 @@ if [ -z "${AGORO_HOST:-}" ] || [ -z "${AGORO_USER:-}" ] || [ -z "${AGORO_PASS:-}
     exit 0
 fi
 
-WORK="$(mktemp -d -t nuxtv-refresh)"
+# The template carries its own X's: BSD mktemp appends them to a -t name and
+# GNU mktemp refuses a template without them, so spelling them out is the one
+# form both accept. This script runs on the Mac under launchd and on a Linux
+# home server under systemd.
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/nuxtv-refresh.XXXXXXXX")"
 # Runs on every exit including the failures, so a panel that is down for a
 # week does not leave a week of half-built clones in the temp directory.
 trap 'rm -rf "$WORK"' EXIT
@@ -78,8 +92,13 @@ fi
 VERSION=$(grep -o 'versionName = "[^"]*"' app/build.gradle.kts | head -1 | cut -d'"' -f2)
 CODE=$(grep -o 'versionCode = [0-9]*' app/build.gradle.kts | head -1 | awk '{print $3}')
 NEXT="${VERSION%.*}.$(( ${VERSION##*.} + 1 ))"
-sed -i '' "s/versionName = \"$VERSION\"/versionName = \"$NEXT\"/" app/build.gradle.kts
-sed -i '' "s/versionCode = $CODE/versionCode = $((CODE + 1))/" app/build.gradle.kts
+# In place, portably. GNU sed reads `-i ''` as a filename and BSD sed demands
+# the argument, so neither spelling works on both; a temp file and a move does.
+bump() {  # bump <sed-expression> <file>
+    sed "$1" "$2" > "$2.bump" && mv "$2.bump" "$2"
+}
+bump "s/versionName = \"$VERSION\"/versionName = \"$NEXT\"/" app/build.gradle.kts
+bump "s/versionCode = $CODE/versionCode = $((CODE + 1))/" app/build.gradle.kts
 
 BRANCH="manifest-refresh-$(date +%Y%m%d)"
 git checkout -q -b "$BRANCH"

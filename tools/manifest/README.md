@@ -60,6 +60,51 @@ AGORO_HOST=... AGORO_USER=... AGORO_PASS=... python3 refresh.py --write # instal
 python3 refresh.py --no-fetch                # rebuild from the dumps on disk
 ```
 
+## Running it on a schedule
+
+`scheduled-refresh.sh` is the unattended form: clone fresh into a temp
+directory, fetch, rebuild, and open a pull request only when the line-up
+moved. It works on a throwaway clone and never on a working tree, so it
+cannot disturb whatever you have checked out.
+
+Credentials live outside this repository, which is public:
+
+```sh
+mkdir -p ~/.config/nuxtv && chmod 700 ~/.config/nuxtv
+printf 'AGORO_HOST=\nAGORO_USER=\nAGORO_PASS=\n' > ~/.config/nuxtv/panel.env
+chmod 600 ~/.config/nuxtv/panel.env   # then fill in the three values
+```
+
+Blank values are treated as "not installed yet" and the job exits quietly, so
+an unfinished install is silent rather than a weekly error.
+
+**On a Linux home server** — the better host, because a timer only helps if
+the machine is awake. It needs `git`, `python3` and `gh`, a `gh` login that
+can open a pull request, and a key that can push.
+
+```sh
+git clone git@github.com:nuxcor/nuxtv.git ~/nuxtv
+mkdir -p ~/.config/systemd/user
+cp ~/nuxtv/tools/manifest/systemd/manifest-refresh.* ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now manifest-refresh.timer
+loginctl enable-linger "$USER"     # let the timer fire with nobody logged in
+```
+
+`enable-linger` is the part people miss: without it a `--user` timer only runs
+while that user has a session, which on a headless box is never. Check it with
+`systemctl --user list-timers` and read the log at `~/.config/nuxtv/refresh.log`.
+Run it once by hand first — `systemctl --user start manifest-refresh.service` —
+rather than waiting a week to find out `gh` was not logged in.
+
+The unit reads `%h/nuxtv/...`, so a checkout anywhere else needs its
+`ExecStart` path edited.
+
+**On macOS** the same script runs under a launchd agent
+(`~/Library/LaunchAgents/com.agoro.manifest-refresh.plist`, Sunday 04:00
+local). A sleeping Mac runs a missed job when it next wakes, but a Mac that
+stays shut skips the week — which is the reason to prefer the server.
+
 **Why it is worth running on a schedule.** New provider content reaches the app
 on its own — the app fetches the line-up at runtime — but every per-title
 decision in the manifest is keyed by stream or series id, so none of it covers

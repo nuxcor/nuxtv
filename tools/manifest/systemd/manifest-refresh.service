@@ -1,0 +1,21 @@
+[Unit]
+Description=NuxTV weekly catalogue manifest rebuild
+# The job clones over the network and talks to the provider's panel, so it
+# waits for a route rather than failing at 04:00 on a box that boots faster
+# than its network comes up.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# %h is the user's home, so this unit needs no editing to install.
+ExecStart=/bin/bash %h/nuxtv/tools/manifest/scheduled-refresh.sh
+# Where the checkout lives, if it is not ~/nuxtv. The script clones its own
+# throwaway copy to work in; this path is only used to find the script.
+#
+# Everything else it needs it reads for itself: credentials from
+# ~/.config/nuxtv/panel.env, and the log path from the same directory.
+TimeoutStartSec=30min
+
+[Install]
+WantedBy=default.target
