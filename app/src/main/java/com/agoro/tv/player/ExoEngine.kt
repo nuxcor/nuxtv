@@ -528,6 +528,16 @@ class ExoEngine(
             // unless the stream is 4K/HDR, and off for good on a device whose
             // tunnelled decoder has frozen. See TunnelPolicy.
             .setTunnelingEnabled(false)
+            // Ask the SELECTOR for the language, rather than only correcting
+            // it afterwards. A film with English second in its track list
+            // opened in the other language and stayed there: nothing set a
+            // default, so the preference was null until the viewer had gone
+            // into the audio sheet and picked one by hand at least once, and
+            // even then PlayerScreen's effect switches tracks up to ten
+            // seconds in — a re-buffer, over dialogue already missed.
+            // Chosen at selection time there is no switch and no re-buffer.
+            // An explicit viewer choice still wins: that effect overrides.
+            .setPreferredAudioLanguages(*DEFAULT_AUDIO_LANGUAGES)
             .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, silent)
             .build()
     }
@@ -1252,6 +1262,24 @@ private fun humanErrorForCode(errorCodeName: String): String = when (errorCodeNa
     "ERROR_CODE_BEHIND_LIVE_WINDOW" -> "the live stream moved on"
     else -> errorCodeName.removePrefix("ERROR_CODE_").replace('_', ' ').lowercase()
 }
+
+/**
+ * The audio languages to reach for when the viewer has expressed no
+ * preference: the box's own language first, then English.
+ *
+ * English is the fallback rather than the only entry so that a box set to
+ * another language is not overridden by ours, and it is present at all
+ * because this provider's films routinely carry several dubs with no default
+ * flag and no useful order — left to the selector's "first playable track"
+ * that is a coin toss the viewer loses. A stream whose tracks are untagged
+ * ("und") matches nothing here and selects exactly as it did before.
+ *
+ * Read once: the box's language does not change while the app is running,
+ * and this is on the path of every engine build.
+ */
+private val DEFAULT_AUDIO_LANGUAGES: Array<String> =
+    listOfNotNull(java.util.Locale.getDefault().language.takeIf { it.isNotBlank() }, "en")
+        .distinct().toTypedArray()
 
 /** "en" → "English"; an unknown or odd tag stays as its upper-cased code. */
 private fun languageName(tag: String): String {
