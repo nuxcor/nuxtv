@@ -11,7 +11,7 @@ import com.agoro.tv.data.PlayableItem
  * by hand. The channel banner is deliberately *not* a layer: it coexists with
  * bare playback and with the controls, on its own timer.
  */
-enum class PlayerLayer { None, Controls, ChannelList, Guide, Tracks, Catchup, Options, Error }
+enum class PlayerLayer { None, Controls, ChannelList, Guide, Tracks, Catchup, Options, Error, UpNext }
 
 /** What the player should do in response to a key, decided by [playerKeyAction]. */
 internal sealed interface PlayerKeyAction {
@@ -21,6 +21,9 @@ internal sealed interface PlayerKeyAction {
     data class Zap(val delta: Int) : PlayerKeyAction
     data object ShowBanner : PlayerKeyAction
     data object PlayPause : PlayerKeyAction
+
+    /** Take the queued next episode now, instead of waiting out its count. */
+    data object PlayUpNext : PlayerKeyAction
     data object LastChannel : PlayerKeyAction
     data object ToggleGuide : PlayerKeyAction
     data object OpenChannelList : PlayerKeyAction
@@ -138,6 +141,17 @@ internal fun playerKeyAction(
     // distinguishable — and it doubles as the swallow that used to exist
     // here: an unhandled KeyUp would land on whatever the action just
     // focused and activate it immediately.
+    // OK on the up-next offer takes it, and takes it BEFORE the arm/hold
+    // machinery below — the offer is modal in the only sense that matters
+    // here, and a viewer reaching for OK to start the next episode must not
+    // instead arm a long-press that opens the channel options behind it.
+    // On the release, so the KeyUp cannot fall through to whatever the new
+    // episode's chrome has since focused.
+    if (isCenter && layer == PlayerLayer.UpNext) {
+        return if (isKeyUp) PlayerKeyResult(consumed = true, action = PlayerKeyAction.PlayUpNext)
+        else PlayerKeyResult(consumed = true)
+    }
+
     if (isCenter) {
         if (isKeyDown && repeatCount == 0 && chromeFree && !centerArmed) {
             return PlayerKeyResult(consumed = true, action = PlayerKeyAction.CenterArm)

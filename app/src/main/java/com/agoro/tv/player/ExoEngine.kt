@@ -808,7 +808,12 @@ class ExoEngine(
             // to the item that just finished — this is the only moment anyone
             // learns that it did.
             listener?.onItemEnded(index, player.duration.takeIf { it != C.TIME_UNSET } ?: 0L)
-            if (index < items.size - 1) playAt(index + 1)
+            // The advance itself belongs to the SESSION now, not here. It used
+            // to cut straight to the next episode the instant one ended, which
+            // gives a viewer finishing a season at one in the morning no way
+            // to stop it. The session counts down in front of the viewer and
+            // calls playAt when it is done, or when they ask for it sooner —
+            // and does nothing at all if they say no.
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {

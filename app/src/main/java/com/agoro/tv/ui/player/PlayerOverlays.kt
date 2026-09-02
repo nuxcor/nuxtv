@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -625,4 +626,53 @@ private fun plainLanguage(raw: String): String = when {
     // Already a sentence from the engine's own rewrite; make sure it reads
     // as one (a period, no stray capital mid-line).
     else -> raw.trim().trimEnd('.').let { if (it.isEmpty()) "The stream stopped." else "$it." }
+}
+
+/**
+ * "Up next — S1 E2 • The Cellar. Playing in 7."
+ *
+ * Deliberately not a menu. There are exactly two answers and the remote
+ * already has a key for each: OK takes it now, BACK declines. A row of
+ * focusable buttons would need arrival focus, focus restoration on dismissal
+ * and a rule for what happens when the count reaches zero under a focused
+ * button — machinery for a decision that is already binary.
+ */
+@Composable
+internal fun UpNextCard(title: String, secondsLeft: Int, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(NuxColors.Surface.copy(alpha = 0.94f))
+            .padding(horizontal = 28.dp, vertical = 22.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = "Up next",
+            style = MaterialTheme.typography.labelMedium,
+            color = NuxColors.OnSurfaceDim,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            color = NuxColors.OnSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(14.dp))
+        Text(
+            // The number counts, so the sentence around it must not move —
+            // "Playing in 10" to "Playing in 9" reflowing the line would
+            // twitch once a second in the middle of the screen.
+            text = "Playing in $secondsLeft",
+            style = MaterialTheme.typography.labelLarge,
+            color = NuxColors.Primary,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "OK to start now  •  BACK to stay",
+            style = MaterialTheme.typography.labelSmall,
+            color = NuxColors.OnSurfaceDim,
+        )
+    }
 }

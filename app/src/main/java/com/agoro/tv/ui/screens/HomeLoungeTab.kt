@@ -769,7 +769,7 @@ fun HomeLoungeTab(
                     }
                 }
                 HomeRow.StarterSeries -> Column {
-                    SectionTitle("Shows")
+                    SectionTitle("Series")
                     LazyRow(
                         modifier = shelf.focusRestorer().shelfRingRoom(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),

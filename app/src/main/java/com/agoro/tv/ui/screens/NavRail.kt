@@ -91,7 +91,7 @@ enum class HomeTab(val label: String, val icon: ImageVector) {
     // is one place.
     Sport("Sport", Icons.Default.SportsSoccer),
     Movies("Movies", Icons.Default.Movie),
-    Series("Shows", Icons.Default.VideoLibrary),
+    Series("Series", Icons.Default.VideoLibrary),
     Settings("Settings", Icons.Default.Settings),
 }
 

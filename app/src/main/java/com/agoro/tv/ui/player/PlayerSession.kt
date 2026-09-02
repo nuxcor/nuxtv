@@ -297,23 +297,6 @@ class PlayerSession internal constructor(
     /** When the current stream was asked for; see [STALL_GRACE_MS]. */
     private var lastTuneMs = System.currentTimeMillis()
 
-    /**
-     * How long is left of the window after a tune in which buffering is the
-     * buffer filling rather than the feed failing. 0 once it has passed.
-     *
-     * The stall counter has ignored this window from the start — the first
-     * seconds after a tune are the buffer filling, and counting them made
-     * every zap look like a fault. The chip that SAYS "Buffering…" was never
-     * given the same rule, so it kept announcing over a picture that was
-     * simply starting: [tuning] goes false the moment the first frame lands,
-     * and the refill behind it is what the viewer then read as a fault.
-     *
-     * One window, one meaning, read by both. A stream still buffering when it
-     * closes has stopped settling and started failing, and by then the ladder
-     * is already saying so in its own words.
-     */
-    val settleRemainingMs: Long
-        get() = (STALL_GRACE_MS - (System.currentTimeMillis() - lastTuneMs)).coerceAtLeast(0L)
 
     /**
      * Which reconnect the ladder is on, 1-based; 0 when none is in flight.
@@ -483,9 +466,17 @@ class PlayerSession internal constructor(
             // Saved at its own duration, which is what marks it watched:
             // saveResumePosition clears the position past 95% and records the
             // completion. Live and catch-up never finish in this sense.
-            if (request.isLive || request.isCatchup || durationMs <= 0) return
-            val url = request.items.getOrNull(index)?.url ?: return
-            onSaveResume(url, durationMs, durationMs)
+            if (request.isLive || request.isCatchup) return
+            if (durationMs > 0) {
+                request.items.getOrNull(index)?.url?.let { onSaveResume(it, durationMs, durationMs) }
+            }
+            // And then offer the next one rather than taking it. A duration
+            // of zero still gets the offer: the file not reporting its length
+            // says nothing about whether there is another episode.
+            if (index < request.items.size - 1) {
+                upNextIndex = index + 1
+                layer = PlayerLayer.UpNext
+            }
         }
 
         override fun onPlayingChanged(p: Boolean, b: Boolean) {
@@ -795,6 +786,11 @@ class PlayerSession internal constructor(
     }
 
     private fun resetLadder(index: Int) {
+        // A new item means the previous offer is answered, whichever way it
+        // went — taken, declined, or overtaken by the viewer picking something
+        // else entirely.
+        upNextIndex = null
+        if (layer == PlayerLayer.UpNext) layer = PlayerLayer.None
         ladderItemIndex = index
         retriesLeft = reconnectDelaysMs(request.isLive).size
         liveFormatStage = 0
@@ -920,6 +916,37 @@ class PlayerSession internal constructor(
             items = PatchedList(request.items, idx, item.copy(url = plain)),
         )
         return true
+    }
+
+    /**
+     * The episode queued to follow the one that just ended, or null.
+     *
+     * The engine used to cut straight to it on STATE_ENDED. That is the right
+     * outcome and the wrong manners: a viewer finishing a season at one in the
+     * morning got the next episode whether they wanted it or not, and the only
+     * warning was a corner badge in the last fifteen seconds. The card counts
+     * down in front of them instead — OK takes it early, BACK declines, and
+     * silence takes it when the count runs out, which is what a viewer who has
+     * fallen asleep wants either way.
+     */
+    var upNextIndex by mutableStateOf<Int?>(null)
+        private set
+
+    /** Take the queued episode now. */
+    fun playUpNext() {
+        val next = upNextIndex ?: return
+        upNextIndex = null
+        if (layer == PlayerLayer.UpNext) layer = PlayerLayer.None
+        // Through the engine's own index jump, so the ladder, the resume
+        // write and onItemChanged all run exactly as they do for a hand-picked
+        // episode. Nothing about this path is special once it starts.
+        engine?.playAt(next)
+    }
+
+    /** Decline it, and stay on the frame the episode ended on. */
+    fun dismissUpNext() {
+        upNextIndex = null
+        if (layer == PlayerLayer.UpNext) layer = PlayerLayer.None
     }
 
     fun clearError() {

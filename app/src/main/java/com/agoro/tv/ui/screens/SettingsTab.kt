@@ -206,11 +206,24 @@ internal fun SettingsTab(
                 // Hold OK for options on any playlist; the active one has
                 // nothing to switch to, so a plain OK opens them too.
                 onLongClick = { sourceOptions = source.id },
-                // The host is what identifies a playlist to its owner; the
-                // scheme, port and path are plumbing, and putting plumbing on
-                // screen is what makes an app look like a tool for its author.
+                // The host and the USERNAME identify a playlist to its owner;
+                // the scheme, port and path are plumbing, and putting plumbing
+                // on screen is what makes an app look like a tool for its
+                // author. The username is not plumbing — it is the answer to
+                // "which of my logins is this box on", which matters on a line
+                // that allows one connection and is shared across devices.
+                //
+                // Here rather than in the Account group below, which only
+                // renders once the panel has answered: the question is most
+                // urgent exactly when it has not.
+                //
+                // The password is deliberately absent and should stay absent.
+                // Nobody needs to read it off a television, and a settings
+                // screen is the one place in this app that gets photographed
+                // for a support thread.
                 subtitle = when (source) {
-                    is PlaylistSource.Xtream -> "Xtream • ${displayHost(source.serverUrl)}"
+                    is PlaylistSource.Xtream ->
+                        "Xtream • ${displayHost(source.serverUrl)} • ${source.username}"
                     is PlaylistSource.M3u -> "M3U • ${displayHost(source.url)}"
                 },
                 leading = {
