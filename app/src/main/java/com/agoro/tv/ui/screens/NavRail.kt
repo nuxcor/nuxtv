@@ -130,7 +130,20 @@ internal fun NavRail(
     // this overlaid focus group the search proved unreliable (it refused the
     // move outright on some devices), and a fixed vertical list needs no
     // geometry — the next item is an index, not a direction.
-    val items = remember { HomeTab.entries.filterNot { it == HomeTab.Search } }
+    // Every tab, Search included. It sat outside the rail from 2026-08-18 on
+    // the rule that a launcher lists destinations and search is an action —
+    // clean, and contradicted by the whole category: Netflix and YouTube both
+    // put search at the top of this exact rail and carry no second control
+    // for it anywhere else. The objection recorded at the time was that it
+    // was listed TWICE on Home, which is an argument against the duplication
+    // rather than against the rail, so the Home pill went with this change
+    // instead of joining it.
+    //
+    // What it buys: the rail is the only surface every tab can reach, so Live
+    // TV, Sport and the guide gain a way in. They had none — the hardware
+    // search key was written as their entry, and the box in use has no such
+    // key on its remote, so in practice they had nothing at all.
+    val items = remember { HomeTab.entries }
     // One spare, always allocated. Sizing this to the rows actually shown
     // would rebuild every requester the moment a background update check came
     // back, and the rebuilt one the viewer was standing on no longer points
@@ -196,16 +209,12 @@ internal fun NavRail(
                 .height(48.dp)
                 .width(35.dp),
         )
-        // Search is reached from Home's top-right pill, not the rail — a
-        // launcher lists destinations, and search is an action. It is offered
-        // in Home's empty state too, so the one control that makes a
-        // 20,000-item playlist usable is never out of reach on a fresh
-        // install, which is what put it here in the first place.
         items.forEachIndexed { index, item ->
-            // railFocus must be attached somewhere even while the Search tab
-            // (railless) is selected, or entering the rail has no target.
-            val holdsFocus = item == selected ||
-                (selected == HomeTab.Search && item == HomeTab.Home)
+            // Every tab is now a rail row, Search among them, so the selected
+            // one always exists here and the borrowed anchor this used to need
+            // — Home standing in while the railless Search tab was up — is
+            // gone with it.
+            val holdsFocus = item == selected
             RailItem(
                 label = item.label,
                 icon = item.icon,

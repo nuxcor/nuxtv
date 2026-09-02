@@ -359,12 +359,10 @@ fun HomeScreen(
                             vm, state.bundle, onOpenMovie,
                             onPlay = onPlay,
                             onOpenSettings = { tab = HomeTab.Settings },
-                            onOpenSearch = openSearch,
                         )
                         HomeTab.Series -> SeriesTab(
                             vm, state.bundle, onOpenSeries,
                             onOpenSettings = { tab = HomeTab.Settings },
-                            onOpenSearch = openSearch,
                         )
                         HomeTab.Settings -> Unit // composed above, state-independent
                     }
@@ -470,13 +468,12 @@ fun HomeScreen(
         ),
     ) {
         NavRail(
-            // Search is railless, so the rail borrows the tab it was opened
-            // from — which is also where Back out of search returns. Anchoring
-            // it to Home was right only while Home's pill was the one way in;
-            // opening search from Shows and then opening the rail put the
-            // cursor on Home while Back went to Shows, the two controls
-            // disagreeing about where the viewer had come from.
-            selected = if (tab == HomeTab.Search) searchOrigin else tab,
+            // Search is a rail row now, so it marks itself and no longer
+            // borrows the tab it was opened from. Back still returns to that
+            // tab rather than to Home — reaching search from Shows and being
+            // returned to Home loses the shelf you were standing in, whether
+            // you got there by the rail or by the key.
+            selected = tab,
             // OK commits: switch the tab, close the drawer, and hand focus to
             // the content — the modal form of what the old rail did on dwell.
             // Selecting under an open drawer recomposed the screen beneath it
@@ -486,7 +483,10 @@ fun HomeScreen(
             // which read the commit's own key press as a summons and reopened
             // the drawer it had just closed.
             onSelect = {
-                tab = it
+                // Through openSearch, not a bare assignment: it is what seats
+                // searchOrigin, and Back out of search reads that. A rail row
+                // that set the tab directly would strand Back on Home.
+                if (it == HomeTab.Search) openSearch() else tab = it
                 railDismiss?.cancel()
                 // The gate first: content refuses focus while the rail holds
                 // it (LocalArrivalFocusAllowed), so the hand-off can only
