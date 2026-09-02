@@ -55,6 +55,45 @@ def asc(s):
 
 # ---------------------------------------------------------------- hand-mapping
 # categories the automatic classifier could not place, resolved by inspection
+# Football club channels the provider files under PPV.
+#
+# "PPV" in a category name means "an event shelf" almost everywhere, and the
+# PPV section is hidden by default because it is 6,281 numbered slots that
+# exist for the Sport tab to parse into fixtures. These seven shelves are not
+# that. They are ROSTERS — one permanent channel per club, "CHAMP: BURNLEY",
+# "UK: EPL ARSENAL", "SPFL: CELTIC TV" — which is the shape of an ordinary
+# channel and belongs on the Sports shelf with the rest of them.
+#
+# Reported 2026-09-02 as "live sports i see no games for english league
+# championship". The 24 Championship club channels were in the line-up the
+# whole time, kept and not dropped, sitting on the one shelf that is hidden
+# unless you go looking for it. So were League One, League Two, the Premier
+# League clubs, and the Spanish and Italian rosters.
+#
+# The line is roster vs slot, not competition vs competition: NATIONAL LEAGUE,
+# LIVE FOOTBALL, UEFA, FA PLAYER, SCOTTISH CUP and the EPL VIP shelf are
+# fixtures and numbered slots, and they stay on PPV where the fixture parser
+# reads them. SPFL is the one shelf that is BOTH — thirteen club channels and
+# twelve numbered slots — so it comes across and the slots are dropped by name
+# below; leaving it behind would have kept Celtic and Rangers hidden to avoid
+# a dozen junk entries.
+FOOTBALL_CLUB_SHELVES = {
+    "769": ("SPORTS", "UK"),  # UK| CHAMPIONSHIP PPV       — CHAMP: BURNLEY, 24 clubs
+    "766": ("SPORTS", "UK"),  # UK| LEAGUE ONE PPV         — L1: WIGAN ATHLETIC, 24
+    "767": ("SPORTS", "UK"),  # UK| LEAGUE TWO PPV         — L2: YORK CITY, 24
+    "755": ("SPORTS", "UK"),  # UK| EPL PREMIER LEAGUE PPV — UK: EPL ARSENAL, 31
+    "930": ("SPORTS", "UK"),  # UK| SPFL/SCOTTISH PPV      — SPFL: CELTIC TV, 13 + slots
+    "976": ("SPORTS", "UK"),  # UK| LA LIGA TEAM PPV       — UK: LA LIGA - BARCELONA, 22
+    "977": ("SPORTS", "UK"),  # UK| SERIE A TEAM PPV       — UK: SERIE A - ROMA 4K, 20
+}
+
+# The numbered slots inside a roster shelf. "SPFL 02:", "SPFL 12: Motherwell v
+# Queen's Park" — event feeds that came across with SPFL's club channels and
+# would otherwise stand on the Sports shelf as a channel called "SPFL 07:".
+# Anchored to the shelves above; a bare number after a league prefix is never
+# a club.
+ROSTER_SLOT_JUNK = re.compile(r'^\s*(?:SPFL|CHAMP|L1|L2|EPL)\s*\d+\s*:', re.I)
+
 LIVE_MANUAL = {
     "2036": ("ENTERTAINMENT", "US"),   # DirecTV bundle - mixed lineup
     "2049": ("ENTERTAINMENT", "US"),   # DirecTV bundle, second split (no overlap)
@@ -72,6 +111,11 @@ LIVE_MANUAL = {
     "595":  ("ENTERTAINMENT", "AFR"),  # Ethiopia & Eritrea
     "2212": ("ENTERTAINMENT", "AFR"),  # Mauritius
 }
+
+# The roster shelves join the manual table rather than sitting beside it, so
+# they go through the one path that already resolves a category to a section
+# and a territory. Applied here because LIVE_MANUAL is defined below them.
+LIVE_MANUAL.update(FOOTBALL_CLUB_SHELVES)
 # movies misfiled by the provider - these are not films
 MOVIE_MANUAL = {
     "310":  "SPORTS_EVENTS",    # WWE
@@ -681,6 +725,13 @@ for s in ls:
         defunct_drop.append(s['stream_id']); continue
     if NAMED_REMOVAL.search(asc(s['name'])):
         named_drop.append(s['stream_id']); continue
+    # A numbered event slot riding along inside a club-roster shelf; see
+    # ROSTER_SLOT_JUNK. Anchored to those categories, so the identically
+    # shaped slots on the shelves that STAY on PPV — the EPL VIP shelf, Live
+    # Football — are untouched and the fixture parser still reads them.
+    if (str(s.get('category_id')) in FOOTBALL_CLUB_SHELVES
+            and ROSTER_SLOT_JUNK.match(asc(s['name']))):
+        named_drop.append(s['stream_id']); continue
     # Anchored to the start of the NAME, not searched anywhere in it: PPV
     # listings carry "South Africa v New Zealand: SuperSport Coverage", which
     # is a fixture being broadcast, not the channel being duplicated.
@@ -772,8 +823,23 @@ REGION_PIN = {'nbcnewsnow': 'US', 'bbcworldnews': 'US'}
 # not make is an error, not a no-op: a feed pinned to nothing is a fix that
 # silently stopped applying.
 DIRECT_FEED = {
+    # Tubi's copy and NOT Disney's, which is the better feed on paper and the
+    # worse one on this box. Disney serves ABC News Live as HEVC on every rung
+    # (1080p/720p/540p/360p, hvc1) with no H.264 anywhere in the ladder, and
+    # the user's box reports the upper rungs as undecodable — the player's
+    # quality sheet marks them "this TV can't decode it", so the selector
+    # falls to 540p and the channel reads SD. Verified on the box 2026-09-02.
+    #
+    # Tubi tops out at 720p, which is a rung lower than Disney ADVERTISES and
+    # a rung higher than this box actually gets from it, and it is H.264 like
+    # every other channel in the line-up. The provider's own 1080p H.264
+    # copies still sit behind it in the ladder for the day they come back.
+    #
+    # There is no H.264 1080p ABC News Live in public circulation — checked
+    # against the whole iptv-org index on 2026-09-02, where the only 1080p
+    # entry is Disney's HEVC one. If the box's HEVC support is ever fixed,
+    # putting Disney's URL back at the head of this list is the whole change.
     'abcnews|US': [
-        'https://pb-0n3n2ej0w8pl9.akamaized.net/ABCNewsLive_Disney.m3u8',
         'https://aegis-cloudfront-1.tubi.video/d6cbb0de-68e4-4f3b-82f9-bf5d526e0bde/index.m3u8',
     ],
     'nbcnewsnow|US': [

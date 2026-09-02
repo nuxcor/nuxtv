@@ -8,6 +8,7 @@ import coil3.disk.DiskCache
 import coil3.disk.directory
 import com.agoro.tv.data.ContentRepository
 import com.agoro.tv.data.StorageUsage
+import com.agoro.tv.data.sentence
 import com.agoro.tv.player.AudioOutputPolicy
 
 class NuxTvApp : Application(), SingletonImageLoader.Factory {
@@ -43,5 +44,13 @@ class NuxTvApp : Application(), SingletonImageLoader.Factory {
         // main thread: two AudioTracks are milliseconds, but AudioFlinger is
         // a binder call away and start-up is the wrong place to wait on one.
         Thread({ AudioOutputPolicy.probe(this) }, "audio-probe").start()
+        // How the last run ended, if it ended badly. Logged on the way in
+        // because a process that is killed never gets to say anything on the
+        // way out, and "it sometimes freezes and closes" is unactionable
+        // without it. See LastExit; nothing leaves the box.
+        com.agoro.tv.data.ExitReasons.lastAbnormal(this)?.let {
+            android.util.Log.w("Agoro", "Previous run ended badly: ${it.sentence()}" +
+                (it.detail?.let { d -> " ($d)" } ?: ""))
+        }
     }
 }
