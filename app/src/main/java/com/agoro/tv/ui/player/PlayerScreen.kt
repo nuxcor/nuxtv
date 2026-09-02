@@ -100,6 +100,16 @@ private const val DISPLAY_MODE_SETTLE_MS = 3_000L
 private const val QUALITY_LEARN_SETTLE_MS = 5_000L
 
 /**
+ * How long the next episode waits before it takes itself.
+ *
+ * Long enough to read the title and press BACK, short enough that a viewer
+ * who wants it does not sit through a countdown they never asked for. Ten is
+ * what the streaming services settled on and it is about right on a remote,
+ * where declining costs one press and finding the remote costs the rest.
+ */
+private const val UP_NEXT_SECONDS = 10
+
+/**
  * How long a channel has to stay tuned before it becomes the one a cold start
  * reopens on.
  *
@@ -816,6 +826,11 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 // closePanel, not None: with an error pending, dropping to bare
                 // video would strand a black screen with no chrome.
                 session.closePanel()
+            // BACK on the offer declines it and stays on the frame the
+            // episode ended on, rather than leaving the player. Leaving is
+            // still one more BACK away, which is the same two presses it
+            // would have been; declining first is the one nobody can undo.
+            PlayerLayer.UpNext -> session.dismissUpNext()
             PlayerLayer.Error, PlayerLayer.None -> onExit()
         }
     }
@@ -890,6 +905,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         session.togglePlayPause()
                         session.poke()
                     }
+                    PlayerKeyAction.PlayUpNext -> session.playUpNext()
                     PlayerKeyAction.LastChannel -> session.jumpTo(session.previousIndex)
                     PlayerKeyAction.ToggleGuide ->
                         // Layers are exclusive, so raising the guide inherently
@@ -994,6 +1010,32 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     "Reconnecting… (${session.reconnectAttempt} of ${session.reconnectTotal})"
                 } else null,
             )
+        }
+
+        // The next episode, offered rather than taken. Centre, where the tune
+        // card sits: this is the same kind of moment — something is about to
+        // start and the viewer is being told which.
+        session.upNextIndex?.let { nextIndex ->
+            val next = request.items.getOrNull(nextIndex)
+            if (next != null) {
+                var secondsLeft by remember(nextIndex) { mutableIntStateOf(UP_NEXT_SECONDS) }
+                LaunchedEffect(nextIndex) {
+                    // Ticks on its own clock and plays at zero. Keyed on the
+                    // index so a viewer who declines and is later offered a
+                    // different episode gets a fresh count, not the remains
+                    // of the last one.
+                    while (secondsLeft > 0) {
+                        delay(1_000)
+                        secondsLeft--
+                    }
+                    session.playUpNext()
+                }
+                UpNextCard(
+                    title = next.subtitle ?: next.title,
+                    secondsLeft = secondsLeft,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
         }
 
         // Paused with no chrome up: say so, or a dark still frame reads as a

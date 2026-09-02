@@ -7,6 +7,7 @@ import com.agoro.tv.ui.player.ZAP_REPEAT_EVERY
 import com.agoro.tv.ui.player.playerKeyAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -42,6 +43,56 @@ class PlayerKeyHandlerTest {
         digitsPending = digitsPending,
         playing = playing,
     )
+
+    // --- the up-next offer -------------------------------------------------
+
+    @Test
+    fun `OK on the up-next offer takes the episode, on the release`() {
+        // On the release, so the KeyUp cannot fall through onto whatever the
+        // new episode's chrome has since focused.
+        val down = press(KeyEvent.KEYCODE_DPAD_CENTER, layer = PlayerLayer.UpNext)
+        assertTrue(down.consumed)
+        assertNull(down.action)
+
+        val up = press(
+            KeyEvent.KEYCODE_DPAD_CENTER, layer = PlayerLayer.UpNext,
+            isKeyDown = false, isKeyUp = true,
+        )
+        assertEquals(PlayerKeyAction.PlayUpNext, up.action)
+    }
+
+    @Test
+    fun `the offer takes OK before the arm and hold machinery sees it`() {
+        // A viewer reaching for OK to start the next episode must not instead
+        // arm a long press that opens the channel options behind the card.
+        val down = press(KeyEvent.KEYCODE_DPAD_CENTER, layer = PlayerLayer.UpNext)
+        assertNull("must not arm", down.action)
+
+        val repeat = press(
+            KeyEvent.KEYCODE_DPAD_CENTER, layer = PlayerLayer.UpNext,
+            repeatCount = 3, centerArmed = true,
+        )
+        assertNull("must not long-press", repeat.action)
+    }
+
+    @Test
+    fun `OK still arms normally when no offer is up`() {
+        val down = press(KeyEvent.KEYCODE_DPAD_CENTER, layer = PlayerLayer.None)
+        assertEquals(PlayerKeyAction.CenterArm, down.action)
+    }
+
+    @Test
+    fun `a typed channel number still wins over the offer`() {
+        // Digits are collected on live and the offer only exists on VOD, so
+        // the two cannot really coincide — but the digit branch runs first and
+        // must keep doing so, because half-committing a number is worse than
+        // either outcome.
+        val up = press(
+            KeyEvent.KEYCODE_DPAD_CENTER, layer = PlayerLayer.UpNext,
+            digitsPending = true, isKeyDown = false, isKeyUp = true,
+        )
+        assertEquals(PlayerKeyAction.CommitDigits, up.action)
+    }
 
     // --- OK press / hold ---------------------------------------------------
 

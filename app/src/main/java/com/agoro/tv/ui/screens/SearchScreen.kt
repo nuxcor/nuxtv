@@ -308,7 +308,7 @@ fun SearchTab(
                 if (results.series.isNotEmpty()) {
                     item(key = "series") {
                         Column {
-                            SectionTitle("Shows", results.series.size)
+                            SectionTitle("Series", results.series.size)
                             LazyRow(
                                 modifier = Modifier.focusRestorer().shelfRingRoom(),
                                 horizontalArrangement = Arrangement.spacedBy(14.dp),
