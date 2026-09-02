@@ -28,6 +28,7 @@ import json
 import os
 import subprocess
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -66,11 +67,27 @@ def fetch(host, user, password, timeout=180):
         )
         url = f"http://{host}/player_api.php?{q}"
         req = urllib.request.Request(url, headers={"User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            body = r.read()
+        # One line, not a traceback. This runs unattended and its log is read
+        # weeks later by someone deciding whether the panel was down or the
+        # credentials went stale; a stack of urllib frames answers neither.
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                body = r.read()
+        except urllib.error.HTTPError as e:
+            hint = " (513 from this panel means bad credentials or anti-flood)" \
+                if e.code == 513 else ""
+            raise SystemExit(f"{action}: panel answered HTTP {e.code}{hint}") from None
+        except urllib.error.URLError as e:
+            raise SystemExit(f"{action}: cannot reach {host} — {e.reason}") from None
         # A panel that refuses returns a short JSON object or an HTML error
         # page with a 200, so parse before believing it.
-        parsed = json.loads(body)
+        try:
+            parsed = json.loads(body)
+        except json.JSONDecodeError:
+            raise SystemExit(
+                f"{action}: {host} returned {len(body)} bytes that are not JSON "
+                f"— usually a captive portal or an error page served with a 200"
+            ) from None
         if not isinstance(parsed, list) or not parsed:
             raise SystemExit(
                 f"{action}: expected a non-empty list, got "
