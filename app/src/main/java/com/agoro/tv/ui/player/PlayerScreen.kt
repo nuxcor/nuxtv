@@ -304,24 +304,43 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     // Learn each live stream's REAL tier as it decodes, so the lists can
     // stop repeating whatever the provider typed into the stream name.
     //
-    // Once per tune, after the stream has settled — not on every decoded
-    // size. Keyed on videoSize this ran on every adaptive rung change, and
-    // each run was a DataStore decode, encode and rewrite that re-emitted
-    // the known-quality map, re-sorted every channel list and recomposed
-    // this screen's channel collector — a prefs write per bandwidth wobble,
-    // on the box that was wobbling. Tiers already recorded this visit, and
-    // tiers that merely confirm what the name says, skip the write outright.
+    // The BEST height this tune reaches, not the first one it settles on.
+    // A provider .ts stream has one quality and the two are the same answer,
+    // which is why sampling once was right until the app started playing
+    // adaptive HLS ladders (the broadcaster news feeds). A ladder opens on a
+    // low rung and climbs as the bandwidth estimate fills in, so the single
+    // sample recorded the OPENING rung and the badge kept it: ABC News Live
+    // decodes 1080p and announced itself as SD, permanently, because five
+    // seconds in it was still on the 540p rung.
+    //
+    // Upwards only, and still not on every decoded size. Keyed on videoSize
+    // this ran on every adaptive rung change, and each run was a DataStore
+    // decode, encode and rewrite that re-emitted the known-quality map,
+    // re-sorted every channel list and recomposed this screen's channel
+    // collector — a prefs write per bandwidth wobble, on the box that was
+    // wobbling. Recording only an improvement bounds that at one write per
+    // tier, four in the worst case, and a dip no longer demotes a channel:
+    // the badge says what the stream can deliver, not what one bad minute
+    // did. Tiers already recorded this visit, and tiers that merely confirm
+    // what the name says, skip the write outright.
     val learnedTiers = remember { mutableMapOf<String, String>() }
     LaunchedEffect(session.tuneSerial) {
         if (!request.isLive) return@LaunchedEffect
         val url = request.items.getOrNull(session.currentIndex)?.url ?: return@LaunchedEffect
         snapshotFlow { session.videoSize?.second ?: 0 }.first { it > 0 }
+        // The settle stays: it is what keeps a zap that lands for two seconds
+        // from teaching the list anything, and a first record here means a
+        // quick visit still learns something rather than nothing.
         delay(QUALITY_LEARN_SETTLE_MS)
-        val height = session.videoSize?.second ?: return@LaunchedEffect
-        val tier = com.agoro.tv.data.QualityTag.tierOf(height) ?: return@LaunchedEffect
-        if (learnedTiers[url] == tier || channel?.quality == tier) return@LaunchedEffect
-        learnedTiers[url] = tier
-        vm.recordDecodedQuality(url, height)
+        var best = 0
+        snapshotFlow { session.videoSize?.second ?: 0 }.collect { height ->
+            if (height <= best) return@collect
+            best = height
+            val tier = com.agoro.tv.data.QualityTag.tierOf(height) ?: return@collect
+            if (learnedTiers[url] == tier || channel?.quality == tier) return@collect
+            learnedTiers[url] = tier
+            vm.recordDecodedQuality(url, height)
+        }
     }
 
     // And which streams decode HDR, so the next visit opens straight onto the

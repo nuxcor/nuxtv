@@ -216,6 +216,13 @@ class ExoEngine(
     private var videoArmed = false
     private var firstFrameDrawn = false
 
+    /**
+     * Grace windows closed so far on a stream that is playing sound and has
+     * never offered a picture; see [NO_PICTURE_WINDOWS]. Reset with the rest
+     * of the watchdog state, and by a frame actually arriving.
+     */
+    private var blankWindows = 0
+
     /** The surface went away (screensaver, background); the next one must draw again to count. */
     private var surfaceLost = false
 
@@ -277,6 +284,7 @@ class ExoEngine(
         rebufferStartedAtMs = 0L
         videoArmed = false
         firstFrameDrawn = false
+        blankWindows = 0
         surfaceLost = false
         underruns.clear()
         stall.reset()
@@ -292,8 +300,20 @@ class ExoEngine(
 
     private val outputCheck = Runnable {
         if (released || !main || !player.isPlaying) return@Runnable
-        when {
-            audioArmed && !audioAdvancing -> {
+        // The rule itself lives in outputVerdict, where it can be handed its
+        // booleans by a test. What stays here is what the engine does about
+        // each answer, which needs the player.
+        when (
+            outputVerdict(
+                audioArmed = audioArmed,
+                audioAdvancing = audioAdvancing,
+                videoArmed = videoArmed,
+                firstFrameDrawn = firstFrameDrawn,
+                tunnelling = tunnelling,
+                blankWindows = blankWindows,
+            )
+        ) {
+            OutputVerdict.SILENT_AUDIO -> {
                 // The output took the format and produced silence. With the
                 // PCM sink already in place there is nothing left to change,
                 // and a playing picture is not traded for a card.
@@ -304,14 +324,8 @@ class ExoEngine(
                 android.util.Log.w("Agoro", "Audio format accepted but position never advanced in ${OUTPUT_GRACE_MS}ms")
                 listener?.onError("your TV played this audio format as silence", PlaybackFault.AUDIO_OUTPUT)
             }
-            // Not while tunnelled: there the HAL draws, and media3 only learns
-            // of the first frame through the vendor's onFrameRendered callback,
-            // which some boxes never send (androidx/media #1169). A tunnelled
-            // decoder that truly freezes is TunnelPolicy's case, not this one.
-            // And only with sound leaving the device: the failure this is for
-            // is "audio plays, screen black", and a stream that is stuck for
-            // any other reason has not earned a verdict on its decoder.
-            videoArmed && !firstFrameDrawn && !tunnelling && audioAdvancing -> {
+
+            OutputVerdict.BLACK_PICTURE -> {
                 if (VideoOutputPolicy.reinitOnly) {
                     android.util.Log.w("Agoro", "Video still not drawing on a re-initialised decoder; leaving playback alone")
                     return@Runnable
@@ -319,6 +333,30 @@ class ExoEngine(
                 android.util.Log.w("Agoro", "Video decoder running but no frame drawn in ${OUTPUT_GRACE_MS}ms")
                 listener?.onError("your TV's video decoder stopped drawing", PlaybackFault.VIDEO_OUTPUT)
             }
+
+            // Give the picture one more window before believing it is not
+            // coming; see NO_PICTURE_WINDOWS.
+            OutputVerdict.NO_PICTURE_YET -> {
+                blankWindows++
+                scheduleOutputCheck()
+            }
+
+            // Sound, no picture, and no video decoder to blame — so this is
+            // the stream, and the remedy is another one. TRANSIENT is what
+            // routes it into the ladder the session already has: the other
+            // URL forms, then the tile's other sources, then a reconnect,
+            // then a card. Anything device-shaped would have been one of the
+            // two verdicts above.
+            OutputVerdict.NO_PICTURE -> {
+                android.util.Log.w(
+                    "Agoro",
+                    "Audio advancing with no video track at all after " +
+                        "${OUTPUT_GRACE_MS * NO_PICTURE_WINDOWS}ms; treating the feed as dead",
+                )
+                listener?.onError("this feed is sending sound but no picture", PlaybackFault.TRANSIENT)
+            }
+
+            null -> Unit
         }
     }
 
@@ -469,6 +507,10 @@ class ExoEngine(
 
         override fun onRenderedFirstFrame(eventTime: AnalyticsListener.EventTime, output: Any, renderTimeMs: Long) {
             firstFrameDrawn = true
+            // A picture arrived, so the windows counted against this stream
+            // are spent, not banked: a later surface hand-back starts its own
+            // count rather than inheriting one already at the limit.
+            blankWindows = 0
         }
 
         override fun onSurfaceSizeChanged(eventTime: AnalyticsListener.EventTime, width: Int, height: Int) {
@@ -528,6 +570,16 @@ class ExoEngine(
             // unless the stream is 4K/HDR, and off for good on a device whose
             // tunnelled decoder has frozen. See TunnelPolicy.
             .setTunnelingEnabled(false)
+            // Ask the SELECTOR for the language, rather than only correcting
+            // it afterwards. A film with English second in its track list
+            // opened in the other language and stayed there: nothing set a
+            // default, so the preference was null until the viewer had gone
+            // into the audio sheet and picked one by hand at least once, and
+            // even then PlayerScreen's effect switches tracks up to ten
+            // seconds in — a re-buffer, over dialogue already missed.
+            // Chosen at selection time there is no switch and no re-buffer.
+            // An explicit viewer choice still wins: that effect overrides.
+            .setPreferredAudioLanguages(*DEFAULT_AUDIO_LANGUAGES)
             .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, silent)
             .build()
     }
@@ -1252,6 +1304,24 @@ private fun humanErrorForCode(errorCodeName: String): String = when (errorCodeNa
     "ERROR_CODE_BEHIND_LIVE_WINDOW" -> "the live stream moved on"
     else -> errorCodeName.removePrefix("ERROR_CODE_").replace('_', ' ').lowercase()
 }
+
+/**
+ * The audio languages to reach for when the viewer has expressed no
+ * preference: the box's own language first, then English.
+ *
+ * English is the fallback rather than the only entry so that a box set to
+ * another language is not overridden by ours, and it is present at all
+ * because this provider's films routinely carry several dubs with no default
+ * flag and no useful order — left to the selector's "first playable track"
+ * that is a coin toss the viewer loses. A stream whose tracks are untagged
+ * ("und") matches nothing here and selects exactly as it did before.
+ *
+ * Read once: the box's language does not change while the app is running,
+ * and this is on the path of every engine build.
+ */
+private val DEFAULT_AUDIO_LANGUAGES: Array<String> =
+    listOfNotNull(java.util.Locale.getDefault().language.takeIf { it.isNotBlank() }, "en")
+        .distinct().toTypedArray()
 
 /** "en" → "English"; an unknown or odd tag stays as its upper-cased code. */
 private fun languageName(tag: String): String {
