@@ -49,8 +49,10 @@ import androidx.tv.material3.Text
 import com.agoro.tv.BuildConfig
 import com.agoro.tv.MainViewModel
 import com.agoro.tv.data.ContentBundle
+import com.agoro.tv.data.ExitReasons
 import com.agoro.tv.data.ContentState
 import com.agoro.tv.data.PlaylistSource
+import com.agoro.tv.data.sentence
 import com.agoro.tv.data.UpdateManager
 import com.agoro.tv.ui.components.ConfirmDialog
 import com.agoro.tv.ui.components.MetaChip
@@ -414,6 +416,27 @@ internal fun SettingsTab(
                     style = MaterialTheme.typography.labelMedium,
                     color = NuxColors.OnSurfaceDim,
                 )
+                // How the last run ended, when it ended badly. Read once —
+                // the system's record does not change while the app is up,
+                // and this sits in a LazyColumn item that recomposes on every
+                // update tick.
+                //
+                // Here rather than in a group of its own: it is a fact about
+                // this install, like the version above it, and a "Diagnostics"
+                // heading on a TV settings pane invites a viewer to go looking
+                // for something to fix. Absent entirely when the app has only
+                // ever closed normally, which is the case this should be in.
+                val exitContext = LocalContext.current
+                val lastExit = remember { ExitReasons.lastAbnormal(exitContext) }
+                if (lastExit != null) {
+                    Spacer(Modifier.height(Space.xs))
+                    Text(
+                        text = "Last unexpected close: ${lastExit.sentence()}",
+                        style = MaterialTheme.typography.labelMedium,
+                        softWrap = true,
+                        color = NuxColors.OnSurfaceDim,
+                    )
+                }
                 // Wraps rather than clipping: an update line carries a version
                 // and a size, an error line carries a whole sentence, and on a
                 // narrow pane either can outrun the width. Nothing below this
