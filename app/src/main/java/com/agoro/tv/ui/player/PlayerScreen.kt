@@ -787,33 +787,12 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     // nothing — and the log records what each one was, so the next report
     // names a cause rather than a symptom.
     //
-    // Keyed on the tune as well, and held for whatever is left of the settling
-    // window, because "not tuning" was never the same thing as "not changing
-    // channel". Tuning drops the instant the first frame lands; the buffer is
-    // still filling behind it, and that refill was announcing itself as
-    // "Buffering…" on every zap — over a picture that had just started. A
-    // stream still buffering when the window closes gets the chip, because by
-    // then it has stopped settling and started failing.
-    var showBufferingChip by remember { mutableStateOf(false) }
-    LaunchedEffect(
-        session.buffering,
-        session.tuning,
-        session.tuneSerial,
-        session.reconnectAttempt,
-        request.isLive,
-    ) {
-        // Nor while a reconnect is on screen. Its re-open buffers like any
-        // other, and the chip's guard was written against `tuning`, which a
-        // reconnect deliberately does not set — so the corner chip came up
-        // underneath the card that was already saying the same thing.
-        if (!session.buffering || session.tuning || session.reconnectAttempt > 0) {
-            showBufferingChip = false
-            return@LaunchedEffect
-        }
-        val grace = if (request.isLive) PlayerMotion.BufferGraceMs else PlayerMotion.VodBufferGraceMs
-        delay(maxOf(grace, session.settleRemainingMs))
-        showBufferingChip = true
-    }
+    // No "Buffering…" chip. It sat in the top corner naming a condition the
+    // viewer could already see, and it was the only thing on screen that
+    // spoke in the app's own vocabulary rather than about their television.
+    // A short refill now shows nothing, which is what a short refill is
+    // worth; a stall that turns into a fault still gets the tune card and
+    // then the error card, in words about the channel.
 
     // BACK closes whatever is open, and from bare playback it leaves. One
     // meaning, and the same one every time.
@@ -1330,13 +1309,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             val panelOwnsCorner = session.layer == PlayerLayer.Options ||
                 session.layer == PlayerLayer.Guide || session.layer == PlayerLayer.Tracks
             session.statusMessage?.let { PlayerBadge(text = it, color = NuxColors.Secondary) }
-            AnimatedVisibility(
-                visible = showBufferingChip,
-                enter = PlayerMotion.enterFade(PlayerMotion.FastMs),
-                exit = PlayerMotion.exitFade(PlayerMotion.FastMs),
-            ) {
-                PlayerBadge(text = "Buffering…", color = NuxColors.OnSurfaceDim)
-            }
             // Digits large, in their own pill — read from the couch mid-type.
             // The dim state is the verdict on a number that matched nothing;
             // it self-dismisses, never an error card.
