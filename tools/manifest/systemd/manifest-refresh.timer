@@ -1,0 +1,16 @@
+[Unit]
+Description=Rebuild the NuxTV catalogue manifest weekly
+
+[Timer]
+# Sunday 04:00 local time, matching the macOS agent.
+OnCalendar=Sun *-*-* 04:00:00
+# A home server that was off at 04:00 runs the job when it next comes up,
+# rather than skipping the week. This is the behaviour the Mac could not
+# offer reliably and the reason to move the job here at all.
+Persistent=true
+# Nothing else is waiting on this, and a fleet of machines all rebuilding at
+# exactly 04:00 would hit the panel together.
+RandomizedDelaySec=15min
+
+[Install]
+WantedBy=timers.target

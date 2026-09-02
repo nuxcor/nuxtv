@@ -1,0 +1,36 @@
+[Unit]
+Description=NuxTV weekly catalogue manifest rebuild
+# The job clones over the network and talks to the provider's panel, so it
+# waits for a route rather than failing at 04:00 on a box that boots faster
+# than its network comes up.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# %h is the user's home, so this unit needs no editing to install.
+ExecStart=/bin/bash %h/nuxtv/tools/manifest/scheduled-refresh.sh
+
+# The panel password, sealed to this machine. Create it once with:
+#
+#   systemd-creds encrypt --name=panel ~/.config/nuxtv/panel.env \
+#       ~/.config/nuxtv/panel.cred
+#   rm ~/.config/nuxtv/panel.env
+#
+# systemd decrypts it into a private tmpfs that dies with the process, so the
+# plaintext never touches the disk; the blob left behind is useless on any
+# other machine (bound to the TPM where there is one). The script prefers this
+# over the keychain and over a plain file, and falls back to the file when
+# this line is absent — so an install that has not done this keeps working.
+#
+# Comment this out, or the unit fails to start, if the .cred does not exist.
+LoadCredentialEncrypted=panel:%h/.config/nuxtv/panel.cred
+# Where the checkout lives, if it is not ~/nuxtv. The script clones its own
+# throwaway copy to work in; this path is only used to find the script.
+#
+# Everything else it needs it reads for itself: credentials from
+# ~/.config/nuxtv/panel.env, and the log path from the same directory.
+TimeoutStartSec=30min
+
+[Install]
+WantedBy=default.target

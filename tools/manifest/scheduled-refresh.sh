@@ -10,6 +10,9 @@
 # Credentials are read from a file OUTSIDE the repository, which is public.
 # The file is yours alone (chmod 600) and its contents never reach the clone.
 #
+# Runs on macOS under launchd and on Linux under systemd; see INSTALL and
+# INSTALL (LINUX) below. Nothing in it is specific to either.
+#
 # INSTALL
 #   mkdir -p ~/.config/nuxtv && chmod 700 ~/.config/nuxtv
 #   cat > ~/.config/nuxtv/panel.env <<'EOF'
@@ -23,10 +26,17 @@
 # UNINSTALL
 #   launchctl unload ~/Library/LaunchAgents/com.agoro.manifest-refresh.plist
 #   rm ~/Library/LaunchAgents/com.agoro.manifest-refresh.plist
+#
+# INSTALL (LINUX, systemd --user) — see tools/manifest/systemd/ for the units
+#   the machine needs git, python3 and gh, a gh login that can open a pull
+#   request, and a key that can push. `loginctl enable-linger $USER` is what
+#   lets a --user timer fire while nobody is logged in, which on a home server
+#   is the whole point.
 set -euo pipefail
 
-# launchd hands a job almost no PATH, so git, gh and python are named the way
-# a login shell would find them rather than assumed.
+# launchd and systemd both hand a job almost no PATH, so the places git, gh
+# and python actually live are named rather than assumed. Homebrew's two
+# prefixes are harmless on a machine that has neither.
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 REPO="${MANIFEST_REPO_URL:-git@github.com:nuxcor/nuxtv.git}"
@@ -35,12 +45,107 @@ LOG="${MANIFEST_LOG:-$HOME/.config/nuxtv/refresh.log}"
 
 log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG"; }
 
-if [ ! -r "$ENV_FILE" ]; then
-    log "no credentials at $ENV_FILE — see INSTALL in this script; nothing done"
+KEYCHAIN_SERVICE="${MANIFEST_KEYCHAIN_SERVICE:-nuxtv-panel}"
+
+# Where the panel password comes from, best first.
+#
+# What encryption buys here, honestly: not much against someone who already
+# has your session, because an unattended job must be able to decrypt without
+# a human, so whatever unlocks the secret is reachable from that session too.
+# What it does buy is that the password stops being a plaintext file in your
+# home directory — which is readable by ANYTHING running as you (a rogue
+# dependency, a helper process) and which travels into every backup, sync
+# client and dotfiles repo that ever touches ~/.config. Those are the two
+# realistic ways a home-server credential leaks, and both are closed by
+# keeping it out of a file.
+#
+# The file is still supported and still the fallback. An existing install
+# keeps working untouched.
+load_credentials() {
+    # 1. systemd, which hands the unit a decrypted copy in a private tmpfs
+    #    that dies with the process. With LoadCredentialEncrypted the blob on
+    #    disk is sealed to the machine (its TPM where there is one), so a copy
+    #    of it taken elsewhere is useless. The best of the three.
+    if [ -n "${CREDENTIALS_DIRECTORY:-}" ] && [ -r "$CREDENTIALS_DIRECTORY/panel" ]; then
+        # shellcheck disable=SC1091
+        set -a; . "$CREDENTIALS_DIRECTORY/panel"; set +a
+        CRED_SOURCE="systemd credential"
+        return 0
+    fi
+
+    # 2. The macOS login keychain. Gated by the OS rather than by file
+    #    permissions, and Time Machine backs it up encrypted. It needs the
+    #    login keychain UNLOCKED, which it is once you have logged in after a
+    #    boot — a Mac sitting at the login screen cannot run this, which is
+    #    one more reason the server is the better host.
+    #
+    #    One item per field, not one item holding all three: `security -w`
+    #    hex-encodes any password containing a newline and hands back a bare
+    #    hex string, so a single multi-line item comes out unreadable.
+    if command -v security >/dev/null 2>&1; then
+        local host user pass
+        host="$(security find-generic-password -s "$KEYCHAIN_SERVICE" -a AGORO_HOST -w 2>/dev/null)" || host=""
+        user="$(security find-generic-password -s "$KEYCHAIN_SERVICE" -a AGORO_USER -w 2>/dev/null)" || user=""
+        pass="$(security find-generic-password -s "$KEYCHAIN_SERVICE" -a AGORO_PASS -w 2>/dev/null)" || pass=""
+        if [ -n "$host" ] || [ -n "$user" ] || [ -n "$pass" ]; then
+            export AGORO_HOST="$host" AGORO_USER="$user" AGORO_PASS="$pass"
+            CRED_SOURCE="keychain ($KEYCHAIN_SERVICE)"
+            return 0
+        fi
+    fi
+
+    # 3. The plain file. Works everywhere, protects least.
+    if [ -r "$ENV_FILE" ]; then
+        # shellcheck disable=SC1090
+        set -a; . "$ENV_FILE"; set +a
+        CRED_SOURCE="$ENV_FILE"
+        return 0
+    fi
+    return 1
+}
+
+# Move the file's contents into the login keychain, then say what to delete.
+# Deliberately does NOT delete it: removing the only copy of a password on
+# someone's behalf is not a thing a script should decide, and if the keychain
+# read then fails they have nothing.
+if [ "${1:-}" = "--import-keychain" ]; then
+    if ! command -v security >/dev/null 2>&1; then
+        echo "no keychain on this machine; on Linux use systemd-creds — see the README" >&2
+        exit 1
+    fi
+    [ -r "$ENV_FILE" ] || { echo "nothing to import: $ENV_FILE is not readable" >&2; exit 1; }
+    # shellcheck disable=SC1090
+    set -a; . "$ENV_FILE"; set +a
+    for field in AGORO_HOST AGORO_USER AGORO_PASS; do
+        security add-generic-password -U -s "$KEYCHAIN_SERVICE" -a "$field" \
+            -w "${!field}" -T /usr/bin/security
+    done
+    echo "stored in the login keychain as '$KEYCHAIN_SERVICE'."
+    echo "verify:  $0 --check"
+    echo "then remove the plaintext copy:  rm $ENV_FILE"
+    exit 0
+fi
+
+# Say where the credentials would come from and whether they are usable,
+# without touching the panel or the repository. This is what to run after
+# changing anything, rather than waiting a week to find out.
+if [ "${1:-}" = "--check" ]; then
+    if load_credentials; then
+        if [ -z "${AGORO_HOST:-}" ] || [ -z "${AGORO_USER:-}" ] || [ -z "${AGORO_PASS:-}" ]; then
+            echo "found $CRED_SOURCE, but one or more values are blank"
+            exit 1
+        fi
+        echo "credentials from $CRED_SOURCE — host ${AGORO_HOST}, user ${AGORO_USER}, password set"
+        exit 0
+    fi
+    echo "no credentials found (looked at systemd, the keychain, then $ENV_FILE)"
+    exit 1
+fi
+
+if ! load_credentials; then
+    log "no credentials found — see INSTALL in this script; nothing done"
     exit 0    # not a failure: an uninstalled job should be quiet, not noisy
 fi
-# shellcheck disable=SC1090
-set -a; . "$ENV_FILE"; set +a
 
 # The file is installed with the keys present and the values blank, so it can
 # be filled in without looking anything up. Blank means NOT CONFIGURED YET,
@@ -48,11 +153,16 @@ set -a; . "$ENV_FILE"; set +a
 # against the panel every week and fill the log with an error that is really
 # just "you have not finished installing this".
 if [ -z "${AGORO_HOST:-}" ] || [ -z "${AGORO_USER:-}" ] || [ -z "${AGORO_PASS:-}" ]; then
-    log "credentials at $ENV_FILE are blank; fill them in to start the weekly rebuild"
+    log "credentials from $CRED_SOURCE are blank; fill them in to start the weekly rebuild"
     exit 0
 fi
+log "credentials from $CRED_SOURCE"
 
-WORK="$(mktemp -d -t nuxtv-refresh)"
+# The template carries its own X's: BSD mktemp appends them to a -t name and
+# GNU mktemp refuses a template without them, so spelling them out is the one
+# form both accept. This script runs on the Mac under launchd and on a Linux
+# home server under systemd.
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/nuxtv-refresh.XXXXXXXX")"
 # Runs on every exit including the failures, so a panel that is down for a
 # week does not leave a week of half-built clones in the temp directory.
 trap 'rm -rf "$WORK"' EXIT
@@ -78,8 +188,13 @@ fi
 VERSION=$(grep -o 'versionName = "[^"]*"' app/build.gradle.kts | head -1 | cut -d'"' -f2)
 CODE=$(grep -o 'versionCode = [0-9]*' app/build.gradle.kts | head -1 | awk '{print $3}')
 NEXT="${VERSION%.*}.$(( ${VERSION##*.} + 1 ))"
-sed -i '' "s/versionName = \"$VERSION\"/versionName = \"$NEXT\"/" app/build.gradle.kts
-sed -i '' "s/versionCode = $CODE/versionCode = $((CODE + 1))/" app/build.gradle.kts
+# In place, portably. GNU sed reads `-i ''` as a filename and BSD sed demands
+# the argument, so neither spelling works on both; a temp file and a move does.
+bump() {  # bump <sed-expression> <file>
+    sed "$1" "$2" > "$2.bump" && mv "$2.bump" "$2"
+}
+bump "s/versionName = \"$VERSION\"/versionName = \"$NEXT\"/" app/build.gradle.kts
+bump "s/versionCode = $CODE/versionCode = $((CODE + 1))/" app/build.gradle.kts
 
 BRANCH="manifest-refresh-$(date +%Y%m%d)"
 git checkout -q -b "$BRANCH"
