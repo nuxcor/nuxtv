@@ -76,7 +76,52 @@ chmod 600 ~/.config/nuxtv/panel.env   # then fill in the three values
 ```
 
 Blank values are treated as "not installed yet" and the job exits quietly, so
-an unfinished install is silent rather than a weekly error.
+an unfinished install is silent rather than a weekly error. Check what it
+would use, without touching the panel or the repository:
+
+```sh
+tools/manifest/scheduled-refresh.sh --check
+```
+
+### Getting the password out of a plain file
+
+A `chmod 600` file is readable by anything running as you — a rogue
+dependency, a helper process — and it travels into every backup, sync client
+and dotfiles repo that touches `~/.config`. Those are the two realistic ways
+a home-server credential leaks. Neither is fixed by full-disk encryption,
+which protects a powered-off machine and nothing else.
+
+What it does NOT fix: someone who already has your session. An unattended job
+must decrypt without a human, so whatever unlocks the secret is reachable
+from that session too. This is about not leaving plaintext lying around, not
+about resisting an attacker who is already you.
+
+The script looks for credentials in this order and uses the first it finds,
+so either upgrade is a drop-in and the file keeps working if you do neither.
+
+**macOS — the login keychain:**
+
+```sh
+tools/manifest/scheduled-refresh.sh --import-keychain
+tools/manifest/scheduled-refresh.sh --check     # confirm it reads back
+rm ~/.config/nuxtv/panel.env                    # only after that passes
+```
+
+Needs the login keychain unlocked, which it is once you have logged in after
+a boot. A Mac sitting at the login screen cannot run the job at all.
+
+**Linux — `systemd-creds`, which is the best of the three:**
+
+```sh
+systemd-creds encrypt --name=panel ~/.config/nuxtv/panel.env \
+    ~/.config/nuxtv/panel.cred
+rm ~/.config/nuxtv/panel.env
+```
+
+The unit already carries the matching `LoadCredentialEncrypted=`. systemd
+decrypts into a private tmpfs that dies with the process, so the plaintext
+never reaches the disk, and the blob is sealed to the machine — bound to the
+TPM where there is one — so a copy taken elsewhere is useless.
 
 **On a Linux home server** — the better host, because a timer only helps if
 the machine is awake. It needs `git`, `python3` and `gh`, a `gh` login that
