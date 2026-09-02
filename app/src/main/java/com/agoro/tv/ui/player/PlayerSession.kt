@@ -408,6 +408,8 @@ class PlayerSession internal constructor(
     private var retriesLeft = reconnectDelaysMs(initialRequest.isLive).size
     private var liveFormatStage = 0
     private var sourceStage = 0
+    /** Whether this item has already been retried without TLS; see [swapScheme]. */
+    private var schemeDowngraded = false
     private var ladderItemIndex = initialRequest.startIndex
 
     /** When live playback was paused, for the stale-buffer rejoin decision. */
@@ -623,6 +625,19 @@ class PlayerSession internal constructor(
                 // on a stream that is not coming back.
                 request.isLive && swapSource() -> Unit
 
+                // Everything above stayed on the scheme this stream opened
+                // with. If that was https and the TLS is what broke — a
+                // certificate that lapsed an hour ago, a middlebox on a
+                // strange network — then every rung above failed for the same
+                // reason and the reconnects below will too. Drop to http and
+                // try once. VOD reaches this as well: it has no format ladder
+                // and no alternate sources, so this is its only rung.
+                //
+                // Last, and once. It costs the viewer the privacy the https
+                // move was for, which is worth a picture and not worth
+                // guessing at — so it is the rung after the two that keep it.
+                swapScheme() -> Unit
+
                 // The mux or the codec is what's wrong, and that fails the
                 // same way every time — so re-open on the forgiving demuxer
                 // and the software decoders BEFORE spending the slow same-URL
@@ -784,6 +799,7 @@ class PlayerSession internal constructor(
         retriesLeft = reconnectDelaysMs(request.isLive).size
         liveFormatStage = 0
         sourceStage = 0
+        schemeDowngraded = false
         stallClock.clear()
         stallTimer = null
         deathTimer = null
@@ -880,6 +896,28 @@ class PlayerSession internal constructor(
         liveFormatStage = 0
         request = request.copy(
             items = PatchedList(request.items, idx, item.copy(url = next, title = title)),
+        )
+        return true
+    }
+
+    /**
+     * Re-opens the current stream over http after https failed.
+     *
+     * Once per item ([schemeDowngraded]), and never the other way: this app
+     * upgrades to TLS by probing the panel at start-up, so a downgrade here
+     * is a within-session rescue rather than a decision. The next launch
+     * probes again and goes back to https the moment the panel can serve it.
+     */
+    private fun swapScheme(): Boolean {
+        if (schemeDowngraded) return false
+        val idx = currentIndex
+        val item = request.items.getOrNull(idx) ?: return false
+        val plain = com.agoro.tv.data.httpFallback(item.url) ?: return false
+        schemeDowngraded = true
+        liveFormatStage = 0
+        android.util.Log.w("Agoro", "TLS failed on this stream; retrying without it")
+        request = request.copy(
+            items = PatchedList(request.items, idx, item.copy(url = plain)),
         )
         return true
     }

@@ -14,6 +14,7 @@ import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.encodeToStream
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
@@ -1564,8 +1565,65 @@ class ContentRepository(context: Context) {
         return xtreamClient(source).catchupUrl(id, program.startMs, durationMin)
     }
 
-    private fun xtreamClient(source: PlaylistSource.Xtream) =
-        XtreamClient(http, source.serverUrl, source.username, source.password)
+    /**
+     * The scheme this panel actually answers on, decided ONCE per process.
+     *
+     * Not persisted, deliberately. A stored decision is a stuck decision: a
+     * certificate that lapses on a Tuesday would leave the box on a scheme
+     * that no longer works until someone went looking, and a certificate that
+     * is fixed would never be noticed. Re-deciding on each launch costs one
+     * request and is self-healing in both directions.
+     *
+     * Null until the first probe resolves; the pair is (stored url, chosen).
+     */
+    @Volatile private var schemeChoice: Pair<String, String>? = null
+    private val schemeProbeLock = kotlinx.coroutines.sync.Mutex()
+
+    /**
+     * Probes the https form of a stored http url and returns whichever the
+     * panel answers on.
+     *
+     * ANY http status counts as success — 401, 511 and 513 are all the panel
+     * talking, which is what is being asked. Only a transport failure (the
+     * handshake, the certificate, a refused port) means no.
+     *
+     * Falls back silently and keeps http on every failure, because the cost
+     * of being wrong here is the whole catalogue and every stream.
+     */
+    private suspend fun effectiveServerUrl(stored: String): String {
+        schemeChoice?.let { (forUrl, chosen) -> if (forUrl == stored) return chosen }
+        val candidate = httpsCandidate(XtreamClient.normalize(stored)) ?: return stored
+        return schemeProbeLock.withLock {
+            schemeChoice?.let { (forUrl, chosen) -> if (forUrl == stored) return@withLock chosen }
+            val ok = runCatching {
+                withContext(BackgroundWork.dispatcher) {
+                    // Short: this sits in front of the catalogue load, so a
+                    // panel with a dead 443 must not add ten seconds to every
+                    // cold start before falling back.
+                    val probe = http.newBuilder()
+                        .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                        .build()
+                    val req = okhttp3.Request.Builder()
+                        .url("$candidate/player_api.php")
+                        .head()
+                        .build()
+                    probe.newCall(req).execute().use { true }
+                }
+            }.getOrDefault(false)
+            val chosen = if (ok) candidate else XtreamClient.normalize(stored)
+            android.util.Log.i(
+                "Agoro",
+                if (ok) "Panel answers over TLS; using https"
+                else "Panel did not answer over TLS; staying on http (credentials in clear)",
+            )
+            schemeChoice = stored to chosen
+            chosen
+        }
+    }
+
+    private suspend fun xtreamClient(source: PlaylistSource.Xtream) =
+        XtreamClient(http, effectiveServerUrl(source.serverUrl), source.username, source.password)
 
     companion object {
         fun newSourceId(): String = UUID.randomUUID().toString()
