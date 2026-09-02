@@ -178,6 +178,17 @@ data class CatalogueManifest(
         val primary: Int = 0,
         /** Best quality first; the player falls through on failure. */
         val sources: List<Int> = emptyList(),
+        /**
+         * The broadcaster's own public feeds, best first, played BEFORE any
+         * of [sources]. Set on tiles whose provider copies are restreams of
+         * a free channel the network streams itself (ABC News Live, NBC News
+         * NOW): the origin is a hop closer, is not metered against the
+         * line's one connection, and a provider-side fault on the copies
+         * never reaches the viewer. The provider sources stay behind it as
+         * the recorded fallbacks, so a public url that rotates costs one
+         * failed tune, not the channel.
+         */
+        val direct: List<String> = emptyList(),
     )
 
     @Serializable data class Collapse(val live: Map<String, CollapseTile> = emptyMap())
@@ -330,6 +341,22 @@ data class CatalogueManifest(
                 val effective = effectivePrimary(primary, sources) ?: return@forEach
                 val alternates = sources.filter { it != effective && it !in dropped }
                 if (alternates.isNotEmpty()) put(effective, alternates)
+            }
+        }
+    }
+
+    /**
+     * Rendering primary -> the broadcaster's own feeds for its tile, best
+     * first. Keyed like [fallbacks], on the stream that actually renders, so
+     * a tile whose declared primary was dropped still finds its feeds.
+     */
+    val directFeeds: Map<Int, List<String>> by lazy {
+        buildMap {
+            collapse.live.values.forEach { t ->
+                val feeds = t.direct.filter { it.isNotBlank() }
+                if (feeds.isEmpty()) return@forEach
+                val effective = effectivePrimary(t.primary, t.sources) ?: return@forEach
+                put(effective, feeds)
             }
         }
     }

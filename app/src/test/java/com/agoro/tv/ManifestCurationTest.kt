@@ -5,6 +5,7 @@ import com.agoro.tv.data.ContentBundle
 import com.agoro.tv.data.LiveChannel
 import com.agoro.tv.data.ManifestCuration
 import com.agoro.tv.data.Movie
+import com.agoro.tv.data.answersTo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -116,6 +117,53 @@ class ManifestCurationTest {
             listOf("http://host/live/u/p/2.ts", "http://host/live/u/p/3.ts"),
             out.channels[0].fallbackUrls,
         )
+    }
+
+    @Test
+    fun `a broadcaster feed plays first and the provider's copies stand behind it`() {
+        // ABC News Live and NBC News NOW went blank on every provider copy at
+        // once (2026-09-02); the networks' own free feeds are the answer, and
+        // the provider's ladder stays behind them for the day a url rotates.
+        val m = manifest(
+            categories = mapOf("42" to CatalogueManifest.CategoryRule("NEWS", "US")),
+            collapse = mapOf(
+                "a" to CatalogueManifest.CollapseTile(
+                    primary = 1, sources = listOf(1, 2, 3),
+                    direct = listOf("https://origin/live.m3u8", "https://mirror/live.m3u8"),
+                ),
+            ),
+        )
+        val provider = channel(1, "42").copy(recordUrl = "http://host/live/u/p/1.ts")
+        val out = ManifestCuration.apply(ContentBundle(channels = listOf(provider)), m)
+        val ch = out.channels[0]
+        assertEquals("https://origin/live.m3u8", ch.url)
+        assertEquals(
+            listOf(
+                "https://mirror/live.m3u8", "http://host/live/u/p/1.ts",
+                "http://host/live/u/p/2.ts", "http://host/live/u/p/3.ts",
+            ),
+            ch.fallbackUrls,
+        )
+        // A favourite or a resume saved under the provider url still finds the tile.
+        assertTrue("provider url still answers", ch.answersTo("http://host/live/u/p/1.ts"))
+        assertEquals("recording stays on the provider", "http://host/live/u/p/1.ts", ch.recordUrl)
+    }
+
+    @Test
+    fun `a broadcaster feed follows a promoted primary`() {
+        val m = manifest(
+            categories = mapOf("42" to CatalogueManifest.CategoryRule("NEWS", "US")),
+            collapse = mapOf(
+                "a" to CatalogueManifest.CollapseTile(
+                    primary = 1, sources = listOf(1, 2), direct = listOf("https://origin/live.m3u8"),
+                ),
+            ),
+            drop = listOf(1),
+        )
+        assertEquals(listOf("https://origin/live.m3u8"), m.directFeeds[2])
+        val out = ManifestCuration.apply(ContentBundle(channels = listOf(channel(2, "42"))), m)
+        assertEquals("https://origin/live.m3u8", out.channels[0].url)
+        assertEquals(listOf("http://host/live/u/p/2.ts"), out.channels[0].fallbackUrls)
     }
 
     @Test

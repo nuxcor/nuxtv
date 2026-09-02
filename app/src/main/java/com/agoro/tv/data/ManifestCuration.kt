@@ -112,13 +112,23 @@ object ManifestCuration {
             // the bundle by now and only differ by stream id.
             val alternates = manifest.fallbacks[id].orEmpty()
                 .mapNotNull { alt -> channel.url.replaceStreamId(id, alt) }
+            // The broadcaster's own feed leads when the tile names one, and
+            // the provider's primary drops into the ladder right behind it:
+            // still there for the day the public url rotates, and still the
+            // url a favourite or a resume was saved under, which answersTo
+            // finds in fallbackUrls. Recording keeps the provider url — the
+            // recorder speaks Xtream, not HLS from an origin.
+            val direct = manifest.directFeeds[id].orEmpty()
+            val ladder = if (direct.isEmpty()) alternates
+                         else direct.drop(1) + channel.url + alternates
 
             channels += channel.copy(
                 categoryId = catId,
                 name = manifest.displayName[id.toString()] ?: channel.name,
                 logo = art,
                 epgId = guideId,
-                fallbackUrls = alternates,
+                url = direct.firstOrNull() ?: channel.url,
+                fallbackUrls = ladder,
             )
         }
 
