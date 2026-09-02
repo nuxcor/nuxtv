@@ -24,7 +24,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -470,7 +469,6 @@ fun HomeLoungeTab(
     // card in again: Home leaves composition for both, and the stamp was
     // re-taken on each return. Only a fresh launch animates.
     val entrance = rememberSaveable { android.os.SystemClock.uptimeMillis() }
-    val searchFocus = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
 
     // Where focus lands on arrival: the card the viewer left, or the first
@@ -652,18 +650,6 @@ fun HomeLoungeTab(
                 .height(170.dp),
         ) {
             HomeHeroSlot(shownHero)
-            SearchPill(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .focusRequester(searchFocus)
-                    .onPreviewKeyEvent { event ->
-                        // Nothing lives above the pill; UP must not fall
-                        // through to the rail.
-                        event.type == KeyEventType.KeyDown &&
-                            event.key == Key.DirectionUp
-                    },
-                onClick = { onBrowse(HomeTab.Search) },
-            )
         }
         LazyColumn(
         state = columnState,
@@ -672,15 +658,15 @@ fun HomeLoungeTab(
         modifier = Modifier
             .fillMaxSize()
             .onPreviewKeyEvent { event ->
-                // UP from the first row goes to the Search pill — left to the
-                // geometric search it escapes to the nav rail, where the dwell
-                // then switches the whole screen.
-                if (event.type == KeyEventType.KeyDown &&
+                // UP from the first row is CONSUMED and goes nowhere. The
+                // hero above it does not take focus, and left to the
+                // geometric search the move escapes to the nav rail, where
+                // the dwell then switches the whole screen — pressing up at
+                // the top of your shelves should not navigate you off them.
+                // It used to land on the Search pill, which is gone: search
+                // is a rail row now and the pill was the duplicate.
+                event.type == KeyEventType.KeyDown &&
                     event.key == Key.DirectionUp && focusedRow == 0
-                ) {
-                    scope.launch { searchFocus.requestFocusRetrying() }
-                    true
-                } else false
             },
     ) {
         // Emitted straight from rowKeys, so a shelf's position in this list IS
@@ -978,32 +964,3 @@ private fun HomeContextMenu(
 }
 
 /** The launcher-style search entry: an outlined pill, top-right of the hero. */
-@Composable
-private fun SearchPill(modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        modifier = modifier,
-        shape = ClickableSurfaceDefaults.shape(NuxShape.Chip),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = NuxColors.Surface,
-            focusedContainerColor = NuxFocus.container,
-            contentColor = NuxColors.OnSurfaceDim,
-            focusedContentColor = NuxColors.OnSurface,
-        ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = NuxFocus.ButtonScale),
-        border = ClickableSurfaceDefaults.border(focusedBorder = NuxFocus.ring8),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(text = "Search", style = MaterialTheme.typography.labelLarge)
-        }
-    }
-}
