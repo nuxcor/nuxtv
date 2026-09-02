@@ -64,6 +64,25 @@ class ManifestAssetTest {
     /** Canada left the catalogue on 2026-08-22 — see KEEP_REGIONS in
      *  tools/manifest/build_manifest.py. A territory that comes back has to
      *  come back deliberately, in the build, not by a stale asset. */
+    /**
+     * A broadcaster feed is a literal url the player opens as-is. The build
+     * checks each one the day it is added; this checks none ships malformed,
+     * and that the two news tiles the feeds exist for still carry them.
+     */
+    @Test
+    fun `broadcaster feeds are https playlists on the news tiles`() {
+        manifest.collapse.live.forEach { (key, tile) ->
+            tile.direct.forEach { url ->
+                val path = url.substringBefore('?')
+                assertTrue("$key: $url", url.startsWith("https://") && path.endsWith(".m3u8"))
+            }
+        }
+        for (key in listOf("abcnews|US", "nbcnewsnow|US")) {
+            assertTrue("$key carries its broadcaster feed",
+                manifest.collapse.live[key]?.direct.orEmpty().isNotEmpty())
+        }
+    }
+
     @Test
     fun `canada is not a kept territory`() {
         assertFalse("CA is back in kept_regions", "CA" in manifest.keptRegions)

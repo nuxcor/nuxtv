@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-08-27T19:33:19+00:00",
+ "generated": "2026-09-02T14:39:02+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -16548,11 +16548,9 @@
   2044650,
   430366,
   604332,
-  812596,
   605002,
   1661738,
   1661028,
-  1500811,
   498775,
   498774,
   498741,
@@ -38453,7 +38451,11 @@
      1548416,
      1476599
     ],
-    "primary": 1537034
+    "primary": 1537034,
+    "direct": [
+     "https://pb-0n3n2ej0w8pl9.akamaized.net/ABCNewsLive_Disney.m3u8",
+     "https://aegis-cloudfront-1.tubi.video/d6cbb0de-68e4-4f3b-82f9-bf5d526e0bde/index.m3u8"
+    ]
    },
    "amc|UK": {
     "section": "ENTERTAINMENT",
@@ -38708,7 +38710,11 @@
      1520118,
      1476227
     ],
-    "primary": 1536560
+    "primary": 1536560,
+    "direct": [
+     "https://xumo-drct-nbcnn-ir8ze.fast.nbcuni.com/live/master.m3u8",
+     "https://aegis-cloudfront-1.tubi.video/605fb6ea-f89c-451a-873c-030cb726b493/master.m3u8"
+    ]
    },
    "nbcsportnow|US": {
     "section": "LOCALS",
@@ -62978,6 +62984,7 @@
   "unresolved_live_categories": 0,
   "movies_with_genre": 0,
   "live_tiles_after_collapse": 6441,
+  "direct_feed_tiles": 2,
   "live_tiles_collapsed": 3139,
   "collapse_groups": 146,
   "collapse_needs_review": 1,
@@ -63043,12 +63050,12 @@
    "bbc_regional": 43,
    "itv_regional": 13
   },
-  "pass2_dropped": 1214,
+  "pass2_dropped": 1212,
   "pass2_detail": {
    "overflow": 59,
    "stray_local_folded": 181,
    "timezone": 97,
-   "stray_local_dropped": 1023,
+   "stray_local_dropped": 1021,
    "show_channel": 18
   },
   "replay_feeds_dropped": 718,

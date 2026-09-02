@@ -20,6 +20,11 @@ Two fields exist for exactly this and are easy to forget:
   than a place.
 - `collapse[].section` / `.region` — the shelf a folded tile resolved for
   itself, which outranks the primary's own provider category.
+- `collapse[].direct` — the broadcaster's own public feeds for a tile, best
+  first, played BEFORE the provider's copies (`DIRECT_FEED` in the build).
+  Only for free channels the network streams itself; each url is opened and
+  checked the day it is added, and the provider sources stay behind it as
+  the recorded fallbacks.
 
 `kept_regions` is an **ordered** list, not a set: it decides the order among
 territories. It was once emitted through `sorted()`, which is alphabetical by

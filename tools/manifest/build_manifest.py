@@ -744,6 +744,44 @@ PRIMARY_PIN = {
 # any other. Only for channels that really are one broadcast everywhere.
 REGION_PIN = {'nbcnewsnow': 'US', 'bbcworldnews': 'US'}
 
+# The broadcaster's own public feed, played BEFORE the provider's copies.
+#
+# ABC News Live and NBC News NOW are free, ad-supported channels the networks
+# stream themselves; every copy the provider carries — PRIME, TUBI, RK, GO,
+# the (A)/(D)/(H)/(PC) mirrors — is a restream of those same feeds, one hop
+# further from the origin and metered against the line's single connection.
+# On 2026-09-02 both tiles were reported blank on the News shelf with every
+# provider copy affected at once, which is what a provider-side fault looks
+# like: more copies from the same provider are no answer to it, the origin is.
+#
+# Listed on the TILE, not as a stream id, because there is no id: the app
+# plays the first url here, then the tile's provider sources as the recorded
+# fallbacks (the declared primary first), so a public url that later rotates
+# costs one failed tune before the provider's copy takes over — the ladder's
+# usual error hop, not a minute of black — and a provider outage on these
+# channels never reaches the viewer at all.
+#
+# Only urls that have been OPENED and checked, the day they were added, for
+# the three things a listing cannot tell you: that the origin answers to the
+# app's own user agent (Agoro/2.9), what it actually decodes at, and that it
+# is not geo-fenced away from a US network. Both verified 2026-09-02:
+#   ABC News Live — Disney's Akamai origin, 1080p30 HEVC, ~3.7 Mbps top rung.
+#   NBC News NOW  — NBCUniversal's own FAST origin, 1080p30 H.264, ~5 Mbps.
+# Tubi's copies of both (720p / 1080p H.264) answered too and stand second.
+# Keyed by tile key -> urls, best first. A key naming a tile the build does
+# not make is an error, not a no-op: a feed pinned to nothing is a fix that
+# silently stopped applying.
+DIRECT_FEED = {
+    'abcnews|US': [
+        'https://pb-0n3n2ej0w8pl9.akamaized.net/ABCNewsLive_Disney.m3u8',
+        'https://aegis-cloudfront-1.tubi.video/d6cbb0de-68e4-4f3b-82f9-bf5d526e0bde/index.m3u8',
+    ],
+    'nbcnewsnow|US': [
+        'https://xumo-drct-nbcnn-ir8ze.fast.nbcuni.com/live/master.m3u8',
+        'https://aegis-cloudfront-1.tubi.video/605fb6ea-f89c-451a-873c-030cb726b493/master.m3u8',
+    ],
+}
+
 # Territories whose channels share a TILE — the build-time collapse key.
 #
 # Not the same question as which share a shelf, and they were one constant
@@ -924,8 +962,14 @@ def local_market(name):
     if cm:
         call = cm.group(1).split('-')[0].upper()
         if call in CALLSIGN_MARKET: return CALLSIGN_MARKET[call]
-    for city in MAJOR_MARKETS:                     # bare city mention
-        if re.search(rf'\b{re.escape(city)}\b', n.upper()): return city
+    # Bare city mention — the FIRST one named. A name can carry two ("Phoenix
+    # Mercury (PHX) x Washington Mystics (WAS)"), and MAJOR_MARKETS is a set,
+    # so scanning it in its own order made the answer depend on the process's
+    # hash seed: the same input built a Washington tile one run and dropped
+    # the stream the next. Position in the name is a property of the name.
+    found = [(m.start(), -len(city), city) for city in MAJOR_MARKETS
+             for m in [re.search(rf'\b{re.escape(city)}\b', n.upper())] if m]
+    if found: return min(found)[2]
     return None
 
 # The provider files the national news networks in a LOCALS category, and they
@@ -1656,7 +1700,12 @@ for st in ls:
     if not c: continue
     n = asc(st['name'])
     body = re.sub(r'^[A-Z0-9]{2,5}(?:\s+[A-Z0-9]{2,3})?\s*:\s*', '', n)
-    call = stray_local_call(body)
+    # A fixture slot is never a local station, however many city names and
+    # bracketed team codes it carries — "(WAS)" is Washington Mystics, not a
+    # call sign — and folded into a metro tile it shipped as a channel called
+    # "WAS (WAS) WASHINGTON" on the Locals shelf. The sport pass owns PPV;
+    # the overflow and timezone sweeps below still apply to it, as before.
+    call = None if _final_section(sid, c['section']) == 'PPV' else stray_local_call(body)
     if call:
         mk = local_market(body) or CALLSIGN_MARKET.get(call)
         # A station with no network word still belongs to its market — KTLA
@@ -3001,6 +3050,14 @@ for _sid in afr_assign:
 # is re-fetched, so a shorter cue would let a match start before it is listed.
 SPORT_CUE_MINUTES = 60
 
+# Last touch on the tiles: the broadcaster feeds go on after every fold and
+# pin above has settled which tiles exist and under which key.
+for _k, _urls in DIRECT_FEED.items():
+    if _k not in collapse:
+        raise SystemExit(f"DIRECT_FEED names a tile this build did not make: {_k!r} "
+                         f"— the key moved or the tile is gone; fix the table, do not ship")
+    collapse[_k]['direct'] = list(_urls)
+
 manifest = {
     "manifest_version": 1,
     "generated": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'),
@@ -3109,6 +3166,7 @@ manifest = {
         "unresolved_live_categories": len(unresolved),
         "movies_with_genre": sum(1 for m in vod_meta.values() if m.get('genre')),
         "live_tiles_after_collapse": len(tiles),
+        "direct_feed_tiles": len(DIRECT_FEED),
         "live_tiles_collapsed": len(live_rows) - len(tiles),
         "collapse_groups": len(collapse),
         "collapse_needs_review": len(needs_review),
