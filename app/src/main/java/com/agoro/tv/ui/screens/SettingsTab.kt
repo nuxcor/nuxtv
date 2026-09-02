@@ -206,24 +206,18 @@ internal fun SettingsTab(
                 // Hold OK for options on any playlist; the active one has
                 // nothing to switch to, so a plain OK opens them too.
                 onLongClick = { sourceOptions = source.id },
-                // The host and the USERNAME identify a playlist to its owner;
-                // the scheme, port and path are plumbing, and putting plumbing
-                // on screen is what makes an app look like a tool for its
-                // author. The username is not plumbing — it is the answer to
-                // "which of my logins is this box on", which matters on a line
-                // that allows one connection and is shared across devices.
+                // The host is what identifies a playlist to its owner; the
+                // scheme, port and path are plumbing, and putting plumbing on
+                // screen is what makes an app look like a tool for its author.
                 //
-                // Here rather than in the Account group below, which only
-                // renders once the panel has answered: the question is most
-                // urgent exactly when it has not.
-                //
-                // The password is deliberately absent and should stay absent.
-                // Nobody needs to read it off a television, and a settings
-                // screen is the one place in this app that gets photographed
-                // for a support thread.
+                // The username is NOT here, though it belongs on this row in a
+                // generic build. These rows are composed only when the build
+                // is unbranded (see brandedBuild above), so on the build that
+                // actually ships it would be written and never rendered — it
+                // was, for one release. It lives in the Account group instead,
+                // which every build shows.
                 subtitle = when (source) {
-                    is PlaylistSource.Xtream ->
-                        "Xtream • ${displayHost(source.serverUrl)} • ${source.username}"
+                    is PlaylistSource.Xtream -> "Xtream • ${displayHost(source.serverUrl)}"
                     is PlaylistSource.M3u -> "M3U • ${displayHost(source.url)}"
                 },
                 leading = {
@@ -246,51 +240,86 @@ internal fun SettingsTab(
 
         item(key = "account") {
             val account by vm.accountInfo.collectAsState()
-            account?.let { info ->
+            // WHICH login this box is on, always — asked for as "helps user to
+            // know which credentials was used on device", which matters on a
+            // line that allows one connection and is shared across three of
+            // them.
+            //
+            // The username is the APP's own knowledge; everything else here is
+            // the panel's answer. They are shown in one group but gated
+            // separately, because the panel not answering is exactly when a
+            // viewer starts wondering whose login is where — a group that
+            // waited for the account call would go missing at the only moment
+            // it was wanted.
+            //
+            // It went on the playlist row first and was invisible for a
+            // release: those rows are composed only in an UNBRANDED build, and
+            // the build that ships is branded. Written and never rendered.
+            //
+            // The password is deliberately absent and should stay absent.
+            // Nobody needs to read it off a television, and a settings screen
+            // is the one place in this app that gets photographed for a
+            // support thread.
+            val signedInAs = (active as? PlaylistSource.Xtream)?.username
+            // The group renders when EITHER half has something to say, so a
+            // panel that is not answering still shows whose login this is —
+            // which is the moment the question actually gets asked.
+            if (signedInAs != null || account != null) {
                 val dayMs = 24 * 3600_000L
-                val daysLeft = info.expiresAtMs?.let { (it - System.currentTimeMillis()) / dayMs }
+                val info = account
+                val daysLeft = info?.expiresAtMs?.let { (it - System.currentTimeMillis()) / dayMs }
                 val expiringSoon = daysLeft != null && daysLeft in 0..7
-                val inactive = info.status != null && !info.status.equals("Active", ignoreCase = true)
+                val inactive = info?.status != null && !info.status.equals("Active", ignoreCase = true)
                 val expired = daysLeft != null && daysLeft < 0
                 val fmt = remember { SimpleDateFormat("d MMM yyyy", Locale.getDefault()) }
                 SettingsGroup(title = "Account") {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Space.s),
-                    ) {
-                        // The provider's own word for the account, as a chip so
-                        // it reads as state; gold while the account is healthy.
-                        info.status?.let { MetaChip(it, accent = !inactive && !expired) }
+                    if (signedInAs != null) {
                         Text(
-                            text = buildList {
-                                info.expiresAtMs?.let {
-                                    add(
-                                        when {
-                                            expired -> "Expired ${fmt.format(Date(it))}"
-                                            else -> "Expires ${fmt.format(Date(it))}"
-                                        }
-                                    )
-                                }
-                                if (info.maxConnections != null) {
-                                    add("${info.activeConnections ?: 0} of ${info.maxConnections} connections in use")
-                                }
-                            }.joinToString("   •   "),
+                            text = "Signed in as $signedInAs",
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (expired || inactive || expiringSoon) NuxColors.Error
-                            else NuxColors.OnSurfaceDim,
+                            color = NuxColors.OnSurface,
                         )
+                        if (info != null) Spacer(Modifier.height(Space.xs))
                     }
-                    if (expiringSoon || expired || inactive) {
-                        Spacer(Modifier.height(Space.xs))
-                        Text(
-                            text = when {
-                                expired -> "Your subscription has ended — streams will fail until it is renewed."
-                                inactive -> "Your provider reports this account as inactive."
-                                else -> "Your subscription renews soon."
-                            },
-                            style = MaterialTheme.typography.labelMedium,
-                            color = NuxColors.OnSurfaceDim,
-                        )
+                    if (info != null) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(Space.s),
+                        ) {
+                            // The provider's own word for the account, as a
+                            // chip so it reads as state; gold while healthy.
+                            info.status?.let { MetaChip(it, accent = !inactive && !expired) }
+                            Text(
+                                text = buildList {
+                                    info.expiresAtMs?.let {
+                                        add(
+                                            when {
+                                                expired -> "Expired ${fmt.format(Date(it))}"
+                                                else -> "Expires ${fmt.format(Date(it))}"
+                                            }
+                                        )
+                                    }
+                                    if (info.maxConnections != null) {
+                                        add("${info.activeConnections ?: 0} of ${info.maxConnections} connections in use")
+                                    }
+                                }.joinToString("   •   "),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (expired || inactive || expiringSoon) NuxColors.Error
+                                else NuxColors.OnSurfaceDim,
+                            )
+                        }
+                        if (expiringSoon || expired || inactive) {
+                            Spacer(Modifier.height(Space.xs))
+                            Text(
+                                text = when {
+                                    expired -> "Your subscription has ended — streams will fail until it is renewed."
+                                    inactive -> "Your provider reports this account as inactive."
+                                    else -> "Your subscription renews soon."
+                                },
+                                style = MaterialTheme.typography.labelMedium,
+                                color = NuxColors.OnSurfaceDim,
+                            )
+                        }
                     }
                 }
             }
