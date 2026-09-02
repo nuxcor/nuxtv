@@ -51,9 +51,27 @@ on disk.
 
 ## Order
 
+`refresh.py` drives the whole loop — fetch, build, and a drift report against
+the shipped asset — and is what a scheduled rebuild should run:
+
+```sh
+AGORO_HOST=... AGORO_USER=... AGORO_PASS=... python3 refresh.py        # report only
+AGORO_HOST=... AGORO_USER=... AGORO_PASS=... python3 refresh.py --write # install it
+python3 refresh.py --no-fetch                # rebuild from the dumps on disk
+```
+
+**Why it is worth running on a schedule.** New provider content reaches the app
+on its own — the app fetches the line-up at runtime — but every per-title
+decision in the manifest is keyed by stream or series id, so none of it covers
+anything new: duplicate folding misses new duplicates, a dropped shelf's new
+titles come back, and a new series has no New/Top/All and lands on no shelf at
+all. Rebuilding re-applies the lot. And because the app prefers whichever
+manifest carries the newer `generated` stamp and reads it from `main`, merging
+a rebuild reaches the box within a day **without an app release**.
+
 | Step | Script | Reads | Writes |
 | --- | --- | --- | --- |
-| Fetch | *(panel API by hand)* | — | `get_live_categories.json`, `get_live_streams.json`, `get_vod_categories.json`, `get_vod_streams.json`, `get_series.json`, `series_cats.json` |
+| Fetch | `refresh.py` *(or the panel API by hand)* | — | `get_live_categories.json`, `get_live_streams.json`, `get_vod_categories.json`, `get_vod_streams.json`, `get_series.json`, `series_cats.json` |
 | Episodes | `dedup_fetch.py` | `dup_ids.txt` | `dup_episodes.json` |
 | VOD metadata | `enrich_vod.py` | `get_vod_streams.json` | genre/rating/tmdb keys |
 | Guide match | `epg_match.py` | `repo_epg_index.json`, `openepg_index_built.json` | `epg_map_final.json` |
