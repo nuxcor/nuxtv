@@ -12,7 +12,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.encodeToStream
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
@@ -1566,63 +1565,36 @@ class ContentRepository(context: Context) {
     }
 
     /**
-     * The scheme this panel actually answers on, decided ONCE per process.
+     * The scheme to talk to the panel on. **HTTP.**
      *
-     * Not persisted, deliberately. A stored decision is a stuck decision: a
-     * certificate that lapses on a Tuesday would leave the box on a scheme
-     * that no longer works until someone went looking, and a certificate that
-     * is fixed would never be noticed. Re-deciding on each launch costs one
-     * request and is self-healing in both directions.
+     * v2.35.31 probed for TLS and preferred it, on the evidence that
+     * `player_api.php` and `/live/` both answered on 443 with a valid
+     * certificate. Reverted on the provider's own answer: "provider stuff
+     * always on http". They are the authority on their service, and TLS on
+     * the STREAM path was never proven — a one-shot API call and a
+     * long-lived `.ts` connection are not the same request through the
+     * Cloudflare front this panel sits behind (`cf-cache-status` and HTTP/2
+     * in its response headers), and a 513 to a credential-less probe says
+     * TLS terminated somewhere, not that a real stream survives the trip.
      *
-     * Null until the first probe resolves; the pair is (stored url, chosen).
+     * **This revert is not the fix for "channels list but nothing plays" on
+     * a NEWLY set-up device**, and it should not be remembered as one. That
+     * shape is the line's ONE-CONNECTION cap: the catalogue is API calls,
+     * which cost no slot, so channels list fine — while every stream is
+     * refused because another device already holds the only connection. The
+     * giveaway is that an already-logged-in box on the same build kept
+     * playing throughout. Settings shows "N of M connections in use".
+     *
+     * What HTTP costs: the credentials go in clear, in the query string and
+     * in every stream path, re-sent on each channel change.
+     *
+     * **Before turning TLS back on**, test a real stream on the box for
+     * minutes, not an API call from a laptop. [httpsCandidate] and
+     * [PlayerSession.swapScheme] are both still here for that day.
      */
-    @Volatile private var schemeChoice: Pair<String, String>? = null
-    private val schemeProbeLock = kotlinx.coroutines.sync.Mutex()
+    private fun effectiveServerUrl(stored: String): String = stored
 
-    /**
-     * Probes the https form of a stored http url and returns whichever the
-     * panel answers on.
-     *
-     * ANY http status counts as success — 401, 511 and 513 are all the panel
-     * talking, which is what is being asked. Only a transport failure (the
-     * handshake, the certificate, a refused port) means no.
-     *
-     * Falls back silently and keeps http on every failure, because the cost
-     * of being wrong here is the whole catalogue and every stream.
-     */
-    private suspend fun effectiveServerUrl(stored: String): String {
-        schemeChoice?.let { (forUrl, chosen) -> if (forUrl == stored) return chosen }
-        val candidate = httpsCandidate(XtreamClient.normalize(stored)) ?: return stored
-        return schemeProbeLock.withLock {
-            schemeChoice?.let { (forUrl, chosen) -> if (forUrl == stored) return@withLock chosen }
-            val ok = runCatching {
-                withContext(BackgroundWork.dispatcher) {
-                    // Short: this sits in front of the catalogue load, so a
-                    // panel with a dead 443 must not add ten seconds to every
-                    // cold start before falling back.
-                    val probe = http.newBuilder()
-                        .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-                        .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-                        .build()
-                    val req = okhttp3.Request.Builder()
-                        .url("$candidate/player_api.php")
-                        .head()
-                        .build()
-                    probe.newCall(req).execute().use { true }
-                }
-            }.getOrDefault(false)
-            val chosen = if (ok) candidate else XtreamClient.normalize(stored)
-            android.util.Log.i(
-                "Agoro",
-                if (ok) "Panel answers over TLS; using https"
-                else "Panel did not answer over TLS; staying on http (credentials in clear)",
-            )
-            schemeChoice = stored to chosen
-            chosen
-        }
-    }
-
-    private suspend fun xtreamClient(source: PlaylistSource.Xtream) =
+    private fun xtreamClient(source: PlaylistSource.Xtream) =
         XtreamClient(http, effectiveServerUrl(source.serverUrl), source.username, source.password)
 
     companion object {
