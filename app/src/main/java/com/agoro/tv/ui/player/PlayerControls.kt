@@ -244,11 +244,17 @@ internal fun VodTitleHeader(
 }
 
 /**
- * The transient seek readout for VOD's bare LEFT/RIGHT seeking: position,
- * duration and a thin bar, no focusable chrome. Auto-hidden by the scaffold.
+ * The seek readout for VOD's bare LEFT/RIGHT scrubbing: where it will land,
+ * how far that is from where it started, the duration, and a thin bar. No
+ * focusable chrome; auto-hidden by the scaffold.
+ *
+ * [deltaMs] is non-null only while a scrub is pending. It is what turns a
+ * bare timestamp into steering — "24:15" says where you would be, "+1:30"
+ * says what this press did, and a viewer holding the key needs the second one
+ * to know the ramp has kicked in.
  */
 @Composable
-internal fun SeekFlash(positionMs: Long, durationMs: Long) {
+internal fun SeekFlash(positionMs: Long, durationMs: Long, deltaMs: Long? = null) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -286,6 +292,16 @@ internal fun SeekFlash(positionMs: Long, durationMs: Long) {
                 formatPlayerTime(durationMs),
                 style = MaterialTheme.typography.labelLarge,
                 color = NuxColors.OnSurfaceDim,
+            )
+        }
+        // Under the bar rather than beside the clock: the row above is a
+        // fixed shape and a delta that appears and disappears inside it would
+        // shove the timeline sideways on every press.
+        if (deltaMs != null && deltaMs != 0L) {
+            Text(
+                text = (if (deltaMs > 0) "+" else "-") + formatPlayerTime(kotlin.math.abs(deltaMs)),
+                style = MaterialTheme.typography.labelLarge,
+                color = NuxColors.Primary,
             )
         }
     }
