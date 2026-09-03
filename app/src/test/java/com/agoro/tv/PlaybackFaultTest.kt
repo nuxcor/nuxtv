@@ -170,4 +170,25 @@ class PtsSmootherTest {
         s.reset()
         assertEquals(7_000_000L, s.rewrite(7_000_000L))
     }
+
+    @Test
+    fun `an Xtream account that is disabled says so, not that the panel is unwell`() {
+        // 512 and 513 used to fall into the 5xx bucket and come out as "your
+        // provider is having trouble", which sends a viewer to wait for a
+        // panel that is working fine and has simply said no to them.
+        assertEquals(
+            "your provider has disabled or expired this account",
+            httpReason(512),
+        )
+        assertEquals(
+            "your provider rejected these credentials, or too many attempts too quickly",
+            httpReason(513),
+        )
+    }
+
+    @Test
+    fun `a real server fault still reads as one`() {
+        assertEquals("your provider is having trouble", httpReason(500))
+        assertEquals("your provider is having trouble", httpReason(502))
+    }
 }
