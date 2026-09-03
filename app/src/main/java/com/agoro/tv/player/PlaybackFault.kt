@@ -76,6 +76,17 @@ internal fun faultOf(errorCodeName: String, httpStatus: Int? = null): PlaybackFa
  */
 internal fun httpReason(status: Int): String? = when (status) {
     401 -> "your provider rejected the login — the subscription may have lapsed"
+    // Xtream's own two, and they were falling into the 5xx bucket below and
+    // coming out as "your provider is having trouble" — which sends a viewer
+    // to wait for a panel that is working fine and has simply said no to
+    // THEM. 2026-09-02: a second account listed every channel and played
+    // none, and this line is what should have said why.
+    //
+    // The catalogue keeps working through both, which is what makes them
+    // confusing: get_live_streams is an API call and answers for an account
+    // that is no longer allowed to open a stream.
+    512 -> "your provider has disabled or expired this account"
+    513 -> "your provider rejected these credentials, or too many attempts too quickly"
     403 -> "your provider refused the connection — another stream may still be open"
     400, 404, 410 -> "your provider no longer offers this stream"
     429 -> "your provider says too many streams are open"
