@@ -110,26 +110,50 @@ private const val QUALITY_LEARN_SETTLE_MS = 5_000L
 private const val UP_NEXT_SECONDS = 10
 
 /**
- * How long before the end the next episode announces itself.
+ * How long before the end of an item the next one announces itself.
  *
- * The card used to be a one-line badge in the last fifteen seconds, which is
- * not enough of a run at it: fifteen seconds is inside the closing shot, and
- * a viewer who has just registered that something appeared has to decide
- * while reading it. Forty is a set of end credits on most drama and about two
- * beats of thought, and it is early enough that ignoring it is a choice
- * rather than a reaction.
+ * A FRACTION of the runtime, not a fixed countdown, and a generous one. The
+ * card fired at the end of the file before this and the viewer's report was
+ * that it arrived roughly five minutes after the credits had started rolling
+ * — which is what the end of the file means on this catalogue. These are rips
+ * of a broadcast slot: the credits, a trailer for the next episode and a
+ * stretch of black or a station card all sit inside the runtime, and the
+ * point the picture stops being the episode is minutes before the point the
+ * file stops.
  *
- * It only announces. Nothing starts by itself until the episode has actually
- * ended — see [UpNextCard].
+ * Nothing here can see where that is. There are no chapter or credit markers
+ * in this catalogue and no way to derive one, so the choice is between being
+ * early and being late, and they do not cost the same. Late is the entire
+ * complaint: an offer that arrives after the viewer has already reached for
+ * the remote is not an offer. Early costs a small card in a corner over the
+ * closing minutes of something they have just watched — and it costs that
+ * much only because the peek was built to be harmless: it does not count
+ * down, it does not take a key, and it does not cover the picture.
+ *
+ * So: the last eighth, floored so a short item still gets a run at it, and
+ * capped so a feature-length one does not carry the card for a quarter of an
+ * hour. On a 54-minute drama this is the last six minutes.
+ *
+ * The numbers are a first guess at ONE catalogue's shape and they are meant to
+ * be moved. If the card is still late, raise the fraction; if it now sits
+ * through the last scene, lower it.
  */
-private const val UP_NEXT_PEEK_MS = 40_000L
+private const val UP_NEXT_PEEK_FRACTION = 0.125
+private const val UP_NEXT_PEEK_MIN_MS = 90_000L
+private const val UP_NEXT_PEEK_MAX_MS = 360_000L
+
+/** The window for an item of [durationMs]; see [UP_NEXT_PEEK_FRACTION]. */
+private fun upNextPeekMs(durationMs: Long): Long =
+    (durationMs * UP_NEXT_PEEK_FRACTION).toLong()
+        .coerceIn(UP_NEXT_PEEK_MIN_MS, UP_NEXT_PEEK_MAX_MS)
 
 /**
  * Below this, an item is too short to have a run-out worth announcing: the
- * card would be on screen for most of its length. Three minutes takes in the
- * trailers and clips a VOD shelf carries beside the features.
+ * card would be on screen for most of its length. Ten minutes, because the
+ * window above is now measured in minutes rather than seconds — at three the
+ * floor alone would have covered half of a four-minute clip.
  */
-private const val UP_NEXT_MIN_ITEM_MS = 180_000L
+private const val UP_NEXT_MIN_ITEM_MS = 600_000L
 
 /**
  * How long a channel has to stay tuned before it becomes the one a cold start
@@ -1062,7 +1086,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 peekIndex < request.items.size &&
                 session.durationMs >= UP_NEXT_MIN_ITEM_MS &&
                 session.positionMs > 0 &&
-                session.durationMs - session.positionMs in 1_000..UP_NEXT_PEEK_MS
+                session.durationMs - session.positionMs in
+                    1_000..upNextPeekMs(session.durationMs)
             val index = counting ?: peekIndex.takeIf { peeking }
             val next = index?.let { request.items.getOrNull(it) }
             if (next != null) {
