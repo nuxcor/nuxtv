@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-09-04T04:21:11+00:00",
+ "generated": "2026-09-04T04:27:04+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -8552,7 +8552,6 @@
   498738,
   414074,
   1525676,
-  622075,
   1008121,
   231804,
   231805,
@@ -21807,9 +21806,9 @@
     "feed": "epg6"
    },
    "622075": {
-    "src": "openepg",
-    "id": "BBCParliament.uk",
-    "feed": "United Kingdom"
+    "src": "repo",
+    "id": "bbcnews.uk",
+    "feed": "epg6"
    },
    "483652": {
     "src": "repo",
@@ -38353,13 +38352,14 @@
     "section": "NEWS",
     "region": "UK",
     "sources": [
-     1525693,
+     622075,
      717698,
      1536959,
+     1525693,
      162143,
      717702
     ],
-    "primary": 1525693
+    "primary": 622075
    },
    "billiard|US": {
     "section": "SPORTS",
@@ -55694,7 +55694,7 @@
   "1562519": "PREMIER SPORTS 2",
   "325778": "AMC +",
   "414042": "BBC EARTH",
-  "1525693": "BBC NEWS",
+  "622075": "BBC NEWS",
   "325904": "BLOOMBERG",
   "1536940": "BOUNCE XL",
   "1536659": "LAW & CRIME NETWORK",
@@ -63068,7 +63068,7 @@
   "movies_with_genre": 0,
   "live_tiles_after_collapse": 6589,
   "direct_feed_tiles": 2,
-  "live_tiles_collapsed": 3137,
+  "live_tiles_collapsed": 3138,
   "collapse_groups": 146,
   "collapse_needs_review": 1,
   "dropped_region_streams": 2906,
