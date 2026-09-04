@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -33,11 +34,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -417,6 +420,29 @@ fun SeriesDetailScreen(
         eps.orEmpty().filter { it.season == selectedSeason }
     }
 
+    // The hero is the list's first item, so walking down the episodes carries
+    // it off the top of the screen — and walking back up does not bring it
+    // back. Compose scrolls the least it can to show the node that just took
+    // focus, and by the time focus reaches the Play button the button is
+    // already on screen, so nothing moves: two presses down to the second
+    // episode and two back up left the page sitting 90dp low, with the show's
+    // name, its chips and the top half of the poster above the screen edge.
+    // That is the state the page was photographed in.
+    //
+    // Focus on the hero means the hero is what the viewer is reading, so the
+    // hero is shown whole.
+    val listState = rememberLazyListState()
+    var heroFocused by remember(seriesId) { mutableStateOf(false) }
+    LaunchedEffect(heroFocused) {
+        if (!heroFocused) return@LaunchedEffect
+        // A frame late on purpose. The focus system runs its own
+        // bring-into-view on the frame focus lands, and whichever scroll
+        // starts second cancels the first — started together, ours is the one
+        // that loses and the page stops half way up.
+        withFrameNanos {}
+        listState.animateScrollToItem(0)
+    }
+
     fun playFrom(episode: Episode, startOver: Boolean) {
         val list = eps.orEmpty().filter { it.season == episode.season }
         vm.playEpisodes(
@@ -434,6 +460,7 @@ fun SeriesDetailScreen(
         BackdropLayer(series.backdrop ?: series.poster)
 
         LazyColumn(
+            state = listState,
             verticalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(bottom = 16.dp),
             // Coming back from an episode returns to the row it was played
@@ -447,6 +474,10 @@ fun SeriesDetailScreen(
                     target = target,
                     playFocus = playFocus,
                     onPlay = { startOver -> target?.let { playFrom(it.episode, startOver) } },
+                    // hasFocus, not isFocused: the Row holds no focus of its
+                    // own, and what is being asked is whether focus is
+                    // anywhere inside the hero — Play, or Start episode over.
+                    modifier = Modifier.onFocusChanged { heroFocused = it.hasFocus },
                 )
             }
 
@@ -595,8 +626,10 @@ private fun SeriesHero(
     target: UpNext?,
     playFocus: FocusRequester,
     onPlay: (startOver: Boolean) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Row(
+        modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(28.dp),
         verticalAlignment = Alignment.Top,
     ) {
