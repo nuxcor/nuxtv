@@ -18,7 +18,11 @@ class SportsParserTest {
     private val leagues = mapOf(
         "NFL" to listOf("Raiders", "Texans", "Jets", "Steelers"),
         "NBA" to listOf("Knicks", "Timberwolves"),
-        "MLS" to listOf("Philadelphia Union", "Inter Miami"),
+        // As the manifest bills them, which is how the packs' four spellings
+        // ("New York City Football Club", "NEW YORK CITY", "New_York_City")
+        // all reach the same fixture.
+        "MLS" to listOf("Philadelphia Union", "Inter Miami",
+            "New York City", "Nashville SC"),
         "Premier League" to listOf("Brighton", "Arsenal"),
     )
 
@@ -1105,4 +1109,41 @@ class SportsParserTest {
         assertNull(SportsParser.crestFor(crests, "Carabao Cup", "Patriots"))
         assertNull(SportsParser.crestFor(crests, "UEFA", "Patriots"))
     }
+
+    /**
+     * Four real slots for one match, three clocks between them. Reported from
+     * the sofa: "nycfc vs nashville says starts in 7 minutes but the game
+     * itself is 6:30 central".
+     */
+    @Test
+    fun `the packs that agree set the kick-off`() {
+        val now = ms(2026, 9, 4, 11, 20, "America/Chicago")   // when it was reported
+        val kickOff = ms(2026, 9, 4, 18, 30, "America/Chicago")
+        val slots = listOf(
+            601 to "Next | New York City Football Club vs. Nashville SC | all | " +
+                "04-09-2026 | 16:30 (GMT) | 8K EXCLUSIVE | US: SOCCER PPV 68",
+            602 to "NEXT | NEW YORK CITY VS. NASHVILLE | Fri 04 Sep 19:30 EDT (US) | " +
+                "8K EXCLUSIVE | US: MLS PPV 1",
+            603 to "New York City Football Club vs Nashville SC @ Sep 4 7:30 PM :MLS  01",
+            604 to "(Apple) (MLS) 001 |  New_York_City vs. Nashville  (2026-09-04 19:25:00)",
+        )
+        val parsed = SportsParser.parseAll(slots, now, leagues)
+        assertEquals("all four slots read as the same fixture", 4, parsed.size)
+
+        // Nothing on screen at 11:20: the soccer shelf's 16:30 (GMT) is seven
+        // hours early and no longer speaks for the match on its own.
+        assertTrue(
+            "no row seven hours early",
+            SportsParser.upcoming(parsed, now, cueMinutes = 60).isEmpty(),
+        )
+
+        // And it IS there half an hour before the real kick-off.
+        val atCue = kickOff - 30 * 60_000L
+        val rows = SportsParser.upcoming(
+            SportsParser.parseAll(slots, atCue, leagues), atCue, cueMinutes = 60,
+        )
+        assertEquals("one row, not four", 1, rows.size)
+        assertEquals("on the clock the two agreeing packs gave", kickOff, rows.first().startMs)
+    }
+
 }
