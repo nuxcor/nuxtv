@@ -96,6 +96,10 @@ object ManifestCuration {
             // tv-logo/tv-logos at build time, where the in-app name matcher
             // resolves ~1% of this provider's channels and the manifest ~55%.
             val art = manifest.logo.channelLogo[id.toString()]
+                // A tile's own sources before the provider's icon: see
+                // [CatalogueManifest.borrowedLogo] for why the primary is the
+                // one member of a fold most likely to be missing a binding.
+                ?: manifest.borrowedLogo(id)
                 ?: channel.logo?.takeIf { it.isNotBlank() }
             // The guide id the manifest resolved at build time. EpgMatcher's
             // first stage only accepts an epgId that the loaded XMLTV actually
