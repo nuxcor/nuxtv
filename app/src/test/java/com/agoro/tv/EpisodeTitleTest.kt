@@ -55,6 +55,64 @@ class EpisodeTitleTest {
         )
     }
 
+    /**
+     * Photographed on the box 2026-09-04: every row of "Lead Children" read
+     * "1. (2026) (PL) - - Episode 1". The catalogue pass had cleaned the
+     * country off the SHOW's name and nothing had cleaned the episodes', so
+     * the name match stopped at "Lead Children" and handed the row the rest of
+     * its own show's name back.
+     *
+     * The provider named no episode here, so the honest answer is none: the
+     * row numbers itself "Episode 1" like the shows whose panels say nothing.
+     */
+    @Test
+    fun `the catalogue's own decoration does not become the episode's name`() {
+        assertNull(
+            EpisodeTitle.clean(
+                "Lead Children (2026) (PL) - S01E01 - Episode 1",
+                "Lead Children (2026)",
+            ),
+        )
+    }
+
+    /** The same decoration in front of a title the provider DID supply. */
+    @Test
+    fun `a real name survives the decoration in front of it`() {
+        assertEquals(
+            "Homecoming",
+            EpisodeTitle.clean(
+                "Ransom Canyon (2025) (US) - S01E03 - Homecoming",
+                "Ransom Canyon (2025)",
+            ),
+        )
+    }
+
+    /**
+     * Both halves of the tail come off the name being compared. 4,035 of this
+     * panel's 8,598 series are named this way, and a source the manifest does
+     * not cover reaches [EpisodeTitle] with the country still on.
+     */
+    @Test
+    fun `a year and a country on the show name both come off`() {
+        assertEquals(
+            "Homecoming",
+            EpisodeTitle.clean("Ransom Canyon - S01E03 - Homecoming", "Ransom Canyon (2025) (US)"),
+        )
+    }
+
+    /** An address cut from the MIDDLE leaves two separators against each other. */
+    @Test
+    fun `separators stranded by a cut-out address collapse`() {
+        assertEquals("Homecoming - Extended", EpisodeTitle.clean("Homecoming - S01E03 - Extended", null))
+    }
+
+    /** ...and an ellipsis is not two stranded separators. */
+    @Test
+    fun `an ellipsis in a real title is left alone`() {
+        assertEquals("Wait... What?", EpisodeTitle.clean("Wait... What?", null))
+        assertEquals("Then - Now", EpisodeTitle.clean("Then - Now", null))
+    }
+
     /** Only at the head: a title that ENDS on the show's name is naming something. */
     @Test
     fun `the show name is not stripped from the middle of a title`() {

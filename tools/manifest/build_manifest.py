@@ -358,7 +358,22 @@ CHANNEL_ALIAS = {
     # BBC World News and the BBC News Channel merged in April 2023: the
     # international feed simply became BBC News. Two tiles for one channel,
     # and no probe can see it — both decode, at 1080 and 720.
-    'bbcworldnews': 'bbcnews',
+    #
+    # UNFOLDED 2026-09-04, asked for: the viewer wants BBC World News on the
+    # shelf in its own right. The rebrand is still a fact, so this is a
+    # curation choice and not a correction, and it is worth being plain about
+    # what it costs. The tile it makes is ONE feed — "UK: BBC WORLD NEWS HD"
+    # (162143, 720p h264) — and that feed was BBC News's fourth fallback, so
+    # the fold gives up a rung of its ladder to put a second tile on the
+    # shelf. If the two carry one picture, which the rebrand says they should,
+    # the second tile is the same news at a lower resolution.
+    #
+    # NOT frame-verified, and the file's own history says a look is the only
+    # instrument that could settle it (see the Parliament block above). The
+    # measuring line needs credentials this machine does not have
+    # (~/.config/nuxtv/panel.env is blank) and the Mac's VPN was up, which
+    # makes a live panel look dead either way. Re-folding is one line.
+    #   'bbcworldnews': 'bbcnews',
     # The two "Parliament" feeds were folded in here on 2026-08-27, on the
     # finding that neither carried BBC Parliament and both carried BBC News.
     # UNFOLDED 2026-09-03: the viewer reports the BBC News tile playing BBC
@@ -888,12 +903,16 @@ PRIMARY_PIN = {
 #
 # The same pin doubles as the fix for a genuinely global channel. A tile only
 # collapses within one territory, which is right for a "Comedy Central" that
-# differs per market — and wrong for a single worldwide broadcast: BBC World
-# News is one feed, and the provider's US copy of it is 576p while its CA copy
-# is 1080p. Pinning the key sends every territory's copy into one tile, where
-# the measured ranking picks the best of them and the SD copy is dropped like
-# any other. Only for channels that really are one broadcast everywhere.
-REGION_PIN = {'nbcnewsnow': 'US', 'bbcworldnews': 'US'}
+# differs per market — and wrong for a single worldwide broadcast. Only for
+# channels that really are one broadcast everywhere.
+#
+# 'bbcworldnews': 'US' stood here for exactly that reason and came off
+# 2026-09-04 with the CHANNEL_ALIAS unfold above. It has nothing left to
+# merge: of the provider's four World News feeds the US copy measures 576p
+# and leaves at sd_all_drop, and both CA copies went with the territory, so
+# the only survivor is the UK one. Pinning that to US would have opened the
+# new tile on the US News shelf — the pin doing harm rather than nothing.
+REGION_PIN = {'nbcnewsnow': 'US'}
 
 # The broadcaster's own public feed, played BEFORE the provider's copies.
 #
@@ -2313,9 +2332,26 @@ EPG_PIN = {
     717698: _BBC_NEWS,        # UK: BBC NEWS HEVC 4K
     1536959: _BBC_NEWS,       # PRIME: BBC NEWS
     717702: _BBC_NEWS,        # UK: BBC NEWS HEVC HD
-    # BBC World News became BBC News in 2023 and is folded into this tile, so
-    # if it is ever promoted it should carry the same listings.
-    162143: _BBC_NEWS,        # UK: BBC WORLD NEWS HD
+    # BBC World News stands on its own tile again from 2026-09-04, and KEEPS
+    # this binding rather than taking one of the two World News ids its name
+    # would otherwise match. Both were opened and counted the same day:
+    #
+    #   epg6  bbcnews.uk        390 progs  The World Today / The Context /
+    #                                      BBC World News America   <- pinned
+    #   epg2  bbcworldnews.us   384 progs  same schedule, shorter pack
+    #   epg6  bbcworldnews.uk   507 progs  The Newsroom / Sport Today /
+    #                                      From Our Own Correspondent
+    #
+    # The third is the biggest and is the WRONG one: those are BBC World
+    # Service RADIO programmes, a legacy listing still filed under the TV
+    # channel's id. It would have bound the fullest guide in the pack to a
+    # feed that never shows any of it — the failure mode a programme count on
+    # its own cannot see, so the titles have to be read too.
+    #
+    # The other two are the same schedule, so the shelf's two BBC News tiles
+    # necessarily carry the same listings. That is what the 2023 merger means
+    # and no binding here can undo it.
+    162143: _BBC_NEWS,        # UK: BBC WORLD NEWS HD — its own tile now
 }
 for _sid, _pin in EPG_PIN.items():
     if isinstance(_pin, dict):

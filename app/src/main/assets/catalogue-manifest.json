@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-09-04T16:04:16+00:00",
+ "generated": "2026-09-04T21:55:26+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -38357,7 +38357,6 @@
      1536959,
      717698,
      1525693,
-     162143,
      717702
     ],
     "primary": 1536959
@@ -55695,7 +55694,6 @@
   "1562519": "PREMIER SPORTS 2",
   "325778": "AMC +",
   "414042": "BBC EARTH",
-  "1536959": "BBC NEWS",
   "325904": "BLOOMBERG",
   "1536940": "BOUNCE XL",
   "1536659": "LAW & CRIME NETWORK",
@@ -55718,6 +55716,7 @@
   "1069751": "TNT SPORTS ULTIMATE",
   "1290298": "MANCHESTER UNITED",
   "587990": "VIAPLAY SPORTS 1",
+  "1536959": "BBC NEWS",
   "437219": "ESPN",
   "648290": "CBS SPORTS GOLAZO NETWORK",
   "325906": "FANDUEL TV",
@@ -64866,9 +64865,9 @@
   "movie_categories": 67,
   "unresolved_live_categories": 0,
   "movies_with_genre": 0,
-  "live_tiles_after_collapse": 6589,
+  "live_tiles_after_collapse": 6590,
   "direct_feed_tiles": 2,
-  "live_tiles_collapsed": 3137,
+  "live_tiles_collapsed": 3136,
   "collapse_groups": 146,
   "collapse_needs_review": 1,
   "dropped_region_streams": 2906,
