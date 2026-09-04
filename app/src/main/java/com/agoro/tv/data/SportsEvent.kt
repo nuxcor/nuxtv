@@ -1280,6 +1280,68 @@ object SportsParser {
     }
 
     /**
+     * How far apart two packs' clocks can be and still mean one kick-off.
+     *
+     * Twenty minutes. The packs that agree are rarely identical — the Apple
+     * pack starts its slot five minutes before the whistle, the listings packs
+     * round to the quarter hour — and the disagreements this exists to catch
+     * are hours, not minutes.
+     */
+    private const val CLOCK_AGREEMENT_MS = 20 * 60_000L
+
+    /**
+     * When the packs disagree about a kick-off, the ones that AGREE win.
+     *
+     * A match is routinely listed by four packs at once, and one of them
+     * being wrong is not unusual — it is Friday. New York City v Nashville,
+     * 4 September: the soccer shelf billed it "04-09-2026 | 16:30 (GMT)", the
+     * Apple pack "(2026-09-04 19:25:00)" with no zone at all, and two others
+     * "Fri 04 Sep 19:30 EDT" and "@ Sep 4 7:30 PM". The last two are right and
+     * agree; the first is seven hours early and the second four.
+     *
+     * The window then takes the earliest clock at its word, because a clock
+     * inside the cue is all it asks for. So a viewer at 11:20 in the morning
+     * was told the evening's match started in seven minutes, while the two
+     * slots that had it right sat outside the window saying nothing. The row
+     * it opens is a pipe with no match behind it for another seven hours.
+     *
+     * No zone is guessed here and no pack is called a liar. Two independent
+     * packs landing on the same minute is simply better evidence than one
+     * landing somewhere else, and the odd one out is moved onto their clock
+     * rather than dropped: the stream behind it is still the same match, and
+     * it stays in the ladder as a fallback.
+     *
+     * Three slots minimum, and the winning cluster has to be strictly the
+     * largest. Two slots that disagree are a coin toss, and this does not
+     * toss coins — it leaves them exactly as they came.
+     */
+    private fun agreeClocks(events: List<SportsEvent>): List<SportsEvent> {
+        val consensus = HashMap<String, Long>()
+        for ((key, slots) in events.groupBy { fixtureKey(it) }) {
+            val times = slots.mapNotNull { it.startMs }.sorted()
+            if (times.size < 3) continue
+            var best = emptyList<Long>()
+            var tied = false
+            for (from in times) {
+                val cluster = times.filter { it >= from && it - from <= CLOCK_AGREEMENT_MS }
+                when {
+                    cluster.size > best.size -> { best = cluster; tied = false }
+                    cluster.size == best.size && cluster.firstOrNull() != best.firstOrNull() ->
+                        tied = true
+                }
+            }
+            if (!tied && best.size >= 2) consensus[key] = best[best.size / 2]
+        }
+        if (consensus.isEmpty()) return events
+        return events.map { e ->
+            val agreed = consensus[fixtureKey(e)] ?: return@map e
+            val own = e.startMs ?: return@map e
+            if (kotlin.math.abs(own - agreed) <= CLOCK_AGREEMENT_MS) e
+            else e.copy(startMs = agreed)
+        }
+    }
+
+    /**
      * The fixtures worth putting on screen: on now, or starting within the cue.
      * Live first, then soonest — a match already running outranks one that has
      * not started however close its kick-off.
@@ -1324,8 +1386,11 @@ object SportsParser {
         // filed American football under SOCCER must not hand its clock to a
         // trusted slot, which is the seven-hours-early lesson above.
         val (trustedRaw, misshelvedRaw) = events.partition { !it.wrongSport }
-        val trusted = lendClocks(trustedRaw)
-        val misshelved = lendClocks(misshelvedRaw)
+        // Agreement AFTER lending and, like lending, never across the
+        // partition: a pack that has the sport wrong does not get a vote on a
+        // trusted slot's clock, which is the same rule for the same reason.
+        val trusted = agreeClocks(lendClocks(trustedRaw))
+        val misshelved = agreeClocks(lendClocks(misshelvedRaw))
         fun inWindow(e: SportsEvent): Boolean {
             val s = e.startMs ?: return e.live
             return s <= nowMs + cue && nowMs <= s + FIXTURE_LENGTH_MS
