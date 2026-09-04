@@ -66,13 +66,31 @@ object ArtworkUrl {
     /** The rung a backdrop is fetched at: wide, and short of `original`. */
     private const val BACKDROP_SIZE = "w1280"
 
+    /**
+     * The rung an episode still is fetched at — TMDB's own still width.
+     *
+     * 16:9 and small, because that is the shape and size a still is ever
+     * drawn at: a thumbnail beside an episode's text, never a hero. Sending
+     * these through [poster] instead is not a size mistake but a SHAPE one —
+     * `w600_and_h900_bestv2` is a 2:3 smart crop, so a 16:9 still came back
+     * as its centre column with both sides cut off, and the row then cropped
+     * that portrait back to 16:9 to fit. What reached the screen was the
+     * middle third of the frame at four times its intended magnification, on
+     * every episode of every series. It also cost 122KB a row where this
+     * costs 23KB, forty rows to a season, on a box with 2GB of RAM.
+     */
+    private const val STILL_SIZE = "w300"
+
     private const val TMDB = "https://image.tmdb.org/t/p"
 
     /** A poster — 2:3, the shape of a movie or series tile. */
     fun poster(url: String?): String? = repair(url, POSTER_SIZE)
 
-    /** A backdrop — 16:9, the shape of a hero or a still. */
+    /** A backdrop — 16:9, the shape of a hero. */
     fun backdrop(url: String?): String? = repair(url, BACKDROP_SIZE)
+
+    /** An episode still — 16:9, and thumbnail-sized. */
+    fun still(url: String?): String? = repair(url, STILL_SIZE)
 
     private fun repair(url: String?, size: String): String? {
         val raw = url?.trim()?.takeIf { it.isNotEmpty() } ?: return null

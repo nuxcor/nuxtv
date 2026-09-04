@@ -115,4 +115,34 @@ class ArtworkUrlTest {
     fun `something that is not a URL is left as it is`() {
         assertEquals("images/local.png", ArtworkUrl.poster("images/local.png"))
     }
+
+    /**
+     * An episode still is 16:9, and the poster rung is a 2:3 SMART CROP —
+     * TMDB returns the centre column with both sides cut off, and the row
+     * then crops that portrait back to 16:9 to fit its own box. What reached
+     * the screen was the middle third of the frame at four times its
+     * intended magnification, on every episode of every series.
+     */
+    @Test
+    fun `an episode still is fetched at the still rung, not the poster one`() {
+        assertEquals(
+            "$tmdb/w300/5f8eR8Oby9F5V7n3gmSkkaBCSq1.jpg",
+            ArtworkUrl.still("$tmdb/original/5f8eR8Oby9F5V7n3gmSkkaBCSq1.jpg"),
+        )
+        assertEquals(
+            "$tmdb/w300/5f8eR8Oby9F5V7n3gmSkkaBCSq1.jpg",
+            ArtworkUrl.still("$tmdb/w600_and_h900_bestv2/5f8eR8Oby9F5V7n3gmSkkaBCSq1.jpg"),
+        )
+    }
+
+    /** The dead mirror serves episode stills too. */
+    @Test
+    fun `a still on the dead mirror is recovered at the still rung`() {
+        assertEquals(
+            "$tmdb/w300/nu6dcBfxr4VmOBj4k1S9r0r1MOW.jpg",
+            ArtworkUrl.still(
+                "http://cmc.exchange-cdn.com:8080/images/series//nu6dcBfxr4VmOBj4k1S9r0r1MOW.jpg"
+            ),
+        )
+    }
 }
