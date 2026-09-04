@@ -372,8 +372,20 @@ CHANNEL_ALIAS = {
     # the rule everywhere else in this file. An exception to it needs to earn
     # its keep continuously, and this one stopped.
     #
-    #   'bbcparlament': 'bbcnews',
-    #   'bbcparliament': 'bbcnews',
+    # REFOLDED 2026-09-04, one of the two, and only after asking. The viewer
+    # was shown both feeds and said 622075 — the misspelled "PARLAMENT" — is
+    # the one carrying BBC News; the correctly spelled one is Parliament and
+    # is removed outright (NAMED_REMOVAL). So the pair is no longer a pair,
+    # and the objection above — that a fold on stale evidence had stopped
+    # earning its keep — is answered by evidence taken today rather than by
+    # the same note being re-read.
+    #
+    # It stays only while it keeps being right. If the BBC News tile shows
+    # Parliament again, comment this line out and drop 622075 from
+    # NAMED_REMOVAL_KEEP; the tile falls back to 1525693, which is where it
+    # is now, and nothing else moves.
+    'bbcparlament': 'bbcnews',
+    #   'bbcparliament': 'bbcnews',   # genuinely Parliament; removed, not folded
     # The panel's "BLOOMBERG EU" is Bloomberg. Left on its own key it stood as
     # a second tile beside the main one, at 720 against the 1080 the merged
     # tile already had — so the only thing the separate entry bought the
@@ -701,8 +713,41 @@ NAMED_REMOVAL = re.compile(
     #
     # Anchored on the doubled word: a single \bCHU\b would be a three-letter
     # match waiting to catch something unrelated.
-    r'|\bCHU\s*CHU\b',
+    r'|\bCHU\s*CHU\b'
+    # BBC Parliament, 2026-09-04 at the user's request: rows of gavel-to-gavel
+    # committee footage on a shelf kept for rolling news. Both of the panel's
+    # spellings are matched — it writes "PARLIAMENT" on one feed and
+    # "PARLAMENT" on another — so a feed added later under either is taken
+    # without anyone having to notice it.
+    #
+    # ONE id is exempt, and NAMED_REMOVAL_KEEP below is where and why.
+    #
+    # Scoped to BBC. The panel carries four unrelated parliament channels
+    # (DSTV's Zambian, Nigerian and South African services) which a bare
+    # \bPARL rule would take as well; they are already dropped for their
+    # territory, and taking them here would hide that if it ever changed.
+    r'|\bBBC\s+PARLI?AMENT\b',
     re.I)
+
+# Ids NAMED_REMOVAL must not take, whatever the provider called them.
+#
+# 622075, "UK: BBC PARLAMENT", carries BBC News. Confirmed by the viewer on
+# 2026-09-04, asked directly and answered directly, after the removal above
+# was written to take both Parliament-named feeds and they said one of them
+# was the news. Everything the build can measure agrees with them: the panel
+# files this one under its own `UK| NEWS` shelf while the genuine Parliament
+# feed sits under `UK| BBC IPLAYER`, and it decodes at 1080 where real BBC
+# Parliament is a low-bandwidth channel that has never been broadcast at it.
+#
+# This is the same feed that was folded into BBC News on 2026-08-27 and
+# unfolded on 2026-09-03, and the history is worth stating plainly rather
+# than quietly repeating: the provider re-points it, it has been Parliament
+# and it has been News, and no rebuild can see which it is today. What has
+# changed is only that the viewer has looked again and said. So it is written
+# to be undone in one line — drop the id from this set and the removal above
+# takes it, the alias in CHANNEL_ALIAS unbinds it from the tile, and the pins
+# fall back to 1525693 exactly as they stand now.
+NAMED_REMOVAL_KEEP = {622075}
 
 telemundo_drop, rsn_drop, ca_drop, us_news_drop = [], [], [], []
 misfiled_territory = []
@@ -739,7 +784,8 @@ for s in ls:
         us_news_drop.append(s['stream_id']); continue
     if DEFUNCT_FEED.search(asc(s['name'])):
         defunct_drop.append(s['stream_id']); continue
-    if NAMED_REMOVAL.search(asc(s['name'])):
+    if (NAMED_REMOVAL.search(asc(s['name']))
+            and s['stream_id'] not in NAMED_REMOVAL_KEEP):
         named_drop.append(s['stream_id']); continue
     # A numbered event slot riding along inside a club-roster shelf; see
     # ROSTER_SLOT_JUNK. Anchored to those categories, so the identically
@@ -795,18 +841,20 @@ TIER_RANK = {"8K":0,"4K":1,"UHD":2,"FHD":3,"HEVC":4,"H265":5,"RAW":6,"HD":7,None
 # them is watching both, which is a judgement rather than a measurement, so it
 # is written down as one. Keyed by channel key -> stream id.
 PRIMARY_PIN = {
-    # WAS 622075, the panel's "UK: BBC PARLAMENT", pinned as the better of
-    # the two 1080 feeds. It is out: that feed is named Parliament, is bound
-    # to BBCParliament.uk, and the viewer reports it playing Parliament. It
-    # is no longer even in this tile — see CHANNEL_ALIAS.
+    # 622075, the panel's "UK: BBC PARLAMENT", which carries BBC News — see
+    # NAMED_REMOVAL_KEEP for who says so and on what.
     #
-    # 1525693, "UK: BBC NEWS", replaces it, and the reason is the box rather
-    # than the picture. The tile's only other 1080 source is "BBC NEWS HEVC
-    # 4K", and this box reports HEVC rungs as undecodable — the player's
-    # quality sheet marks them, and ABC News Live already had to be moved off
-    # an HEVC feed for it on 2026-09-02. A 720p feed it can decode beats a
-    # 1080p one it cannot.
-    'bbcnews': 1525693,
+    # It was pinned here before, unpinned on 2026-09-03 when the tile was
+    # reported playing Parliament, and is back on 2026-09-04 on a direct
+    # answer from the viewer. What makes it worth the churn is that it is the
+    # only 1080 source in this tile the BOX CAN PLAY: the other two, "BBC NEWS
+    # HEVC 4K" and "BBC NEWS HEVC HD", are HEVC, and this box cannot decode
+    # it — ABC News Live had to be moved off an HEVC feed for the same reason
+    # on 2026-09-02. Everything else here, 1525693 included, measures 720.
+    #
+    # So the fallback is a real fallback and not a worse one: unpin this and
+    # the tile returns to 1525693 at 720, which is what the viewer had.
+    'bbcnews': 622075,
 }
 # Hand-pinned territories where the fold's majority lands wrong: NBC News Now
 # grouped under UK because its surviving sources sit in UK categories.
@@ -2208,7 +2256,11 @@ EPG_PIN = {
     324915: _ABC_NEWS_LIVE,   # US: ABC NEWS
     430328: _ABC_NEWS_LIVE,   # US: ABC NEWS
     430295: _ABC_NEWS_LIVE,   # US: ABC NEWS LIVE HD
-    1525693: _BBC_NEWS,       # UK: BBC NEWS (the tile's primary)
+    # The tile's primary from 2026-09-04. Its own binding is
+    # BBCParliament.uk, from the name the provider gave it, which would put
+    # committee listings under a feed showing the news.
+    622075: _BBC_NEWS,        # UK: BBC PARLAMENT — carries BBC News
+    1525693: _BBC_NEWS,       # UK: BBC NEWS
     717698: _BBC_NEWS,        # UK: BBC NEWS HEVC 4K
     1536959: _BBC_NEWS,       # PRIME: BBC NEWS
     717702: _BBC_NEWS,        # UK: BBC NEWS HEVC HD

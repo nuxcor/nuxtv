@@ -50,6 +50,7 @@ import com.agoro.tv.player.WindowColorMode
 import com.agoro.tv.player.findActivity
 import com.agoro.tv.ui.components.requestFocusRetrying
 import com.agoro.tv.ui.theme.NuxColors
+import com.agoro.tv.ui.theme.Space
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -108,6 +109,52 @@ private const val QUALITY_LEARN_SETTLE_MS = 5_000L
  * where declining costs one press and finding the remote costs the rest.
  */
 private const val UP_NEXT_SECONDS = 10
+
+/**
+ * How long before the end of an item the next one announces itself.
+ *
+ * A FRACTION of the runtime, not a fixed countdown, and a generous one. The
+ * card fired at the end of the file before this and the viewer's report was
+ * that it arrived roughly five minutes after the credits had started rolling
+ * — which is what the end of the file means on this catalogue. These are rips
+ * of a broadcast slot: the credits, a trailer for the next episode and a
+ * stretch of black or a station card all sit inside the runtime, and the
+ * point the picture stops being the episode is minutes before the point the
+ * file stops.
+ *
+ * Nothing here can see where that is. There are no chapter or credit markers
+ * in this catalogue and no way to derive one, so the choice is between being
+ * early and being late, and they do not cost the same. Late is the entire
+ * complaint: an offer that arrives after the viewer has already reached for
+ * the remote is not an offer. Early costs a small card in a corner over the
+ * closing minutes of something they have just watched — and it costs that
+ * much only because the peek was built to be harmless: it does not count
+ * down, it does not take a key, and it does not cover the picture.
+ *
+ * So: the last eighth, floored so a short item still gets a run at it, and
+ * capped so a feature-length one does not carry the card for a quarter of an
+ * hour. On a 54-minute drama this is the last six minutes.
+ *
+ * The numbers are a first guess at ONE catalogue's shape and they are meant to
+ * be moved. If the card is still late, raise the fraction; if it now sits
+ * through the last scene, lower it.
+ */
+private const val UP_NEXT_PEEK_FRACTION = 0.125
+private const val UP_NEXT_PEEK_MIN_MS = 90_000L
+private const val UP_NEXT_PEEK_MAX_MS = 360_000L
+
+/** The window for an item of [durationMs]; see [UP_NEXT_PEEK_FRACTION]. */
+private fun upNextPeekMs(durationMs: Long): Long =
+    (durationMs * UP_NEXT_PEEK_FRACTION).toLong()
+        .coerceIn(UP_NEXT_PEEK_MIN_MS, UP_NEXT_PEEK_MAX_MS)
+
+/**
+ * Below this, an item is too short to have a run-out worth announcing: the
+ * card would be on screen for most of its length. Ten minutes, because the
+ * window above is now measured in minutes rather than seconds — at three the
+ * floor alone would have covered half of a four-minute clip.
+ */
+private const val UP_NEXT_MIN_ITEM_MS = 600_000L
 
 /**
  * How long a channel has to stay tuned before it becomes the one a cold start
@@ -1020,28 +1067,75 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             )
         }
 
-        // The next episode, offered rather than taken. Centre, where the tune
-        // card sits: this is the same kind of moment — something is about to
-        // start and the viewer is being told which.
-        session.upNextIndex?.let { nextIndex ->
-            val next = request.items.getOrNull(nextIndex)
+        // The next episode: announced in the corner while this one runs out,
+        // and the same card counting down once it has ended. Bottom end,
+        // where every streaming app puts it and where it covers the least —
+        // the top right is the status corner and the centre is the picture.
+        //
+        // The peek is suppressed while the transport chrome is up. A viewer
+        // who has opened the controls in the last half minute is doing
+        // something with this episode, and the card would sit on the bar they
+        // opened. The countdown is never suppressed: by then the episode is
+        // over and it is the only thing on screen.
+        run {
+            val counting = session.upNextIndex
+            val peekIndex = session.currentIndex + 1
+            val peeking = counting == null &&
+                !request.isLive && !request.isCatchup &&
+                session.layer == PlayerLayer.None &&
+                !inPip &&
+                peekIndex < request.items.size &&
+                session.durationMs >= UP_NEXT_MIN_ITEM_MS &&
+                session.positionMs > 0 &&
+                session.durationMs - session.positionMs in
+                    1_000..upNextPeekMs(session.durationMs)
+            val index = counting ?: peekIndex.takeIf { peeking }
+            val next = index?.let { request.items.getOrNull(it) }
             if (next != null) {
-                var secondsLeft by remember(nextIndex) { mutableIntStateOf(UP_NEXT_SECONDS) }
-                LaunchedEffect(nextIndex) {
-                    // Ticks on its own clock and plays at zero. Keyed on the
-                    // index so a viewer who declines and is later offered a
-                    // different episode gets a fresh count, not the remains
-                    // of the last one.
-                    while (secondsLeft > 0) {
-                        delay(1_000)
-                        secondsLeft--
+                val secondsLeft = if (counting != null) {
+                    var left by remember(counting) { mutableIntStateOf(UP_NEXT_SECONDS) }
+                    LaunchedEffect(counting) {
+                        // Ticks on its own clock and plays at zero. Keyed on
+                        // the index so a viewer who declines and is later
+                        // offered a different episode gets a fresh count, not
+                        // the remains of the last one.
+                        while (left > 0) {
+                            delay(1_000)
+                            left--
+                        }
+                        session.playUpNext()
                     }
-                    session.playUpNext()
-                }
+                    left
+                } else null
                 UpNextCard(
-                    title = next.subtitle ?: next.title,
+                    // The episode's name leads; the series and the address
+                    // are the line under it. A queue item that is not an
+                    // episode has neither, so it leads on its own title.
+                    heading = next.episodeName ?: next.subtitle ?: next.title,
+                    meta = if (next.episodeName != null) {
+                        listOfNotNull(
+                            next.subtitle?.substringBefore(" • "),
+                            next.title,
+                        ).joinToString("  ·  ")
+                    } else next.title,
+                    artwork = next.artwork,
                     secondsLeft = secondsLeft,
-                    modifier = Modifier.align(Alignment.Center),
+                    countdownFraction =
+                        (secondsLeft ?: 0).toFloat() / UP_NEXT_SECONDS,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        // The TV-safe margin, not a number that looked
+                        // right. The player is the one screen composed
+                        // OUTSIDE TvSafe — it is full-bleed by design,
+                        // because the picture is — so anything laid into a
+                        // corner of it has to hold its own overscan inset.
+                        // At the 36dp this had, the card's trailing edge sat
+                        // inside the nominal 5% crop, and a set that crops
+                        // would have taken the seconds off the end of it.
+                        .padding(
+                            horizontal = Space.gutter,
+                            vertical = Space.gutterVertical,
+                        ),
                 )
             }
         }
@@ -1374,16 +1468,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 DigitEntryPill(text = session.digitBuffer)
             } else {
                 noChannelNumber?.let { DigitEntryPill(text = "No channel $it", dim = true) }
-            }
-            if (!request.isLive && session.durationMs > 0 &&
-                session.durationMs - session.positionMs in 1_000..15_000 &&
-                session.currentIndex < request.items.size - 1
-            ) {
-                PlayerBadge(
-                    text = "Up next: ${request.items[session.currentIndex + 1].subtitle
-                        ?: request.items[session.currentIndex + 1].title}",
-                    color = NuxColors.Primary,
-                )
             }
             // Only while the chrome is up, or in the last two minutes: a
             // static "Sleep in 74m" over the picture for an hour and a

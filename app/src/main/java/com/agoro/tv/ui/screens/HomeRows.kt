@@ -1,6 +1,7 @@
 package com.agoro.tv.ui.screens
 
 import com.agoro.tv.MainViewModel
+import com.agoro.tv.data.ArtworkUrl
 import com.agoro.tv.data.Category
 import com.agoro.tv.data.ContentBundle
 import com.agoro.tv.data.LiveChannel
@@ -502,24 +503,46 @@ internal fun currentYear(): Int = java.util.Calendar.getInstance().get(java.util
  * nothing it has no evidence for — and where the year is unknown too, a tie
  * keeps BOTH, because then nothing at all distinguishes a second rung of one
  * show from a second show of the same name.
+ *
+ * The survivor keeps its own STREAM and borrows the group's best ARTWORK. The
+ * two do not come from the same place: the panel hands its top rung a poster
+ * from a mirror that paints "4K UltraHD" and a gold "8K" onto every image it
+ * serves, while the HD rung of the same title — folded away, invisible, and
+ * about to be discarded — carries TMDB's clean one. Winning the quality
+ * ranking is what put the badged poster on screen, so the fold that caused it
+ * is where it is cheapest to undo: no network, no key, no second pass over
+ * the catalogue, and it covers 399 series and 1,085 films on this panel.
+ * Only ever upward — a clean poster is never traded for a badged one.
  */
 internal inline fun <T> List<T>.foldVariants(
     name: (T) -> String,
     year: (T) -> Int?,
     quality: (T) -> String?,
+    poster: (T) -> String?,
+    withPoster: (T, String) -> T,
 ): List<T> {
     if (size < 2) return this
     // Key -> where its survivor sits in [out], so a better rung can replace
     // the one standing there without a second pass or a list per group.
     val at = HashMap<String, Int>(size * 2)
+    // Key -> the best unbadged poster anyone in the group had, survivor or
+    // not. Collected on the way past, because the variant carrying it is
+    // usually the one the fold is in the middle of discarding.
+    val clean = HashMap<String, String>()
     val out = ArrayList<T>(size)
+    // Parallel to [out]: which group each survivor belongs to, so the artwork
+    // pass below can find its group without re-deriving the key.
+    val keyOf = ArrayList<String>(size)
     for (item in this) {
         val releaseYear = year(item)
         val key = name(item).trim().lowercase(java.util.Locale.ROOT) + "|" + (releaseYear ?: 0)
+        poster(item)?.takeIf { it.isNotBlank() && !ArtworkUrl.isDoctored(it) }
+            ?.let { clean.putIfAbsent(key, it) }
         val held = at[key]
         if (held == null) {
             at[key] = out.size
             out.add(item)
+            keyOf.add(key)
             continue
         }
         val challenger = QualityTag.rank(quality(item))
@@ -536,19 +559,36 @@ internal inline fun <T> List<T>.foldVariants(
             // folding would take a whole show off the shelf. The key keeps
             // pointing at the first, so a genuine 4K rung arriving later
             // still upgrades it.
-            else -> out.add(item)
+            else -> {
+                out.add(item)
+                keyOf.add(key)
+            }
         }
     }
-    return if (out.size == size) this else out
+    // The artwork pass. Separate, and after: which variant survives is not
+    // known until the whole list has been walked, and a poster handed to a
+    // survivor that is then replaced by a better rung would be lost with it.
+    var repainted = false
+    for (i in out.indices) {
+        val better = clean[keyOf[i]] ?: continue
+        val had = poster(out[i])
+        if (had.isNullOrBlank() || ArtworkUrl.isDoctored(had)) {
+            out[i] = withPoster(out[i], better)
+            repainted = true
+        }
+    }
+    return if (out.size == size && !repainted) this else out
 }
 
 /** [foldVariants] over films; see there for the rule. */
 internal fun List<Movie>.foldMovieVariants(): List<Movie> =
-    foldVariants({ it.name }, { it.year }, { it.quality })
+    foldVariants({ it.name }, { it.year }, { it.quality }, { it.poster },
+        { m, art -> m.copy(poster = art) })
 
 /** [foldVariants] over box sets; see there for the rule. */
 internal fun List<Series>.foldSeriesVariants(): List<Series> =
-    foldVariants({ it.name }, { it.year }, { it.quality })
+    foldVariants({ it.name }, { it.year }, { it.quality }, { it.poster },
+        { s, art -> s.copy(poster = art) })
 
 internal fun buildCatalogIndex(
     bundle: ContentBundle,

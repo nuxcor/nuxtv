@@ -1444,7 +1444,15 @@ class ContentRepository(context: Context) {
                         rating = enriched.rating ?: tmdb.rating,
                         voteCount = tmdb.voteCount,
                         plot = enriched.plot ?: tmdb.overview,
-                        poster = enriched.poster ?: tmdb.posterUrl,
+                        // TMDB's wins over a poster the panel has painted a
+                        // "4K UltraHD" banner and an "8K" badge onto — the
+                        // detail page is the one place the poster is drawn
+                        // large enough to read the stickers. Falls back to
+                        // the badged one when TMDB has no poster: a marked
+                        // poster still says what the title is.
+                        poster = if (ArtworkUrl.isDoctored(enriched.poster)) {
+                            tmdb.posterUrl ?: enriched.poster
+                        } else enriched.poster ?: tmdb.posterUrl,
                         backdrop = tmdb.backdropUrl,
                         reviews = tmdb.reviews,
                         cast = enriched.cast ?: tmdb.cast,
@@ -1463,7 +1471,10 @@ class ContentRepository(context: Context) {
             rating = series.rating ?: tmdb.rating,
             voteCount = tmdb.voteCount,
             plot = series.plot ?: tmdb.overview,
-            poster = series.poster ?: tmdb.posterUrl,
+            // See movieDetails: a badged poster loses to TMDB's clean one.
+            poster = if (ArtworkUrl.isDoctored(series.poster)) {
+                tmdb.posterUrl ?: series.poster
+            } else series.poster ?: tmdb.posterUrl,
             backdrop = tmdb.backdropUrl,
             reviews = tmdb.reviews,
             cast = series.cast ?: tmdb.cast,
@@ -1503,27 +1514,37 @@ class ContentRepository(context: Context) {
      * Canyon" opened onto episodes still announcing which bundle they shipped
      * in.
      *
-     * A cleaned title that comes back blank is discarded rather than shown —
-     * an episode named only by its prefix is better left saying what the
-     * provider said than saying nothing at all.
+     * The prefix is half of it. What is left still names the show and its
+     * season — "Lady in the Lake - S01E01 - Did you know Seahorses are fish?"
+     * — which under a page headed with the show's name, in a row numbered
+     * with its own number, is the same fact three times. [EpisodeTitle] takes
+     * both off; see there for what it will and will not strip.
+     *
+     * A title that cleans away to nothing is stored blank rather than left
+     * raw, and the UI numbers it "Episode N". That is the honest answer for
+     * the panels that name no episode at all, and it is what the rows around
+     * it look like anyway.
      */
     private fun List<Episode>.cleanTitles(
         cleaner: ManifestCuration.VodNameCleaner?,
-    ): List<Episode> {
-        if (cleaner == null) return this
-        return map { episode ->
-            val cleaned = cleaner.clean(episode.title)
-            if (cleaned.isNotBlank() && cleaned != episode.title) {
-                episode.copy(title = cleaned)
-            } else {
-                episode
-            }
-        }
+        seriesName: String?,
+    ): List<Episode> = map { episode ->
+        // Bundle prefixes first, then the address. The prefix rules are
+        // anchored at the head of the string, so a title still wearing
+        // "4K-NF - " hides the show's name from the match that comes next.
+        val debundled = cleaner?.clean(episode.title)
+            ?.takeIf { it.isNotBlank() } ?: episode.title
+        // "Lady in the Lake - S01E01 - Did you know Seahorses are fish?"
+        // becomes "Did you know Seahorses are fish?" — the show is the page
+        // title and the number is the row's own. Blank when the provider
+        // named nothing, which the UI reads as "Episode N".
+        val named = EpisodeTitle.clean(debundled, seriesName).orEmpty()
+        if (named == episode.title) episode else episode.copy(title = named)
     }
 
     /** Episodes for [series]; empty = the provider has none, null = the fetch failed. */
     suspend fun episodesFor(series: Series): List<Episode>? {
-        series.episodes?.let { return it.cleanTitles(episodeNameCleaner()) }
+        series.episodes?.let { return it.cleanTitles(episodeNameCleaner(), series.name) }
         val source = activeSource.first() as? PlaylistSource.Xtream ?: return emptyList()
         // Caches written before the xtreamId field existed deserialize it as
         // null, which made every series "No episodes found" until a successful
@@ -1533,7 +1554,8 @@ class ContentRepository(context: Context) {
             ?: series.id.removePrefix("series:").toIntOrNull()
             ?: return emptyList()
         return try {
-            xtreamClient(source).seriesEpisodes(id).cleanTitles(episodeNameCleaner())
+            xtreamClient(source).seriesEpisodes(id)
+                .cleanTitles(episodeNameCleaner(), series.name)
         } catch (e: kotlinx.coroutines.CancellationException) {
             // runCatching here used to swallow cancellation too, which latched
             // an empty list into the detail screen with no way to retry.

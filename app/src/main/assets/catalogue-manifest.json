@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-09-03T00:43:33+00:00",
+ "generated": "2026-09-04T04:27:04+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -8551,6 +8551,7 @@
   832056,
   498738,
   414074,
+  1525676,
   1008121,
   231804,
   231805,
@@ -21805,9 +21806,9 @@
     "feed": "epg6"
    },
    "622075": {
-    "src": "openepg",
-    "id": "BBCParliament.uk",
-    "feed": "United Kingdom"
+    "src": "repo",
+    "id": "bbcnews.uk",
+    "feed": "epg6"
    },
    "483652": {
     "src": "repo",
@@ -38351,13 +38352,14 @@
     "section": "NEWS",
     "region": "UK",
     "sources": [
-     1525693,
+     622075,
      717698,
      1536959,
+     1525693,
      162143,
      717702
     ],
-    "primary": 1525693
+    "primary": 622075
    },
    "billiard|US": {
     "section": "SPORTS",
@@ -55692,7 +55694,7 @@
   "1562519": "PREMIER SPORTS 2",
   "325778": "AMC +",
   "414042": "BBC EARTH",
-  "1525693": "BBC NEWS",
+  "622075": "BBC NEWS",
   "325904": "BLOOMBERG",
   "1536940": "BOUNCE XL",
   "1536659": "LAW & CRIME NETWORK",
@@ -62393,13 +62395,13 @@
     "Bournemouth",
     "Brentford",
     "Brighton",
+    "Brighton & Hove Albion",
     "Burnley",
     "Chelsea",
     "Coventry City",
     "Crystal Palace",
     "Everton",
     "Fulham",
-    "Hove Albion",
     "Hull City",
     "Ipswich Town",
     "Leeds",
@@ -62423,8 +62425,8 @@
    ],
    "La Liga": [
     "Alaves",
-    "Athletic Bilbao",
     "Athletic Club",
+    "Athletic Bilbao",
     "Atletico Madrid",
     "Barcelona",
     "Celta",
@@ -62439,11 +62441,11 @@
     "Rayo Vallecano",
     "Real Betis",
     "Real Madrid",
-    "Real Oviedo",
     "Real Sociedad",
     "Sevilla",
     "Valencia",
-    "Villarreal"
+    "Villarreal",
+    "Real Oviedo"
    ],
    "Serie A": [
     "Atalanta",
@@ -62547,6 +62549,31 @@
    "FA Cup": []
   },
   "cue_minutes": 60,
+  "club_alias": {
+   "Premier League|Man City": "Manchester City",
+   "Premier League|Man United": "Manchester United",
+   "Premier League|Man Utd": "Manchester United",
+   "Premier League|Spurs": "Tottenham Hotspur",
+   "Premier League|Tottenham": "Tottenham Hotspur",
+   "Premier League|Hove Albion": "Brighton",
+   "Premier League|Leeds": "Leeds United",
+   "Premier League|Newcastle": "Newcastle United",
+   "Premier League|Wolverhampton": "Wolves",
+   "Serie A|Internazionale": "Inter Milan",
+   "La Liga|Athletic Bilbao": "Athletic Club",
+   "La Liga|Celta": "Celta Vigo",
+   "Bundesliga|Gladbach": "Borussia Monchengladbach",
+   "Bundesliga|Bayern Munchen": "Bayern Munich",
+   "Bundesliga|Dortmund": "Borussia Dortmund",
+   "Bundesliga|Leverkusen": "Bayer Leverkusen",
+   "Bundesliga|Koln": "Cologne",
+   "Ligue 1|PSG": "Paris Saint-Germain",
+   "MLS|LAFC": "Los Angeles FC",
+   "MLS|DC United": "D.C. United",
+   "MLS|Red Bull New York": "New York Red Bulls",
+   "NBA|Sixers": "76ers",
+   "NBA|Blazers": "Trail Blazers"
+  },
   "ambiguous": [
    "Giants",
    "Cardinals",
@@ -62957,31 +62984,6 @@
    "Bodo/Glimt": "https://raw.githubusercontent.com/luukhopman/football-logos/master/logos/Norway%20-%20Eliteserien/FK%20Bod%C3%B8Glimt.png",
    "soccer|Union Saint-Gilloise": "https://raw.githubusercontent.com/luukhopman/football-logos/master/logos/Belgium%20-%20Jupiler%20Pro%20League/Union%20Saint-Gilloise.png",
    "Union Saint-Gilloise": "https://raw.githubusercontent.com/luukhopman/football-logos/master/logos/Belgium%20-%20Jupiler%20Pro%20League/Union%20Saint-Gilloise.png"
-  },
-  "club_alias": {
-   "Premier League|Man City": "Manchester City",
-   "Premier League|Man United": "Manchester United",
-   "Premier League|Man Utd": "Manchester United",
-   "Premier League|Spurs": "Tottenham Hotspur",
-   "Premier League|Tottenham": "Tottenham Hotspur",
-   "Premier League|Hove Albion": "Brighton",
-   "Premier League|Leeds": "Leeds United",
-   "Premier League|Newcastle": "Newcastle United",
-   "Premier League|Wolverhampton": "Wolves",
-   "Serie A|Internazionale": "Inter Milan",
-   "La Liga|Athletic Bilbao": "Athletic Club",
-   "La Liga|Celta": "Celta Vigo",
-   "Bundesliga|Gladbach": "Borussia Monchengladbach",
-   "Bundesliga|Bayern Munchen": "Bayern Munich",
-   "Bundesliga|Dortmund": "Borussia Dortmund",
-   "Bundesliga|Leverkusen": "Bayer Leverkusen",
-   "Bundesliga|Koln": "Cologne",
-   "Ligue 1|PSG": "Paris Saint-Germain",
-   "MLS|LAFC": "Los Angeles FC",
-   "MLS|DC United": "D.C. United",
-   "MLS|Red Bull New York": "New York Red Bulls",
-   "NBA|Sixers": "76ers",
-   "NBA|Blazers": "Trail Blazers"
   }
  },
  "section_fold": {
@@ -63064,9 +63066,9 @@
   "movie_categories": 67,
   "unresolved_live_categories": 0,
   "movies_with_genre": 0,
-  "live_tiles_after_collapse": 6591,
+  "live_tiles_after_collapse": 6589,
   "direct_feed_tiles": 2,
-  "live_tiles_collapsed": 3137,
+  "live_tiles_collapsed": 3138,
   "collapse_groups": 146,
   "collapse_needs_review": 1,
   "dropped_region_streams": 2906,
@@ -63075,7 +63077,7 @@
   "regional_sport_streams": 162,
   "us_regional_news_streams": 64,
   "sport_clubs_derived": {
-   "Premier League": 19
+   "Premier League": 20
   },
   "dstv_duplicates_dropped": 27,
   "ca_clutter_streams": 93,
@@ -63151,7 +63153,7 @@
   "tiles_resectioned": 106,
   "epg_bound": 973,
   "logo_bound": 4386,
-  "club_crests_bound": 200,
+  "club_crests_bound": 401,
   "live_event_channels": 7679,
   "live_event_groups": 14,
   "sd_dropped": 251,

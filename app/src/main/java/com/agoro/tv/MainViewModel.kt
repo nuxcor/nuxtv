@@ -8,6 +8,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.agoro.tv.data.userMessage
 import com.agoro.tv.data.ArtEntry
+import com.agoro.tv.data.EpisodeTitle
 import com.agoro.tv.data.Category
 import com.agoro.tv.data.ContentBundle
 import com.agoro.tv.data.ContentRepository
@@ -1690,7 +1691,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 PlayableItem(
                     url = it.url,
                     title = series.name,
-                    subtitle = "S${it.season} E${it.episodeNum} • ${it.title}",
+                    // The address, and the episode's name only when it has
+                    // one — a blank title is a panel that named nothing, and
+                    // "S1 E1 • " with the bullet left hanging says so twice.
+                    subtitle = listOfNotNull(
+                        "S${it.season} E${it.episodeNum}",
+                        it.title.takeIf(String::isNotBlank),
+                    ).joinToString(" • "),
+                    episodeName = EpisodeTitle.display(it.title, it.episodeNum),
                     artwork = it.poster ?: series.poster,
                 )
             },

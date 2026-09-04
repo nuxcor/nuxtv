@@ -53,7 +53,9 @@ import androidx.tv.material3.Text
 import com.agoro.tv.MainViewModel
 import com.agoro.tv.data.ContentState
 import com.agoro.tv.data.Episode
+import com.agoro.tv.data.EpisodeTitle
 import com.agoro.tv.data.Movie
+import com.agoro.tv.data.PlotText
 import com.agoro.tv.data.Series
 import com.agoro.tv.ui.components.Artwork
 import com.agoro.tv.ui.components.BackdropLayer
@@ -63,7 +65,7 @@ import com.agoro.tv.ui.components.ContextMenu
 import com.agoro.tv.ui.components.MenuAction
 import com.agoro.tv.ui.components.MetaChip
 import com.agoro.tv.ui.components.RatingStars
-import com.agoro.tv.ui.components.WideItem
+import com.agoro.tv.ui.components.EpisodeRow
 import com.agoro.tv.ui.theme.NuxColors
 import com.agoro.tv.ui.theme.Space
 import com.agoro.tv.ui.theme.NuxShape
@@ -164,10 +166,15 @@ fun MovieDetailScreen(
                 // everything else as a focus stop that does nothing new.
             }
 
-            if (!movie.plot.isNullOrBlank()) {
+            // Read through PlotText here as well as at the parse, because a
+            // catalogue cached before that existed still holds both
+            // languages and will until the next refresh. Running it twice is
+            // a no-op — it only ever picks one of the halves already there.
+            val moviePlot = remember(movie.plot) { PlotText.preferred(movie.plot) }
+            if (!moviePlot.isNullOrBlank()) {
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    text = movie.plot.orEmpty(),
+                    text = moviePlot,
                     style = MaterialTheme.typography.bodyLarge,
                     color = NuxColors.OnSurfaceDim,
                 )
@@ -275,6 +282,31 @@ private fun formatOffset(ms: Long): String {
     }
 }
 
+/**
+ * A show, its episodes, and one D-pad path from the top of the page to the
+ * bottom of the season.
+ *
+ * The page is ONE scrolling column. It used to be two regions — a header
+ * pinned above a list that scrolled inside whatever was left — and on a
+ * 540dp canvas whatever was left came to 135dp: a single episode row and a
+ * sliver of the next. The header could not be scrolled away because nothing
+ * in it was focusable below the Play button, so a viewer browsing a
+ * forty-episode season did it through a window a row and a half tall while
+ * two thirds of the screen held a synopsis they had already read.
+ *
+ * Now the hero is the list's first item. It is on screen when the page opens,
+ * with Play focused, and it scrolls off as the viewer walks down into the
+ * episodes — which then have the whole panel. This is the grammar every
+ * streaming app on this platform uses, and it is the only one that lets a
+ * page carry both a proper hero and a usable list.
+ *
+ * The one thing that went with the split: the list no longer opens scrolled
+ * to the episode the button offers. It cannot — scrolling a single column to
+ * episode 40 would carry the focused Play button off the screen and unmount
+ * it mid-frame, which is a page that arrives with focus nowhere. The button
+ * still NAMES that episode and still plays it, which was always the answer to
+ * "find my place"; the list is for browsing, and browsing starts at the top.
+ */
 @Composable
 fun SeriesDetailScreen(
     vm: MainViewModel,
@@ -373,241 +405,121 @@ fun SeriesDetailScreen(
         if (eps.isNullOrEmpty()) return@LaunchedEffect
         playFocus.requestFocusRetrying()
     }
+
+    val seasons = remember(eps) { eps.orEmpty().map { it.season }.distinct().sorted() }
+    // Opens on the season the next episode is in — the one being resumed, or
+    // the one after the last one finished. Season 1 was where a viewer four
+    // seasons deep landed every time.
+    var selectedSeason by remember(eps, nextUp) {
+        mutableStateOf(nextUp?.season ?: seasons.firstOrNull() ?: 1)
+    }
+    val seasonEpisodes = remember(eps, selectedSeason) {
+        eps.orEmpty().filter { it.season == selectedSeason }
+    }
+
+    fun playFrom(episode: Episode, startOver: Boolean) {
+        val list = eps.orEmpty().filter { it.season == episode.season }
+        vm.playEpisodes(
+            series, list, list.indexOf(episode).coerceAtLeast(0),
+            startOver = startOver,
+        )
+        onPlay()
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
-    // Same grammar as the movie page: ambient backdrop, poster, display title.
-    BackdropLayer(series.backdrop ?: series.poster)
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(28.dp),
-            verticalAlignment = Alignment.Top,
+        // Fixed behind the column, not scrolled with it: the art is ambient
+        // rather than a hero image, and a backdrop that slid up the screen
+        // with the rows would drag the eye down the page every time the
+        // viewer moved one row.
+        BackdropLayer(series.backdrop ?: series.poster)
+
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(bottom = 16.dp),
+            // Coming back from an episode returns to the row it was played
+            // from, as on the browse grid.
+            modifier = Modifier.fillMaxSize().focusRestorer(),
         ) {
-            Artwork(
-                imageUrl = series.poster,
-                title = series.name,
-                modifier = Modifier
-                    .width(150.dp)
-                    .height(225.dp)
-                    .clip(NuxShape.Card),
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = series.name,
-                    style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
-                    color = NuxColors.OnSurface,
+            item(key = "hero") {
+                SeriesHero(
+                    series = series,
+                    episodeCount = eps?.size,
+                    target = target,
+                    playFocus = playFocus,
+                    onPlay = { startOver -> target?.let { playFrom(it.episode, startOver) } },
                 )
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOfNotNull(
-                        series.year?.toString(),
-                        eps?.let { "${it.size} episodes" },
-                        series.genre,
-                    ).forEachIndexed { i, chip -> MetaChip(chip, accent = i == 0) }
-                }
-                series.rating?.let { rating ->
-                    Spacer(Modifier.height(6.dp))
-                    RatingStars(rating = rating, voteCount = series.voteCount)
-                }
-                if (!series.plot.isNullOrBlank()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = series.plot.orEmpty(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = NuxColors.OnSurfaceDim,
-                        // Five, not three. The header does not scroll — the
-                        // episode list below it owns the D-pad — so whatever
-                        // the ellipsis cut was unreachable, and a TMDB show
-                        // overview is three to five lines at this size. The
-                        // ellipsis stays for the rare long one; it is no
-                        // longer the ordinary case.
-                        maxLines = 5,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            }
+
+            when {
+                // A failed fetch and an empty series used to look identical —
+                // a silent "No episodes found" with no way to try again.
+                eps == null && episodesFailed -> item(key = "failed") {
+                    EpisodeStatus(
+                        title = "Couldn't load episodes",
+                        message = "The provider didn't answer. Check the connection and try again.",
+                        action = StatusAction("Retry") { loadAttempt++ },
                     )
                 }
-                // Both, when the provider sends both. `cast ?: director` gave
-                // a show with a cast list no director at all, and one line was
-                // never the constraint — the header has the room the poster
-                // beside it takes up anyway.
-                series.cast?.takeIf { it.isNotBlank() }?.let {
-                    Spacer(Modifier.height(4.dp))
-                    CreditLine("Starring", it)
+                // One calm loading state. The lazy-provider wait is still
+                // happening underneath, but "the provider is preparing" read
+                // as an error to viewers — the only honest extra information
+                // is that a first open can take longer, said quietly.
+                eps == null -> item(key = "loading") {
+                    EpisodeStatus(
+                        title = "Loading episodes…",
+                        message = if (providerPreparing) {
+                            "The first open of a series can take a minute."
+                        } else null,
+                        loading = true,
+                    )
                 }
-                series.director?.takeIf { it.isNotBlank() }?.let {
-                    Spacer(Modifier.height(4.dp))
-                    CreditLine("Director", it)
+                eps.isEmpty() -> item(key = "empty") {
+                    EpisodeStatus(
+                        title = "No episodes found",
+                        message = "The provider returned none for this series — " +
+                            "trying again later can help.",
+                        action = StatusAction("Retry") {
+                            episodes = null
+                            loadAttempt++
+                        },
+                    )
                 }
-
-                // The primary action, focused on arrival — the same shape the
-                // movie page has. Without it this screen was a list of episodes
-                // and nothing else, so Continue Watching handed the viewer a
-                // page and left them to find their own place in it again.
-                if (!eps.isNullOrEmpty() && target != null) {
-                    Spacer(Modifier.height(14.dp))
-                    val episode = target.episode
-                    fun play(startOver: Boolean) {
-                        val list = eps.filter { it.season == episode.season }
-                        vm.playEpisodes(
-                            series, list, list.indexOf(episode).coerceAtLeast(0),
-                            startOver = startOver,
+                else -> {
+                    item(key = "seasons") {
+                        SeasonBar(
+                            seasons = seasons,
+                            selected = selectedSeason,
+                            episodeCount = seasonEpisodes.size,
+                            onSelect = { selectedSeason = it },
                         )
-                        onPlay()
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(
-                            onClick = { play(startOver = false) },
-                            modifier = Modifier.focusRequester(playFocus),
-                        ) {
-                            Icon(
-                                Icons.Default.PlayArrow,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            // Names the episode. "Play" alone was the whole
-                            // defect from where the viewer sits: it read as
-                            // "carry on" and started the show again.
-                            Text(upNextLabel(target))
-                        }
-                        // Only for a part-watched episode: "start over" on one
-                        // that was never started says nothing.
-                        if (target.resuming) {
-                            OutlinedButton(onClick = { play(startOver = true) }) {
-                                Text("Start episode over")
-                            }
-                        }
-                        // See the movie screen: BACK is a hardware key.
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(24.dp))
-
-        when {
-            // A failed fetch and an empty series used to look identical — a
-            // silent "No episodes found" with no way to try again.
-            eps == null && episodesFailed -> StatusPane(
-                title = "Couldn't load episodes",
-                message = "The provider didn't answer. Check the connection and try again.",
-                primaryAction = com.agoro.tv.ui.components.StatusAction("Retry") {
-                    loadAttempt++
-                },
-            )
-            // One calm loading state. The lazy-provider wait is still
-            // happening underneath, but "the provider is preparing" read as
-            // an error to viewers — the only honest extra information is
-            // that a first open can take longer, said quietly.
-            eps == null -> StatusPane(
-                title = "Loading episodes…",
-                message = if (providerPreparing) {
-                    "The first open of a series can take a minute."
-                } else null,
-                loading = true,
-            )
-            eps.isEmpty() -> StatusPane(
-                title = "No episodes found",
-                message = "The provider returned none for this series — " +
-                    "trying again later can help.",
-                primaryAction = com.agoro.tv.ui.components.StatusAction("Retry") {
-                    episodes = null
-                    loadAttempt++
-                },
-            )
-            else -> {
-                val seasons = remember(eps) { eps.map { it.season }.distinct().sorted() }
-                // Opens on the season the next episode is in — the one being
-                // resumed, or the one after the last one finished. Season 1
-                // was where a viewer four seasons deep landed every time.
-                var selectedSeason by remember(eps, nextUp) {
-                    mutableStateOf(nextUp?.season ?: seasons.first())
-                }
-                val seasonEpisodes = remember(eps, selectedSeason) {
-                    eps.filter { it.season == selectedSeason }
-                }
-
-                if (seasons.size > 1) {
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        // The strip a viewer walks back up to must still be on
-                        // the season they were reading. Every other chip strip
-                        // in the app restores; this one was the exception.
-                        modifier = Modifier.focusRestorer(),
-                    ) {
-                        itemsIndexed(seasons) { _, season ->
-                            CategoryItem(
-                                name = "Season $season",
-                                selected = season == selectedSeason,
-                                onClick = { selectedSeason = season },
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(14.dp))
-                }
-
-                val episodeList = androidx.compose.foundation.lazy.rememberLazyListState()
-                // Open on the episode the button is offering, not on episode 1
-                // of the season. "Resume S3E40" over a list scrolled to S3E01
-                // is the page describing something the viewer cannot see, and
-                // finding it again by hand is forty rows of D-pad.
-                LaunchedEffect(seasonEpisodes, nextUp) {
-                    // One list state serves every season, so a season the
-                    // up-next episode is NOT in must be put back to the top:
-                    // left alone it kept the previous season's offset, and a
-                    // ten-episode Season 1 opened clamped at its bottom after
-                    // Season 3 had been scrolled to episode 40.
-                    val index = nextUp?.let { seasonEpisodes.indexOf(it) } ?: -1
-                    episodeList.scrollToItem(index.coerceAtLeast(0))
-                }
-
-                LazyColumn(
-                    state = episodeList,
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    contentPadding = PaddingValues(bottom = 36.dp),
-                    // As on the browse grid: coming back from an episode
-                    // returns to the row it was played from.
-                    modifier = Modifier.fillMaxWidth().focusRestorer(),
-                ) {
                     itemsIndexed(seasonEpisodes, key = { _, e -> e.id }) { index, episode ->
                         val watchedTo = resumePositions[episode.url] ?: 0L
                         val seen = episode.url in watchedAt
-                        WideItem(
-                            // No "0." — a panel that numbers nothing gets a
-                            // plain title, not a numbering it didn't supply.
-                            title = if (episode.episodeNum > 0) {
-                                "${episode.episodeNum}. ${episode.title}"
-                            } else episode.title,
-                            subtitle = when {
+                        EpisodeRow(
+                            title = EpisodeTitle.numbered(episode.title, episode.episodeNum),
+                            // The EPISODE's own still, or nothing. Falling
+                            // back to the series art painted the same picture
+                            // down all thirty rows, which reads as a
+                            // rendering fault; the monogram at least differs.
+                            imageUrl = episode.poster,
+                            meta = when {
                                 watchedTo > 0 -> "Resume from ${formatOffset(watchedTo)}"
-                                // The season is the strip above; repeating it
+                                // The season is the bar above; repeating it
                                 // under every row said nothing.
                                 else -> episode.durationText?.let(::prettyDuration)
                             },
                             // The series synopsis on every episode row is the
-                            // same paragraph N times; rows without their own
-                            // keep the line for the layout and leave it blank.
-                            body = episode.plot ?: series.plot?.let { "" },
-                            // The EPISODE's own still, or nothing. Falling
-                            // back to the series art painted the same picture
-                            // down all thirty rows, which reads as a rendering
-                            // fault; Artwork's monogram at least differs per
-                            // episode. See WideItem.
-                            imageUrl = episode.poster,
+                            // same paragraph N times. Nothing, rather than
+                            // that: the row is built to close up around it.
+                            synopsis = remember(episode.plot) {
+                                PlotText.preferred(episode.plot)
+                            },
                             progress = resumeProgress[episode.url],
+                            watched = seen && watchedTo == 0L,
                             modifier = if (episode.id == menuOriginId) {
                                 Modifier.focusRequester(menuOriginFocus)
                             } else Modifier,
-                            // A tick, not a word: the row already carries a
-                            // number, a title, a runtime and a synopsis, and
-                            // "Watched" spelled out on half a season is more
-                            // reading than the state is worth.
-                            trailing = if (seen && watchedTo == 0L) {
-                                {
-                                    Icon(
-                                        Icons.Default.CheckCircle,
-                                        contentDescription = "Watched",
-                                        tint = NuxColors.OnSurfaceDim,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                }
-                            } else null,
                             onClick = {
                                 vm.playEpisodes(series, seasonEpisodes, index)
                                 onPlay()
@@ -625,47 +537,239 @@ fun SeriesDetailScreen(
                         )
                     }
                 }
+            }
+        }
 
-                menuEpisode?.let { (episode, index) ->
-                    val partWatched = (resumePositions[episode.url] ?: 0L) > 0L
-                    ContextMenu(
-                        title = "${episode.episodeNum}. ${episode.title}",
-                        actions = buildList {
-                            if (partWatched) {
-                                add(
-                                    MenuAction("Resume") {
-                                        vm.playEpisodes(series, seasonEpisodes, index)
-                                        onPlay()
-                                    }
-                                )
+        menuEpisode?.let { (episode, index) ->
+            val partWatched = (resumePositions[episode.url] ?: 0L) > 0L
+            ContextMenu(
+                title = EpisodeTitle.numbered(episode.title, episode.episodeNum),
+                actions = buildList {
+                    if (partWatched) {
+                        add(
+                            MenuAction("Resume") {
+                                vm.playEpisodes(series, seasonEpisodes, index)
+                                onPlay()
                             }
-                            add(
-                                MenuAction(if (partWatched) "Start over" else "Play") {
-                                    vm.playEpisodes(series, seasonEpisodes, index, startOver = true)
-                                    onPlay()
-                                }
-                            )
-                            // The way out of a wrong mark — an episode left
-                            // running to the end in another room, a show the
-                            // viewer wants back at the start. Nothing else
-                            // could undo a watch mark.
-                            add(
-                                MenuAction("Mark as unwatched") {
-                                    vm.forgetResume(episode.url)
-                                }
-                            )
-                        },
-                        onDismiss = {
-                            // Arm the return first, then unmount: the effect
-                            // above runs in the frame the menu leaves and
-                            // finds the flag set.
-                            returnFocusPending[0] = true
-                            menuEpisode = null
-                        },
+                        )
+                    }
+                    add(
+                        MenuAction(if (partWatched) "Start over" else "Play") {
+                            vm.playEpisodes(series, seasonEpisodes, index, startOver = true)
+                            onPlay()
+                        }
+                    )
+                    // The way out of a wrong mark — an episode left running
+                    // to the end in another room, a show the viewer wants
+                    // back at the start. Nothing else could undo a watch mark.
+                    add(
+                        MenuAction("Mark as unwatched") {
+                            vm.forgetResume(episode.url)
+                        }
+                    )
+                },
+                onDismiss = {
+                    // Arm the return first, then unmount: the effect above
+                    // runs in the frame the menu leaves and finds the flag set.
+                    returnFocusPending[0] = true
+                    menuEpisode = null
+                },
+            )
+        }
+    }
+}
+
+/**
+ * The show above its episodes: poster, name, the facts, and the one button
+ * that matters.
+ *
+ * Sized to be scrolled past. Everything here is worth reading once and
+ * nothing is worth 70% of the panel a second time, so the synopsis stops at
+ * three lines and the poster is the size it needs to be recognised rather
+ * than the size it would be if it were the subject.
+ */
+@Composable
+private fun SeriesHero(
+    series: Series,
+    episodeCount: Int?,
+    target: UpNext?,
+    playFocus: FocusRequester,
+    onPlay: (startOver: Boolean) -> Unit,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(28.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Artwork(
+            imageUrl = series.poster,
+            title = series.name,
+            modifier = Modifier
+                .width(130.dp)
+                .height(195.dp)
+                .clip(NuxShape.Card),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = series.name,
+                style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
+                color = NuxColors.OnSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOfNotNull(
+                    series.year?.toString(),
+                    episodeCount?.let { "$it episodes" },
+                    series.genre,
+                ).forEachIndexed { i, chip -> MetaChip(chip, accent = i == 0) }
+            }
+            series.rating?.let { rating ->
+                Spacer(Modifier.height(6.dp))
+                RatingStars(rating = rating, voteCount = series.voteCount)
+            }
+            // See the movie page: also applied at the parse, and repeated
+            // here for the catalogues cached before it was.
+            val plot = remember(series.plot) { PlotText.preferred(series.plot) }
+            if (!plot.isNullOrBlank()) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = plot,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NuxColors.OnSurfaceDim,
+                    // Three. It was five, for a header that could not be
+                    // scrolled — whatever the ellipsis cut was unreachable,
+                    // so the page had to show the lot. The page scrolls now,
+                    // and a synopsis is a hook rather than the article: three
+                    // lines is what a TMDB overview reads as, and the two it
+                    // gives back are an episode row.
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    // Stopped short of the trailing edge. The backdrop is
+                    // drawn across the last 70% of the screen and its scrim
+                    // only takes it down to 72% at the far side, so a line of
+                    // prose run the whole width finishes on top of the art —
+                    // which is where "Starring" was sitting, over a face.
+                    modifier = Modifier.widthIn(max = 620.dp),
+                )
+            }
+            // Both, when the provider sends both. `cast ?: director` gave a
+            // show with a cast list no director at all, and the page scrolls
+            // now, so the line the second credit costs is no longer a line
+            // taken off the episode list.
+            series.cast?.takeIf { it.isNotBlank() }?.let {
+                Spacer(Modifier.height(6.dp))
+                CreditLine("Starring", it)
+            }
+            series.director?.takeIf { it.isNotBlank() }?.let {
+                Spacer(Modifier.height(4.dp))
+                CreditLine("Director", it)
+            }
+
+            // The primary action — the same shape the movie page has. Without
+            // it this screen was a list of episodes and nothing else, so
+            // Continue Watching handed the viewer a page and left them to
+            // find their own place in it again.
+            if (target != null) {
+                Spacer(Modifier.height(16.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(
+                        onClick = { onPlay(false) },
+                        modifier = Modifier.focusRequester(playFocus),
+                    ) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        // Names the episode. "Play" alone was the whole
+                        // defect from where the viewer sits: it read as
+                        // "carry on" and started the show again.
+                        Text(upNextLabel(target))
+                    }
+                    // Only for a part-watched episode: "start over" on one
+                    // that was never started says nothing.
+                    if (target.resuming) {
+                        OutlinedButton(onClick = { onPlay(true) }) {
+                            Text("Start episode over")
+                        }
+                    }
+                    // See the movie screen: BACK is a hardware key.
+                }
+            }
+        }
+    }
+}
+
+/**
+ * "Episodes" and the season chips, on one line.
+ *
+ * The count belongs to the SEASON, not the show — the show's total is a chip
+ * in the hero, and a viewer standing on Season 3 is asking how long Season 3
+ * is. A show with one season gets the heading and no chips: a strip offering
+ * a single choice is a control that cannot be operated.
+ */
+@Composable
+private fun SeasonBar(
+    seasons: List<Int>,
+    selected: Int,
+    episodeCount: Int,
+    onSelect: (Int) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text(
+            text = "Episodes",
+            style = MaterialTheme.typography.titleLarge,
+            color = NuxColors.OnSurface,
+        )
+        Text(
+            text = "$episodeCount",
+            style = MaterialTheme.typography.labelLarge,
+            color = NuxColors.OnSurfaceDim,
+        )
+        if (seasons.size > 1) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                // The strip a viewer walks back up to must still be on the
+                // season they were reading. Every other chip strip in the app
+                // restores; this one was the exception.
+                modifier = Modifier.weight(1f).focusRestorer(),
+            ) {
+                itemsIndexed(seasons) { _, season ->
+                    CategoryItem(
+                        name = "Season $season",
+                        selected = season == selected,
+                        onClick = { onSelect(season) },
+                        modifier = Modifier,
                     )
                 }
             }
         }
     }
-    }
+}
+
+/**
+ * A status pane sized to sit in the scrolling column rather than own the
+ * screen. [StatusPane] defaults to filling its parent, and a lazy item is
+ * measured with no height to fill.
+ */
+@Composable
+private fun EpisodeStatus(
+    title: String,
+    message: String? = null,
+    loading: Boolean = false,
+    action: StatusAction? = null,
+) {
+    StatusPane(
+        title = title,
+        message = message,
+        loading = loading,
+        primaryAction = action,
+        modifier = Modifier.fillMaxWidth().height(200.dp),
+    )
 }

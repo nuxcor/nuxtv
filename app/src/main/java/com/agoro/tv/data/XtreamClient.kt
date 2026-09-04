@@ -283,7 +283,7 @@ class XtreamClient(
                     ?: yearFrom(obj.str("releaseDate") ?: obj.str("release_date"))
                     ?: yearFrom(obj.str("name")),
                 rating = obj.dbl("rating_5based")?.times(2) ?: obj.dbl("rating"),
-                plot = obj.str("plot")?.takeIf { it.isNotBlank() },
+                plot = PlotText.preferred(obj.str("plot")?.takeIf { it.isNotBlank() }),
                 genre = obj.str("genre")?.takeIf { it.isNotBlank() },
                 // Panels ship the actor list under either key.
                 cast = (obj.str("cast") ?: obj.str("actors"))?.takeIf { it.isNotBlank() },
@@ -339,9 +339,11 @@ class XtreamClient(
                 season = obj.int("season") ?: seasonKey ?: 1,
                 episodeNum = obj.int("episode_num") ?: 0,
                 url = "$baseUrl/series/$userP/$passP/$id.$ext",
-                poster = ArtworkUrl.poster(info?.str("movie_image")),
+                // A STILL, not a poster: 16:9, and asking for the 2:3 rung
+                // handed the row the middle third of the frame. See ArtworkUrl.
+                poster = ArtworkUrl.still(info?.str("movie_image")),
                 durationText = info?.str("duration")?.takeIf { it.isNotBlank() },
-                plot = info?.str("plot")?.takeIf { it.isNotBlank() },
+                plot = PlotText.preferred(info?.str("plot")?.takeIf { it.isNotBlank() }),
             )
         }.sortedWith(compareBy({ it.season }, { it.episodeNum }))
     }
@@ -383,7 +385,7 @@ class XtreamClient(
         }.getOrNull() ?: return movie
         val info = root["info"] as? JsonObject ?: return movie
         return movie.copy(
-            plot = info.str("plot")?.takeIf { it.isNotBlank() } ?: movie.plot,
+            plot = PlotText.preferred(info.str("plot")?.takeIf { it.isNotBlank() }) ?: movie.plot,
             genre = info.str("genre")?.takeIf { it.isNotBlank() } ?: movie.genre,
             // Panels ship the actor list under either key.
             cast = (info.str("cast") ?: info.str("actors"))?.takeIf { it.isNotBlank() }
