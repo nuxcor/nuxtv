@@ -177,6 +177,7 @@ a rebuild reaches the box within a day **without an app release**.
 | Fetch | `refresh.py` *(or the panel API by hand)* | — | `get_live_categories.json`, `get_live_streams.json`, `get_vod_categories.json`, `get_vod_streams.json`, `get_series.json`, `series_cats.json` |
 | Episodes | `dedup_fetch.py` | `dup_ids.txt` | `dup_episodes.json` |
 | VOD metadata | `enrich_vod.py` | `get_vod_streams.json` | genre/rating/tmdb keys |
+| Series genres | `enrich_series.py` | `get_series.json` + TMDB keywords | `series_meta.json` |
 | Guide match | `epg_match.py` | `repo_epg_index.json`, `openepg_index_built.json` | `epg_map_final.json` |
 | Guide gaps | `epg_fill.py` | `manifest.json`, `kept_live.json`, guide packs | `epg_extra.json` |
 | Artwork match | `logo_match.py` | tv-logos index | `logo_map.json` |
