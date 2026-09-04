@@ -1,5 +1,6 @@
 package com.agoro.tv
 
+import com.agoro.tv.data.ScheduleFixture
 import com.agoro.tv.data.SportsParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -1187,6 +1188,67 @@ class SportsParserTest {
         )!!
         assertEquals(ms(2026, 9, 4, 16, 30, "UTC"), iso.startMs)
         assertEquals("both spellings, one kick-off", dmy.startMs, iso.startMs)
+    }
+
+
+    /**
+     * The schedule settles what four packs could not. Fixture and slot text
+     * are both real: ESPN had "Nashville SC at New York City FC" at
+     * 2026-09-04T23:30Z while the soccer shelf billed 16:30 (GMT).
+     */
+    @Test
+    fun `the schedule overrules the slot's clock`() {
+        val now = ms(2026, 9, 4, 12, 20, "America/Chicago")
+        val slot = SportsParser.parse(
+            1, "Next | New York City Football Club vs. Nashville SC | all | " +
+                "04-09-2026 | 16:30 (GMT) | 8K EXCLUSIVE | US: SOCCER PPV 68",
+            now, mapOf("MLS" to listOf("New York City", "Nashville SC")),
+        )!!
+        assertEquals("the slot's own clock", ms(2026, 9, 4, 16, 30, "UTC"), slot.startMs)
+
+        val fixtures = listOf(ScheduleFixture(
+            league = "MLS", home = "New York City FC", away = "Nashville SC",
+            start = "2026-09-04T23:30Z",
+        ))
+        val fixed = SportsParser.applySchedule(listOf(slot), fixtures, now).single()
+        assertEquals(ms(2026, 9, 4, 23, 30, "UTC"), fixed.startMs)
+        assertEquals("New York City FC", fixed.home)
+        assertFalse("not live seven hours early", fixed.live)
+    }
+
+    /** Two spellings of one club become one row, which is the point of it. */
+    @Test
+    fun `the schedule gives both spellings one identity`() {
+        val now = ms(2026, 9, 4, 12, 0, "UTC")
+        val leagues = mapOf("Bundesliga" to listOf("Bielefeld", "St. Pauli"))
+        val slots = listOf(
+            1 to "Next | Bielefeld vs. St. Pauli | all | 04-09-2026 | 16:30 (GMT) | US: SOCCER PPV 1",
+            2 to "Next | DSC Arminia Bielefeld vs. St. Pauli | all | 04-09-2026 | 18:20 (GMT) | CA: SOCCER PPV 1",
+        )
+        val parsed = SportsParser.parseAll(slots, now, leagues)
+        assertEquals("two slots, two fixtures as far as the names go", 2, parsed.size)
+
+        val fixtures = listOf(ScheduleFixture(
+            league = "Bundesliga", home = "Arminia Bielefeld", away = "St. Pauli",
+            start = "2026-09-04T18:30Z",
+        ))
+        val fixed = SportsParser.applySchedule(parsed, fixtures, now)
+        assertEquals(1, fixed.map { it.home to it.away }.toSet().size)
+        assertEquals(1, SportsParser.upcoming(fixed, ms(2026, 9, 4, 18, 0, "UTC"), 60).size)
+    }
+
+    /** A club the schedule does not carry is left exactly as it came. */
+    @Test
+    fun `an unmatched fixture is untouched`() {
+        val now = ms(2026, 9, 4, 12, 0, "UTC")
+        val slot = SportsParser.parse(
+            1, "NFL  | 01 - 9/4 8pm Raiders at Texans", now, leagues,
+        )!!
+        val fixtures = listOf(ScheduleFixture(
+            league = "MLS", home = "New York City FC", away = "Nashville SC",
+            start = "2026-09-04T23:30Z",
+        ))
+        assertEquals(slot, SportsParser.applySchedule(listOf(slot), fixtures, now).single())
     }
 
 }

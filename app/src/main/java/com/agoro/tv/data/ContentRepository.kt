@@ -119,6 +119,7 @@ class ContentRepository(context: Context) {
 
     private val logos by lazy { LogoRepository(appContext, http) }
     private val manifests by lazy { ManifestRepository(appContext, http) }
+    private val schedules by lazy { ScheduleRepository(appContext, http) }
     private val bundleJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
     private fun cacheFile(sourceId: String) =
@@ -629,6 +630,9 @@ class ContentRepository(context: Context) {
     /** A manifest describes one provider; applying it to another would gut the library. */
     /** The curation manifest, for the few screens that read it directly. */
     suspend fun manifest(): CatalogueManifest? = manifests.load()
+
+    /** The fixture list the Sport tab bills its rows from; see [Schedule]. */
+    suspend fun schedule(): Schedule? = schedules.load()
 
     private fun manifestApplies(source: PlaylistSource, manifest: CatalogueManifest): Boolean {
         val host = manifest.provider.host.takeIf { it.isNotBlank() } ?: return false

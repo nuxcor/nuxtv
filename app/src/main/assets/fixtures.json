@@ -1,0 +1,865 @@
+{
+ "generated": "2026-09-04T17:34:31Z",
+ "source": "site.api.espn.com",
+ "days": 8,
+ "fixtures": [
+  {
+   "league": "Ligue 1",
+   "home": "Lyon",
+   "away": "AJ Auxerre",
+   "start": "2026-09-04T17:00Z"
+  },
+  {
+   "league": "Bundesliga",
+   "home": "VfB Stuttgart",
+   "away": "FC Cologne",
+   "start": "2026-09-04T18:30Z"
+  },
+  {
+   "league": "Serie A",
+   "home": "Genoa",
+   "away": "Como",
+   "start": "2026-09-04T18:45Z"
+  },
+  {
+   "league": "La Liga",
+   "home": "Real Betis",
+   "away": "Real Madrid",
+   "start": "2026-09-04T19:00Z"
+  },
+  {
+   "league": "Premier League",
+   "home": "Ipswich Town",
+   "away": "Liverpool",
+   "start": "2026-09-04T19:00Z"
+  },
+  {
+   "league": "Ligue 1",
+   "home": "Paris Saint-Germain",
+   "away": "AS Monaco",
+   "start": "2026-09-04T19:05Z"
+  },
+  {
+   "league": "MLS",
+   "home": "New York City FC",
+   "away": "Nashville SC",
+   "start": "2026-09-04T23:30Z"
+  },
+  {
+   "league": "Premier League",
+   "home": "Newcastle United",
+   "away": "AFC Bournemouth",
+   "start": "2026-09-05T11:30Z"
+  },
+  {
+   "league": "Serie A",
+   "home": "Fiorentina",
+   "away": "Torino",
+   "start": "2026-09-05T13:00Z"
+  },
+  {
+   "league": "Bundesliga",
+   "home": "Bayer Leverkusen",
+   "away": "1. FC Union Berlin",
+   "start": "2026-09-05T13:30Z"
+  },
+  {
+   "league": "Bundesliga",
+   "home": "Borussia M\u00f6nchengladbach",
+   "away": "SV Elversberg",
+   "start": "2026-09-05T13:30Z"
+  },
+  {
+   "league": "Bundesliga",
+   "home": "SC Paderborn 07",
+   "away": "SC Freiburg",
+   "start": "2026-09-05T13:30Z"
+  },
+  {
+   "league": "Bundesliga",
+   "home": "TSG Hoffenheim",
+   "away": "Borussia Dortmund",
+   "start": "2026-09-05T13:30Z"
+  },
+  {
+   "league": "Bundesliga",
+   "home": "Werder Bremen",
+   "away": "RB Leipzig",
+   "start": "2026-09-05T13:30Z"
+  },
+  {
+   "league": "Premier League",
+   "home": "Brentford",
+   "away": "Sunderland",
+   "start": "2026-09-05T14:00Z"
+  },
+  {
+   "league": "Premier League",
+   "home": "Brighton & Hove Albion",
+   "away": "Leeds United",
+   "start": "2026-09-05T14:00Z"
+  },
+  {
+   "league": "Premier League",
+   "home": "Fulham",
+   "away": "Crystal Palace",
+   "start": "2026-09-05T14:00Z"
+  },
+  {
+   "league": "Premier League",
+   "home": "Manchester City",
+   "away": "Coventry City",
+   "start": "2026-09-05T14:00Z"
+  },
+  {
+   "league": "Premier League",
+   "home": "Nottingham Forest",
+   "away": "Tottenham Hotspur",
+   "start": "2026-09-05T14:00Z"
+  },
+  {
+   "league": "La Liga",
+   "home": "Athletic Club",
+   "away": "Atl\u00e9tico Madrid",
+   "start": "2026-09-05T14:15Z"
+  },
+  {
+   "league": "Ligue 1",
+   "home": "Lens",
+   "away": "Lorient",
+   "start": "2026-09-05T15:15Z"
+  },
+  {
+   "league": "Serie A",
+   "home": "Internazionale",
+   "away": "Napoli",
+   "start": "2026-09-05T16:00Z"
+  },
+  {
+   "league": "Bundesliga",
+   "home": "Schalke 04",
+   "away": "Bayern Munich",
+   "start": "2026-09-05T16:30Z"
+  },
+  {
+   "league": "La Liga",
+   "home": "Rayo Vallecano",
+   "away": "Racing Santander",
+   "start": "2026-09-05T16:30Z"
+  },
+  {
+   "league": "Premier League",
+   "home": "Hull City",
+   "away": "Aston Villa",
+   "start": "2026-09-05T16:30Z"
+  },
+  {
+   "league": "Ligue 1",
+   "home": "Le Havre AC",
+   "away": "Brest",
+   "start": "2026-09-05T18:45Z"
+  },
+  {
+   "league": "Ligue 1",
+   "home": "Nice",
+   "away": "Le Mans",
+   "start": "2026-09-05T18:45Z"
+  },
+  {
+   "league": "Serie A",
+   "home": "AS Roma",
+   "away": "Atalanta",
+   "start": "2026-09-05T18:45Z"
+  },
+  {
+   "league": "La Liga",
+   "home": "Villarreal",
+   "away": "Deportivo",
+   "start": "2026-09-05T19:00Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Charlotte FC",
+   "away": "Houston Dynamo FC",
+   "start": "2026-09-05T23:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Columbus Crew",
+   "away": "Colorado Rapids",
+   "start": "2026-09-05T23:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "FC Cincinnati",
+   "away": "D.C. United",
+   "start": "2026-09-05T23:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Inter Miami CF",
+   "away": "Atlanta United FC",
+   "start": "2026-09-05T23:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Orlando City SC",
+   "away": "San Diego FC",
+   "start": "2026-09-05T23:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Philadelphia Union",
+   "away": "CF Montr\u00e9al",
+   "start": "2026-09-05T23:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Toronto FC",
+   "away": "Chicago Fire FC",
+   "start": "2026-09-05T23:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Austin FC",
+   "away": "San Jose Earthquakes",
+   "start": "2026-09-06T00:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "FC Dallas",
+   "away": "Sporting Kansas City",
+   "start": "2026-09-06T00:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Seattle Sounders FC",
+   "away": "Red Bull New York",
+   "start": "2026-09-06T00:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "LA Galaxy",
+   "away": "New England Revolution",
+   "start": "2026-09-06T01:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Real Salt Lake",
+   "away": "LAFC",
+   "start": "2026-09-06T01:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Portland Timbers",
+   "away": "Minnesota United FC",
+   "start": "2026-09-06T02:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Vancouver Whitecaps",
+   "away": "St. Louis CITY SC",
+   "start": "2026-09-06T02:30Z"
+  },
+  {
+   "league": "Ligue 1",
+   "home": "Troyes",
+   "away": "Strasbourg",
+   "start": "2026-09-06T13:00Z"
+  },
+  {
+   "league": "Premier League",
+   "home": "Everton",
+   "away": "Manchester United",
+   "start": "2026-09-06T13:00Z"
+  },
+  {
+   "league": "Serie A",
+   "home": "Frosinone",
+   "away": "Venezia",
+   "start": "2026-09-06T13:00Z"
+  },
+  {
+   "league": "Serie A",
+   "home": "Parma",
+   "away": "Monza",
+   "start": "2026-09-06T13:00Z"
+  },
+  {
+   "league": "Bundesliga",
+   "home": "Hamburg SV",
+   "away": "Mainz",
+   "start": "2026-09-06T13:30Z"
+  },
+  {
+   "league": "La Liga",
+   "home": "Valencia",
+   "away": "Barcelona",
+   "start": "2026-09-06T14:15Z"
+  },
+  {
+   "league": "Ligue 1",
+   "home": "Angers",
+   "away": "Stade Rennais",
+   "start": "2026-09-06T15:15Z"
+  },
+  {
+   "league": "Bundesliga",
+   "home": "Eintracht Frankfurt",
+   "away": "FC Augsburg",
+   "start": "2026-09-06T15:30Z"
+  },
+  {
+   "league": "Premier League",
+   "home": "Arsenal",
+   "away": "Chelsea",
+   "start": "2026-09-06T15:30Z"
+  },
+  {
+   "league": "Serie A",
+   "home": "Bologna",
+   "away": "Sassuolo",
+   "start": "2026-09-06T16:00Z"
+  },
+  {
+   "league": "La Liga",
+   "home": "Alav\u00e9s",
+   "away": "Osasuna",
+   "start": "2026-09-06T16:30Z"
+  },
+  {
+   "league": "La Liga",
+   "home": "M\u00e1laga",
+   "away": "Levante",
+   "start": "2026-09-06T16:30Z"
+  },
+  {
+   "league": "Ligue 1",
+   "home": "Marseille",
+   "away": "Paris FC",
+   "start": "2026-09-06T18:45Z"
+  },
+  {
+   "league": "Serie A",
+   "home": "Juventus",
+   "away": "AC Milan",
+   "start": "2026-09-06T18:45Z"
+  },
+  {
+   "league": "La Liga",
+   "home": "Espanyol",
+   "away": "Sevilla",
+   "start": "2026-09-06T19:00Z"
+  },
+  {
+   "league": "Serie A",
+   "home": "Cagliari",
+   "away": "Lecce",
+   "start": "2026-09-07T16:30Z"
+  },
+  {
+   "league": "La Liga",
+   "home": "Getafe",
+   "away": "Celta Vigo",
+   "start": "2026-09-07T17:00Z"
+  },
+  {
+   "league": "Serie A",
+   "home": "Udinese",
+   "away": "Lazio",
+   "start": "2026-09-07T18:45Z"
+  },
+  {
+   "league": "La Liga",
+   "home": "Elche",
+   "away": "Real Sociedad",
+   "start": "2026-09-07T19:30Z"
+  },
+  {
+   "league": "Champions League",
+   "home": "AEK Athens",
+   "away": "LASK Linz",
+   "start": "2026-09-08T16:45Z"
+  },
+  {
+   "league": "Champions League",
+   "home": "Club Brugge",
+   "away": "Aston Villa",
+   "start": "2026-09-08T16:45Z"
+  },
+  {
+   "league": "Carabao Cup",
+   "home": "AFC Bournemouth",
+   "away": "Lincoln City",
+   "start": "2026-09-08T18:45Z"
+  },
+  {
+   "league": "Carabao Cup",
+   "home": "Crystal Palace",
+   "away": "Middlesbrough",
+   "start": "2026-09-08T18:45Z"
+  },
+  {
+   "league": "Carabao Cup",
+   "home": "Leyton Orient",
+   "away": "Bradford City",
+   "start": "2026-09-08T18:45Z"
+  },
+  {
+   "league": "Carabao Cup",
+   "home": "Sunderland",
+   "away": "Hull City",
+   "start": "2026-09-08T18:45Z"
+  },
+  {
+   "league": "Carabao Cup",
+   "home": "Millwall",
+   "away": "Newcastle United",
+   "start": "2026-09-08T19:00Z"
+  },
+  {
+   "league": "Champions League",
+   "home": "Borussia Dortmund",
+   "away": "Villarreal",
+   "start": "2026-09-08T19:00Z"
+  },
+  {
+   "league": "Champions League",
+   "home": "FC Porto",
+   "away": "Manchester City",
+   "start": "2026-09-08T19:00Z"
+  },
+  {
+   "league": "Champions League",
+   "home": "Lille",
+   "away": "Real Betis",
+   "start": "2026-09-08T19:00Z"
+  },
+  {
+   "league": "Champions League",
+   "home": "Real Madrid",
+   "away": "Internazionale",
+   "start": "2026-09-08T19:00Z"
+  },
+  {
+   "league": "Champions League",
+   "home": "Barcelona",
+   "away": "Feyenoord Rotterdam",
+   "start": "2026-09-09T16:45Z"
+  },
+  {
+   "league": "Champions League",
+   "home": "VfB Stuttgart",
+   "away": "Viking FK",
+   "start": "2026-09-09T16:45Z"
+  },
+  {
+   "league": "Carabao Cup",
+   "home": "Chelsea",
+   "away": "Leeds United",
+   "start": "2026-09-09T19:00Z"
+  },
+  {
+   "league": "Champions League",
+   "home": "Liverpool",
+   "away": "Atl\u00e9tico Madrid",
+   "start": "2026-09-09T19:00Z"
+  },
+  {
+   "league": "Champions League",
+   "home": "Napoli",
+   "away": "Arsenal",
+   "start": "2026-09-09T19:00Z"
+  },
+  {
+   "league": "Champions League",
+   "home": "Paris Saint-Germain",
+   "away": "Slovan Bratislava",
+   "start": "2026-09-09T19:00Z"
+  },
+  {
+   "league": "Champions League",
+   "home": "Sporting CP",
+   "away": "Galatasaray",
+   "start": "2026-09-09T19:00Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Atlanta United FC",
+   "away": "Orlando City SC",
+   "start": "2026-09-09T23:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "CF Montr\u00e9al",
+   "away": "Charlotte FC",
+   "start": "2026-09-09T23:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "D.C. United",
+   "away": "Columbus Crew",
+   "start": "2026-09-09T23:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Philadelphia Union",
+   "away": "FC Cincinnati",
+   "start": "2026-09-09T23:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Toronto FC",
+   "away": "Nashville SC",
+   "start": "2026-09-09T23:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "New York City FC",
+   "away": "New England Revolution",
+   "start": "2026-09-10T00:00Z"
+  },
+  {
+   "league": "NFL",
+   "home": "Seattle Seahawks",
+   "away": "New England Patriots",
+   "start": "2026-09-10T00:20Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Austin FC",
+   "away": "Colorado Rapids",
+   "start": "2026-09-10T00:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Chicago Fire FC",
+   "away": "Inter Miami CF",
+   "start": "2026-09-10T00:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Houston Dynamo FC",
+   "away": "Real Salt Lake",
+   "start": "2026-09-10T00:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Minnesota United FC",
+   "away": "FC Dallas",
+   "start": "2026-09-10T00:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "LAFC",
+   "away": "Red Bull New York",
+   "start": "2026-09-10T02:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Portland Timbers",
+   "away": "St. Louis CITY SC",
+   "start": "2026-09-10T02:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "San Diego FC",
+   "away": "San Jose Earthquakes",
+   "start": "2026-09-10T02:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Vancouver Whitecaps",
+   "away": "LA Galaxy",
+   "start": "2026-09-10T02:30Z"
+  },
+  {
+   "league": "Champions League",
+   "home": "Fenerbahce",
+   "away": "AS Roma",
+   "start": "2026-09-10T16:45Z"
+  },
+  {
+   "league": "Champions League",
+   "home": "PSV Eindhoven",
+   "away": "Shakhtar Donetsk",
+   "start": "2026-09-10T16:45Z"
+  },
+  {
+   "league": "Champions League",
+   "home": "Bayern Munich",
+   "away": "Bodo/Glimt",
+   "start": "2026-09-10T19:00Z"
+  },
+  {
+   "league": "Champions League",
+   "home": "Como",
+   "away": "RB Leipzig",
+   "start": "2026-09-10T19:00Z"
+  },
+  {
+   "league": "Champions League",
+   "home": "Manchester United",
+   "away": "Sabah FK",
+   "start": "2026-09-10T19:00Z"
+  },
+  {
+   "league": "Champions League",
+   "home": "Slavia Prague",
+   "away": "Lens",
+   "start": "2026-09-10T19:00Z"
+  },
+  {
+   "league": "NFL",
+   "home": "Los Angeles Rams",
+   "away": "San Francisco 49ers",
+   "start": "2026-09-11T00:35Z"
+  },
+  {
+   "league": "Bundesliga",
+   "home": "1. FC Union Berlin",
+   "away": "Schalke 04",
+   "start": "2026-09-11T18:30Z"
+  },
+  {
+   "league": "Ligue 1",
+   "home": "Stade Rennais",
+   "away": "Marseille",
+   "start": "2026-09-11T18:45Z"
+  },
+  {
+   "league": "Serie A",
+   "home": "Venezia",
+   "away": "Fiorentina",
+   "start": "2026-09-11T18:45Z"
+  },
+  {
+   "league": "La Liga",
+   "home": "Sevilla",
+   "away": "Valencia",
+   "start": "2026-09-11T19:00Z"
+  },
+  {
+   "league": "La Liga",
+   "home": "Racing Santander",
+   "away": "Alav\u00e9s",
+   "start": "2026-09-12T12:00Z"
+  },
+  {
+   "league": "Serie A",
+   "home": "Genoa",
+   "away": "Frosinone",
+   "start": "2026-09-12T13:00Z"
+  },
+  {
+   "league": "Bundesliga",
+   "home": "Borussia Dortmund",
+   "away": "SC Paderborn 07",
+   "start": "2026-09-12T13:30Z"
+  },
+  {
+   "league": "Bundesliga",
+   "home": "FC Augsburg",
+   "away": "Bayer Leverkusen",
+   "start": "2026-09-12T13:30Z"
+  },
+  {
+   "league": "Bundesliga",
+   "home": "Mainz",
+   "away": "Eintracht Frankfurt",
+   "start": "2026-09-12T13:30Z"
+  },
+  {
+   "league": "Bundesliga",
+   "home": "SC Freiburg",
+   "away": "Borussia M\u00f6nchengladbach",
+   "start": "2026-09-12T13:30Z"
+  },
+  {
+   "league": "Bundesliga",
+   "home": "TSG Hoffenheim",
+   "away": "VfB Stuttgart",
+   "start": "2026-09-12T13:30Z"
+  },
+  {
+   "league": "Premier League",
+   "home": "AFC Bournemouth",
+   "away": "Brentford",
+   "start": "2026-09-12T14:00Z"
+  },
+  {
+   "league": "Premier League",
+   "home": "Aston Villa",
+   "away": "Nottingham Forest",
+   "start": "2026-09-12T14:00Z"
+  },
+  {
+   "league": "Premier League",
+   "home": "Chelsea",
+   "away": "Hull City",
+   "start": "2026-09-12T14:00Z"
+  },
+  {
+   "league": "Premier League",
+   "home": "Crystal Palace",
+   "away": "Ipswich Town",
+   "start": "2026-09-12T14:00Z"
+  },
+  {
+   "league": "Premier League",
+   "home": "Liverpool",
+   "away": "Fulham",
+   "start": "2026-09-12T14:00Z"
+  },
+  {
+   "league": "La Liga",
+   "home": "Osasuna",
+   "away": "Espanyol",
+   "start": "2026-09-12T14:15Z"
+  },
+  {
+   "league": "Ligue 1",
+   "home": "Strasbourg",
+   "away": "AS Monaco",
+   "start": "2026-09-12T15:15Z"
+  },
+  {
+   "league": "Serie A",
+   "home": "Lazio",
+   "away": "AC Milan",
+   "start": "2026-09-12T16:00Z"
+  },
+  {
+   "league": "Bundesliga",
+   "home": "FC Cologne",
+   "away": "Werder Bremen",
+   "start": "2026-09-12T16:30Z"
+  },
+  {
+   "league": "La Liga",
+   "home": "Athletic Club",
+   "away": "Elche",
+   "start": "2026-09-12T16:30Z"
+  },
+  {
+   "league": "Premier League",
+   "home": "Tottenham Hotspur",
+   "away": "Everton",
+   "start": "2026-09-12T16:30Z"
+  },
+  {
+   "league": "Ligue 1",
+   "home": "AJ Auxerre",
+   "away": "Nice",
+   "start": "2026-09-12T18:45Z"
+  },
+  {
+   "league": "Ligue 1",
+   "home": "Le Havre AC",
+   "away": "Angers",
+   "start": "2026-09-12T18:45Z"
+  },
+  {
+   "league": "Ligue 1",
+   "home": "Lorient",
+   "away": "Toulouse",
+   "start": "2026-09-12T18:45Z"
+  },
+  {
+   "league": "Ligue 1",
+   "home": "Paris FC",
+   "away": "Lyon",
+   "start": "2026-09-12T18:45Z"
+  },
+  {
+   "league": "Serie A",
+   "home": "Atalanta",
+   "away": "Cagliari",
+   "start": "2026-09-12T18:45Z"
+  },
+  {
+   "league": "La Liga",
+   "home": "Real Madrid",
+   "away": "Rayo Vallecano",
+   "start": "2026-09-12T19:00Z"
+  },
+  {
+   "league": "Premier League",
+   "home": "Sunderland",
+   "away": "Arsenal",
+   "start": "2026-09-12T19:00Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Columbus Crew",
+   "away": "Red Bull New York",
+   "start": "2026-09-12T23:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "D.C. United",
+   "away": "Atlanta United FC",
+   "start": "2026-09-12T23:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "FC Cincinnati",
+   "away": "Charlotte FC",
+   "start": "2026-09-12T23:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Inter Miami CF",
+   "away": "Nashville SC",
+   "start": "2026-09-12T23:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Orlando City SC",
+   "away": "Toronto FC",
+   "start": "2026-09-12T23:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "FC Dallas",
+   "away": "Portland Timbers",
+   "start": "2026-09-13T00:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Sporting Kansas City",
+   "away": "LAFC",
+   "start": "2026-09-13T00:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "St. Louis CITY SC",
+   "away": "Minnesota United FC",
+   "start": "2026-09-13T00:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Colorado Rapids",
+   "away": "CF Montr\u00e9al",
+   "start": "2026-09-13T01:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "Real Salt Lake",
+   "away": "New York City FC",
+   "start": "2026-09-13T01:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "LA Galaxy",
+   "away": "Seattle Sounders FC",
+   "start": "2026-09-13T02:30Z"
+  },
+  {
+   "league": "MLS",
+   "home": "San Jose Earthquakes",
+   "away": "Houston Dynamo FC",
+   "start": "2026-09-13T02:30Z"
+  }
+ ]
+}
