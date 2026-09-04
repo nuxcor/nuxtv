@@ -60,8 +60,41 @@ object EpisodeTitle {
     /**
      * A trailing `(2024)` / `(US)` on the SHOW's name, which the episode
      * titles do not carry — left on, the prefix match below would never fire.
+     *
+     * A RUN of them, not one. This panel names 4,035 of its 8,598 series with
+     * BOTH — "Ransom Canyon (2025) (US)" — and the catalogue pass strips only
+     * the country before the name reaches here, so matching a single group
+     * left the YEAR inside the name being compared. The prefix match then
+     * fired only on episode titles that happened to carry the year too.
      */
-    private val nameTail = Regex("""\s*\((?:\d{4}|[A-Za-z]{2})\)\s*$""")
+    private val nameTail = Regex("""(?:\s*\((?:\d{4}|[A-Za-z]{2})\)\s*)+$""")
+
+    /**
+     * The same run at the HEAD of what is left once the show's name has been
+     * cut off an episode title.
+     *
+     * Reported 2026-09-04 off the box, as rows reading "1. (2026) (PL) - -
+     * Episode 1". The episode titles DO carry the decoration after all — the
+     * catalogue's copy of it had simply been cleaned and the episodes' had
+     * not, so every episode of a show named this way was labelled with the
+     * leftovers of its own show's name.
+     *
+     * Only ever applied to the remainder of a successful name match, which is
+     * what makes it safe: this is the tail of the show's name by construction,
+     * not a parenthesis an episode chose for itself.
+     */
+    private val carriedTail = Regex("""^\s*(?:\((?:\d{4}|[A-Za-z]{2})\)\s*)+""")
+
+    /**
+     * Two separators left standing next to each other by a part cut out from
+     * between them: "Ransom Canyon - S01E03 - Homecoming" loses its middle and
+     * reads "- - Homecoming".
+     *
+     * Both sides must already be spaced apart, which is what keeps an ellipsis
+     * out of it — "Wait... What?" has no whitespace between its dots, and `.`
+     * is not in the set in any case.
+     */
+    private val strandedSeparator = Regex("""\s+([-–—:|,_/])(?:\s+[-–—:|,_/])+\s+""")
 
     /**
      * [title] with the show's name taken off the front, or null when it does
@@ -115,12 +148,19 @@ object EpisodeTitle {
             stripLeadingName(t, name)?.let { stripped ->
                 // Never to nothing: an episode whose whole title IS the show's
                 // name (a pilot, usually) keeps it rather than going nameless.
-                if (stripped.trim(*EDGES.toCharArray()).isNotEmpty()) t = stripped
+                // Judged on what the name match left, BEFORE the decoration
+                // comes off — a title that is the show's name plus the
+                // catalogue's own "(2026) (PL)" named nothing, and belongs in
+                // the "Episode N" case rather than wearing the leftovers.
+                if (stripped.trim(*EDGES.toCharArray()).isNotEmpty()) {
+                    t = stripped.replace(carriedTail, " ")
+                }
             }
         }
 
         t = t.replace(addressCode, " ")
             .replace(spaces, " ")
+            .replace(strandedSeparator, " $1 ")
             .trim(*EDGES.toCharArray())
 
         return t.takeUnless { it.isEmpty() || unnamed.matches(it) }
