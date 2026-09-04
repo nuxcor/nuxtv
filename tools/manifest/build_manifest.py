@@ -2727,10 +2727,33 @@ for sid, mv in vod_meta.items():
     if ids: movie_genres[sid] = ids
     rd = (mv.get('releasedate') or '')[:4]
     if rd.isdigit(): movie_year[sid] = int(rd)
+# Genres the panel cannot express, from enrich_series.py — see its docstring.
+#
+# The panel's series genres are TMDB's SIXTEEN TELEVISION GENRES verbatim, and
+# TMDB has no Romance for television: it is a movie genre there. So this
+# catalogue tagged ten series Romance by hand and filed Crash Landing on You,
+# Bridgerton, Queen of Tears and Normal People under Drama, correctly by the
+# scheme it is using and uselessly for anyone looking for a romance.
+#
+# enrich_series reads TMDB KEYWORDS, which television does carry, off the
+# `tmdb` id the panel ships on 8,402 of its 8,598 series. Optional: no file,
+# no additions, and the shelf is exactly what it was.
+series_genre_add = {}
+if os.path.exists('series_meta.json'):
+    series_genre_add = {k: v for k, v in json.load(open('series_meta.json')).items() if v}
+
+def series_genres(sr):
+    """The panel's genre string plus anything the keywords earned it."""
+    base = (sr.get('genre') or '').strip()
+    add = [g for g in series_genre_add.get(str(sr.get('series_id')), [])
+           if g.lower() not in base.lower()]
+    if not add: return base
+    return ' / '.join([base] + add) if base else ' / '.join(add)
+
 # series genre vocabulary comes free off the series records
 sgen = collections.Counter()
 for sr in ser:
-    for g in re.split(r'[,/&]', sr.get('genre') or ''):
+    for g in re.split(r'[,/&]', series_genres(sr)):
         g = canon_genre(g)
         if g: sgen[g] += 1
 
@@ -3404,6 +3427,9 @@ manifest = {
         "note": "apply in this order, then collapse whitespace and trim ' -_|'",
     },
     "series_drop": series_drop,
+    # series id -> genres the panel's own field does not carry. Merged into
+    # its genre string by the app, so a show reaches both chips.
+    "series_genre_add": series_genre_add,
     "series_display_name": series_display,
     "series_section": series_section,
     "movie_genres": movie_genres,
@@ -3501,6 +3527,8 @@ manifest = {
         "vod_display_names": len(vod_display),
         "series_display_names": len(series_display),
         "series_genre_vocab": len([g for g,n in sgen.items() if n>=GENRE_MIN]),
+        "series_genres_added": len(series_genre_add),
+        "series_romance": sgen.get('Romance', 0),
     },
 }
 json.dump(manifest, open(OUT,'w'), indent=1)

@@ -304,13 +304,12 @@ internal const val CONTINUE_SHELF_LIMIT = 20
  *    everywhere else in television.
  *
  * Romance was in that list and came out of it on 2026-09-04, asked for by
- * name. It is the thinnest chip on the strip — the panel tags TEN series
- * Romance, nine after variants fold — and it is still worth having, because a
- * viewer looking for it cannot find it by browsing Drama's four and a half
- * thousand. The count is a tagging artefact rather than a library one: the
- * Korean and Turkish romances that would fill it are all filed Drama, and
- * only a genre source outside the panel (TMDB, as the movie shelves already
- * use for artwork) would fix that.
+ * name. It was the thinnest chip on the strip that morning — ten series, nine
+ * after variants fold — because the panel writes TMDB's sixteen TELEVISION
+ * genres and TMDB has no Romance among them: it is a movie genre there, so
+ * Crash Landing on You, Bridgerton and Queen of Tears all arrive filed Drama.
+ * The manifest puts it back from TMDB keywords, off the tmdb id the panel
+ * ships with each series, and the chip now carries 607.
  *
  * What is deliberately NOT folded: nothing above a thousand titles loses its
  * own chip. Crime (1,648) and Mystery (1,067) are the tempting pair and they

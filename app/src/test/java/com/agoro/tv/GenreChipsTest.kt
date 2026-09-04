@@ -2,6 +2,7 @@ package com.agoro.tv
 
 import com.agoro.tv.ui.screens.genreKey
 import com.agoro.tv.ui.screens.splitGenres
+import com.agoro.tv.data.mergedGenre
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -57,6 +58,20 @@ class GenreChipsTest {
         // One chip everywhere else in television.
         assertEquals(listOf("Kids & Family"), splitGenres("Kids"))
         assertEquals(listOf("Kids & Family"), splitGenres("Family"))
+    }
+
+    /**
+     * The manifest puts back what the panel's scheme cannot say — TMDB has no
+     * Romance for television — and the show keeps the genres it already had.
+     */
+    @Test
+    fun `manifest genres merge into the panel's own`() {
+        assertEquals("Drama / Romance", mergedGenre("Drama", listOf("Romance")))
+        assertEquals("Romance", mergedGenre(null, listOf("Romance")))
+        assertEquals("Drama", mergedGenre("Drama", emptyList()))
+        // Already there, in the panel's own hand: not said twice.
+        assertEquals("Comedy, romance", mergedGenre("Comedy, romance", listOf("Romance")))
+        assertEquals("Drama / Comedy", mergedGenre("Drama / Comedy", listOf("comedy")))
     }
 
     /** Asked for by name, thin as it is: nine shows nobody can reach via Drama. */

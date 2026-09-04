@@ -122,6 +122,18 @@ data class CatalogueManifest(
      */
     @SerialName("series_drop") val seriesDrop: List<Int> = emptyList(),
     @SerialName("series_section") val seriesSection: Map<String, String> = emptyMap(),
+    /**
+     * series id -> genres the panel's own field cannot express.
+     *
+     * The panel writes TMDB's sixteen TELEVISION genres, and TMDB has no
+     * Romance among them — it is a movie genre there — so this catalogue's
+     * romances arrive filed as Drama and ten strays arrive filed by hand. The
+     * build reads TMDB keywords off the `tmdb` id the panel ships and puts
+     * back what the scheme cannot say. Merged into the show's genre string
+     * rather than replacing it: a romance is still the drama it also is.
+     */
+    @SerialName("series_genre_add")
+    val seriesGenreAdd: Map<String, List<String>> = emptyMap(),
     @SerialName("vod_name_rules") val vodNameRules: VodNameRules? = null,
     @SerialName("display_name") val displayName: Map<String, String> = emptyMap(),
     val logo: Logo = Logo(),

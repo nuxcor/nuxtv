@@ -170,6 +170,7 @@ object ManifestCuration {
             series += show.copy(
                 categoryId = catId,
                 name = cleaner?.clean(show.name) ?: show.name,
+                genre = mergedGenre(show.genre, manifest.seriesGenreAdd[key].orEmpty()),
             )
         }
 
@@ -310,6 +311,24 @@ object ManifestCuration {
         }
     }
 
+}
+
+/**
+ * The panel's genre string with the manifest's additions folded in.
+ *
+ * Case-insensitively deduplicated, because "Romance" arriving beside a
+ * hand-typed "romance" would index the show under the chip twice and draw it
+ * twice in that grid. The separator is " / ", which is what the panel uses on
+ * the 3,943 entries that carry more than one genre, and what [splitGenres]
+ * reads back.
+ */
+internal fun mergedGenre(base: String?, add: List<String>): String? {
+    if (add.isEmpty()) return base
+    val had = base?.split('/', ',', '&')?.map { it.trim().lowercase() }?.toSet().orEmpty()
+    val extra = add.filter { it.trim().lowercase() !in had }
+    if (extra.isEmpty()) return base
+    return if (base.isNullOrBlank()) extra.joinToString(" / ")
+    else (listOf(base) + extra).joinToString(" / ")
 }
 
 /**

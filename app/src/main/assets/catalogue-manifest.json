@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-09-04T15:35:30+00:00",
+ "generated": "2026-09-04T16:04:16+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -55910,6 +55910,1805 @@
   3166,
   3167
  ],
+ "series_genre_add": {
+  "46612": [
+   "Romance"
+  ],
+  "48858": [
+   "Romance"
+  ],
+  "48587": [
+   "Romance"
+  ],
+  "44814": [
+   "Romance"
+  ],
+  "42544": [
+   "Romance"
+  ],
+  "42285": [
+   "Romance"
+  ],
+  "4999": [
+   "Romance"
+  ],
+  "5014": [
+   "Romance"
+  ],
+  "19966": [
+   "Romance"
+  ],
+  "19103": [
+   "Romance"
+  ],
+  "19392": [
+   "Romance"
+  ],
+  "5052": [
+   "Romance"
+  ],
+  "19156": [
+   "Romance"
+  ],
+  "5056": [
+   "Romance"
+  ],
+  "5096": [
+   "Romance"
+  ],
+  "42258": [
+   "Romance"
+  ],
+  "41488": [
+   "Romance"
+  ],
+  "39883": [
+   "Romance"
+  ],
+  "39581": [
+   "Romance"
+  ],
+  "38580": [
+   "Romance"
+  ],
+  "37869": [
+   "Romance"
+  ],
+  "36909": [
+   "Romance"
+  ],
+  "36893": [
+   "Romance"
+  ],
+  "49540": [
+   "Romance"
+  ],
+  "49460": [
+   "Romance"
+  ],
+  "49075": [
+   "Romance"
+  ],
+  "48480": [
+   "Romance"
+  ],
+  "48397": [
+   "Romance"
+  ],
+  "48080": [
+   "Romance"
+  ],
+  "47989": [
+   "Romance"
+  ],
+  "47973": [
+   "Romance"
+  ],
+  "47912": [
+   "Romance"
+  ],
+  "47758": [
+   "Romance"
+  ],
+  "46952": [
+   "Romance"
+  ],
+  "46603": [
+   "Romance"
+  ],
+  "46534": [
+   "Romance"
+  ],
+  "46294": [
+   "Romance"
+  ],
+  "46254": [
+   "Romance"
+  ],
+  "46251": [
+   "Romance"
+  ],
+  "46094": [
+   "Romance"
+  ],
+  "45692": [
+   "Romance"
+  ],
+  "45691": [
+   "Romance"
+  ],
+  "45542": [
+   "Romance"
+  ],
+  "45396": [
+   "Romance"
+  ],
+  "45368": [
+   "Romance"
+  ],
+  "45340": [
+   "Romance"
+  ],
+  "45227": [
+   "Romance"
+  ],
+  "44931": [
+   "Romance"
+  ],
+  "44606": [
+   "Romance"
+  ],
+  "44537": [
+   "Romance"
+  ],
+  "44391": [
+   "Romance"
+  ],
+  "44296": [
+   "Romance"
+  ],
+  "43996": [
+   "Romance"
+  ],
+  "42893": [
+   "Romance"
+  ],
+  "42257": [
+   "Romance"
+  ],
+  "42209": [
+   "Romance"
+  ],
+  "41994": [
+   "Romance"
+  ],
+  "41487": [
+   "Romance"
+  ],
+  "41486": [
+   "Romance"
+  ],
+  "41362": [
+   "Romance"
+  ],
+  "41228": [
+   "Romance"
+  ],
+  "40907": [
+   "Romance"
+  ],
+  "40890": [
+   "Romance"
+  ],
+  "40769": [
+   "Romance"
+  ],
+  "40767": [
+   "Romance"
+  ],
+  "40482": [
+   "Romance"
+  ],
+  "40480": [
+   "Romance"
+  ],
+  "40473": [
+   "Romance"
+  ],
+  "39882": [
+   "Romance"
+  ],
+  "39580": [
+   "Romance"
+  ],
+  "39501": [
+   "Romance"
+  ],
+  "38820": [
+   "Romance"
+  ],
+  "38710": [
+   "Romance"
+  ],
+  "38704": [
+   "Romance"
+  ],
+  "38657": [
+   "Romance"
+  ],
+  "38656": [
+   "Romance"
+  ],
+  "38595": [
+   "Romance"
+  ],
+  "38579": [
+   "Romance"
+  ],
+  "38402": [
+   "Romance"
+  ],
+  "38398": [
+   "Romance"
+  ],
+  "38083": [
+   "Romance"
+  ],
+  "37868": [
+   "Romance"
+  ],
+  "36571": [
+   "Romance"
+  ],
+  "36564": [
+   "Romance"
+  ],
+  "35954": [
+   "Romance"
+  ],
+  "35892": [
+   "Romance"
+  ],
+  "34862": [
+   "Romance"
+  ],
+  "34770": [
+   "Romance"
+  ],
+  "34653": [
+   "Romance"
+  ],
+  "34617": [
+   "Romance"
+  ],
+  "34616": [
+   "Romance"
+  ],
+  "34615": [
+   "Romance"
+  ],
+  "34584": [
+   "Romance"
+  ],
+  "34392": [
+   "Romance"
+  ],
+  "34350": [
+   "Romance"
+  ],
+  "33662": [
+   "Romance"
+  ],
+  "33661": [
+   "Romance"
+  ],
+  "33652": [
+   "Romance"
+  ],
+  "33649": [
+   "Romance"
+  ],
+  "33581": [
+   "Romance"
+  ],
+  "31787": [
+   "Romance"
+  ],
+  "31593": [
+   "Romance"
+  ],
+  "31590": [
+   "Romance"
+  ],
+  "31230": [
+   "Romance"
+  ],
+  "31124": [
+   "Romance"
+  ],
+  "31057": [
+   "Romance"
+  ],
+  "30850": [
+   "Romance"
+  ],
+  "30311": [
+   "Romance"
+  ],
+  "30309": [
+   "Romance"
+  ],
+  "29034": [
+   "Romance"
+  ],
+  "4832": [
+   "Romance"
+  ],
+  "28685": [
+   "Romance"
+  ],
+  "28683": [
+   "Romance"
+  ],
+  "28672": [
+   "Romance"
+  ],
+  "27840": [
+   "Romance"
+  ],
+  "27839": [
+   "Romance"
+  ],
+  "10343": [
+   "Romance"
+  ],
+  "7829": [
+   "Romance"
+  ],
+  "4889": [
+   "Romance"
+  ],
+  "26019": [
+   "Romance"
+  ],
+  "25831": [
+   "Romance"
+  ],
+  "25777": [
+   "Romance"
+  ],
+  "25694": [
+   "Romance"
+  ],
+  "6730": [
+   "Romance"
+  ],
+  "25243": [
+   "Romance"
+  ],
+  "25187": [
+   "Romance"
+  ],
+  "14526": [
+   "Romance"
+  ],
+  "24772": [
+   "Romance"
+  ],
+  "24192": [
+   "Romance"
+  ],
+  "23828": [
+   "Romance"
+  ],
+  "23761": [
+   "Romance"
+  ],
+  "9209": [
+   "Romance"
+  ],
+  "10334": [
+   "Romance"
+  ],
+  "20770": [
+   "Romance"
+  ],
+  "21824": [
+   "Romance"
+  ],
+  "22771": [
+   "Romance"
+  ],
+  "1445": [
+   "Romance"
+  ],
+  "22157": [
+   "Romance"
+  ],
+  "1080": [
+   "Romance"
+  ],
+  "21962": [
+   "Romance"
+  ],
+  "21610": [
+   "Romance"
+  ],
+  "3770": [
+   "Romance"
+  ],
+  "20767": [
+   "Romance"
+  ],
+  "3432": [
+   "Romance"
+  ],
+  "20544": [
+   "Romance"
+  ],
+  "20485": [
+   "Romance"
+  ],
+  "19487": [
+   "Romance"
+  ],
+  "19430": [
+   "Romance"
+  ],
+  "18576": [
+   "Romance"
+  ],
+  "18508": [
+   "Romance"
+  ],
+  "18504": [
+   "Romance"
+  ],
+  "18475": [
+   "Romance"
+  ],
+  "17016": [
+   "Romance"
+  ],
+  "15610": [
+   "Romance"
+  ],
+  "15381": [
+   "Romance"
+  ],
+  "15371": [
+   "Romance"
+  ],
+  "15370": [
+   "Romance"
+  ],
+  "15357": [
+   "Romance"
+  ],
+  "14998": [
+   "Romance"
+  ],
+  "14940": [
+   "Romance"
+  ],
+  "14742": [
+   "Romance"
+  ],
+  "14528": [
+   "Romance"
+  ],
+  "14401": [
+   "Romance"
+  ],
+  "14288": [
+   "Romance"
+  ],
+  "14117": [
+   "Romance"
+  ],
+  "14116": [
+   "Romance"
+  ],
+  "14043": [
+   "Romance"
+  ],
+  "13964": [
+   "Romance"
+  ],
+  "13912": [
+   "Romance"
+  ],
+  "12514": [
+   "Romance"
+  ],
+  "12450": [
+   "Romance"
+  ],
+  "11831": [
+   "Romance"
+  ],
+  "11238": [
+   "Romance"
+  ],
+  "11161": [
+   "Romance"
+  ],
+  "11157": [
+   "Romance"
+  ],
+  "10758": [
+   "Romance"
+  ],
+  "10347": [
+   "Romance"
+  ],
+  "10328": [
+   "Romance"
+  ],
+  "10325": [
+   "Romance"
+  ],
+  "9800": [
+   "Romance"
+  ],
+  "9795": [
+   "Romance"
+  ],
+  "9785": [
+   "Romance"
+  ],
+  "9783": [
+   "Romance"
+  ],
+  "9770": [
+   "Romance"
+  ],
+  "9208": [
+   "Romance"
+  ],
+  "8898": [
+   "Romance"
+  ],
+  "8886": [
+   "Romance"
+  ],
+  "8780": [
+   "Romance"
+  ],
+  "8754": [
+   "Romance"
+  ],
+  "8752": [
+   "Romance"
+  ],
+  "8605": [
+   "Romance"
+  ],
+  "8595": [
+   "Romance"
+  ],
+  "8558": [
+   "Romance"
+  ],
+  "3711": [
+   "Romance"
+  ],
+  "3902": [
+   "Romance"
+  ],
+  "3550": [
+   "Romance"
+  ],
+  "6646": [
+   "Romance"
+  ],
+  "3832": [
+   "Romance"
+  ],
+  "4154": [
+   "Romance"
+  ],
+  "1539": [
+   "Romance"
+  ],
+  "965": [
+   "Romance"
+  ],
+  "3551": [
+   "Romance"
+  ],
+  "7302": [
+   "Romance"
+  ],
+  "1550": [
+   "Romance"
+  ],
+  "2458": [
+   "Romance"
+  ],
+  "4160": [
+   "Romance"
+  ],
+  "2987": [
+   "Romance"
+  ],
+  "3555": [
+   "Romance"
+  ],
+  "1319": [
+   "Romance"
+  ],
+  "7830": [
+   "Romance"
+  ],
+  "3558": [
+   "Romance"
+  ],
+  "3559": [
+   "Romance"
+  ],
+  "2644": [
+   "Romance"
+  ],
+  "5761": [
+   "Romance"
+  ],
+  "1322": [
+   "Romance"
+  ],
+  "7641": [
+   "Romance"
+  ],
+  "3562": [
+   "Romance"
+  ],
+  "977": [
+   "Romance"
+  ],
+  "2985": [
+   "Romance"
+  ],
+  "4167": [
+   "Romance"
+  ],
+  "3565": [
+   "Romance"
+  ],
+  "1555": [
+   "Romance"
+  ],
+  "4011": [
+   "Romance"
+  ],
+  "3425": [
+   "Romance"
+  ],
+  "1556": [
+   "Romance"
+  ],
+  "1324": [
+   "Romance"
+  ],
+  "7025": [
+   "Romance"
+  ],
+  "6153": [
+   "Romance"
+  ],
+  "3909": [
+   "Romance"
+  ],
+  "4170": [
+   "Romance"
+  ],
+  "2651": [
+   "Romance"
+  ],
+  "4171": [
+   "Romance"
+  ],
+  "1328": [
+   "Romance"
+  ],
+  "1557": [
+   "Romance"
+  ],
+  "4790": [
+   "Romance"
+  ],
+  "1329": [
+   "Romance"
+  ],
+  "996": [
+   "Romance"
+  ],
+  "5681": [
+   "Romance"
+  ],
+  "2463": [
+   "Romance"
+  ],
+  "3568": [
+   "Romance"
+  ],
+  "1330": [
+   "Romance"
+  ],
+  "1331": [
+   "Romance"
+  ],
+  "1607": [
+   "Romance"
+  ],
+  "4818": [
+   "Romance"
+  ],
+  "3128": [
+   "Romance"
+  ],
+  "1608": [
+   "Romance"
+  ],
+  "3359": [
+   "Romance"
+  ],
+  "7651": [
+   "Romance"
+  ],
+  "6653": [
+   "Romance"
+  ],
+  "4724": [
+   "Romance"
+  ],
+  "7655": [
+   "Romance"
+  ],
+  "4176": [
+   "Romance"
+  ],
+  "3842": [
+   "Romance"
+  ],
+  "6155": [
+   "Romance"
+  ],
+  "7041": [
+   "Romance"
+  ],
+  "2661": [
+   "Romance"
+  ],
+  "4025": [
+   "Romance"
+  ],
+  "4728": [
+   "Romance"
+  ],
+  "3968": [
+   "Romance"
+  ],
+  "1611": [
+   "Romance"
+  ],
+  "8148": [
+   "Romance"
+  ],
+  "7305": [
+   "Romance"
+  ],
+  "5686": [
+   "Romance"
+  ],
+  "1559": [
+   "Romance"
+  ],
+  "2466": [
+   "Romance"
+  ],
+  "1332": [
+   "Romance"
+  ],
+  "3572": [
+   "Romance"
+  ],
+  "7044": [
+   "Romance"
+  ],
+  "6388": [
+   "Romance"
+  ],
+  "7235": [
+   "Romance"
+  ],
+  "4836": [
+   "Romance"
+  ],
+  "1447": [
+   "Romance"
+  ],
+  "1333": [
+   "Romance"
+  ],
+  "6041": [
+   "Romance"
+  ],
+  "7162": [
+   "Romance"
+  ],
+  "1560": [
+   "Romance"
+  ],
+  "3578": [
+   "Romance"
+  ],
+  "4908": [
+   "Romance"
+  ],
+  "3579": [
+   "Romance"
+  ],
+  "6393": [
+   "Romance"
+  ],
+  "1315": [
+   "Romance"
+  ],
+  "1610": [
+   "Romance"
+  ],
+  "3580": [
+   "Romance"
+  ],
+  "4014": [
+   "Romance"
+  ],
+  "1340": [
+   "Romance"
+  ],
+  "6654": [
+   "Romance"
+  ],
+  "2795": [
+   "Romance"
+  ],
+  "7245": [
+   "Romance"
+  ],
+  "1563": [
+   "Romance"
+  ],
+  "3153": [
+   "Romance"
+  ],
+  "3365": [
+   "Romance"
+  ],
+  "2364": [
+   "Romance"
+  ],
+  "2380": [
+   "Romance"
+  ],
+  "3440": [
+   "Romance"
+  ],
+  "4312": [
+   "Romance"
+  ],
+  "1050": [
+   "Romance"
+  ],
+  "3583": [
+   "Romance"
+  ],
+  "4800": [
+   "Romance"
+  ],
+  "4184": [
+   "Romance"
+  ],
+  "3585": [
+   "Romance"
+  ],
+  "6159": [
+   "Romance"
+  ],
+  "3369": [
+   "Romance"
+  ],
+  "5777": [
+   "Romance"
+  ],
+  "2677": [
+   "Romance"
+  ],
+  "1317": [
+   "Romance"
+  ],
+  "2678": [
+   "Romance"
+  ],
+  "5697": [
+   "Romance"
+  ],
+  "6658": [
+   "Romance"
+  ],
+  "5698": [
+   "Romance"
+  ],
+  "6660": [
+   "Romance"
+  ],
+  "4541": [
+   "Romance"
+  ],
+  "3371": [
+   "Romance"
+  ],
+  "2216": [
+   "Romance"
+  ],
+  "1072": [
+   "Romance"
+  ],
+  "6663": [
+   "Romance"
+  ],
+  "3445": [
+   "Romance"
+  ],
+  "7060": [
+   "Romance"
+  ],
+  "3016": [
+   "Romance"
+  ],
+  "3373": [
+   "Romance"
+  ],
+  "1569": [
+   "Romance"
+  ],
+  "3850": [
+   "Romance"
+  ],
+  "1350": [
+   "Romance"
+  ],
+  "1571": [
+   "Romance"
+  ],
+  "2473": [
+   "Romance"
+  ],
+  "1079": [
+   "Romance"
+  ],
+  "2474": [
+   "Romance"
+  ],
+  "4804": [
+   "Romance"
+  ],
+  "7669": [
+   "Romance"
+  ],
+  "34363": [
+   "Romance"
+  ],
+  "49403": [
+   "Romance"
+  ],
+  "49402": [
+   "Romance"
+  ],
+  "49387": [
+   "Romance"
+  ],
+  "49386": [
+   "Romance"
+  ],
+  "48050": [
+   "Romance"
+  ],
+  "48049": [
+   "Romance"
+  ],
+  "47638": [
+   "Romance"
+  ],
+  "46195": [
+   "Romance"
+  ],
+  "46194": [
+   "Romance"
+  ],
+  "44143": [
+   "Romance"
+  ],
+  "43145": [
+   "Romance"
+  ],
+  "43144": [
+   "Romance"
+  ],
+  "41615": [
+   "Romance"
+  ],
+  "40053": [
+   "Romance"
+  ],
+  "39521": [
+   "Romance"
+  ],
+  "38732": [
+   "Romance"
+  ],
+  "38727": [
+   "Romance"
+  ],
+  "38631": [
+   "Romance"
+  ],
+  "36123": [
+   "Romance"
+  ],
+  "36121": [
+   "Romance"
+  ],
+  "35635": [
+   "Romance"
+  ],
+  "35579": [
+   "Romance"
+  ],
+  "35251": [
+   "Romance"
+  ],
+  "35248": [
+   "Romance"
+  ],
+  "35247": [
+   "Romance"
+  ],
+  "35242": [
+   "Romance"
+  ],
+  "35241": [
+   "Romance"
+  ],
+  "34610": [
+   "Romance"
+  ],
+  "34609": [
+   "Romance"
+  ],
+  "33206": [
+   "Romance"
+  ],
+  "27648": [
+   "Romance"
+  ],
+  "27647": [
+   "Romance"
+  ],
+  "24317": [
+   "Romance"
+  ],
+  "23811": [
+   "Romance"
+  ],
+  "21584": [
+   "Romance"
+  ],
+  "21583": [
+   "Romance"
+  ],
+  "20072": [
+   "Romance"
+  ],
+  "20071": [
+   "Romance"
+  ],
+  "15671": [
+   "Romance"
+  ],
+  "6072": [
+   "Romance"
+  ],
+  "6082": [
+   "Romance"
+  ],
+  "6114": [
+   "Romance"
+  ],
+  "6280": [
+   "Romance"
+  ],
+  "46307": [
+   "Romance"
+  ],
+  "48838": [
+   "Romance"
+  ],
+  "22773": [
+   "Romance"
+  ],
+  "23366": [
+   "Romance"
+  ],
+  "35347": [
+   "Romance"
+  ],
+  "37499": [
+   "Romance"
+  ],
+  "48837": [
+   "Romance"
+  ],
+  "46651": [
+   "Romance"
+  ],
+  "46637": [
+   "Romance"
+  ],
+  "6104": [
+   "Romance"
+  ],
+  "6907": [
+   "Romance"
+  ],
+  "15337": [
+   "Romance"
+  ],
+  "15367": [
+   "Romance"
+  ],
+  "26431": [
+   "Romance"
+  ],
+  "31344": [
+   "Romance"
+  ],
+  "35346": [
+   "Romance"
+  ],
+  "37498": [
+   "Romance"
+  ],
+  "39310": [
+   "Romance"
+  ],
+  "39551": [
+   "Romance"
+  ],
+  "39599": [
+   "Romance"
+  ],
+  "20629": [
+   "Romance"
+  ],
+  "20630": [
+   "Romance"
+  ],
+  "13743": [
+   "Romance"
+  ],
+  "13742": [
+   "Romance"
+  ],
+  "14141": [
+   "Romance"
+  ],
+  "14129": [
+   "Romance"
+  ],
+  "14125": [
+   "Romance"
+  ],
+  "7361": [
+   "Romance"
+  ],
+  "7105": [
+   "Romance"
+  ],
+  "9827": [
+   "Romance"
+  ],
+  "44284": [
+   "Romance"
+  ],
+  "44283": [
+   "Romance"
+  ],
+  "42074": [
+   "Romance"
+  ],
+  "42073": [
+   "Romance"
+  ],
+  "23078": [
+   "Romance"
+  ],
+  "23074": [
+   "Romance"
+  ],
+  "22954": [
+   "Romance"
+  ],
+  "19855": [
+   "Romance"
+  ],
+  "19906": [
+   "Romance"
+  ],
+  "49522": [
+   "Romance"
+  ],
+  "49193": [
+   "Romance"
+  ],
+  "47202": [
+   "Romance"
+  ],
+  "46922": [
+   "Romance"
+  ],
+  "46746": [
+   "Romance"
+  ],
+  "46582": [
+   "Romance"
+  ],
+  "44399": [
+   "Romance"
+  ],
+  "44102": [
+   "Romance"
+  ],
+  "43833": [
+   "Romance"
+  ],
+  "43681": [
+   "Romance"
+  ],
+  "43679": [
+   "Romance"
+  ],
+  "43542": [
+   "Romance"
+  ],
+  "43159": [
+   "Romance"
+  ],
+  "42897": [
+   "Romance"
+  ],
+  "42116": [
+   "Romance"
+  ],
+  "41868": [
+   "Romance"
+  ],
+  "41237": [
+   "Romance"
+  ],
+  "38224": [
+   "Romance"
+  ],
+  "36672": [
+   "Romance"
+  ],
+  "35876": [
+   "Romance"
+  ],
+  "35549": [
+   "Romance"
+  ],
+  "35235": [
+   "Romance"
+  ],
+  "35159": [
+   "Romance"
+  ],
+  "34177": [
+   "Romance"
+  ],
+  "33819": [
+   "Romance"
+  ],
+  "33599": [
+   "Romance"
+  ],
+  "33515": [
+   "Romance"
+  ],
+  "33471": [
+   "Romance"
+  ],
+  "32060": [
+   "Romance"
+  ],
+  "32058": [
+   "Romance"
+  ],
+  "31531": [
+   "Romance"
+  ],
+  "29993": [
+   "Romance"
+  ],
+  "29357": [
+   "Romance"
+  ],
+  "29293": [
+   "Romance"
+  ],
+  "29226": [
+   "Romance"
+  ],
+  "29095": [
+   "Romance"
+  ],
+  "2347": [
+   "Romance"
+  ],
+  "8402": [
+   "Romance"
+  ],
+  "28406": [
+   "Romance"
+  ],
+  "3317": [
+   "Romance"
+  ],
+  "26251": [
+   "Romance"
+  ],
+  "26333": [
+   "Romance"
+  ],
+  "26242": [
+   "Romance"
+  ],
+  "25835": [
+   "Romance"
+  ],
+  "25282": [
+   "Romance"
+  ],
+  "9085": [
+   "Romance"
+  ],
+  "23656": [
+   "Romance"
+  ],
+  "23588": [
+   "Romance"
+  ],
+  "4720": [
+   "Romance"
+  ],
+  "2039": [
+   "Romance"
+  ],
+  "3177": [
+   "Romance"
+  ],
+  "22060": [
+   "Romance"
+  ],
+  "8247": [
+   "Romance"
+  ],
+  "20931": [
+   "Romance"
+  ],
+  "20835": [
+   "Romance"
+  ],
+  "20832": [
+   "Romance"
+  ],
+  "3028": [
+   "Romance"
+  ],
+  "3777": [
+   "Romance"
+  ],
+  "20354": [
+   "Romance"
+  ],
+  "20252": [
+   "Romance"
+  ],
+  "17984": [
+   "Romance"
+  ],
+  "19867": [
+   "Romance"
+  ],
+  "16057": [
+   "Romance"
+  ],
+  "4343": [
+   "Romance"
+  ],
+  "19013": [
+   "Romance"
+  ],
+  "18949": [
+   "Romance"
+  ],
+  "18183": [
+   "Romance"
+  ],
+  "17230": [
+   "Romance"
+  ],
+  "17098": [
+   "Romance"
+  ],
+  "17097": [
+   "Romance"
+  ],
+  "16490": [
+   "Romance"
+  ],
+  "15833": [
+   "Romance"
+  ],
+  "15734": [
+   "Romance"
+  ],
+  "14829": [
+   "Romance"
+  ],
+  "14662": [
+   "Romance"
+  ],
+  "14579": [
+   "Romance"
+  ],
+  "14339": [
+   "Romance"
+  ],
+  "13977": [
+   "Romance"
+  ],
+  "13786": [
+   "Romance"
+  ],
+  "13466": [
+   "Romance"
+  ],
+  "13309": [
+   "Romance"
+  ],
+  "13012": [
+   "Romance"
+  ],
+  "10722": [
+   "Romance"
+  ],
+  "10623": [
+   "Romance"
+  ],
+  "10605": [
+   "Romance"
+  ],
+  "10274": [
+   "Romance"
+  ],
+  "10264": [
+   "Romance"
+  ],
+  "1481": [
+   "Romance"
+  ],
+  "1661": [
+   "Romance"
+  ],
+  "1696": [
+   "Romance"
+  ],
+  "1706": [
+   "Romance"
+  ],
+  "2205": [
+   "Romance"
+  ],
+  "2264": [
+   "Romance"
+  ],
+  "2351": [
+   "Romance"
+  ],
+  "2389": [
+   "Romance"
+  ],
+  "2399": [
+   "Romance"
+  ],
+  "2438": [
+   "Romance"
+  ],
+  "2439": [
+   "Romance"
+  ],
+  "2440": [
+   "Romance"
+  ],
+  "2441": [
+   "Romance"
+  ],
+  "2575": [
+   "Romance"
+  ],
+  "3044": [
+   "Romance"
+  ],
+  "3134": [
+   "Romance"
+  ],
+  "3179": [
+   "Romance"
+  ],
+  "3182": [
+   "Romance"
+  ],
+  "3315": [
+   "Romance"
+  ],
+  "3410": [
+   "Romance"
+  ],
+  "3414": [
+   "Romance"
+  ],
+  "3417": [
+   "Romance"
+  ],
+  "3457": [
+   "Romance"
+  ],
+  "3491": [
+   "Romance"
+  ],
+  "3574": [
+   "Romance"
+  ],
+  "3617": [
+   "Romance"
+  ],
+  "3764": [
+   "Romance"
+  ],
+  "3863": [
+   "Romance"
+  ],
+  "3888": [
+   "Romance"
+  ],
+  "3960": [
+   "Romance"
+  ],
+  "3978": [
+   "Romance"
+  ],
+  "4036": [
+   "Romance"
+  ],
+  "4066": [
+   "Romance"
+  ],
+  "4126": [
+   "Romance"
+  ],
+  "4142": [
+   "Romance"
+  ],
+  "4152": [
+   "Romance"
+  ],
+  "4247": [
+   "Romance"
+  ],
+  "4332": [
+   "Romance"
+  ],
+  "4342": [
+   "Romance"
+  ],
+  "4430": [
+   "Romance"
+  ],
+  "4505": [
+   "Romance"
+  ],
+  "4631": [
+   "Romance"
+  ],
+  "4652": [
+   "Romance"
+  ],
+  "4658": [
+   "Romance"
+  ],
+  "4660": [
+   "Romance"
+  ],
+  "4704": [
+   "Romance"
+  ],
+  "4754": [
+   "Romance"
+  ],
+  "4755": [
+   "Romance"
+  ],
+  "4774": [
+   "Romance"
+  ],
+  "4831": [
+   "Romance"
+  ],
+  "4852": [
+   "Romance"
+  ],
+  "4913": [
+   "Romance"
+  ],
+  "4974": [
+   "Romance"
+  ],
+  "5379": [
+   "Romance"
+  ],
+  "5480": [
+   "Romance"
+  ],
+  "5538": [
+   "Romance"
+  ],
+  "5716": [
+   "Romance"
+  ],
+  "5741": [
+   "Romance"
+  ],
+  "5825": [
+   "Romance"
+  ],
+  "5896": [
+   "Romance"
+  ],
+  "5998": [
+   "Romance"
+  ],
+  "6016": [
+   "Romance"
+  ],
+  "6366": [
+   "Romance"
+  ],
+  "6472": [
+   "Romance"
+  ],
+  "6537": [
+   "Romance"
+  ],
+  "6573": [
+   "Romance"
+  ],
+  "6602": [
+   "Romance"
+  ],
+  "6664": [
+   "Romance"
+  ],
+  "6846": [
+   "Romance"
+  ],
+  "6970": [
+   "Romance"
+  ],
+  "6976": [
+   "Romance"
+  ],
+  "7073": [
+   "Romance"
+  ],
+  "7074": [
+   "Romance"
+  ],
+  "7224": [
+   "Romance"
+  ],
+  "7482": [
+   "Romance"
+  ],
+  "7532": [
+   "Romance"
+  ],
+  "7614": [
+   "Romance"
+  ],
+  "7923": [
+   "Romance"
+  ],
+  "8176": [
+   "Romance"
+  ],
+  "8451": [
+   "Romance"
+  ],
+  "8474": [
+   "Romance"
+  ],
+  "8858": [
+   "Romance"
+  ],
+  "9483": [
+   "Romance"
+  ],
+  "10059": [
+   "Romance"
+  ],
+  "10140": [
+   "Romance"
+  ],
+  "4744": [
+   "Romance"
+  ],
+  "7469": [
+   "Romance"
+  ],
+  "7822": [
+   "Romance"
+  ],
+  "9726": [
+   "Romance"
+  ],
+  "28141": [
+   "Romance"
+  ],
+  "28144": [
+   "Romance"
+  ],
+  "28145": [
+   "Romance"
+  ],
+  "28142": [
+   "Romance"
+  ],
+  "28140": [
+   "Romance"
+  ],
+  "28155": [
+   "Romance"
+  ],
+  "28138": [
+   "Romance"
+  ],
+  "28147": [
+   "Romance"
+  ],
+  "28148": [
+   "Romance"
+  ],
+  "28156": [
+   "Romance"
+  ],
+  "28158": [
+   "Romance"
+  ],
+  "28146": [
+   "Romance"
+  ]
+ },
  "series_display_name": {
   "5778": "Tiger King: The Doc Antle Story (2021)",
   "42637": "D+ The Strain (2014)",
@@ -63172,6 +64971,8 @@
   "afr_prefix_stripped": 28,
   "vod_display_names": 0,
   "series_display_names": 5,
-  "series_genre_vocab": 20
+  "series_genre_vocab": 20,
+  "series_genres_added": 599,
+  "series_romance": 607
  }
 }
