@@ -854,12 +854,34 @@ PRIMARY_PIN = {
     # BBC News at every hour of the week — see NAMED_REMOVAL_KEEP for what
     # happened to the 1080 that briefly stood here.
     #
-    # The 1080 this gives up was real and is not coming back from anywhere
-    # else in the tile: "BBC NEWS HEVC 4K" and "BBC NEWS HEVC HD" are both
-    # HEVC and this box cannot decode HEVC, so 720 in h264 is the best picture
-    # it can actually play. A channel that shows the right programme at 720
-    # beats one that shows the wrong programme at 1080.
-    'bbcnews': 1525693,
+    # MEASURED 2026-09-04 on a second line carrying the same upstream
+    # catalogue (same stream ids), one ffprobe per feed:
+    #
+    #   1536959  PRIME: BBC NEWS        1920x1080  h264  30fps   <- pinned
+    #   1568860  GO: BBC NEWS           1920x1080  h264  60fps   (dropped)
+    #   717698   UK: BBC NEWS HEVC 4K   1920x1080  hevc  25fps
+    #   1525693  UK: BBC NEWS           1280x720   h264  50fps
+    #   717702   UK: BBC NEWS HEVC HD   1280x720   hevc  25fps
+    #   162143   UK: BBC WORLD NEWS     1280x720   h264
+    #   162141   UK: BBC NEWS HEVC ◉     720x576   h264  25fps
+    #
+    # So the note that stood here an hour ago — that the tile's only 1080s are
+    # HEVC and 720 is the best the box can play — was wrong, and wrong in a
+    # way worth naming: `probed_tiers.json` has no entry for 1536959 or
+    # 1568860, and "everything else measures 720" was read off a file that had
+    # never measured them. Every id the file DOES carry matched today's probe
+    # exactly. Absence of a measurement is not a measurement.
+    #
+    # 1536959 is a US restream of BBC News and was already a source of this
+    # tile; a frame pulled off it shows the BBC News breaking-news banner, and
+    # one off 622075 at the same minute shows the House of Lords under a BBC
+    # PARLIAMENT dog. Pinning it costs nothing structural and takes the tile
+    # from 720p50 to 1080p30 in a codec the box decodes.
+    #
+    # 1568860 is the same picture at 60fps and is dropped as a DirecTV-shelf
+    # duplicate; un-dropping it needs a named exception, which is a bigger
+    # change than this one and is not made on a whim.
+    'bbcnews': 1536959,
 }
 # Hand-pinned territories where the fold's majority lands wrong: NBC News Now
 # grouped under UK because its surviving sources sit in UK categories.
@@ -949,9 +971,31 @@ MERGED_REGIONS = ('US', 'UK')
 # trim it is 23 sports channels, which is a subset of what Sports is for
 # rather than a territory with its own News, Kids and Music.
 SHELF_MERGED_REGIONS = ('US', 'UK', 'AFR')
+# One stream, by id, where a name rule would be too broad.
+#
+# 1536959 is "PRIME: BBC NEWS", a US-shelf restream — and the only source in
+# the BBC News tile that is 1080 in a codec this box can decode, so it is the
+# tile's primary. A tile takes its REGION from its sources, and region decides
+# the shelf, so pinning it left BBC News sitting on US|NEWS: the picture
+# improved and the channel moved house.
+#
+# Done by id rather than by name because every instrument here is too broad.
+# `^BBC NEWS` in REGION_FIX would also catch the Azam copy, and REGION_PIN on
+# the key merges EVERY territory's copy into the tile — tried, and it admitted
+# two Canadian "BBC WORLD NEWS" feeds (a different channel; one with no guide
+# binding at all, one bound to bbcworldnews.us) behind the primary, which is
+# how a promoted fallback empties a listing.
+REGION_FIX_ID = {1536959: 'UK'}
+
 tiles = collections.defaultdict(list)
 for k, sid, reg, sec, t in live_rows:
-    if k in REGION_PIN:
+    # Id first: it is the narrowest instrument here, and a merged tile takes
+    # its region from the PRIMARY (see out_reg below), so this is the only
+    # place that can keep a tile on its own shelf while its best source comes
+    # from another territory's.
+    if sid in REGION_FIX_ID:
+        reg = REGION_FIX_ID[sid]
+    elif k in REGION_PIN:
         reg = REGION_PIN[k]
     elif reg in TIER:
         h = home.get(k)
@@ -2556,9 +2600,12 @@ for st in ls:
     c = cat_live.get(str(st.get('category_id')))
     if not c: continue
     n = asc(st['name'])
-    for rx, reg in REGION_FIX:                       # wrong-region corrections
-        if rx.match(re.sub(r'^[A-Za-z0-9]{2,5}\s*[:;,]\s*', '', n)):
-            region_fix[str(sid)] = reg; break
+    if sid in REGION_FIX_ID:                         # by id, see above
+        region_fix[str(sid)] = REGION_FIX_ID[sid]
+    else:
+        for rx, reg in REGION_FIX:                   # wrong-region corrections
+            if rx.match(re.sub(r'^[A-Za-z0-9]{2,5}\s*[:;,]\s*', '', n)):
+                region_fix[str(sid)] = reg; break
     # A tier is not a territory. These categories are filed "4K"/"8K", and only
     # this pass can resolve them — from the name prefix, and from where the rest
     # of the channel lives. RECORD the answer: the app cannot redo it, and a

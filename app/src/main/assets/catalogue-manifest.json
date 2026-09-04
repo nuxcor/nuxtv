@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-09-04T15:04:40+00:00",
+ "generated": "2026-09-04T15:35:30+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -17934,6 +17934,7 @@
   "1562992": "AFR",
   "1562991": "AFR",
   "1562990": "AFR",
+  "1536959": "UK",
   "1536560": "US",
   "1568693": "US",
   "1820224": "US",
@@ -38353,13 +38354,13 @@
     "section": "NEWS",
     "region": "UK",
     "sources": [
-     1525693,
-     717698,
      1536959,
+     717698,
+     1525693,
      162143,
      717702
     ],
-    "primary": 1525693
+    "primary": 1536959
    },
    "billiard|US": {
     "section": "SPORTS",
@@ -55694,7 +55695,7 @@
   "1562519": "PREMIER SPORTS 2",
   "325778": "AMC +",
   "414042": "BBC EARTH",
-  "1525693": "BBC NEWS",
+  "1536959": "BBC NEWS",
   "325904": "BLOOMBERG",
   "1536940": "BOUNCE XL",
   "1536659": "LAW & CRIME NETWORK",
@@ -63147,7 +63148,7 @@
   "brand_dupes_dropped": 0,
   "rsn_dupes_dropped": 0,
   "alias_dupes_dropped": 0,
-  "region_fixed": 129,
+  "region_fixed": 130,
   "misfiled_us_locals": 1,
   "sections_merged": 6,
   "tiles_resectioned": 106,
@@ -63158,7 +63159,7 @@
   "live_event_groups": 14,
   "sd_dropped": 251,
   "dgo_dropped": 312,
-  "tiers_measured": 2192,
+  "tiers_measured": 2194,
   "exact_duplicates_dropped": 235,
   "movie_genre_vocab": 0,
   "movies_with_genre_ids": 0,

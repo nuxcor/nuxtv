@@ -62,8 +62,8 @@ android {
         applicationId = "com.agoro.tv"
         minSdk = 23
         targetSdk = 36
-        versionCode = 171
-        versionName = "2.37.9"
+        versionCode = 172
+        versionName = "2.37.10"
 
         buildConfigField("String", "TMDB_API_KEY", buildConfigString(tmdbApiKey))
         buildConfigField("String", "PROVIDER_HOST", buildConfigString(providerHost))
