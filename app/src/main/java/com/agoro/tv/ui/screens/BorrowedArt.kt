@@ -6,6 +6,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import com.agoro.tv.MainViewModel
+import com.agoro.tv.data.ArtworkUrl
 import com.agoro.tv.data.Movie
 import com.agoro.tv.data.Series
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -54,6 +55,14 @@ private const val ART_RETRY_MS = 400L
  * the answer isn't known yet — [com.agoro.tv.ui.components.Artwork] draws
  * its own fallback in the meantime, so there is nothing to show for a miss.
  *
+ * Art the panel has painted quality badges onto counts as art it did not ship
+ * ([ArtworkUrl.isDoctored]): 1,965 films and 696 series on this panel wear a
+ * "4K UltraHD" banner and a gold "8K" over the poster, and TMDB has the same
+ * poster without them. The badged copy stays on screen throughout — while the
+ * lookup runs, and for good if TMDB turns out not to know the title — because
+ * a poster with a sticker on it still tells the viewer what the title is, and
+ * a monogram does not.
+ *
  * Subscribes per id rather than to the whole map: a filling grid publishes a
  * new map on every arrival, and a card that reads all of it recomposes for
  * every other card's artwork as well as its own.
@@ -66,7 +75,8 @@ internal fun borrowedArt(
     /** Prefer the 16:9 art — for heroes and ambient backdrops. */
     wide: Boolean = false,
 ): String? {
-    if (!provided.isNullOrBlank() || ref == null) return provided
+    if (!provided.isNullOrBlank() && !ArtworkUrl.isDoctored(provided)) return provided
+    if (ref == null) return provided
     val entry by remember(ref.id) {
         vm.artwork.map { it[ref.id] }.distinctUntilChanged()
     }.collectAsState(initial = vm.artwork.value[ref.id])
@@ -81,9 +91,14 @@ internal fun borrowedArt(
             kotlinx.coroutines.delay(ART_RETRY_MS)
         }
     }
-    val art = entry ?: return null
+    // Not known yet. [provided] is null for a title with no art at all, and
+    // the badged copy for one whose art is merely painted on — which is what
+    // should stay up until the clean one lands.
+    val art = entry ?: return provided
     // A poster standing in for a missing backdrop is better than no ambient
     // art; a backdrop standing in for a missing poster is not — cropped to 2:3
     // it is an unrecognisable slice of a frame.
-    return if (wide) art.backdrop ?: art.poster else art.poster
+    val borrowed = if (wide) art.backdrop ?: art.poster else art.poster
+    // TMDB does not know this title. The badged poster is what there is.
+    return borrowed ?: provided
 }

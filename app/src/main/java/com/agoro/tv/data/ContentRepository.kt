@@ -1444,7 +1444,15 @@ class ContentRepository(context: Context) {
                         rating = enriched.rating ?: tmdb.rating,
                         voteCount = tmdb.voteCount,
                         plot = enriched.plot ?: tmdb.overview,
-                        poster = enriched.poster ?: tmdb.posterUrl,
+                        // TMDB's wins over a poster the panel has painted a
+                        // "4K UltraHD" banner and an "8K" badge onto — the
+                        // detail page is the one place the poster is drawn
+                        // large enough to read the stickers. Falls back to
+                        // the badged one when TMDB has no poster: a marked
+                        // poster still says what the title is.
+                        poster = if (ArtworkUrl.isDoctored(enriched.poster)) {
+                            tmdb.posterUrl ?: enriched.poster
+                        } else enriched.poster ?: tmdb.posterUrl,
                         backdrop = tmdb.backdropUrl,
                         reviews = tmdb.reviews,
                         cast = enriched.cast ?: tmdb.cast,
@@ -1463,7 +1471,10 @@ class ContentRepository(context: Context) {
             rating = series.rating ?: tmdb.rating,
             voteCount = tmdb.voteCount,
             plot = series.plot ?: tmdb.overview,
-            poster = series.poster ?: tmdb.posterUrl,
+            // See movieDetails: a badged poster loses to TMDB's clean one.
+            poster = if (ArtworkUrl.isDoctored(series.poster)) {
+                tmdb.posterUrl ?: series.poster
+            } else series.poster ?: tmdb.posterUrl,
             backdrop = tmdb.backdropUrl,
             reviews = tmdb.reviews,
             cast = series.cast ?: tmdb.cast,

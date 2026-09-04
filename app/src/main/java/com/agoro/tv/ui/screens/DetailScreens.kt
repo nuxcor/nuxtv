@@ -55,6 +55,7 @@ import com.agoro.tv.data.ContentState
 import com.agoro.tv.data.Episode
 import com.agoro.tv.data.EpisodeTitle
 import com.agoro.tv.data.Movie
+import com.agoro.tv.data.PlotText
 import com.agoro.tv.data.Series
 import com.agoro.tv.ui.components.Artwork
 import com.agoro.tv.ui.components.BackdropLayer
@@ -165,10 +166,15 @@ fun MovieDetailScreen(
                 // everything else as a focus stop that does nothing new.
             }
 
-            if (!movie.plot.isNullOrBlank()) {
+            // Read through PlotText here as well as at the parse, because a
+            // catalogue cached before that existed still holds both
+            // languages and will until the next refresh. Running it twice is
+            // a no-op — it only ever picks one of the halves already there.
+            val moviePlot = remember(movie.plot) { PlotText.preferred(movie.plot) }
+            if (!moviePlot.isNullOrBlank()) {
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    text = movie.plot.orEmpty(),
+                    text = moviePlot,
                     style = MaterialTheme.typography.bodyLarge,
                     color = NuxColors.OnSurfaceDim,
                 )
@@ -506,7 +512,9 @@ fun SeriesDetailScreen(
                             // The series synopsis on every episode row is the
                             // same paragraph N times. Nothing, rather than
                             // that: the row is built to close up around it.
-                            synopsis = episode.plot,
+                            synopsis = remember(episode.plot) {
+                                PlotText.preferred(episode.plot)
+                            },
                             progress = resumeProgress[episode.url],
                             watched = seen && watchedTo == 0L,
                             modifier = if (episode.id == menuOriginId) {
@@ -620,10 +628,13 @@ private fun SeriesHero(
                 Spacer(Modifier.height(6.dp))
                 RatingStars(rating = rating, voteCount = series.voteCount)
             }
-            if (!series.plot.isNullOrBlank()) {
+            // See the movie page: also applied at the parse, and repeated
+            // here for the catalogues cached before it was.
+            val plot = remember(series.plot) { PlotText.preferred(series.plot) }
+            if (!plot.isNullOrBlank()) {
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    text = series.plot.orEmpty(),
+                    text = plot,
                     style = MaterialTheme.typography.bodyMedium,
                     color = NuxColors.OnSurfaceDim,
                     // Three. It was five, for a header that could not be

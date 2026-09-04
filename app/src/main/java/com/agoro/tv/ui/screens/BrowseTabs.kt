@@ -59,6 +59,7 @@ import com.agoro.tv.MainViewModel
 import com.agoro.tv.data.Category
 import com.agoro.tv.data.ContentBundle
 import com.agoro.tv.data.Movie
+import com.agoro.tv.data.PlotText
 import com.agoro.tv.data.Series
 import com.agoro.tv.ui.components.Artwork
 import com.agoro.tv.ui.components.ContextMenu
@@ -310,10 +311,11 @@ fun HeroHeader(hero: HeroInfo?) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 current.chips.take(4).forEachIndexed { i, chip -> MetaChip(chip, accent = i == 0) }
             }
-            if (!current.plot.isNullOrBlank()) {
+            val plot = remember(current.plot) { PlotText.preferred(current.plot) }
+            if (!plot.isNullOrBlank()) {
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = current.plot,
+                    text = plot,
                     style = MaterialTheme.typography.bodyLarge,
                     color = NuxColors.OnSurfaceDim,
                     maxLines = 2,

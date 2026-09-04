@@ -2,7 +2,9 @@ package com.agoro.tv
 
 import com.agoro.tv.data.ArtworkUrl
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -144,5 +146,35 @@ class ArtworkUrlTest {
                 "http://cmc.exchange-cdn.com:8080/images/series//nu6dcBfxr4VmOBj4k1S9r0r1MOW.jpg"
             ),
         )
+    }
+
+    /**
+     * Every image this mirror serves carries a "4K UltraHD" banner and a gold
+     * "8K" over the artwork — eight sampled at random out of the 696 it
+     * serves on this panel, eight badged. Marked, not dropped: a badged
+     * poster still says what the title is.
+     */
+    @Test
+    fun `the mirror that paints on its posters is marked`() {
+        assertTrue(ArtworkUrl.isDoctored(
+            "http://photo-tmdb.com/stalker_portal/screenshots/171/17039.jpg"))
+        assertTrue(ArtworkUrl.isDoctored(
+            "https://photo-tmdb.com:8080/stalker_portal/screenshots/409/40816.jpg"))
+    }
+
+    @Test
+    fun `clean hosts are not marked`() {
+        assertFalse(ArtworkUrl.isDoctored("$tmdb/w600_and_h900_bestv2/yhpmaJLMgG4e0f5Gq1aus3ywJr2.jpg"))
+        assertFalse(ArtworkUrl.isDoctored(null))
+        assertFalse(ArtworkUrl.isDoctored(""))
+        // Not a substring match: the name embedded in a path proves nothing.
+        assertFalse(ArtworkUrl.isDoctored("http://cdn.example.com/photo-tmdb.com/x.jpg"))
+    }
+
+    /** Its paths are the mirror's own, so there is no hash to recover. */
+    @Test
+    fun `a doctored URL is still passed through unchanged`() {
+        val u = "http://photo-tmdb.com/stalker_portal/screenshots/171/17039.jpg"
+        assertEquals(u, ArtworkUrl.poster(u))
     }
 }

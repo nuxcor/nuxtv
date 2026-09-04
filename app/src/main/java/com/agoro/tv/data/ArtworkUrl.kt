@@ -45,6 +45,36 @@ object ArtworkUrl {
     private val tmdbHosts = setOf("image.tmdb.org", "www.themoviedb.org", "themoviedb.org")
 
     /**
+     * The mirror that draws on its posters.
+     *
+     * Every image this host serves carries a "4K UltraHD" banner across the
+     * top and a gold "8K" badge over the artwork — sometimes two of them —
+     * and often a service logo the real poster does not have. Eight covers
+     * sampled at random out of the 696 it serves on this panel: eight badged.
+     * It is not an occasional bad file, it is what the mirror is for.
+     *
+     * The claims are also not true of the stream behind them. The panel sells
+     * the same title at several rungs and hands the top one this artwork
+     * whatever it actually is; nothing on the box can play 8K in any case.
+     *
+     * Marked rather than dropped. A badged poster still shows the viewer what
+     * the title is, so it stays on screen until something better is found —
+     * a clean copy of the same title on another of the panel's own rungs, or
+     * TMDB's. See ui/screens/BorrowedArt.kt and HomeRows.foldVariants.
+     *
+     * Paths here are the mirror's own (`stalker_portal/screenshots/171/…`),
+     * not TMDB hashes, so unlike [deadHosts] there is nothing to recover from
+     * the URL itself — the replacement has to come from somewhere else.
+     */
+    private val doctoredHosts = setOf("photo-tmdb.com", "photo-tmdb.com:8080")
+
+    /** True for artwork that arrives with quality badges painted onto it. */
+    fun isDoctored(url: String?): Boolean {
+        val raw = url?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+        return hostOf(raw)?.lowercase() in doctoredHosts
+    }
+
+    /**
      * A TMDB image id: their base-62 hash and an extension, nothing else.
      *
      * Twenty characters minimum, which every real one comfortably clears and
