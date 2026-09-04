@@ -2741,6 +2741,14 @@ for sid, mv in vod_meta.items():
 series_genre_add = {}
 if os.path.exists('series_meta.json'):
     series_genre_add = {k: v for k, v in json.load(open('series_meta.json')).items() if v}
+# Carried over when the file is not here, the way the logo map already is.
+# refresh.py does not run enrich_series.py — it fetches and builds — so on the
+# machine that rebuilds this weekly there IS no series_meta.json, and without
+# this line the next Sunday ships series_genre_add empty and takes the Romance
+# chip from 607 series back to nine, silently. movie_genres is 0 in the shipped
+# manifest for exactly this reason, one field over.
+if not series_genre_add:
+    series_genre_add = _prev.get('series_genre_add', {})
 
 def series_genres(sr):
     """The panel's genre string plus anything the keywords earned it."""

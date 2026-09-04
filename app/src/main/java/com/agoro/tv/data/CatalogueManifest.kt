@@ -228,7 +228,11 @@ data class CatalogueManifest(
         val primary: Int = 0,
         val label: String = "",
         val sources: List<Int> = emptyList(),
-    )
+    ) {
+        /** The same shape the collapse tiles have, for the maps that take both. */
+        fun asTile(): CollapseTile =
+            CollapseTile(primary = primary, sources = sources)
+    }
 
     @Serializable
     data class VodNameRules(
@@ -307,7 +311,11 @@ data class CatalogueManifest(
      */
     private val tileByPrimary: Map<Int, CollapseTile> by lazy {
         buildMap {
-            collapse.live.values.forEach { tile ->
+            // Metro locals are tiles too, and every other tile-keyed map here
+            // folds them in. Left out, five local stations whose primary has
+            // no binding kept falling through to the provider's icon while a
+            // sibling of their own carried the right one.
+            (collapse.live.values + metroLocals.values.map { it.asTile() }).forEach { tile ->
                 // effectivePrimary, not the declared one, for the same reason
                 // tileShelf uses it: a tile whose primary was dropped is led
                 // by the next source, and that is the id the app will ask on.

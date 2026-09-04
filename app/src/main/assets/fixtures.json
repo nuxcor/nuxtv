@@ -1,7 +1,22 @@
 {
- "generated": "2026-09-04T17:42:07Z",
+ "generated": "2026-09-04T18:21:27Z",
  "source": "site.api.espn.com",
  "days": 8,
+ "counts": {
+  "NFL": 2,
+  "NBA": 0,
+  "MLS": 41,
+  "Premier League": 17,
+  "La Liga": 15,
+  "Serie A": 14,
+  "Bundesliga": 16,
+  "Ligue 1": 14,
+  "Champions League": 18,
+  "Europa League": 0,
+  "Conference League": 0,
+  "Carabao Cup": 6,
+  "FA Cup": 0
+ },
  "fixtures": [
   {
    "league": "Ligue 1",

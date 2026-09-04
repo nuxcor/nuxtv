@@ -30,9 +30,12 @@ jobs:
             echo "No change."
             exit 0
           fi
-          # The count is the thing worth guarding: an upstream that answers
-          # with an empty scoreboard for every league would otherwise commit a
-          # file that quietly takes the Sport tab back to reading slot names.
+          # The real guards live in fetch_fixtures.py, where the per-league
+          # counts are: it refuses to write at all when three leagues failed to
+          # answer, or when the total collapses against the last good file. A
+          # total of five was never a guard — MLS alone carries forty, so an
+          # outage that lost every European league passed it. This floor stays
+          # as the last line of defence and nothing more.
           count=$(python3 -c "import json;print(len(json.load(open('app/src/main/assets/fixtures.json'))['fixtures']))")
           if [ "$count" -lt 5 ]; then
             echo "::error::Only $count fixtures — refusing to publish that."
