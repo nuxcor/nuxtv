@@ -14,6 +14,10 @@ import kotlinx.serialization.json.Json
 // corrupted preferences file otherwise throws into every reader on every
 // launch until the user clears app data.
 private val Context.dataStore by preferencesDataStore(
+    // The FILE on disk, not the product. It keeps the pre-rename name because
+    // renaming it is not a rename — it is a new, empty store, and every viewer
+    // opens the app signed out of a provider they have to enter again from a
+    // remote control. See PlayerPrefs for the other one.
     name = "nuxtv",
     corruptionHandler = androidx.datastore.core.handlers.ReplaceFileCorruptionHandler {
         androidx.datastore.preferences.core.emptyPreferences()

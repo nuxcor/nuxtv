@@ -49,7 +49,7 @@ enter the code:
 5526044
 ```
 
-Digits only; Downloader expands it. `nuxcor.github.io/nuxtv/` works too if you'd
+Digits only; Downloader expands it. `nuxcor.github.io/agoro/` works too if you'd
 rather type the address. Both land on the newest signed APK.
 
 The pre-rebrand code `7141087` still works. It was issued against the old
@@ -62,7 +62,7 @@ which is the whole reason to keep it alive.
 points at the current version:
 
 ```bash
-curl -L -o agoro.apk https://github.com/nuxcor/nuxtv/releases/latest/download/agoro.apk
+curl -L -o agoro.apk https://github.com/nuxcor/agoro/releases/latest/download/agoro.apk
 adb install agoro.apk
 ```
 

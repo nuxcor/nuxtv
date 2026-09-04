@@ -64,6 +64,8 @@ data class ArtEntry(
 // losing learned qualities and favorites to a power cut is recoverable;
 // an app that dies on launch until its data is cleared is not.
 private val Context.playerDataStore: DataStore<Preferences> by preferencesDataStore(
+    // Pre-rename name, kept deliberately: this file holds favourites, resume
+    // positions and every learned quality tier. A rename empties all of it.
     name = "nuxtv_player",
     corruptionHandler = androidx.datastore.core.handlers.ReplaceFileCorruptionHandler {
         androidx.datastore.preferences.core.emptyPreferences()
