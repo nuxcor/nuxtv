@@ -8,6 +8,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.agoro.tv.data.userMessage
 import com.agoro.tv.data.ArtEntry
+import com.agoro.tv.data.EpisodeTitle
 import com.agoro.tv.data.Category
 import com.agoro.tv.data.ContentBundle
 import com.agoro.tv.data.ContentRepository
@@ -1697,6 +1698,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         "S${it.season} E${it.episodeNum}",
                         it.title.takeIf(String::isNotBlank),
                     ).joinToString(" • "),
+                    episodeName = EpisodeTitle.display(it.title, it.episodeNum),
                     artwork = it.poster ?: series.poster,
                 )
             },

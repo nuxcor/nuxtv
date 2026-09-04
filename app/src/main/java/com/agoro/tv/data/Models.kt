@@ -266,6 +266,19 @@ data class PlayableItem(
     val url: String,
     val title: String,
     val subtitle: String? = null,
+    /**
+     * The episode's own name, without its season and number.
+     *
+     * [subtitle] carries "S1 E2 • The Cellar" because that is what a player's
+     * title bar wants on one line. The up-next card wants the two apart — the
+     * name is the headline, because it is the thing the viewer does not
+     * already know, and the address is meta under it. Splitting the subtitle
+     * back up at the point of drawing would make a format string into an API.
+     *
+     * Null for anything that is not an episode, and for an episode the
+     * provider never named.
+     */
+    val episodeName: String? = null,
     val artwork: String? = null,
     /** Channel this item came from — enables catch-up and recording from the player. */
     val channelId: String? = null,

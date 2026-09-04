@@ -1107,10 +1107,20 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     left
                 } else null
                 UpNextCard(
-                    show = next.title,
-                    episode = next.subtitle ?: next.title,
+                    // The episode's name leads; the series and the address
+                    // are the line under it. A queue item that is not an
+                    // episode has neither, so it leads on its own title.
+                    heading = next.episodeName ?: next.subtitle ?: next.title,
+                    meta = if (next.episodeName != null) {
+                        listOfNotNull(
+                            next.subtitle?.substringBefore(" • "),
+                            next.title,
+                        ).joinToString("  ·  ")
+                    } else next.title,
                     artwork = next.artwork,
                     secondsLeft = secondsLeft,
+                    countdownFraction =
+                        (secondsLeft ?: 0).toFloat() / UP_NEXT_SECONDS,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(36.dp),

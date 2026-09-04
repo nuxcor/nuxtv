@@ -3,6 +3,7 @@
 package com.agoro.tv.ui.player
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
@@ -31,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
@@ -39,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
@@ -634,122 +637,182 @@ private fun plainLanguage(raw: String): String = when {
 }
 
 /**
- * What is on after this one, in the corner, while the episode is still
- * running — and the same card counting itself down once it has ended.
+ * What is on after this one: in the corner while the episode runs out, and
+ * the same card counting itself down once it has ended.
  *
- * It used to be two things: a one-line "Up next: S1 E2" text badge in the top
- * right for the last fifteen seconds, and then a centred panel with a
- * countdown after the picture had gone. The badge was too small and too late
- * to be an offer and the panel arrived after the moment had passed, so
- * neither was the thing every streaming app puts here — a still of what is
- * next, named, in the corner, early enough to decide about.
+ * It replaced two half-measures — a one-line text badge in the top-right
+ * status stack, too small and too late to be an offer, and a centred panel
+ * that arrived after the picture had already gone. This is the shape every
+ * streaming service converged on, for the reason they converged on it: a
+ * still of what is next is what a viewer recognises an episode by, and the
+ * corner is the one place on a 16:9 frame that is reliably not the picture.
+ *
+ * The hierarchy is the episode's NAME first, because it is the only thing
+ * here the viewer does not already know. The series and the address go under
+ * it in the dim, and "UP NEXT" is a small tracked eyebrow above — a label,
+ * not a headline. The reference this was drawn from leads on the series name
+ * instead; that reads well on a phone, where you may not know what is
+ * playing, and reads as a repetition on a television forty minutes into an
+ * episode of it.
  *
  * ONE card in two states, because it is one moment. [secondsLeft] null is the
  * peek: the episode is still playing, this is information, and the remote
- * keeps every key it had — OK still opens the controls, because a viewer half
- * a minute from the end of an episode may well want to go back rather than
- * forward, and taking OK away to save them one press is not a trade this
- * makes on their behalf. Non-null is the offer: the episode has ended, the
- * count is running, and OK takes it while BACK declines.
+ * keeps every key it had — OK still opens the controls, because a viewer
+ * minutes from the end may well want to go back rather than forward. There
+ * is no button in that state, deliberately: a filled pill on a card no key
+ * activates is a control that lies. Non-null is the offer — the episode has
+ * ended, the count is running, OK takes it and BACK declines — and only then
+ * does the pill appear, with the seconds beside it and a track along the
+ * card's bottom edge draining to nothing.
  *
- * Still deliberately not a menu, for the same reason as before: there are
- * exactly two answers and the remote has a key for each.
+ * Still not a menu. There are exactly two answers and the remote has a key
+ * for each.
  */
 @Composable
 internal fun UpNextCard(
-    /** The series. Drawn in the accent, because it is the thing being named. */
-    show: String,
-    /** "S1 E2 • The Cellar", or whatever the queue knows of the next item. */
-    episode: String,
-    /** The next episode's still. Null draws the monogram rather than nothing. */
+    /** The episode's own name — the headline. */
+    heading: String,
+    /** "S1 E2  ·  Lady in the Lake" — the address, under the name. */
+    meta: String,
+    /** The next episode's still, 16:9. Null draws the monogram. */
     artwork: String?,
     /**
      * Seconds until it starts by itself, or null while the current episode is
-     * still playing — which is the difference between a notice and an offer.
+     * still playing — the difference between a notice and an offer.
      */
     secondsLeft: Int?,
+    /** [secondsLeft] as 0..1 of the whole count, for the draining track. */
+    countdownFraction: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    Column(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(NuxColors.Surface.copy(alpha = 0.94f))
-            // The text decides the height and the still matches it. Sized the
-            // other way round — a fixed still with the text centred beside it
-            // — the two states are different heights and the shorter one sits
-            // in a card with grey bars above and below the picture.
-            .height(IntrinsicSize.Min),
-        verticalAlignment = Alignment.CenterVertically,
+            .width(UP_NEXT_CARD_WIDTH)
+            // Shadow before the background, so it falls outside the shape
+            // rather than under a transparent fill. The card sits on video of
+            // no known brightness: the shadow separates it from a light frame
+            // and the hairline from a dark one, and between them it never
+            // dissolves into whatever is behind it.
+            .shadow(18.dp, UpNextShape, clip = false)
+            .clip(UpNextShape)
+            .background(NuxColors.Surface.copy(alpha = 0.97f))
+            .border(1.dp, Color.White.copy(alpha = 0.14f), UpNextShape),
     ) {
-        // Flush to the card's leading edge, no padding around it: the still
-        // is the half of this a viewer recognises the episode from across a
-        // room, and insetting it turns it into a thumbnail on a form.
-        com.agoro.tv.ui.components.Artwork(
-            imageUrl = artwork,
-            title = episode,
-            modifier = Modifier.fillMaxHeight().aspectRatio(16f / 9f),
-            background = NuxColors.SurfaceVariant,
-        )
-        Column(
-            modifier = Modifier.widthIn(min = 210.dp, max = 290.dp)
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-        ) {
-            Text(
-                text = androidx.compose.ui.text.buildAnnotatedString {
-                    withStyle(androidx.compose.ui.text.SpanStyle(color = NuxColors.OnSurfaceDim)) {
-                        append("Next on ")
-                    }
-                    withStyle(
-                        androidx.compose.ui.text.SpanStyle(
-                            color = NuxColors.Primary,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    ) { append(show) }
-                },
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+        Row(modifier = Modifier.padding(18.dp)) {
+            com.agoro.tv.ui.components.Artwork(
+                imageUrl = artwork,
+                title = heading,
+                modifier = Modifier
+                    .width(172.dp)
+                    .aspectRatio(16f / 9f)
+                    .clip(RoundedCornerShape(10.dp)),
+                background = NuxColors.SurfaceVariant,
             )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = episode,
-                style = MaterialTheme.typography.labelLarge,
-                color = NuxColors.OnSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(12.dp))
-            if (secondsLeft == null) {
-                // A notice, and it says so. No pill: a filled button on a
-                // card no key activates is a control that lies.
+            Spacer(Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Up next",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = NuxColors.OnSurfaceDim,
+                    text = "UP NEXT",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.6.sp,
+                    ),
+                    color = NuxColors.Primary,
                 )
-            } else {
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    text = heading,
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = NuxColors.OnSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = meta,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = NuxColors.OnSurfaceDim,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        if (secondsLeft != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(22.dp))
+                        .weight(1f)
+                        .clip(RoundedCornerShape(20.dp))
                         .background(NuxColors.Primary)
-                        .padding(horizontal = 18.dp, vertical = 9.dp),
+                        .padding(vertical = 11.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        // The number counts, so the words around it must not
-                        // move — a line that reflows once a second twitches.
-                        text = "▶  Watch now  ·  $secondsLeft",
-                        style = MaterialTheme.typography.labelLarge,
+                        text = "▶  Watch now",
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                        ),
                         color = NuxColors.OnAccent,
                         maxLines = 1,
                     )
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.width(14.dp))
                 Text(
-                    text = "OK to start  •  BACK to stay",
-                    style = MaterialTheme.typography.labelSmall,
+                    // Seconds live OUTSIDE the pill. Inside, the number moves
+                    // as it narrows from two digits to one and takes the
+                    // label with it; a pill whose text shuffles once a second
+                    // is the thing the eye watches instead of the title.
+                    text = "${secondsLeft}s",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                    ),
                     color = NuxColors.OnSurfaceDim,
+                    maxLines = 1,
                 )
             }
+            Spacer(Modifier.height(9.dp))
+            Text(
+                text = "OK to start  ·  BACK to stay",
+                style = MaterialTheme.typography.labelSmall,
+                color = NuxColors.OnSurfaceDim,
+                modifier = Modifier.padding(horizontal = 18.dp),
+            )
+            Spacer(Modifier.height(10.dp))
+            // The same count as the number, drawn rather than read. It drains
+            // along the foot of the card, which is the one edge where a
+            // moving element cannot land on anything.
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 18.dp)
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Color.White.copy(alpha = 0.15f)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(countdownFraction.coerceIn(0f, 1f))
+                        .background(NuxColors.Primary),
+                )
+            }
+            Spacer(Modifier.height(14.dp))
         }
     }
 }
+
+/** The card's corner, shared by its shadow, its fill and its hairline. */
+private val UpNextShape = RoundedCornerShape(20.dp)
+
+/**
+ * Fixed, and wide enough for two lines of a real episode title beside a still
+ * big enough to recognise. Measured against the longest titles this catalogue
+ * carries rather than chosen: at the 384dp this started from, "It has to do
+ * with the search for the marvelous" ran out of room mid-phrase.
+ */
+private val UP_NEXT_CARD_WIDTH = 448.dp
