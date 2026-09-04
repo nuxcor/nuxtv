@@ -791,6 +791,12 @@ class PlayerSession internal constructor(
         // else entirely.
         upNextIndex = null
         if (layer == PlayerLayer.UpNext) layer = PlayerLayer.None
+        // A scrub belongs to the item it was started on; a new one arriving
+        // mid-scrub would otherwise seek the wrong film to a position that
+        // meant something in the last one.
+        seekJob = null
+        seekTargetMs = null
+        seekPresses = 0
         ladderItemIndex = index
         retriesLeft = reconnectDelaysMs(request.isLive).size
         liveFormatStage = 0
@@ -947,6 +953,75 @@ class PlayerSession internal constructor(
     fun dismissUpNext() {
         upNextIndex = null
         if (layer == PlayerLayer.UpNext) layer = PlayerLayer.None
+    }
+
+    /**
+     * Where a pending scrub would land, or null when none is in flight.
+     *
+     * The seek does not happen while this is set. Presses move this number;
+     * [SEEK_COMMIT_MS] after the last one, a single real seek runs. See
+     * SeekRamp for why — six presses used to be six key-frame hunts and six
+     * re-buffers on a box fetching over IPTV.
+     */
+    var seekTargetMs by mutableStateOf<Long?>(null)
+        private set
+
+    /** Where the scrub began, so the chrome can show a delta and not just a time. */
+    var seekAnchorMs by mutableStateOf(0L)
+        private set
+
+    private var seekPresses = 0
+    private var seekJob: Job? = null
+        set(value) {
+            field?.cancel()
+            field = value
+        }
+
+    /**
+     * One press of LEFT or RIGHT on bare VOD playback.
+     *
+     * @param direction -1 back, +1 forward.
+     */
+    fun nudgeSeek(direction: Int) {
+        val engine = engine ?: return
+        val duration = engine.durationMs.takeIf { it > 0 } ?: 0L
+        if (seekTargetMs == null) {
+            // Anchor on the live position, not on session.positionMs: the 2Hz
+            // poll only runs while chrome is up, so the cached value can be
+            // minutes stale and the first press would jump somewhere else
+            // entirely.
+            seekAnchorMs = engine.positionMs
+            seekTargetMs = seekAnchorMs
+            seekPresses = 0
+        }
+        seekTargetMs = seekTargetMs(seekTargetMs ?: 0L, direction, seekPresses, duration)
+        seekPresses++
+        durationMs = duration
+        seekJob = scope.launch {
+            delay(SEEK_COMMIT_MS)
+            val target = seekTargetMs ?: return@launch
+            seekTargetMs = null
+            seekPresses = 0
+            // Written through before the seek, so the chrome that lingers
+            // afterwards shows where it landed rather than where it left.
+            positionMs = target
+            this@PlayerSession.engine?.seekTo(target)
+        }
+    }
+
+    /**
+     * Abandon a scrub in flight and stay where the picture is.
+     *
+     * BACK's meaning everywhere else in this player is "undo the thing that
+     * is open", and a pending seek is the smallest such thing. Without it the
+     * only way out of an overshoot is to steer all the way back.
+     */
+    fun cancelSeek(): Boolean {
+        if (seekTargetMs == null) return false
+        seekJob = null
+        seekTargetMs = null
+        seekPresses = 0
+        return true
     }
 
     fun clearError() {

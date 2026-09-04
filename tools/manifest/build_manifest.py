@@ -359,14 +359,21 @@ CHANNEL_ALIAS = {
     # international feed simply became BBC News. Two tiles for one channel,
     # and no probe can see it — both decode, at 1080 and 720.
     'bbcworldnews': 'bbcnews',
-    # Neither of the panel's "Parliament" feeds is BBC Parliament — both carry
-    # BBC News, confirmed by watching them. The panel files one as PARLAMENT
-    # and one as PARLIAMENT, so they did not even fold into each other, and
-    # the app showed three BBC News tiles under two names. No probe can see
-    # this; only the picture can. The misspelled one is the best BBC News
-    # feed on the line, which is why it is pinned below rather than dropped.
-    'bbcparlament': 'bbcnews',
-    'bbcparliament': 'bbcnews',
+    # The two "Parliament" feeds were folded in here on 2026-08-27, on the
+    # finding that neither carried BBC Parliament and both carried BBC News.
+    # UNFOLDED 2026-09-03: the viewer reports the BBC News tile playing BBC
+    # Parliament. Whatever was true a week ago, the feed named Parliament is
+    # showing Parliament now, and a live picture beats a written note.
+    #
+    # The lesson is about the KIND of evidence, not the channels. "Confirmed
+    # by watching" is a measurement of one moment on one feed, and a provider
+    # re-points a feed whenever it likes. Grouping by NAME is wrong less
+    # often, recovers on its own when the provider changes something, and is
+    # the rule everywhere else in this file. An exception to it needs to earn
+    # its keep continuously, and this one stopped.
+    #
+    #   'bbcparlament': 'bbcnews',
+    #   'bbcparliament': 'bbcnews',
     # The panel's "BLOOMBERG EU" is Bloomberg. Left on its own key it stood as
     # a second tile beside the main one, at 720 against the 1080 the merged
     # tile already had — so the only thing the separate entry bought the
@@ -685,7 +692,16 @@ NAMED_REMOVAL = re.compile(
     r'|\bDAZN\s+FAST\b'                  # US: DAZN FAST+
     r'|\bDAZN\s+RISE\b'                  # US: DAZN RISE
     r'|\bFIGHT\s*NETWORK\b'              # US: FIGHT NETWORK HD
-    r'|\bBOXING\s*TV\b',                 # US: BOXING TV
+    r'|\bBOXING\s*TV\b'                  # US: BOXING TV
+    # ChuChu TV, 2026-09-03 at the user's request. Ten numbered feeds of one
+    # nursery-rhyme channel — "CHU CHU TV 1 4K" through "10" — which is ten
+    # rows of the same thing on the Kids shelf. Asked for as "in
+    # entertainment"; they are filed under UK| KIDS and are the only ChuChu
+    # channels in the line-up, so there is nothing else it could mean.
+    #
+    # Anchored on the doubled word: a single \bCHU\b would be a three-letter
+    # match waiting to catch something unrelated.
+    r'|\bCHU\s*CHU\b',
     re.I)
 
 telemundo_drop, rsn_drop, ca_drop, us_news_drop = [], [], [], []
@@ -779,9 +795,18 @@ TIER_RANK = {"8K":0,"4K":1,"UHD":2,"FHD":3,"HEVC":4,"H265":5,"RAW":6,"HD":7,None
 # them is watching both, which is a judgement rather than a measurement, so it
 # is written down as one. Keyed by channel key -> stream id.
 PRIMARY_PIN = {
-    # 622075, the panel's "UK: BBC PARLAMENT". Visibly the better picture of
-    # the two 1080 feeds; the "HEVC 4K" one is neither 4K nor better.
-    'bbcnews': 622075,
+    # WAS 622075, the panel's "UK: BBC PARLAMENT", pinned as the better of
+    # the two 1080 feeds. It is out: that feed is named Parliament, is bound
+    # to BBCParliament.uk, and the viewer reports it playing Parliament. It
+    # is no longer even in this tile — see CHANNEL_ALIAS.
+    #
+    # 1525693, "UK: BBC NEWS", replaces it, and the reason is the box rather
+    # than the picture. The tile's only other 1080 source is "BBC NEWS HEVC
+    # 4K", and this box reports HEVC rungs as undecodable — the player's
+    # quality sheet marks them, and ABC News Live already had to be moved off
+    # an HEVC feed for it on 2026-09-02. A 720p feed it can decode beats a
+    # 1080p one it cannot.
+    'bbcnews': 1525693,
 }
 # Hand-pinned territories where the fold's majority lands wrong: NBC News Now
 # grouped under UK because its surviving sources sit in UK categories.
@@ -2165,6 +2190,16 @@ if not _crest_map: _crest_map = (_prev.get('sport') or {}).get('club_crest', {})
 # sources are pinned, not just today's primary, so a later probe promoting a
 # different source does not empty the guide again.
 _ABC_NEWS_LIVE = {'src': 'repo', 'id': 'abcnewslive.us', 'feed': 'epg6'}
+
+# BBC News (2026-09-03). The tile's primary moved off the Parliament-named
+# feed, and the one replacing it carried no binding at all — so the fix for
+# the picture would have cost the guide.
+#
+# bbcnews.uk, not the bbcnews.us one source already had: this is the UK tile,
+# and epg6 carries 381 programmes under .uk against 219 under .us. Counted in
+# the pack, not guessed. Every source is pinned, as with ABC above, so a later
+# probe promoting a different one cannot empty the guide again.
+_BBC_NEWS = {'src': 'repo', 'id': 'bbcnews.uk', 'feed': 'epg6'}
 EPG_PIN = {
     717697: 'SkyNews.uk',    # UK: SKY NEWS   — carried
     325058: 'Fuse.us',       # US: FUSE MUSIC — carried
@@ -2173,6 +2208,13 @@ EPG_PIN = {
     324915: _ABC_NEWS_LIVE,   # US: ABC NEWS
     430328: _ABC_NEWS_LIVE,   # US: ABC NEWS
     430295: _ABC_NEWS_LIVE,   # US: ABC NEWS LIVE HD
+    1525693: _BBC_NEWS,       # UK: BBC NEWS (the tile's primary)
+    717698: _BBC_NEWS,        # UK: BBC NEWS HEVC 4K
+    1536959: _BBC_NEWS,       # PRIME: BBC NEWS
+    717702: _BBC_NEWS,        # UK: BBC NEWS HEVC HD
+    # BBC World News became BBC News in 2023 and is folded into this tile, so
+    # if it is ever promoted it should carry the same listings.
+    162143: _BBC_NEWS,        # UK: BBC WORLD NEWS HD
 }
 for _sid, _pin in EPG_PIN.items():
     if isinstance(_pin, dict):

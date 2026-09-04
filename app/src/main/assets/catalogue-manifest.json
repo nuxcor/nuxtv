@@ -1,6 +1,6 @@
 {
  "manifest_version": 1,
- "generated": "2026-09-02T19:33:08+00:00",
+ "generated": "2026-09-03T00:43:33+00:00",
  "provider": {
   "host": "pro.dzidzi.online",
   "protocol": "xtream"
@@ -8552,6 +8552,16 @@
   498738,
   414074,
   1008121,
+  231804,
+  231805,
+  231806,
+  231807,
+  231808,
+  231809,
+  231810,
+  231811,
+  231812,
+  231813,
   605948,
   605947,
   605946,
@@ -18111,16 +18121,6 @@
   "162246": "ENTERTAINMENT",
   "162248": "ENTERTAINMENT",
   "1599751": "ENTERTAINMENT",
-  "231804": "ENTERTAINMENT",
-  "231805": "ENTERTAINMENT",
-  "231806": "ENTERTAINMENT",
-  "231807": "ENTERTAINMENT",
-  "231808": "ENTERTAINMENT",
-  "231809": "ENTERTAINMENT",
-  "231810": "ENTERTAINMENT",
-  "231811": "ENTERTAINMENT",
-  "231812": "ENTERTAINMENT",
-  "231813": "ENTERTAINMENT",
   "2114818": "ENTERTAINMENT",
   "405517": "ENTERTAINMENT"
  },
@@ -19296,7 +19296,7 @@
    },
    "717698": {
     "src": "repo",
-    "id": "bbcnews.us",
+    "id": "bbcnews.uk",
     "feed": "epg6"
    },
    "717697": {
@@ -21801,8 +21801,8 @@
    },
    "162143": {
     "src": "repo",
-    "id": "bbcworldnews.us",
-    "feed": "epg2"
+    "id": "bbcnews.uk",
+    "feed": "epg6"
    },
    "622075": {
     "src": "openepg",
@@ -23162,6 +23162,21 @@
    "430295": {
     "src": "repo",
     "id": "abcnewslive.us",
+    "feed": "epg6"
+   },
+   "1525693": {
+    "src": "repo",
+    "id": "bbcnews.uk",
+    "feed": "epg6"
+   },
+   "1536959": {
+    "src": "repo",
+    "id": "bbcnews.uk",
+    "feed": "epg6"
+   },
+   "717702": {
+    "src": "repo",
+    "id": "bbcnews.uk",
     "feed": "epg6"
    }
   }
@@ -38336,15 +38351,13 @@
     "section": "NEWS",
     "region": "UK",
     "sources": [
-     622075,
+     1525693,
      717698,
      1536959,
-     1525693,
-     1525676,
      162143,
      717702
     ],
-    "primary": 622075
+    "primary": 1525693
    },
    "billiard|US": {
     "section": "SPORTS",
@@ -55679,7 +55692,7 @@
   "1562519": "PREMIER SPORTS 2",
   "325778": "AMC +",
   "414042": "BBC EARTH",
-  "622075": "BBC NEWS",
+  "1525693": "BBC NEWS",
   "325904": "BLOOMBERG",
   "1536940": "BOUNCE XL",
   "1536659": "LAW & CRIME NETWORK",
@@ -63051,9 +63064,9 @@
   "movie_categories": 67,
   "unresolved_live_categories": 0,
   "movies_with_genre": 0,
-  "live_tiles_after_collapse": 6599,
+  "live_tiles_after_collapse": 6591,
   "direct_feed_tiles": 2,
-  "live_tiles_collapsed": 3139,
+  "live_tiles_collapsed": 3137,
   "collapse_groups": 146,
   "collapse_needs_review": 1,
   "dropped_region_streams": 2906,
@@ -63135,8 +63148,8 @@
   "region_fixed": 129,
   "misfiled_us_locals": 1,
   "sections_merged": 6,
-  "tiles_resectioned": 116,
-  "epg_bound": 970,
+  "tiles_resectioned": 106,
+  "epg_bound": 973,
   "logo_bound": 4386,
   "club_crests_bound": 200,
   "live_event_channels": 7679,

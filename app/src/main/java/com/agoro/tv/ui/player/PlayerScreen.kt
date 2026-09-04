@@ -494,11 +494,15 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
 
     // The transient VOD seek chrome: shown by bare LEFT/RIGHT seeks, gone
     // shortly after the last press.
-    var seekFlashTick by remember { mutableIntStateOf(0) }
+    // Up for the whole scrub, and for a moment after it lands so the viewer
+    // sees WHERE it landed rather than the bar vanishing on commit.
     var seekFlashVisible by remember { mutableStateOf(false) }
-    LaunchedEffect(seekFlashTick) {
-        if (seekFlashTick == 0) return@LaunchedEffect
-        seekFlashVisible = true
+    LaunchedEffect(session.seekTargetMs) {
+        if (session.seekTargetMs != null) {
+            seekFlashVisible = true
+            return@LaunchedEffect
+        }
+        if (!seekFlashVisible) return@LaunchedEffect
         delay(PlayerMotion.SeekFlashMs)
         seekFlashVisible = false
     }
@@ -820,6 +824,11 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             noChannelNumber = null
             return@BackHandler
         }
+        // A scrub in flight is the smallest open thing, so it is the first
+        // BACK undoes — and the only way out of an overshoot that does not
+        // involve steering all the way back. Nothing has moved yet, so this
+        // costs the viewer nothing but the pressing they just did.
+        if (session.cancelSeek()) return@BackHandler
         when (session.layer) {
             PlayerLayer.Guide, PlayerLayer.ChannelList, PlayerLayer.Tracks,
             PlayerLayer.Catchup, PlayerLayer.Options, PlayerLayer.Controls ->
@@ -925,12 +934,11 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         session.centerArmed = false
                         session.poke()
                     }
-                    is PlayerKeyAction.Seek -> {
-                        engine.seekTo(engine.positionMs + action.deltaMs)
-                        session.positionMs = engine.positionMs
-                        session.durationMs = engine.durationMs
-                        seekFlashTick++
-                    }
+                    // The sign is the instruction; the SIZE comes from the
+                    // ramp in SeekRamp, which grows as a scrub goes on. The
+                    // seek itself waits for the viewer to stop pressing.
+                    is PlayerKeyAction.Seek ->
+                        session.nudgeSeek(if (action.deltaMs < 0) -1 else +1)
                     is PlayerKeyAction.Digit ->
                         if (session.digitBuffer.length < 4) {
                             session.digitBuffer += action.digit.toString()
@@ -1169,7 +1177,15 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             exit = PlayerMotion.exitToBottom(PlayerMotion.FastMs),
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
-            SeekFlash(positionMs = session.positionMs, durationMs = session.durationMs)
+            // The TARGET while a scrub is in flight, the landed position once
+            // it commits. Showing the live position during a scrub would sit
+            // still while the viewer pressed, which reads as the remote not
+            // working — the whole reason the number moves is to say it heard.
+            SeekFlash(
+                positionMs = session.seekTargetMs ?: session.positionMs,
+                durationMs = session.durationMs,
+                deltaMs = session.seekTargetMs?.let { it - session.seekAnchorMs },
+            )
         }
 
         // The error card keeps its last message so the exit animation doesn't
