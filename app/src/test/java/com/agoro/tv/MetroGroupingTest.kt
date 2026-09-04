@@ -105,6 +105,27 @@ class MetroGroupingTest {
         )
     }
 
+    /**
+     * The network run is a LOCALS rule. On any other shelf a channel that
+     * merely has a network in its name is just a channel, and the News shelf
+     * opened with seven of them before the alphabet started.
+     */
+    @Test
+    fun `a national shelf ignores the network order`() {
+        val channels = mutableListOf(
+            ch(1, "US: FOX NEWS CHANNEL"), ch(2, "BBC NEWS"), ch(3, "PRIME: ABC NEWS LIVE"),
+            ch(4, "US: AL JAZEERA ENGLISH"), ch(5, "US: NBC CNBC"),
+        )
+        orderChannels(channels, manifest())
+        assertEquals(
+            listOf(
+                "PRIME: ABC NEWS LIVE", "US: AL JAZEERA ENGLISH", "BBC NEWS",
+                "US: NBC CNBC", "US: FOX NEWS CHANNEL",
+            ),
+            channels.map { it.name },
+        )
+    }
+
     /** Shelves are ordered independently; one never bleeds into another. */
     @Test
     fun `each shelf sorts on its own`() {

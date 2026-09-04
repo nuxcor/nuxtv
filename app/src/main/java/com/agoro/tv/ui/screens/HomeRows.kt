@@ -297,11 +297,20 @@ internal const val CONTINUE_SHELF_LIMIT = 20
  *    need no entry: casing is folded by [genreKey] and [GENRE_MIN_TITLES]
  *    keeps the rest off the strip.)
  *
- *  - **A stray or a near-synonym folded into its parent.** Soap (67), Romance
- *    (10), Western (52), Talk (42) and Podcast (25) each earn a chip that
- *    leads almost nowhere; War & Politics (177) is what Action & Adventure
- *    already means on a listings panel; and Kids (319) and Family (462) are
- *    one chip everywhere else in television.
+ *  - **A stray or a near-synonym folded into its parent.** Soap (67),
+ *    Western (52), Talk (42) and Podcast (25) each earn a chip that leads
+ *    almost nowhere; War & Politics (177) is what Action & Adventure already
+ *    means on a listings panel; and Kids (319) and Family (462) are one chip
+ *    everywhere else in television.
+ *
+ * Romance was in that list and came out of it on 2026-09-04, asked for by
+ * name. It is the thinnest chip on the strip — the panel tags TEN series
+ * Romance, nine after variants fold — and it is still worth having, because a
+ * viewer looking for it cannot find it by browsing Drama's four and a half
+ * thousand. The count is a tagging artefact rather than a library one: the
+ * Korean and Turkish romances that would fill it are all filed Drama, and
+ * only a genre source outside the panel (TMDB, as the movie shelves already
+ * use for artwork) would fix that.
  *
  * What is deliberately NOT folded: nothing above a thousand titles loses its
  * own chip. Crime (1,648) and Mystery (1,067) are the tempting pair and they
@@ -315,7 +324,6 @@ private val GENRE_FOLD = mapOf(
     "drame" to "Drama",
     // strays and near-synonyms
     "soap" to "Drama",
-    "romance" to "Drama",
     "western" to "Action & Adventure",
     "war & politics" to "Action & Adventure",
     "talk" to "Documentary",
