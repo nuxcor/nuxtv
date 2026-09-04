@@ -1411,6 +1411,79 @@ object SportsParser {
     }
 
     /**
+     * The schedule's answer, over anything read out of a slot name.
+     *
+     * Where a parsed fixture matches one in [Schedule], the row takes the
+     * SCHEDULE's kick-off, competition and club names. All three matter:
+     *
+     *  - the kick-off, because the packs disagree with each other by hours and
+     *    the earliest clock is what admits a fixture to the screen;
+     *  - the competition, because a pack that writes "all" in that field says
+     *    nothing, and a women's fixture under men's club names is the result;
+     *  - the CLUB NAMES, because they are what folds four slots into one row.
+     *    Bielefeld v St. Pauli appeared twice, as "Bielefeld" and as "DSC
+     *    Arminia Bielefeld", with two clocks — one identity from the schedule
+     *    and it is one match again.
+     *
+     * Sides match on tokens rather than spelling: the schedule's "New York
+     * City FC" and the panel's "New York City" reduce to the same words once
+     * [sideKey] has taken the affixes off, and a shorter name that is a subset
+     * of a longer one is the same club ("Bielefeld" inside "Arminia
+     * Bielefeld"). Both sides have to match, which is what stops Manchester
+     * United matching Manchester City.
+     *
+     * Unmatched fixtures are returned exactly as they came. A schedule that
+     * does not cover a competition — and it covers thirteen — must never be a
+     * reason for a match to vanish.
+     */
+    fun applySchedule(
+        events: List<SportsEvent>,
+        fixtures: List<ScheduleFixture>,
+        nowMs: Long,
+    ): List<SportsEvent> {
+        if (events.isEmpty() || fixtures.isEmpty()) return events
+        val indexed = fixtures.mapNotNull { f ->
+            val start = f.startMs ?: return@mapNotNull null
+            Triple(tokens(f.home), tokens(f.away), f to start)
+        }
+        return events.map { event ->
+            val home = tokens(event.home)
+            val away = tokens(event.away)
+            val hits = indexed.filter { (fh, fa, _) ->
+                (sameSide(home, fh) && sameSide(away, fa)) ||
+                    (sameSide(home, fa) && sameSide(away, fh))
+            }
+            if (hits.isEmpty()) return@map event
+            // The closest to what the slot claimed, or to now when it claimed
+            // nothing: two legs of the same tie a week apart are both matches
+            // between the same clubs, and the row is about one of them.
+            val anchor = event.startMs ?: nowMs
+            val (fixture, start) = hits.minByOrNull {
+                kotlin.math.abs(it.third.second - anchor)
+            }!!.third
+            event.copy(
+                league = fixture.league.ifBlank { event.league },
+                home = fixture.home,
+                away = fixture.away,
+                startMs = start,
+                live = start <= nowMs,
+            )
+        }
+    }
+
+    /** A side reduced to its words, affixes and punctuation gone. */
+    private fun tokens(side: String): Set<String> =
+        sideKey(side).split(' ').filterTo(HashSet()) { it.isNotBlank() }
+
+    /**
+     * One club, spelled two ways. Equal, or one a subset of the other, which
+     * is how "Bielefeld" and "Arminia Bielefeld" are the same team and
+     * "Manchester United" and "Manchester City" are not.
+     */
+    private fun sameSide(a: Set<String>, b: Set<String>): Boolean =
+        a.isNotEmpty() && b.isNotEmpty() && (a.containsAll(b) || b.containsAll(a))
+
+    /**
      * The fixtures worth putting on screen: on now, or starting within the cue.
      * Live first, then soonest — a match already running outranks one that has
      * not started however close its kick-off.

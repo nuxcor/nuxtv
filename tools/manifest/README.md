@@ -178,6 +178,7 @@ a rebuild reaches the box within a day **without an app release**.
 | Episodes | `dedup_fetch.py` | `dup_ids.txt` | `dup_episodes.json` |
 | VOD metadata | `enrich_vod.py` | `get_vod_streams.json` | genre/rating/tmdb keys |
 | Series genres | `enrich_series.py` | `get_series.json` + TMDB keywords | `series_meta.json` |
+| Fixtures | `fetch_fixtures.py` | ESPN public scoreboards | `app/src/main/assets/fixtures.json` |
 | Guide match | `epg_match.py` | `repo_epg_index.json`, `openepg_index_built.json` | `epg_map_final.json` |
 | Guide gaps | `epg_fill.py` | `manifest.json`, `kept_live.json`, guide packs | `epg_extra.json` |
 | Artwork match | `logo_match.py` | tv-logos index | `logo_map.json` |

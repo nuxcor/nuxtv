@@ -1,0 +1,45 @@
+name: Fixtures
+
+# The schedule is only worth what its freshness is. Four times a day is often
+# enough for kick-offs, which move rarely and never by much, and rare enough
+# that the repository does not fill with commits — the job writes nothing when
+# nothing changed.
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fixtures
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fetch the fixture list
+        run: python3 tools/manifest/fetch_fixtures.py
+      - name: Commit when it changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- app/src/main/assets/fixtures.json; then
+            echo "No change."
+            exit 0
+          fi
+          # The count is the thing worth guarding: an upstream that answers
+          # with an empty scoreboard for every league would otherwise commit a
+          # file that quietly takes the Sport tab back to reading slot names.
+          count=$(python3 -c "import json;print(len(json.load(open('app/src/main/assets/fixtures.json'))['fixtures']))")
+          if [ "$count" -lt 5 ]; then
+            echo "::error::Only $count fixtures — refusing to publish that."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/assets/fixtures.json
+          git commit -m "Fixtures: $count over the next 8 days"
+          git push

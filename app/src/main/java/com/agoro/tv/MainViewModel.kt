@@ -98,6 +98,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /**
+     * The published fixture list. Null until it lands, and null forever on a
+     * box that has never reached the network — [sportFixtures] then bills its
+     * rows the old way, off the slot names, which is worse but is not nothing.
+     */
+    val schedule: StateFlow<com.agoro.tv.data.Schedule?> =
+        kotlinx.coroutines.flow.flow { emit(repo.schedule()) }
+            .flowOn(kotlinx.coroutines.Dispatchers.IO)
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /**
      * Plays a fixture on its best slot, with the lower-tier slots carrying the
      * same match behind it — the same match is routinely on four at once, and
      * the best one is not always the one that opens.
@@ -614,26 +624,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * carries no leagues.
      */
     val sportFixtures: StateFlow<List<com.agoro.tv.data.SportsEvent>?> =
-        kotlinx.coroutines.flow.combine(content, sport) { c, s ->
+        kotlinx.coroutines.flow.combine(content, sport, schedule) { c, s, sched ->
             val bundle = (c as? ContentState.Ready)?.bundle ?: return@combine null
             val leagues = s?.leagues.orEmpty()
             if (leagues.isEmpty()) return@combine emptyList()
             val now = System.currentTimeMillis()
             val cached = sportCache
-            if (cached != null && sportCacheEvents === bundle.events && sportCacheSport === s &&
-                now - sportCacheAtMs < sportParseTtlMs
+            // The schedule is applied to the PARSE, not cached with it: the
+            // parse is the expensive half and depends only on the slots, while
+            // the fixture list arrives seconds later and can refresh under it.
+            val parsed = if (cached != null && sportCacheEvents === bundle.events &&
+                sportCacheSport === s && now - sportCacheAtMs < sportParseTtlMs
             ) {
-                return@combine cached
+                cached
+            } else {
+                com.agoro.tv.data.SportsParser.parseAll(
+                    bundle.events.mapNotNull { ch -> ch.xtreamId?.let { it to ch.name } },
+                    now, leagues, s?.ambiguous.orEmpty().toSet(), s?.clubAlias.orEmpty(),
+                ).also {
+                    sportCacheEvents = bundle.events
+                    sportCacheSport = s
+                    sportCacheAtMs = now
+                    sportCache = it
+                }
             }
-            com.agoro.tv.data.SportsParser.parseAll(
-                bundle.events.mapNotNull { ch -> ch.xtreamId?.let { it to ch.name } },
-                now, leagues, s?.ambiguous.orEmpty().toSet(), s?.clubAlias.orEmpty(),
-            ).also {
-                sportCacheEvents = bundle.events
-                sportCacheSport = s
-                sportCacheAtMs = now
-                sportCache = it
-            }
+            com.agoro.tv.data.SportsParser.applySchedule(
+                parsed, sched?.fixtures.orEmpty(), now,
+            )
         }
             .flowOn(kotlinx.coroutines.Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(60_000), null)
