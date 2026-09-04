@@ -2,6 +2,7 @@ package com.agoro.tv
 
 import com.agoro.tv.data.SportsParser
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -857,5 +858,251 @@ class SportsParserTest {
             now, roster,
         )!!
         assertEquals(ms(2026, 8, 27, 16, 20, "America/St_Johns"), e.startMs)
+    }
+
+    // ---------------------------------------------------------------- the
+    // wrong badge. Every name below is a real slot off the provider's panel.
+
+    /**
+     * The rosters as the manifest carries them: US nicknames, English clubs
+     * under both the name a pack writes and the one a viewer reads.
+     */
+    private val realRoster = mapOf(
+        "NFL" to listOf("Falcons", "Patriots", "Browns", "Colts"),
+        "NBA" to listOf("Spurs", "Lakers", "Warriors"),
+        "MLS" to listOf("Los Angeles FC", "Sporting Kansas City"),
+        "Premier League" to listOf(
+            "Brighton", "Hove Albion", "Aston Villa", "Newcastle", "Newcastle United",
+            "Spurs", "Tottenham", "Tottenham Hotspur",
+        ),
+    )
+
+    private val realAliases = mapOf(
+        "Premier League|Spurs" to "Tottenham Hotspur",
+        "Premier League|Tottenham" to "Tottenham Hotspur",
+        "Premier League|Hove Albion" to "Brighton",
+        "Premier League|Newcastle" to "Newcastle United",
+    )
+
+    /**
+     * The report this whole section exists for: a CRICKET match shown as an
+     * NFL fixture, wearing the Atlanta Falcons and New England Patriots
+     * badges, because both Caribbean sides end on a word the NFL uses.
+     */
+    @Test
+    fun `a Caribbean Premier League cricket match is not an NFL fixture`() {
+        val now = ms(2026, 8, 20, 16, 30, "UTC")
+        assertNull(
+            SportsParser.parse(
+                1,
+                "Next | Caribbean Premier League 2026 - 12th Match - Antigua And Barbuda " +
+                    "Falcons vs St Kitts And Nevis Patriots | all | 20-08-2026 | 16:00 (GMT) " +
+                    "| 8K EXCLUSIVE | US: SOCCER PPV 57",
+                now, realRoster, aliases = realAliases,
+            )
+        )
+    }
+
+    /**
+     * The same fault with no competition named and BOTH sides landing in the
+     * same roster, so nothing but the padding itself can reject it.
+     */
+    @Test
+    fun `a nickname padded past recognition claims nothing`() {
+        val now = ms(2026, 8, 20, 16, 30, "UTC")
+        assertNull(
+            SportsParser.parse(
+                1, "St Kitts And Nevis Patriots vs Antigua And Barbuda Falcons @ Aug 20 4:00 PM",
+                now, realRoster, aliases = realAliases,
+            )
+        )
+    }
+
+    /**
+     * And a competition we do not carry whose sides are billed as bare
+     * nicknames, so the padding rule has nothing to object to and only the
+     * competition itself can reject it. The listings packs write the sport
+     * this plainly all the time.
+     */
+    @Test
+    fun `a competition we do not carry is rejected on its own name`() {
+        val now = ms(2026, 8, 20, 16, 30, "UTC")
+        assertNull(
+            SportsParser.parse(
+                1, "US (ESPN+ 100) | Cricket: Falcons vs. Patriots (2026-08-20 16:00:00)",
+                now, realRoster, aliases = realAliases,
+            )
+        )
+    }
+
+    /** A club's own city is not surplus: the NFL packs write both forms. */
+    @Test
+    fun `a nickname with its city still claims the club`() {
+        val now = ms(2026, 8, 20, 20, 30, "UTC")
+        val e = SportsParser.parse(
+            1, "New England Patriots vs Cleveland Browns @ Aug 20 4:00 PM", now, realRoster,
+            aliases = realAliases,
+        )!!
+        assertEquals("NFL", e.league)
+        assertEquals("Patriots", e.home)
+        assertEquals("Browns", e.away)
+    }
+
+    /**
+     * "Spurs" is San Antonio in the NBA roster and Tottenham in the Premier
+     * League one, and the index is longest-name-first with no opinion about
+     * which sport a row is — so an English league match was filed under the
+     * NBA. The competition that fields BOTH clubs is the one being played.
+     */
+    @Test
+    fun `the league that carries both sides wins`() {
+        val now = ms(2026, 8, 29, 13, 0, "UTC")
+        val e = SportsParser.parse(
+            1, "US (Peacock 013) |  Spurs v. Newcastle (2026-08-29 12:30:00)",
+            now, realRoster, aliases = realAliases,
+        )!!
+        assertEquals("Premier League", e.league)
+        assertEquals("Tottenham Hotspur", e.home)
+        assertEquals("Newcastle United", e.away)
+    }
+
+    /** Two sides from two sports is a collision, not a fixture. */
+    @Test
+    fun `a football club does not play a basketball team`() {
+        val now = ms(2026, 8, 29, 13, 0, "UTC")
+        assertNull(
+            SportsParser.parse(
+                1, "US (Peacock 013) |  Lakers v. Aston Villa (2026-08-29 12:30:00)",
+                now, realRoster, aliases = realAliases,
+            )
+        )
+    }
+
+    /**
+     * The away side arrives with a halved timestamp on it, and in this pack the
+     * word before the stray digit is a MONTH. Requiring a letter before the
+     * marker was not enough — "Aug" is letters — so every 2 o'clock fixture in
+     * this format was dropped as a reserve team.
+     */
+    @Test
+    fun `a two o'clock kick-off is not a reserve side`() {
+        val now = ms(2026, 8, 23, 14, 0, "UTC")
+        val e = SportsParser.parse(
+            1, "Brighton v Aston Villa // UK Sun 23 Aug 2:55pm // ET Sun 23 Aug 9:55am",
+            now, realRoster, aliases = realAliases,
+        )
+        assertEquals("Brighton", e?.home)
+    }
+
+    /** And the shape the letter rule already handled stays handled. */
+    @Test
+    fun `a halved timestamp after a day number is not a reserve side either`() {
+        assertFalse(SportsParser.isReserveSide("Luton Town @ Aug 27 2"))
+        assertFalse(SportsParser.isReserveSide("Club B // UK Sun 23 Aug 2"))
+        assertTrue(SportsParser.isReserveSide("Los Angeles FC 2"))
+        assertTrue(SportsParser.isReserveSide("Sporting Kansas City II"))
+    }
+
+    /** MLS Next Pro. Both sides matched their senior club. */
+    @Test
+    fun `a reserve fixture is not the first team's`() {
+        val now = ms(2026, 8, 20, 19, 30, "UTC")
+        assertNull(
+            SportsParser.parse(
+                1, "Next | Los Angeles FC 2 vs. Sporting Kansas City II | all | " +
+                    "20-08-2026 | 19:00 (GMT) | 8K EXCLUSIVE | US: SOCCER PPV 74",
+                now, realRoster, aliases = realAliases,
+            )
+        )
+    }
+
+    /**
+     * The roster derived "Hove Albion" from listings that write "Brighton &
+     * Hove Albion" — the pattern that read them stopped at the ampersand — and
+     * that half-name reached the screen as the home side. It also split one
+     * match across two rows, because the pack that writes "Brighton" keyed
+     * differently from the pack that writes the full name.
+     */
+    @Test
+    fun `a club is shown by its own name, not the tail of it`() {
+        val now = ms(2026, 8, 23, 23, 0, "UTC")
+        val e = SportsParser.parse(
+            1, "AU (STAN 55) | Brighton & Hove Albion v Aston Villa  Premier League " +
+                "Matchweek 1 2026/2027 (2026-08-23 22:50:34)",
+            now, realRoster, aliases = realAliases,
+        )!!
+        assertEquals("Brighton", e.home)
+    }
+
+    /** An alias is a club's, not a nickname's: San Antonio keeps its name. */
+    @Test
+    fun `an alias does not reach across leagues`() {
+        val now = ms(2026, 8, 29, 13, 0, "UTC")
+        val e = SportsParser.parse(
+            1, "US (Peacock 013) |  Spurs v. Lakers (2026-08-29 12:30:00)",
+            now, realRoster, aliases = realAliases,
+        )!!
+        assertEquals("NBA", e.league)
+        assertEquals("Spurs", e.home)
+    }
+
+    // --------------------------------------------------------------- crests
+
+    private val klunn = "https://raw.githubusercontent.com/klunn91/team-logos/master"
+
+    private val crests = mapOf(
+        "Patriots" to "$klunn/NFL/patriots.png",
+        // What the index actually held before crest_match.py was scoped: the US
+        // pool was built from klunn91's whole tree, MLB sorts before NFL, and
+        // the NFL roster's "Giants" resolved to the San Francisco baseball club.
+        "Giants" to "$klunn/MLB/giants.png",
+        "Spurs" to "https://raw.githubusercontent.com/luukhopman/football-logos/master/" +
+            "history/2021-22/England%20-%20Premier%20League/Spurs.png",
+    )
+
+    /**
+     * The index is keyed by club name and nothing else, so a badge could
+     * always cross sports. The crest's own source is the check: klunn91 files
+     * under NFL/ and NBA/, luukhopman is football.
+     */
+    @Test
+    fun `a football row cannot wear an NFL badge`() {
+        assertNull(SportsParser.crestFor(crests, "Premier League", "Patriots"))
+        assertNull(SportsParser.crestFor(crests, "NBA", "Spurs"))
+        assertEquals(crests["Patriots"], SportsParser.crestFor(crests, "NFL", "Patriots"))
+        assertEquals(crests["Spurs"], SportsParser.crestFor(crests, "Premier League", "Spurs"))
+    }
+
+    /** A rebuilt manifest scopes the key by sport; that wins outright. */
+    @Test
+    fun `a sport-scoped crest key is preferred`() {
+        val scoped = crests + mapOf("basketball|Spurs" to "https://example.test/nba-spurs.png")
+        assertEquals("https://example.test/nba-spurs.png", SportsParser.crestFor(scoped, "NBA", "Spurs"))
+    }
+
+    /**
+     * The check on the crest's own source has to be CLOSED. klunn91 names the
+     * sport in the folder, and treating an unrecognised folder as "says
+     * nothing, so trust it" is how an NFL fixture wore a baseball badge — the
+     * exact fault the guard was added to stop, surviving it.
+     */
+    @Test
+    fun `a folder this app does not carry is refused, not trusted`() {
+        assertNull(SportsParser.crestFor(crests, "NFL", "Giants"))
+        assertNull(SportsParser.crestFor(crests, "Premier League", "Giants"))
+    }
+
+    /** A competition with no sport asks for no scoped key. */
+    @Test
+    fun `an unknown competition does not invent a key`() {
+        val trap = crests + mapOf("null|Patriots" to "https://example.test/wrong.png")
+        assertEquals(crests["Patriots"], SportsParser.crestFor(trap, "Kabaddi League", "Patriots"))
+    }
+
+    /** A cup row is football too, or the guard above has nothing to compare. */
+    @Test
+    fun `the cup competitions are football`() {
+        assertNull(SportsParser.crestFor(crests, "Carabao Cup", "Patriots"))
+        assertNull(SportsParser.crestFor(crests, "UEFA", "Patriots"))
     }
 }

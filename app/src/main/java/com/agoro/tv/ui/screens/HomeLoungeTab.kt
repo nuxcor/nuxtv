@@ -124,12 +124,33 @@ private sealed interface HomeMenu {
  * Home's shelves, in the order they appear.
  *
  * An enum rather than string keys so both `when`s over it are exhaustive: a
- * shelf added here without a branch is a compile error instead of a blank row
+ * shelf added here without a branch is a compile error rather than a blank row
  * that still occupies a scroll position.
+ *
+ * The three Genre slots are POSITIONAL: which genre sits in slot A is a
+ * property of the catalogue, not of this enum, and it can change between
+ * sessions as the library grows. That is deliberate — the alternative is a row
+ * identity invented at runtime, and every focus anchor on this screen is keyed
+ * by the enum's own name. A slot only reaches [HomeShelves.rowKeys] when a
+ * shelf exists behind it, so the null branch in its rendering is a belt to the
+ * braces rather than a state the list can actually be in.
  */
 private enum class HomeRow {
-    Recents, Continue, Favorites, StarterChannels, StarterMovies, StarterSeries, New
+    Recents, Continue, Favorites, StarterChannels, StarterMovies, StarterSeries,
+    New, Acclaimed, GenreA, GenreB, GenreC
 }
+
+/**
+ * The LazyColumn key for a shelf. See the call site: a genre row is identified
+ * by its genre so its list state does not outlive the genre it belonged to.
+ */
+private fun shelfKey(row: HomeRow, genres: List<Pair<String, List<Series>>>): String {
+    val slot = GENRE_SLOTS.indexOf(row)
+    return if (slot < 0) row.name else "${row.name}:${genres.getOrNull(slot)?.first.orEmpty()}"
+}
+
+/** The genre slots, in the order they appear. */
+private val GENRE_SLOTS = listOf(HomeRow.GenreA, HomeRow.GenreB, HomeRow.GenreC)
 
 /**
  * Everything the hero can describe, in one holder so the hero effect reads
@@ -145,8 +166,17 @@ private class HomeShelves(
     val starterChannels: List<LiveChannel>,
     val starterMovies: List<Movie>,
     val starterSeries: List<Series>,
+    val acclaimed: List<Movie>,
+    /** Heading -> shows, one per genre slot, in [GENRE_SLOTS] order. */
+    val genreShelves: List<Pair<String, List<Series>>>,
     val nowNext: Map<String, MainViewModel.NowNext>,
 ) {
+    /** The shelf behind a genre slot, or null when the catalogue has no such genre. */
+    fun genreAt(row: HomeRow): Pair<String, List<Series>>? {
+        val slot = GENRE_SLOTS.indexOf(row)
+        return if (slot < 0) null else genreShelves.getOrNull(slot)
+    }
+
     fun sizeOf(row: HomeRow): Int = when (row) {
         HomeRow.Continue -> continueRow.size
         HomeRow.Favorites -> favoritesRow.size
@@ -155,6 +185,8 @@ private class HomeShelves(
         HomeRow.StarterMovies -> starterMovies.size
         HomeRow.StarterSeries -> starterSeries.size
         HomeRow.New -> recentlyAdded.size
+        HomeRow.Acclaimed -> acclaimed.size
+        HomeRow.GenreA, HomeRow.GenreB, HomeRow.GenreC -> genreAt(row)?.second?.size ?: 0
     }
 
     /** The hero for the card at [index] in row [rowIndex], clamped to what exists. */
@@ -177,6 +209,9 @@ private class HomeShelves(
             HomeRow.StarterChannels -> starterChannels.at()?.let { channelHero(it, nowNext[it.id]) }
             HomeRow.StarterMovies -> starterMovies.at()?.toHero()
             HomeRow.StarterSeries -> starterSeries.at()?.toHero()
+            HomeRow.Acclaimed -> acclaimed.at()?.toHero()
+            HomeRow.GenreA, HomeRow.GenreB, HomeRow.GenreC ->
+                genreAt(row)?.second?.at()?.toHero()
         }
     }
 }
@@ -249,6 +284,11 @@ fun HomeLoungeTab(
     // by what someone watched on demand.
     val starterMovies = shelves?.starterMovies.orEmpty()
     val starterSeries = shelves?.starterSeries.orEmpty()
+    // The catalogue shelves, which are NOT day-one rows: they are the reason
+    // to scroll on any day. Before them, Home after your first film was
+    // nothing but a record of what you had already watched.
+    val acclaimed = shelves?.acclaimedMovies.orEmpty()
+    val genreShelves = shelves?.genreShelves.orEmpty()
     val watchedChannels = favoritesRow.isNotEmpty() || recentsRow.isNotEmpty()
     val starterChannels = remember(displayChannels, watchedChannels) {
         if (watchedChannels) emptyList() else displayChannels.take(STARTER_ROW_LENGTH)
@@ -258,7 +298,7 @@ fun HomeLoungeTab(
     // D-pad press (same rule as the browse tabs' Continue watching shortcut).
     val rowKeys = remember(
         continueRow, favoritesRow, recentsRow, recentlyAdded,
-        starterChannels, starterMovies, starterSeries,
+        starterChannels, starterMovies, starterSeries, acclaimed, genreShelves,
     ) {
         // Live first, then films, then shows.
         //
@@ -285,6 +325,11 @@ fun HomeLoungeTab(
             // Recently added is a mixed catalogue row, so it trails the
             // typed ones rather than splitting them.
             if (recentlyAdded.isNotEmpty()) add(HomeRow.New)
+            // Then the catalogue proper. These come last on purpose: what the
+            // viewer was doing, and what has just arrived, both answer a
+            // question they already have — these are for when they do not.
+            if (acclaimed.isNotEmpty()) add(HomeRow.Acclaimed)
+            genreShelves.indices.forEach { i -> GENRE_SLOTS.getOrNull(i)?.let(::add) }
         }
     }
 
@@ -379,13 +424,22 @@ fun HomeLoungeTab(
     // once — without observation, or this scope would follow every press —
     // so a return opens on its hero rather than on a blank header.
     val shelvesState = rememberUpdatedState(
+        // EVERY shelf the lambda reads is a key. Miss one and the hero holder
+        // keeps a stale copy of it: dismissing a film from "Highly rated films"
+        // rebuilds the catalogue, but if that film was in no other row all the
+        // listed keys still compare equal, so heroAt goes on describing a card
+        // that is gone and sizeOf reports the count from before it went — which
+        // is the number the menu-return effect uses to decide whether focus has
+        // to step off the doomed card.
         remember(
             rowKeys, continueRow, favoritesRow, recentsRow, recentlyAdded,
-            starterChannels, starterMovies, starterSeries, nowNext,
+            starterChannels, starterMovies, starterSeries, acclaimed, genreShelves,
+            nowNext,
         ) {
             HomeShelves(
                 rowKeys, continueRow, favoritesRow, recentsRow, recentlyAdded,
-                starterChannels, starterMovies, starterSeries, nowNext,
+                starterChannels, starterMovies, starterSeries, acclaimed, genreShelves,
+                nowNext,
             )
         },
     )
@@ -681,7 +735,12 @@ fun HomeLoungeTab(
         // list to the last row and left focus somewhere above the viewport,
         // which read as the page refusing to scroll past that shelf. One list
         // cannot disagree with itself.
-        itemsIndexed(rowKeys, key = { _, row -> row.name }) { rowIndex, row ->
+        // Keyed by the shelf's IDENTITY, which for a genre row is the genre and
+        // not the slot it happens to occupy. Keyed on the slot alone, Comedy
+        // overtaking Mystery for slot A inherits Mystery's LazyRow — its
+        // remembered scroll offset and its focusRestorer target — so the new
+        // shelf opens somewhere in the middle of itself.
+        itemsIndexed(rowKeys, key = { _, row -> shelfKey(row, genreShelves) }) { rowIndex, row ->
             val shelf = Modifier
                 .focusGroup()
                 .focusRequester(rowRequesters.getValue(row))
@@ -780,6 +839,44 @@ fun HomeLoungeTab(
                                 series, row, rowIndex, index,
                                 onLongClick = { menu = HomeMenu.CatalogSeries(series) },
                             )
+                        }
+                    }
+                }
+                HomeRow.Acclaimed -> Column {
+                    // Not "Top films": the panel ships a rating with no vote
+                    // count beside it, so this is a band rather than a chart
+                    // and the heading should not claim otherwise. See
+                    // ACCLAIM_FLOOR.
+                    SectionTitle("Highly rated films")
+                    LazyRow(
+                        modifier = shelf.focusRestorer().shelfRingRoom(),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        contentPadding = PaddingValues(horizontal = ShelfRingRoom),
+                    ) {
+                        itemsIndexed(acclaimed, key = { _, m -> m.id }) { index, movie ->
+                            MoviePoster(
+                                movie, row, rowIndex, index,
+                                onLongClick = { menu = HomeMenu.CatalogMovie(movie) },
+                            )
+                        }
+                    }
+                }
+                HomeRow.GenreA, HomeRow.GenreB, HomeRow.GenreC -> {
+                    val slot = GENRE_SLOTS.indexOf(row)
+                    val shelfData = genreShelves.getOrNull(slot)
+                    if (shelfData != null) Column {
+                        SectionTitle(shelfData.first)
+                        LazyRow(
+                            modifier = shelf.focusRestorer().shelfRingRoom(),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            contentPadding = PaddingValues(horizontal = ShelfRingRoom),
+                        ) {
+                            itemsIndexed(shelfData.second, key = { _, x -> x.id }) { index, series ->
+                                SeriesPoster(
+                                    series, row, rowIndex, index,
+                                    onLongClick = { menu = HomeMenu.CatalogSeries(series) },
+                                )
+                            }
                         }
                     }
                 }

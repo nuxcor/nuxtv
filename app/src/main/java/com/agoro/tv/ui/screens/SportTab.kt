@@ -428,8 +428,8 @@ private fun Fixtures(
                     FixtureRow(
                         home = event.home,
                         away = event.away,
-                        homeCrest = crests[event.home],
-                        awayCrest = crests[event.away],
+                        homeCrest = SportsParser.crestFor(crests, event.league, event.home),
+                        awayCrest = SportsParser.crestFor(crests, event.league, event.away),
                         status = status,
                         // Fixtures inside a league belong together; the
                         // first one sits straight under its heading.

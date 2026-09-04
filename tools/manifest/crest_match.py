@@ -132,8 +132,16 @@ def _season_rank(path):
     return (1, -int(m.group(1))) if m else (2, 0)
 
 
-def build_index(tree_path, base_url):
+def build_index(tree_path, base_url, folders=None):
     """path list -> ({club key: URL}, {club key: token set}), newest first.
+
+    `folders` restricts the tree to the top-level directories named, which is
+    how the US index is kept honest. klunn91 files every league it carries in
+    one repository — MLB/, NBA/, NCAA/, NFL/ — and a single flat index over all
+    of them resolves on the club NICKNAME alone: "Cardinals" and "Giants" exist
+    in both MLB and the NFL, MLB sorts first, and setdefault handed the NFL
+    roster two baseball badges. The pool a league is resolved against is now the
+    league's own folder.
 
     encoding='utf-8' explicitly, on every read and write in this module. The
     tree listings carry "Atlético de Madrid", "1.FC Köln", "FK BodøGlimt", and
@@ -147,6 +155,8 @@ def build_index(tree_path, base_url):
         paths = sorted((l.strip() for l in fh if l.strip()), key=_season_rank)
     idx, tok = {}, {}
     for p in paths:
+        if folders and p.split('/')[0] not in folders:
+            continue
         base = os.path.splitext(os.path.basename(p))[0]
         if base.startswith('_'):          # _NFL_logo.png and friends: the league, not a club
             continue
@@ -210,14 +220,30 @@ def main():
     # roster tomorrow would silently do the same thing MLS did.
     global POOL
     euro, euro_tok = build_index(os.path.join(HERE, 'crest_tree_euro.txt'), EURO_RAW)
-    us, us_tok = build_index(os.path.join(HERE, 'crest_tree_us.txt'), US_RAW)
-    print(f"index: {len(euro)} European clubs, {len(us)} US")
+    us_tree = os.path.join(HERE, 'crest_tree_us.txt')
+    nfl, nfl_tok = build_index(us_tree, US_RAW, folders={'NFL'})
+    nba, nba_tok = build_index(us_tree, US_RAW, folders={'NBA'})
+    print(f"index: {len(euro)} European clubs, {len(nfl)} NFL, {len(nba)} NBA")
     POOL = {
         'Premier League': (euro, euro_tok), 'La Liga': (euro, euro_tok),
         'Serie A': (euro, euro_tok), 'Bundesliga': (euro, euro_tok),
         'Ligue 1': (euro, euro_tok), 'Champions League': (euro, euro_tok),
-        'NFL': (us, us_tok), 'NBA': (us, us_tok),
+        'NFL': (nfl, nfl_tok), 'NBA': (nba, nba_tok),
         # MLS: no entry, on purpose. See the module docstring.
+    }
+
+    # The sport a competition is played in, which is what scopes a crest key.
+    # The bare club name is not unique across sports — "Spurs" is San Antonio
+    # and Tottenham, "Patriots" and "Falcons" and "Giants" are each two clubs —
+    # so a flat name->URL map has one of every pair silently overwriting the
+    # other, and whichever lost wore the wrong badge.
+    SPORT = {
+        'NFL': 'gridiron', 'NBA': 'basketball',
+        'MLS': 'soccer', 'Premier League': 'soccer', 'La Liga': 'soccer',
+        'Serie A': 'soccer', 'Bundesliga': 'soccer', 'Ligue 1': 'soccer',
+        'Champions League': 'soccer', 'Europa League': 'soccer',
+        'Conference League': 'soccer', 'UEFA': 'soccer',
+        'Carabao Cup': 'soccer', 'FA Cup': 'soccer',
     }
 
     crest, missing = {}, []
@@ -234,6 +260,20 @@ def main():
         for club in clubs:
             url = resolve(club, pool, pool_tok)
             if url:
+                # Both keys. The scoped one is what the app prefers and is the
+                # only one that can be right for a shared nickname; the bare one
+                # is what every build already shipped reads, and dropping it
+                # would take the badges off any box that has not updated yet.
+                sport = SPORT.get(league)
+                if sport:
+                    crest[f"{sport}|{club}"] = url
+                # Last league wins the bare key, which is what this always did.
+                # It is the wrong answer for a shared nickname — that is what
+                # the scoped key above is for — but the manifest reaches a box
+                # within a day while an app update does not, so a build that
+                # only knows the bare key must keep reading exactly what it read
+                # before. Roster order puts football after the US leagues, so
+                # "Spurs" stays Tottenham there.
                 crest[club] = url
             elif key(club) not in KNOWN_ABSENT:
                 missing.append((league, club))
@@ -241,7 +281,8 @@ def main():
     with open(OUT, 'w', encoding='utf-8') as fh:
         json.dump(crest, fh, indent=1, ensure_ascii=False)
     total = sum(len(v) for v in leagues.values())
-    print(f"{len(crest)}/{total} clubs matched -> {OUT}")
+    scoped = sum(1 for k in crest if '|' in k)
+    print(f"{scoped}/{total} clubs matched -> {OUT} ({len(crest)} keys with the bare aliases)")
     if missing:
         by = {}
         for lg, c in missing:

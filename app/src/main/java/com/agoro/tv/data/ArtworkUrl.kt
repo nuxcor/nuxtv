@@ -1,0 +1,106 @@
+package com.agoro.tv.data
+
+/**
+ * Repairs the artwork URLs the panel hands out before anything tries to draw
+ * them.
+ *
+ * A catalogue this size is mostly pictures, and the provider's own metadata is
+ * where three quarters of the missing and ugly ones come from. Counted on this
+ * panel's dumps (28,974 movies, 8,598 series):
+ *
+ *  * **7,924 movies and 759 series images point at a host that is gone.**
+ *    `cmc.exchange-cdn.com:8080` refuses the connection outright — not a 404, a
+ *    refusal — so a quarter of the movie library drew nothing at all while the
+ *    loader sat waiting. Every one of those paths ends in a TMDB image hash,
+ *    which is where the mirror had copied them from, so the original is one
+ *    substitution away.
+ *  * **2,202 series covers are `w154`** — a 154-pixel thumbnail, asked to fill
+ *    a poster card that is a good deal wider than that on a 4K panel. They came
+ *    out soft to the point of looking like the wrong image.
+ *  * **1,735 are `original`**, which on TMDB means up to 2000px of JPEG per
+ *    tile. A rail of those is tens of megabytes of bitmap on a box with 2GB of
+ *    RAM to its name.
+ *
+ * All three are one rewrite: TMDB serves every rung off the same path, so the
+ * size segment is ours to choose. The caller says which SHAPE it wants — a
+ * poster is 2:3 and a backdrop is 16:9 — because nothing in the URL can tell
+ * them apart, and asking for a poster crop of a backdrop is its own wrong
+ * picture.
+ *
+ * Anything this does not recognise is returned exactly as it came. The panel
+ * serves plenty of perfectly good artwork from its own hosts and from
+ * photo-tmdb.com, and a normaliser that got clever with those would be
+ * inventing a problem.
+ */
+object ArtworkUrl {
+
+    /**
+     * The mirror that stopped answering. Matched with or without its port, and
+     * as the whole host rather than a substring — a bare `contains` would catch
+     * anything that happened to embed the name in a path.
+     */
+    private val deadHosts = setOf("cmc.exchange-cdn.com", "cmc.exchange-cdn.com:8080")
+
+    /** TMDB's own hosts, the only ones whose size segment means anything. */
+    private val tmdbHosts = setOf("image.tmdb.org", "www.themoviedb.org", "themoviedb.org")
+
+    /**
+     * A TMDB image id: their base-62 hash and an extension, nothing else.
+     *
+     * Twenty characters minimum, which every real one comfortably clears and
+     * no human-named file does. The dead mirror wrote its paths with a doubled
+     * slash — `/images/movies//<hash>.jpg` — so the separator is matched
+     * rather than assumed.
+     */
+    private val tmdbHash = Regex("""/+([A-Za-z0-9]{20,}\.(?:jpg|jpeg|png))$""", RegexOption.IGNORE_CASE)
+
+    /** `https://image.tmdb.org/t/p/<size>/<hash>.jpg`, split at the size. */
+    private val tmdbPath = Regex("""^(https?://[^/]+)/t/p/([^/]+)/(.+)$""", RegexOption.IGNORE_CASE)
+
+    /**
+     * The rung a poster is fetched at. TMDB's 2:3 smart crop, which is the
+     * shape every poster card in this app draws.
+     */
+    private const val POSTER_SIZE = "w600_and_h900_bestv2"
+
+    /** The rung a backdrop is fetched at: wide, and short of `original`. */
+    private const val BACKDROP_SIZE = "w1280"
+
+    private const val TMDB = "https://image.tmdb.org/t/p"
+
+    /** A poster — 2:3, the shape of a movie or series tile. */
+    fun poster(url: String?): String? = repair(url, POSTER_SIZE)
+
+    /** A backdrop — 16:9, the shape of a hero or a still. */
+    fun backdrop(url: String?): String? = repair(url, BACKDROP_SIZE)
+
+    private fun repair(url: String?, size: String): String? {
+        val raw = url?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        // Lowercased once. Hostnames are case-insensitive and panels are not
+        // consistent about them; comparing the raw host against one lowercase
+        // set and a lowercased host against the other let "CMC.Exchange-CDN.com"
+        // through both branches unrepaired.
+        val host = hostOf(raw)?.lowercase() ?: return raw
+        if (host in deadHosts) {
+            // The hash is all that survives a host that is gone. Without one
+            // there is nothing to point anywhere, and null is the honest
+            // answer: a card with no artwork draws its fallback immediately,
+            // where a URL that will never resolve leaves it blank behind a
+            // loader that never finishes.
+            val hash = tmdbHash.find(raw)?.groupValues?.get(1) ?: return null
+            return "$TMDB/$size/$hash"
+        }
+        if (host in tmdbHosts) {
+            val m = tmdbPath.find(raw) ?: return raw
+            val (_, had, rest) = m.destructured
+            return if (had.equals(size, ignoreCase = true)) raw else "$TMDB/$size/$rest"
+        }
+        return raw
+    }
+
+    private fun hostOf(url: String): String? {
+        val after = url.substringAfter("://", "")
+        if (after.isEmpty()) return null
+        return after.substringBefore('/').substringBefore('?').takeIf { it.isNotEmpty() }
+    }
+}
