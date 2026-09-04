@@ -74,7 +74,7 @@ Finally:
 cd <media checkout>
 ./gradlew :lib-decoder-ffmpeg:assembleRelease
 cp libraries/decoder_ffmpeg/buildout/outputs/aar/lib-decoder-ffmpeg-release.aar \
-   <nuxtv>/app/libs/media3-decoder-ffmpeg-1.8.0.aar
+   <agoro>/app/libs/media3-decoder-ffmpeg-1.8.0.aar
 ```
 
 ## When to redo it

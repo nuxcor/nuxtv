@@ -630,7 +630,7 @@ class ManifestRepository(
          * charge.
          */
         const val DEFAULT_REMOTE =
-            "https://raw.githubusercontent.com/nuxcor/nuxtv/main/" +
+            "https://raw.githubusercontent.com/nuxcor/agoro/main/" +
                 "app/src/main/assets/catalogue-manifest.json"
 
         private const val CACHE_TTL_MS = 24L * 3600 * 1000

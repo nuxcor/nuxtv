@@ -141,9 +141,9 @@ the machine is awake. It needs `git`, `python3` and `gh`, a `gh` login that
 can open a pull request, and a key that can push.
 
 ```sh
-git clone git@github.com:nuxcor/nuxtv.git ~/nuxtv
+git clone git@github.com:nuxcor/agoro.git ~/agoro
 mkdir -p ~/.config/systemd/user
-cp ~/nuxtv/tools/manifest/systemd/manifest-refresh.* ~/.config/systemd/user/
+cp ~/agoro/tools/manifest/systemd/manifest-refresh.* ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now manifest-refresh.timer
 loginctl enable-linger "$USER"     # let the timer fire with nobody logged in
@@ -155,7 +155,7 @@ while that user has a session, which on a headless box is never. Check it with
 Run it once by hand first — `systemctl --user start manifest-refresh.service` —
 rather than waiting a week to find out `gh` was not logged in.
 
-The unit reads `%h/nuxtv/...`, so a checkout anywhere else needs its
+The unit reads `%h/agoro/...`, so a checkout anywhere else needs its
 `ExecStart` path edited.
 
 **On macOS** the same script runs under a launchd agent

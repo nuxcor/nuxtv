@@ -91,8 +91,8 @@ class UpdateManager(private val context: Context, private val http: OkHttpClient
          * /releases/tag/vX.Y.Z, which carries everything the check needs, and
          * is not rate-limited like the API.
          */
-        const val LATEST_URL = "https://github.com/nuxcor/nuxtv/releases/latest"
-        const val DOWNLOAD_BASE = "https://github.com/nuxcor/nuxtv/releases/download"
+        const val LATEST_URL = "https://github.com/nuxcor/agoro/releases/latest"
+        const val DOWNLOAD_BASE = "https://github.com/nuxcor/agoro/releases/download"
 
     }
 

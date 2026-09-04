@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the nuxtv catalogue manifest for one provider.
+"""Build the agoro catalogue manifest for one provider.
 
 Encodes the agreed decisions:
   - single provider, manifest keyed by host

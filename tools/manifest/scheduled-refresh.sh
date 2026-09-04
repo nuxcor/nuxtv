@@ -39,7 +39,13 @@ set -euo pipefail
 # prefixes are harmless on a machine that has neither.
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
-REPO="${MANIFEST_REPO_URL:-git@github.com:nuxcor/nuxtv.git}"
+REPO="${MANIFEST_REPO_URL:-git@github.com:nuxcor/agoro.git}"
+# The config directory keeps the OLD name on purpose. The repository was
+# renamed to agoro on 2026-09-04; this path names a file that already exists on
+# the machine running the job, holding the panel credentials, and a rename here
+# would leave the job looking for a file nobody moved — silently, weekly, until
+# someone noticed the manifest had stopped. Point MANIFEST_ENV_FILE somewhere
+# else if you would rather move it yourself.
 ENV_FILE="${MANIFEST_ENV_FILE:-$HOME/.config/nuxtv/panel.env}"
 LOG="${MANIFEST_LOG:-$HOME/.config/nuxtv/refresh.log}"
 
@@ -162,14 +168,14 @@ log "credentials from $CRED_SOURCE"
 # GNU mktemp refuses a template without them, so spelling them out is the one
 # form both accept. This script runs on the Mac under launchd and on a Linux
 # home server under systemd.
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/nuxtv-refresh.XXXXXXXX")"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/agoro-refresh.XXXXXXXX")"
 # Runs on every exit including the failures, so a panel that is down for a
 # week does not leave a week of half-built clones in the temp directory.
 trap 'rm -rf "$WORK"' EXIT
 
 log "cloning into $WORK"
-git clone --depth 1 --quiet "$REPO" "$WORK/nuxtv"
-cd "$WORK/nuxtv"
+git clone --depth 1 --quiet "$REPO" "$WORK/agoro"
+cd "$WORK/agoro"
 
 log "fetching and rebuilding"
 if ! python3 tools/manifest/refresh.py --write >>"$LOG" 2>&1; then

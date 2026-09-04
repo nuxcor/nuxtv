@@ -9,7 +9,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 # %h is the user's home, so this unit needs no editing to install.
-ExecStart=/bin/bash %h/nuxtv/tools/manifest/scheduled-refresh.sh
+ExecStart=/bin/bash %h/agoro/tools/manifest/scheduled-refresh.sh
 
 # The panel password, sealed to this machine. Create it once with:
 #
@@ -25,7 +25,7 @@ ExecStart=/bin/bash %h/nuxtv/tools/manifest/scheduled-refresh.sh
 #
 # Comment this out, or the unit fails to start, if the .cred does not exist.
 LoadCredentialEncrypted=panel:%h/.config/nuxtv/panel.cred
-# Where the checkout lives, if it is not ~/nuxtv. The script clones its own
+# Where the checkout lives, if it is not ~/agoro. The script clones its own
 # throwaway copy to work in; this path is only used to find the script.
 #
 # Everything else it needs it reads for itself: credentials from
