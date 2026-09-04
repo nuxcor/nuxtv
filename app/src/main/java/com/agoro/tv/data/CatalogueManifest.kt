@@ -285,6 +285,48 @@ data class CatalogueManifest(
         return if (i >= 0) i else topMetros.size
     }
 
+    /**
+     * The logo a TILE wears, when its primary was never bound one.
+     *
+     * A tile is one channel — that is the whole claim a fold makes — so the
+     * logo belongs to the tile and not to whichever of its feeds happens to
+     * lead it. The build binds logos per STREAM, though, and the moment the
+     * best feed is a restream the panel names "PRIME: BBC NEWS", the matcher
+     * has nothing to match and the app falls through to the provider's own
+     * icon: BBC News wearing an Amazon Prime logo, which is what this fixes.
+     *
+     * The most common logo among the sources, ties going to the best feed —
+     * `maxByOrNull` returns the first maximum and the map is filled in source
+     * order. Most common rather than first, because a fold can carry a
+     * sibling that is not quite the same channel: this tile holds BBC World
+     * News too, and three bindings for BBC News outvote its one.
+     *
+     * Never overrides a binding the primary has. 143 of the 146 tiles have
+     * one and are untouched; three do not (BBC News, Crime+Investigation and
+     * Al Jazeera) and are the whole of what this changes.
+     */
+    private val tileByPrimary: Map<Int, CollapseTile> by lazy {
+        buildMap {
+            collapse.live.values.forEach { tile ->
+                // effectivePrimary, not the declared one, for the same reason
+                // tileShelf uses it: a tile whose primary was dropped is led
+                // by the next source, and that is the id the app will ask on.
+                val primary = effectivePrimary(tile.primary, tile.sources) ?: return@forEach
+                put(primary, tile)
+            }
+        }
+    }
+
+    fun borrowedLogo(primaryId: Int): String? {
+        val tile = tileByPrimary[primaryId] ?: return null
+        val counts = LinkedHashMap<String, Int>()
+        for (source in tile.sources) {
+            val bound = logo.channelLogo[source.toString()] ?: continue
+            counts[bound] = (counts[bound] ?: 0) + 1
+        }
+        return counts.entries.maxByOrNull { it.value }?.key
+    }
+
     /** (declared primary, every source) for collapse tiles and metro locals alike. */
     private val tiles: List<Pair<Int, List<Int>>> by lazy {
         collapse.live.values.map { it.primary to it.sources } +

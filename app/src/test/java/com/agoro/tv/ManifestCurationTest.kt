@@ -426,4 +426,47 @@ class ManifestCurationTest {
         assertTrue(cleaned.cleaned)
         assertTrue(!ContentBundle().cleaned)
     }
+
+    /**
+     * BBC News wearing an Amazon Prime logo, reported on 2.37.14: the tile's
+     * best feed is the panel's "PRIME: BBC NEWS" restream, the build binds
+     * logos per stream and had none for it, and the fall-through reached the
+     * provider's own icon.
+     */
+    @Test
+    fun `a tile borrows its logo from its own sources`() {
+        val tile = CatalogueManifest.CollapseTile(
+            section = "NEWS", region = "UK", primary = 1536959,
+            sources = listOf(1536959, 717698, 1525693, 162143, 717702),
+        )
+        val manifest = CatalogueManifest(
+            collapse = CatalogueManifest.Collapse(live = mapOf("bbcnews|UK" to tile)),
+            logo = CatalogueManifest.Logo(
+                channelLogo = mapOf(
+                    // 1536959, the primary, is deliberately absent.
+                    "717698" to "bbc-news-uk.png",
+                    "1525693" to "bbc-news-uk.png",
+                    "162143" to "bbc-world-news-uk.png",
+                    "717702" to "bbc-news-uk.png",
+                ),
+            ),
+        )
+        assertEquals(
+            "three sources say BBC News, one says BBC World News",
+            "bbc-news-uk.png", manifest.borrowedLogo(1536959),
+        )
+    }
+
+    /** Nothing to borrow is not a crash, it is a null and the provider's icon. */
+    @Test
+    fun `a tile with no bound source borrows nothing`() {
+        val tile = CatalogueManifest.CollapseTile(
+            section = "NEWS", region = "UK", primary = 1, sources = listOf(1, 2),
+        )
+        val manifest = CatalogueManifest(
+            collapse = CatalogueManifest.Collapse(live = mapOf("x|UK" to tile)),
+        )
+        assertEquals(null, manifest.borrowedLogo(1))
+    }
+
 }
