@@ -5,14 +5,18 @@ package com.agoro.tv.ui.player
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,6 +36,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -629,50 +634,122 @@ private fun plainLanguage(raw: String): String = when {
 }
 
 /**
- * "Up next — S1 E2 • The Cellar. Playing in 7."
+ * What is on after this one, in the corner, while the episode is still
+ * running — and the same card counting itself down once it has ended.
  *
- * Deliberately not a menu. There are exactly two answers and the remote
- * already has a key for each: OK takes it now, BACK declines. A row of
- * focusable buttons would need arrival focus, focus restoration on dismissal
- * and a rule for what happens when the count reaches zero under a focused
- * button — machinery for a decision that is already binary.
+ * It used to be two things: a one-line "Up next: S1 E2" text badge in the top
+ * right for the last fifteen seconds, and then a centred panel with a
+ * countdown after the picture had gone. The badge was too small and too late
+ * to be an offer and the panel arrived after the moment had passed, so
+ * neither was the thing every streaming app puts here — a still of what is
+ * next, named, in the corner, early enough to decide about.
+ *
+ * ONE card in two states, because it is one moment. [secondsLeft] null is the
+ * peek: the episode is still playing, this is information, and the remote
+ * keeps every key it had — OK still opens the controls, because a viewer half
+ * a minute from the end of an episode may well want to go back rather than
+ * forward, and taking OK away to save them one press is not a trade this
+ * makes on their behalf. Non-null is the offer: the episode has ended, the
+ * count is running, and OK takes it while BACK declines.
+ *
+ * Still deliberately not a menu, for the same reason as before: there are
+ * exactly two answers and the remote has a key for each.
  */
 @Composable
-internal fun UpNextCard(title: String, secondsLeft: Int, modifier: Modifier = Modifier) {
-    Column(
+internal fun UpNextCard(
+    /** The series. Drawn in the accent, because it is the thing being named. */
+    show: String,
+    /** "S1 E2 • The Cellar", or whatever the queue knows of the next item. */
+    episode: String,
+    /** The next episode's still. Null draws the monogram rather than nothing. */
+    artwork: String?,
+    /**
+     * Seconds until it starts by itself, or null while the current episode is
+     * still playing — which is the difference between a notice and an offer.
+     */
+    secondsLeft: Int?,
+    modifier: Modifier = Modifier,
+) {
+    Row(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
             .background(NuxColors.Surface.copy(alpha = 0.94f))
-            .padding(horizontal = 28.dp, vertical = 22.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            // The text decides the height and the still matches it. Sized the
+            // other way round — a fixed still with the text centred beside it
+            // — the two states are different heights and the shorter one sits
+            // in a card with grey bars above and below the picture.
+            .height(IntrinsicSize.Min),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = "Up next",
-            style = MaterialTheme.typography.labelMedium,
-            color = NuxColors.OnSurfaceDim,
+        // Flush to the card's leading edge, no padding around it: the still
+        // is the half of this a viewer recognises the episode from across a
+        // room, and insetting it turns it into a thumbnail on a form.
+        com.agoro.tv.ui.components.Artwork(
+            imageUrl = artwork,
+            title = episode,
+            modifier = Modifier.fillMaxHeight().aspectRatio(16f / 9f),
+            background = NuxColors.SurfaceVariant,
         )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            color = NuxColors.OnSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.height(14.dp))
-        Text(
-            // The number counts, so the sentence around it must not move —
-            // "Playing in 10" to "Playing in 9" reflowing the line would
-            // twitch once a second in the middle of the screen.
-            text = "Playing in $secondsLeft",
-            style = MaterialTheme.typography.labelLarge,
-            color = NuxColors.Primary,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = "OK to start now  •  BACK to stay",
-            style = MaterialTheme.typography.labelSmall,
-            color = NuxColors.OnSurfaceDim,
-        )
+        Column(
+            modifier = Modifier.widthIn(min = 210.dp, max = 290.dp)
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+        ) {
+            Text(
+                text = androidx.compose.ui.text.buildAnnotatedString {
+                    withStyle(androidx.compose.ui.text.SpanStyle(color = NuxColors.OnSurfaceDim)) {
+                        append("Next on ")
+                    }
+                    withStyle(
+                        androidx.compose.ui.text.SpanStyle(
+                            color = NuxColors.Primary,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    ) { append(show) }
+                },
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = episode,
+                style = MaterialTheme.typography.labelLarge,
+                color = NuxColors.OnSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(12.dp))
+            if (secondsLeft == null) {
+                // A notice, and it says so. No pill: a filled button on a
+                // card no key activates is a control that lies.
+                Text(
+                    text = "Up next",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NuxColors.OnSurfaceDim,
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(NuxColors.Primary)
+                        .padding(horizontal = 18.dp, vertical = 9.dp),
+                ) {
+                    Text(
+                        // The number counts, so the words around it must not
+                        // move — a line that reflows once a second twitches.
+                        text = "▶  Watch now  ·  $secondsLeft",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = NuxColors.OnAccent,
+                        maxLines = 1,
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "OK to start  •  BACK to stay",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NuxColors.OnSurfaceDim,
+                )
+            }
+        }
     }
 }

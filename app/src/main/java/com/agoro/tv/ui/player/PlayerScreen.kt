@@ -110,6 +110,28 @@ private const val QUALITY_LEARN_SETTLE_MS = 5_000L
 private const val UP_NEXT_SECONDS = 10
 
 /**
+ * How long before the end the next episode announces itself.
+ *
+ * The card used to be a one-line badge in the last fifteen seconds, which is
+ * not enough of a run at it: fifteen seconds is inside the closing shot, and
+ * a viewer who has just registered that something appeared has to decide
+ * while reading it. Forty is a set of end credits on most drama and about two
+ * beats of thought, and it is early enough that ignoring it is a choice
+ * rather than a reaction.
+ *
+ * It only announces. Nothing starts by itself until the episode has actually
+ * ended — see [UpNextCard].
+ */
+private const val UP_NEXT_PEEK_MS = 40_000L
+
+/**
+ * Below this, an item is too short to have a run-out worth announcing: the
+ * card would be on screen for most of its length. Three minutes takes in the
+ * trailers and clips a VOD shelf carries beside the features.
+ */
+private const val UP_NEXT_MIN_ITEM_MS = 180_000L
+
+/**
  * How long a channel has to stay tuned before it becomes the one a cold start
  * reopens on.
  *
@@ -1020,28 +1042,53 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             )
         }
 
-        // The next episode, offered rather than taken. Centre, where the tune
-        // card sits: this is the same kind of moment — something is about to
-        // start and the viewer is being told which.
-        session.upNextIndex?.let { nextIndex ->
-            val next = request.items.getOrNull(nextIndex)
+        // The next episode: announced in the corner while this one runs out,
+        // and the same card counting down once it has ended. Bottom end,
+        // where every streaming app puts it and where it covers the least —
+        // the top right is the status corner and the centre is the picture.
+        //
+        // The peek is suppressed while the transport chrome is up. A viewer
+        // who has opened the controls in the last half minute is doing
+        // something with this episode, and the card would sit on the bar they
+        // opened. The countdown is never suppressed: by then the episode is
+        // over and it is the only thing on screen.
+        run {
+            val counting = session.upNextIndex
+            val peekIndex = session.currentIndex + 1
+            val peeking = counting == null &&
+                !request.isLive && !request.isCatchup &&
+                session.layer == PlayerLayer.None &&
+                !inPip &&
+                peekIndex < request.items.size &&
+                session.durationMs >= UP_NEXT_MIN_ITEM_MS &&
+                session.positionMs > 0 &&
+                session.durationMs - session.positionMs in 1_000..UP_NEXT_PEEK_MS
+            val index = counting ?: peekIndex.takeIf { peeking }
+            val next = index?.let { request.items.getOrNull(it) }
             if (next != null) {
-                var secondsLeft by remember(nextIndex) { mutableIntStateOf(UP_NEXT_SECONDS) }
-                LaunchedEffect(nextIndex) {
-                    // Ticks on its own clock and plays at zero. Keyed on the
-                    // index so a viewer who declines and is later offered a
-                    // different episode gets a fresh count, not the remains
-                    // of the last one.
-                    while (secondsLeft > 0) {
-                        delay(1_000)
-                        secondsLeft--
+                val secondsLeft = if (counting != null) {
+                    var left by remember(counting) { mutableIntStateOf(UP_NEXT_SECONDS) }
+                    LaunchedEffect(counting) {
+                        // Ticks on its own clock and plays at zero. Keyed on
+                        // the index so a viewer who declines and is later
+                        // offered a different episode gets a fresh count, not
+                        // the remains of the last one.
+                        while (left > 0) {
+                            delay(1_000)
+                            left--
+                        }
+                        session.playUpNext()
                     }
-                    session.playUpNext()
-                }
+                    left
+                } else null
                 UpNextCard(
-                    title = next.subtitle ?: next.title,
+                    show = next.title,
+                    episode = next.subtitle ?: next.title,
+                    artwork = next.artwork,
                     secondsLeft = secondsLeft,
-                    modifier = Modifier.align(Alignment.Center),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(36.dp),
                 )
             }
         }
@@ -1374,16 +1421,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 DigitEntryPill(text = session.digitBuffer)
             } else {
                 noChannelNumber?.let { DigitEntryPill(text = "No channel $it", dim = true) }
-            }
-            if (!request.isLive && session.durationMs > 0 &&
-                session.durationMs - session.positionMs in 1_000..15_000 &&
-                session.currentIndex < request.items.size - 1
-            ) {
-                PlayerBadge(
-                    text = "Up next: ${request.items[session.currentIndex + 1].subtitle
-                        ?: request.items[session.currentIndex + 1].title}",
-                    color = NuxColors.Primary,
-                )
             }
             // Only while the chrome is up, or in the last two minutes: a
             // static "Sleep in 74m" over the picture for an hour and a
