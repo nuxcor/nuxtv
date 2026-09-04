@@ -50,7 +50,6 @@ class GenreChipsTest {
     fun `strays and near-synonyms fold onto the chip that carries them`() {
         // Each of these earns a chip leading almost nowhere on its own.
         assertEquals(listOf("Drama"), splitGenres("Soap"))
-        assertEquals(listOf("Drama"), splitGenres("Romance"))
         assertEquals(listOf("Action & Adventure"), splitGenres("Western"))
         assertEquals(listOf("Action & Adventure"), splitGenres("War & Politics"))
         assertEquals(listOf("Documentary"), splitGenres("Talk"))
@@ -60,12 +59,21 @@ class GenreChipsTest {
         assertEquals(listOf("Kids & Family"), splitGenres("Family"))
     }
 
+    /** Asked for by name, thin as it is: nine shows nobody can reach via Drama. */
+    @Test
+    fun `romance keeps its own chip`() {
+        assertEquals(listOf("Romance"), splitGenres("Romance"))
+        assertEquals(listOf("Drama", "Romance"), splitGenres("Drama, Romance"))
+    }
+
     @Test
     fun `a title that names one chip twice is indexed under it once`() {
         // "Kids / Family" both fold to Kids & Family. Indexed twice, the show
         // appears in that grid as two identical posters.
         assertEquals(listOf("Kids & Family"), splitGenres("Kids / Family"))
-        assertEquals(listOf("Drama"), splitGenres("Drama / Romance / Soap"))
+        // Soap folds onto Drama; Romance no longer does, so it stays beside it.
+        assertEquals(listOf("Drama"), splitGenres("Drama / Soap"))
+        assertEquals(listOf("Drama", "Romance"), splitGenres("Drama / Soap / Romance"))
         // And the fold must not swallow the genres either side of it.
         assertEquals(
             listOf("Comedy", "Kids & Family", "Animation"),

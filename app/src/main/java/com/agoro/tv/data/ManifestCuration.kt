@@ -350,7 +350,21 @@ private fun SHELF_ORDER(manifest: CatalogueManifest): Comparator<LiveChannel> = 
     { manifest.metroOf[it.xtreamId].orEmpty() },
     // Within a market the networks keep one order everywhere, so the same
     // station sits in the same place in every city's run.
-    { NETWORK_ORDER.indexOf(networkOf(it.name)).takeIf { i -> i >= 0 } ?: NETWORK_ORDER.size },
+    //
+    // INSIDE A MARKET, and nowhere else. Applied to every shelf, this rule
+    // reached channels that are networks by name and national by nature: the
+    // News shelf opened ABC News Live, NBC News NOW, CNBC, Fox News, Fox
+    // Weather, Fox Business, LiveNOW from FOX — seven of its seventeen rows,
+    // in an order no viewer can predict — and only then began the alphabet at
+    // BBC News. A shelf that is alphabetical after its first seven rows reads
+    // as a shelf with no order at all, which is what it was reported as.
+    // Locals are the one shelf where the network run means something, because
+    // there the question is "which of MY stations", asked city by city.
+    {
+        if (manifest.metroOf[it.xtreamId] == null) NETWORK_ORDER.size
+        else NETWORK_ORDER.indexOf(networkOf(it.name)).takeIf { i -> i >= 0 }
+            ?: NETWORK_ORDER.size
+    },
     // Case- and accent-insensitive, so "beIN" files under B and "Á" under A
     // rather than both being flung to one end by raw code-point order.
     { EpgMatcher.fold(it.displayName) },
