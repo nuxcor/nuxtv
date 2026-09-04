@@ -1146,4 +1146,47 @@ class SportsParserTest {
         assertEquals("on the clock the two agreeing packs gave", kickOff, rows.first().startMs)
     }
 
+
+    /**
+     * Reported as "there is a bundesliga hoffenheim vs bayern but it's the
+     * women". Four real slots: two bill the competition and two write "all",
+     * and the two that tell the truth were the ones being thrown away — DAZN
+     * dates ISO where the soccer shelf dates day-first, and only day-first
+     * was read.
+     */
+    @Test
+    fun `a womens fixture does not reach the screen as the mens`() {
+        val now = ms(2026, 9, 4, 12, 0, "UTC")
+        val slots = listOf(
+            801 to "Next | Hoffenheim vs. Leverkusen | all | 04-09-2026 | 09:19 (GMT) | " +
+                "8K EXCLUSIVE | US: SOCCER PPV 12",
+            802 to "Next | Hoffenheim vs. Leverkusen | Frauen Bundesliga | 2026-09-04 | " +
+                "16:30 (GMT) | 8K EXCLUSIVE | US: DAZN PPV 3",
+            803 to "Next | Hoffenheim vs. Leverkusen | all | 04-09-2026 | 18:19 (GMT) | " +
+                "8K EXCLUSIVE | CA: SOCCER PPV 12",
+            804 to "Next | Hoffenheim vs. Leverkusen | Frauen Bundesliga | 2026-09-04 | " +
+                "16:30 (GMT) | 8K EXCLUSIVE | UK: DAZN PPV 3",
+        )
+        val parsed = SportsParser.parseAll(slots, now, mapOf(
+            "Bundesliga" to listOf("Hoffenheim", "Leverkusen"),
+        ))
+        assertTrue("the men's fixture is not ours to show", parsed.isEmpty())
+    }
+
+    /** The ISO half of the pipe pack is read now, and reads as one kick-off. */
+    @Test
+    fun `the pipe pack dates both ways round`() {
+        val now = ms(2026, 9, 4, 12, 0, "UTC")
+        val iso = SportsParser.parse(
+            1, "Next | Brighton vs. Arsenal | Premier League | 2026-09-04 | 16:30 (GMT) | 8K",
+            now, leagues,
+        )!!
+        val dmy = SportsParser.parse(
+            2, "Next | Brighton vs. Arsenal | Premier League | 04-09-2026 | 16:30 (GMT) | 8K",
+            now, leagues,
+        )!!
+        assertEquals(ms(2026, 9, 4, 16, 30, "UTC"), iso.startMs)
+        assertEquals("both spellings, one kick-off", dmy.startMs, iso.startMs)
+    }
+
 }

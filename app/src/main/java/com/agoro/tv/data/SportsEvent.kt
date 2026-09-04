@@ -98,6 +98,21 @@ object SportsParser {
     private val dmyGmt = Regex("""(\d{2})-(\d{2})-(\d{4})\s*\|\s*(\d{1,2}):(\d{2})""")
 
     /**
+     * The same pipe pack, dated the other way round: "2026-09-04 | 16:30 (GMT)".
+     *
+     * DAZN writes ISO where the soccer shelf writes day-first, and the two
+     * are the same feed family otherwise. Reading only one of them threw away
+     * every DAZN slot on the panel — a hundred of them — and it threw away
+     * exactly the ones worth having: for Hoffenheim v Leverkusen the DAZN
+     * slots carried "Frauen Bundesliga" and the right kick-off while the two
+     * that survived said "all" and disagreed with each other by nine hours.
+     *
+     * Tried BEFORE [dmyGmt] and anchored on a four-digit year, so a day-first
+     * date cannot match it: "04-09-2026" has no four-digit leading field.
+     */
+    private val ymdGmt = Regex("""(\d{4})-(\d{2})-(\d{2})\s*\|\s*(\d{1,2}):(\d{2})""")
+
+    /**
      * MLS and TSN+: "@ Aug 19 7:30 PM", and the same shape on a 24-hour clock.
      *
      * The meridiem was required, which quietly cost every TSN+ fixture: that
@@ -232,10 +247,38 @@ object SportsParser {
         // Every word any club we carry uses, for the cheap test below.
         val clubWords = idx.flatMapTo(HashSet()) { it.third.split(' ') }
             .filterTo(HashSet()) { it.length >= 3 }
-        return slots.mapNotNull { (id, name) ->
+        val parsed = slots.mapNotNull { (id, name) ->
             if (!worthParsing(name, clubWords)) null
             else parseIndexed(id, name, nowMs, idx, amb, ali)
         }
+        // A fixture is women's, or youth, or a reserve game, whatever the
+        // slot in front of you says about it.
+        //
+        // [notOurCompetition] rejects the slot that names such a competition,
+        // one slot at a time, which is no defence at all when the same match
+        // is also carried by a pack that fills its competition field with the
+        // word "all". Hoffenheim v Leverkusen was billed to the screen as
+        // Bundesliga off two slots saying "all"; the two saying "Frauen
+        // Bundesliga" were rejected, and being right is what got them
+        // rejected. So the marker is read across the whole slot list and
+        // takes the fixture with it, not just the slot that carries it.
+        //
+        // Both orders, because the packs do not agree on which side leads.
+        val foreign = HashSet<String>()
+        for ((id, name) in slots) {
+            if (!notOurCompetition.containsMatchIn(name)) continue
+            // Parsed, not merely read: the roster canonicalises sides, and a
+            // key built from the billed text does not match one built from the
+            // roster's spelling. "Leverkusen" against "Bayer Leverkusen" was
+            // enough to let the men's row through the first time this was
+            // written.
+            val e = parseIndexed(id, name, nowMs, idx, amb, ali, allowForeign = true)
+                ?: continue
+            foreign += fixtureKey(e)
+            foreign += sideKey(e.away) + "|" + sideKey(e.home)
+        }
+        return if (foreign.isEmpty()) parsed
+        else parsed.filterNot { fixtureKey(it) in foreign }
     }
 
     /**
@@ -316,6 +359,14 @@ object SportsParser {
         idx: List<Triple<String, String, String>>,
         ambiguous: Set<String>,
         aliases: Map<String, String>,
+        /**
+         * Read a slot whose competition is not one this app carries, instead
+         * of refusing it. Only [parseAll] passes true, and only to learn the
+         * CANONICAL sides of a fixture it is about to remove — a women's or
+         * youth match named by one pack and hidden by another. Nothing this
+         * returns reaches a screen.
+         */
+        allowForeign: Boolean = false,
     ): SportsEvent? {
         val name = rawName.trim()
         if (name.isEmpty() || name.contains("NO EVENT", ignoreCase = true)) return null
@@ -329,7 +380,7 @@ object SportsParser {
         // NFL roster answered first and put a cricket match on screen as an NFL
         // fixture. The competition a slot names is the strongest thing it says
         // about itself and it belongs at the top, not in the fallback.
-        if (notOurCompetition.containsMatchIn(name)) return null
+        if (!allowForeign && notOurCompetition.containsMatchIn(name)) return null
 
         val (rawHome, rawAway) = readFixture(name) ?: return null
         // "Los Angeles FC 2 vs. Sporting Kansas City II" is MLS Next Pro, the
@@ -439,7 +490,13 @@ object SportsParser {
 
     /** Words that make a major-sounding competition somebody else's. */
     private val notOurCompetition = Regex(
-        """(?i)\b(Caribbean|DFA|Dominica|Cricket|Rugby|Netball|Women'?s?|Ladies|Youth|U\d{2}|Reserves?)\b"""
+        """(?i)\b(Caribbean|DFA|Dominica|Cricket|Rugby|Netball|Women'?s?|Ladies|Youth|U\d{2}|Reserves?""" +
+            // The same competition, in the language the pack happens to bill
+            // it in. "Frauen Bundesliga" was reaching the screen as
+            // Bundesliga, which is the men's fixture under the women's name —
+            // the report was "there is a bundesliga hoffenheim vs bayern but
+            // it's the women". NWSL and the WSL are named for nothing else.
+            """|Frauen|Damen|Femenin[ao]|Feminin[ae]|Feminil|Feminile|Feminina|Kvinner|Kvinnor|NWSL|WSL)\b"""
     )
 
     /**
@@ -832,6 +889,10 @@ object SportsParser {
         bracketIso.find(name)?.let { m ->
             val (y, mo, d, h, mi) = m.destructured
             return at(y.toInt(), mo.toInt() - 1, d.toInt(), h.toInt(), mi.toInt(), zoneOf(name))
+        }
+        ymdGmt.find(name)?.let { m ->
+            val (y, mo, d, h, mi) = m.destructured
+            return at(y.toInt(), mo.toInt() - 1, d.toInt(), h.toInt(), mi.toInt(), utc())
         }
         dmyGmt.find(name)?.let { m ->
             val (d, mo, y, h, mi) = m.destructured
@@ -1318,7 +1379,15 @@ object SportsParser {
     private fun agreeClocks(events: List<SportsEvent>): List<SportsEvent> {
         val consensus = HashMap<String, Long>()
         for ((key, slots) in events.groupBy { fixtureKey(it) }) {
-            val times = slots.mapNotNull { it.startMs }.sorted()
+            // A second-language call of one listing is not a second opinion,
+            // and neither is a tactical camera: both are the same pack's own
+            // slots, carrying the same clock because they were written from
+            // it. Counted, they vote twice. New York City v Nashville had one
+            // pack listing English and Spanish five seconds apart, which tied
+            // 2-2 against the two packs that had the kick-off right, and a tie
+            // leaves everything as it came — so the wrong clock stood.
+            val times = slots.filterNot { it.languageFeed || it.sideFeed }
+                .mapNotNull { it.startMs }.sorted()
             if (times.size < 3) continue
             var best = emptyList<Long>()
             var tied = false
