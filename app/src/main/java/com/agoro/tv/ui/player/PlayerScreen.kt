@@ -50,6 +50,7 @@ import com.agoro.tv.player.WindowColorMode
 import com.agoro.tv.player.findActivity
 import com.agoro.tv.ui.components.requestFocusRetrying
 import com.agoro.tv.ui.theme.NuxColors
+import com.agoro.tv.ui.theme.Space
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -1123,7 +1124,18 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         (secondsLeft ?: 0).toFloat() / UP_NEXT_SECONDS,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(36.dp),
+                        // The TV-safe margin, not a number that looked
+                        // right. The player is the one screen composed
+                        // OUTSIDE TvSafe — it is full-bleed by design,
+                        // because the picture is — so anything laid into a
+                        // corner of it has to hold its own overscan inset.
+                        // At the 36dp this had, the card's trailing edge sat
+                        // inside the nominal 5% crop, and a set that crops
+                        // would have taken the seconds off the end of it.
+                        .padding(
+                            horizontal = Space.gutter,
+                            vertical = Space.gutterVertical,
+                        ),
                 )
             }
         }
