@@ -380,11 +380,20 @@ CHANNEL_ALIAS = {
     # earning its keep — is answered by evidence taken today rather than by
     # the same note being re-read.
     #
-    # It stays only while it keeps being right. If the BBC News tile shows
-    # Parliament again, comment this line out and drop 622075 from
-    # NAMED_REMOVAL_KEEP; the tile falls back to 1525693, which is where it
-    # is now, and nothing else moves.
-    'bbcparlament': 'bbcnews',
+    # UNFOLDED AGAIN 2026-09-04, hours after the refold: "the bbc still shows
+    # parliament". That is the third flip, and the last, because there is now
+    # an explanation that fits every observation instead of contradicting half
+    # of them. BBC Parliament SIMULCASTS BBC News whenever the House is not
+    # sitting — nights, recesses, most of every weekend. So a viewer shown
+    # this feed sees rolling news or sees the chamber depending on the hour,
+    # and both reports are true. "Confirmed by watching" cannot settle what
+    # this feed is; it can only report what was on it at that minute.
+    #
+    # Which retires the exception for good. Do not re-fold it on another look,
+    # however clear that look is: a look is exactly the instrument that cannot
+    # tell these two apart. Restoring it needs evidence that holds at a time
+    # the Commons IS sitting.
+    #   'bbcparlament': 'bbcnews',    # simulcasts News off-sitting; see above
     #   'bbcparliament': 'bbcnews',   # genuinely Parliament; removed, not folded
     # The panel's "BLOOMBERG EU" is Bloomberg. Left on its own key it stood as
     # a second tile beside the main one, at 720 against the 1080 the merged
@@ -731,23 +740,23 @@ NAMED_REMOVAL = re.compile(
 
 # Ids NAMED_REMOVAL must not take, whatever the provider called them.
 #
-# 622075, "UK: BBC PARLAMENT", carries BBC News. Confirmed by the viewer on
-# 2026-09-04, asked directly and answered directly, after the removal above
-# was written to take both Parliament-named feeds and they said one of them
-# was the news. Everything the build can measure agrees with them: the panel
-# files this one under its own `UK| NEWS` shelf while the genuine Parliament
-# feed sits under `UK| BBC IPLAYER`, and it decodes at 1080 where real BBC
-# Parliament is a low-bandwidth channel that has never been broadcast at it.
+# Empty, and the empty set is the finding. 622075, "UK: BBC PARLAMENT", was
+# exempt from 2026-09-04 morning to 2026-09-04 afternoon on the viewer's
+# direct answer that it carries BBC News. It does — some of the time. BBC
+# Parliament simulcasts the BBC News channel whenever the House is not
+# sitting, which is most hours of most weeks, so the feed answers to both
+# names and every report about it has been accurate. The tile went back to
+# showing the chamber the moment the Commons sat.
 #
-# This is the same feed that was folded into BBC News on 2026-08-27 and
-# unfolded on 2026-09-03, and the history is worth stating plainly rather
-# than quietly repeating: the provider re-points it, it has been Parliament
-# and it has been News, and no rebuild can see which it is today. What has
-# changed is only that the viewer has looked again and said. So it is written
-# to be undone in one line — drop the id from this set and the removal above
-# takes it, the alias in CHANNEL_ALIAS unbinds it from the tile, and the pins
-# fall back to 1525693 exactly as they stand now.
-NAMED_REMOVAL_KEEP = {622075}
+# The corroboration that was written down for it survives the reversal and
+# means less than it looked: the panel filing it under `UK| NEWS` describes
+# what it carries most of the time, and the 1080 measurement was taken during
+# a simulcast of a channel that IS broadcast at 1080. Neither can see a
+# sitting day coming.
+#
+# So the removal above now takes both spellings with nothing exempt, and the
+# BBC News tile is built only from feeds that are BBC News at every hour.
+NAMED_REMOVAL_KEEP: set[int] = set()
 
 telemundo_drop, rsn_drop, ca_drop, us_news_drop = [], [], [], []
 misfiled_territory = []
@@ -841,20 +850,16 @@ TIER_RANK = {"8K":0,"4K":1,"UHD":2,"FHD":3,"HEVC":4,"H265":5,"RAW":6,"HD":7,None
 # them is watching both, which is a judgement rather than a measurement, so it
 # is written down as one. Keyed by channel key -> stream id.
 PRIMARY_PIN = {
-    # 622075, the panel's "UK: BBC PARLAMENT", which carries BBC News — see
-    # NAMED_REMOVAL_KEEP for who says so and on what.
+    # 1525693, "UK: BBC NEWS". 720 in h264, and the tile's only feed that is
+    # BBC News at every hour of the week — see NAMED_REMOVAL_KEEP for what
+    # happened to the 1080 that briefly stood here.
     #
-    # It was pinned here before, unpinned on 2026-09-03 when the tile was
-    # reported playing Parliament, and is back on 2026-09-04 on a direct
-    # answer from the viewer. What makes it worth the churn is that it is the
-    # only 1080 source in this tile the BOX CAN PLAY: the other two, "BBC NEWS
-    # HEVC 4K" and "BBC NEWS HEVC HD", are HEVC, and this box cannot decode
-    # it — ABC News Live had to be moved off an HEVC feed for the same reason
-    # on 2026-09-02. Everything else here, 1525693 included, measures 720.
-    #
-    # So the fallback is a real fallback and not a worse one: unpin this and
-    # the tile returns to 1525693 at 720, which is what the viewer had.
-    'bbcnews': 622075,
+    # The 1080 this gives up was real and is not coming back from anywhere
+    # else in the tile: "BBC NEWS HEVC 4K" and "BBC NEWS HEVC HD" are both
+    # HEVC and this box cannot decode HEVC, so 720 in h264 is the best picture
+    # it can actually play. A channel that shows the right programme at 720
+    # beats one that shows the wrong programme at 1080.
+    'bbcnews': 1525693,
 }
 # Hand-pinned territories where the fold's majority lands wrong: NBC News Now
 # grouped under UK because its surviving sources sit in UK categories.
