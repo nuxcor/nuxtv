@@ -45,6 +45,13 @@ data class SportsEvent(
      * [SportsParser.namedSport].
      */
     val wrongSport: Boolean = false,
+    /**
+     * The published schedule's identity for this fixture, when it matched one.
+     *
+     * Folding only. The displayed [home] and [away] keep the roster's
+     * spelling, because that is what the crest index is keyed on.
+     */
+    val scheduleKey: String? = null,
     /** A studio or tactical-camera companion feed rather than the match itself. */
     val sideFeed: Boolean = false,
     /**
@@ -264,9 +271,14 @@ object SportsParser {
         // takes the fixture with it, not just the slot that carries it.
         //
         // Both orders, because the packs do not agree on which side leads.
-        val foreign = HashSet<String>()
+        val foreign = HashMap<String, MutableList<Long?>>()
         for ((id, name) in slots) {
             if (!notOurCompetition.containsMatchIn(name)) continue
+            // Through the same sieve as everything else. This alternation now
+            // matches Cricket, Rugby, Netball, Women's and Youth, which the
+            // PPV shelves carry by the hundred, and without the sieve each one
+            // took the full thirty-regex parse the sieve exists to prevent.
+            if (!worthParsing(name, clubWords)) continue
             // Parsed, not merely read: the roster canonicalises sides, and a
             // key built from the billed text does not match one built from the
             // roster's spelling. "Leverkusen" against "Bayer Leverkusen" was
@@ -274,11 +286,24 @@ object SportsParser {
             // written.
             val e = parseIndexed(id, name, nowMs, idx, amb, ali, allowForeign = true)
                 ?: continue
-            foreign += fixtureKey(e)
-            foreign += sideKey(e.away) + "|" + sideKey(e.home)
+            val key = sideKey(e.home) + "|" + sideKey(e.away)
+            val reversed = sideKey(e.away) + "|" + sideKey(e.home)
+            foreign.getOrPut(key) { ArrayList() }.add(e.startMs)
+            foreign.getOrPut(reversed) { ArrayList() }.add(e.startMs)
         }
-        return if (foreign.isEmpty()) parsed
-        else parsed.filterNot { fixtureKey(it) in foreign }
+        if (foreign.isEmpty()) return parsed
+        // Suppressed only where the two are the SAME match. Two clubs meet
+        // more than once: Chelsea v Arsenal in the WSL on Sunday must not
+        // delete Chelsea v Arsenal in the Premier League on Saturday, and
+        // fixtureKey carries no date to tell them apart. A foreign slot with
+        // no clock of its own suppresses nothing, because it cannot say which
+        // meeting it is.
+        return parsed.filterNot { event ->
+            val marked = foreign[fixtureKey(event)] ?: return@filterNot false
+            val own = event.startMs
+            marked.any { it != null && own != null &&
+                kotlin.math.abs(it - own) <= FOREIGN_SAME_MATCH_MS }
+        }
     }
 
     /**
@@ -869,9 +894,18 @@ object SportsParser {
         return if (words.isEmpty()) norm(side) else words.joinToString(" ")
     }
 
-    /** The identity two slots share when they carry the same match. */
+    /**
+     * The identity two slots share when they carry the same match.
+     *
+     * The published schedule's key when there is one: it is the only thing
+     * that can tell "Bielefeld" and "DSC Arminia Bielefeld" are one club. The
+     * NAMES stay as the roster billed them — the crest index is keyed by that
+     * spelling and nothing else, so rewriting them to ESPN's ("Brighton &
+     * Hove Albion" for "Brighton", "VfB Stuttgart" for "Stuttgart") took the
+     * badge off twenty of today's fixtures.
+     */
     internal fun fixtureKey(event: SportsEvent): String =
-        sideKey(event.home) + "|" + sideKey(event.away)
+        event.scheduleKey ?: (sideKey(event.home) + "|" + sideKey(event.away))
 
     private fun norm(s: String) = s.uppercase(Locale.ROOT)
         .replace("Ö", "O").replace("Ü", "U").replace("Ä", "A")
@@ -1442,34 +1476,85 @@ object SportsParser {
         nowMs: Long,
     ): List<SportsEvent> {
         if (events.isEmpty() || fixtures.isEmpty()) return events
-        val indexed = fixtures.mapNotNull { f ->
-            val start = f.startMs ?: return@mapNotNull null
-            Triple(tokens(f.home), tokens(f.away), f to start)
+        // Indexed by token, not scanned. A few hundred events against a few
+        // hundred fixtures is 10^5 set comparisons an emission otherwise, on a
+        // box where [worthParsing] exists because that order of work is felt.
+        val byToken = HashMap<String, MutableList<Indexed>>()
+        for (f in fixtures) {
+            val start = f.startMs ?: continue
+            val entry = Indexed(tokens(f.home), tokens(f.away), f, start)
+            for (t in entry.home + entry.away) {
+                byToken.getOrPut(t) { ArrayList() }.add(entry)
+            }
         }
+        if (byToken.isEmpty()) return events
         return events.map { event ->
             val home = tokens(event.home)
             val away = tokens(event.away)
-            val hits = indexed.filter { (fh, fa, _) ->
-                (sameSide(home, fh) && sameSide(away, fa)) ||
-                    (sameSide(home, fa) && sameSide(away, fh))
-            }
+            val seen = HashSet<Indexed>()
+            for (t in home + away) byToken[t]?.let(seen::addAll)
+            if (seen.isEmpty()) return@map event
+            val hits = seen.filter { pairs(home, away, it) }
             if (hits.isEmpty()) return@map event
+            // An exact pair beats a subset pair, and that is what keeps Paris
+            // Saint-Germain away from Paris FC: "Paris FC" reduces to {PARIS},
+            // which IS a subset of {PARIS, SAINT, GERMAIN}, and both clubs
+            // play in a league this schedule carries. Where the schedule
+            // names the club exactly, no looser reading gets a say.
+            val exact = hits.filter { exactPair(home, away, it) }
+            val pool = if (exact.isNotEmpty()) exact else hits
             // The closest to what the slot claimed, or to now when it claimed
-            // nothing: two legs of the same tie a week apart are both matches
+            // nothing: two legs of one tie a week apart are both matches
             // between the same clubs, and the row is about one of them.
             val anchor = event.startMs ?: nowMs
-            val (fixture, start) = hits.minByOrNull {
-                kotlin.math.abs(it.third.second - anchor)
-            }!!.third
+            val best = pool.minByOrNull { kotlin.math.abs(it.start - anchor) } ?: return@map event
+            // And never further than a match away from where the slot said it
+            // was. Without this a clockless slot admitted on the word LIVE —
+            // anchored on now — can be moved to a meeting between the same two
+            // clubs NEXT WEEK, which takes it out of the window and off the
+            // screen: a match being played that shows nowhere. [parseIndexed]
+            // guards its own clocks the same way, with SANE_WINDOW_MS.
+            if (kotlin.math.abs(best.start - anchor) > SCHEDULE_MAX_SHIFT_MS) return@map event
             event.copy(
-                league = fixture.league.ifBlank { event.league },
-                home = fixture.home,
-                away = fixture.away,
-                startMs = start,
-                live = start <= nowMs,
+                league = best.fixture.league.ifBlank { event.league },
+                scheduleKey = sideKey(best.fixture.home) + "|" + sideKey(best.fixture.away),
+                startMs = best.start,
+                live = best.start <= nowMs,
             )
         }
     }
+
+    private class Indexed(
+        val home: Set<String>,
+        val away: Set<String>,
+        val fixture: ScheduleFixture,
+        val start: Long,
+    )
+
+    /** Both sides match, either way round — the packs disagree on which leads. */
+    private fun pairs(home: Set<String>, away: Set<String>, f: Indexed): Boolean =
+        (sameSide(home, f.home) && sameSide(away, f.away)) ||
+            (sameSide(home, f.away) && sameSide(away, f.home))
+
+    private fun exactPair(home: Set<String>, away: Set<String>, f: Indexed): Boolean =
+        (home == f.home && away == f.away) || (home == f.away && away == f.home)
+
+    /**
+     * How far a slot may be moved onto a schedule's clock: one match, plus the
+     * hours the packs are routinely wrong by. Beyond that the schedule is
+     * describing a different meeting between the same two clubs.
+     */
+    private const val SCHEDULE_MAX_SHIFT_MS = 12 * 60 * 60 * 1000L
+
+    /**
+     * How far apart two slots can be and still be the same match, for the
+     * women's/youth/reserve suppression. Generous, because the packs whose
+     * clocks disagree are exactly the ones this compares — Hoffenheim v
+     * Leverkusen was billed 16:30 by the pack that named the competition and
+     * 18:19 by the one that wrote "all" — and narrow enough that a fixture on
+     * another day is a different fixture.
+     */
+    private const val FOREIGN_SAME_MATCH_MS = 8 * 60 * 60 * 1000L
 
     /** A side reduced to its words, affixes and punctuation gone. */
     private fun tokens(side: String): Set<String> =
@@ -1528,11 +1613,21 @@ object SportsParser {
         // filed American football under SOCCER must not hand its clock to a
         // trusted slot, which is the seven-hours-early lesson above.
         val (trustedRaw, misshelvedRaw) = events.partition { !it.wrongSport }
-        // Agreement AFTER lending and, like lending, never across the
-        // partition: a pack that has the sport wrong does not get a vote on a
-        // trusted slot's clock, which is the same rule for the same reason.
-        val trusted = agreeClocks(lendClocks(trustedRaw))
-        val misshelved = agreeClocks(lendClocks(misshelvedRaw))
+        // Agreement BEFORE lending, and this order is the whole of it: a slot
+        // that carried no clock is lent one, and if the vote runs afterwards
+        // that borrowed copy votes — for the pack it was borrowed from, which
+        // is the lender counted twice. Three slots, one of them silent, and
+        // the wrong pack wins 2-1 and overwrites the right kick-off. The same
+        // reason language feeds are excluded from the count: it is one
+        // opinion, however many slots repeat it.
+        //
+        // Lending second also lends the AGREED clock rather than the loudest
+        // one, which is what a silent slot should inherit.
+        //
+        // Never across the partition, as before: a pack that has the sport
+        // wrong gets no vote on a trusted slot's clock.
+        val trusted = lendClocks(agreeClocks(trustedRaw))
+        val misshelved = lendClocks(agreeClocks(misshelvedRaw))
         fun inWindow(e: SportsEvent): Boolean {
             val s = e.startMs ?: return e.live
             return s <= nowMs + cue && nowMs <= s + FIXTURE_LENGTH_MS

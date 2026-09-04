@@ -1212,8 +1212,11 @@ class SportsParserTest {
         ))
         val fixed = SportsParser.applySchedule(listOf(slot), fixtures, now).single()
         assertEquals(ms(2026, 9, 4, 23, 30, "UTC"), fixed.startMs)
-        assertEquals("New York City FC", fixed.home)
         assertFalse("not live seven hours early", fixed.live)
+        // The NAME stays as the roster billed it. The crest index is keyed on
+        // that spelling, so taking ESPN's would have cost the badge here and
+        // on nineteen other fixtures in today's file.
+        assertEquals("New York City", fixed.home)
     }
 
     /** Two spellings of one club become one row, which is the point of it. */
@@ -1233,7 +1236,9 @@ class SportsParserTest {
             start = "2026-09-04T18:30Z",
         ))
         val fixed = SportsParser.applySchedule(parsed, fixtures, now)
-        assertEquals(1, fixed.map { it.home to it.away }.toSet().size)
+        // One fixture, whatever the two slots are called: the schedule
+        // supplies the identity that folds them, and the words on screen stay
+        // as the roster billed them so the crest still resolves.
         assertEquals(1, SportsParser.upcoming(fixed, ms(2026, 9, 4, 18, 0, "UTC"), 60).size)
     }
 
@@ -1251,4 +1256,38 @@ class SportsParserTest {
         assertEquals(slot, SportsParser.applySchedule(listOf(slot), fixtures, now).single())
     }
 
+    /** Paris FC reduces to {PARIS}, which is a subset of Paris Saint-Germain. */
+    @Test
+    fun `an exact club name beats a looser reading of another club`() {
+        val now = ms(2026, 9, 4, 12, 0, "UTC")
+        val psg = SportsParser.parse(
+            1, "Next | Paris Saint-Germain vs. Lens | Ligue 1 | 04-09-2026 | 12:30 (GMT) | 8K",
+            now, mapOf("Ligue 1" to listOf("Paris Saint-Germain", "Lens")),
+        )!!
+        val fixtures = listOf(
+            // Paris FC's kick-off sits closer to the slot's own (wrong) clock,
+            // which is exactly the trap: the anchor is the thing we distrust.
+            ScheduleFixture("Ligue 1", "Paris FC", "Lens", "2026-09-04T13:00Z"),
+            ScheduleFixture("Ligue 1", "Paris Saint-Germain", "Lens", "2026-09-04T19:00Z"),
+        )
+        val fixed = SportsParser.applySchedule(listOf(psg), fixtures, now).single()
+        assertEquals("the exact name wins", ms(2026, 9, 4, 19, 0, "UTC"), fixed.startMs)
+    }
+
+    /** A silent slot must not vote with the clock it was lent. */
+    @Test
+    fun `a lent clock does not vote`() {
+        val now = ms(2026, 9, 4, 12, 0, "UTC")
+        val leagues = mapOf("MLS" to listOf("New York City", "Nashville SC"))
+        val slots = listOf(
+            1 to "Next | New York City vs. Nashville SC | all | 04-09-2026 | 16:30 (GMT) | " +
+                "8K EXCLUSIVE | US: SOCCER PPV 1",
+            2 to "LIVE | New York City vs. Nashville SC | US: SOCCER PPV 2",
+            3 to "New York City vs Nashville SC @ Sep 4 6:30 PM :MLS  01",
+        )
+        val rows = SportsParser.upcoming(
+            SportsParser.parseAll(slots, now, leagues), now, cueMinutes = 60,
+        )
+        assertTrue("16:30 must not win 2-1 on a borrowed clock", rows.isEmpty())
+    }
 }

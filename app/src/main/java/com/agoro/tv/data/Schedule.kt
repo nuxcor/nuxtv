@@ -5,6 +5,9 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -82,21 +85,66 @@ class ScheduleRepository(
 ) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val cacheFile = File(context.cacheDir, Schedule.ASSET)
+    private val loadMutex = Mutex()
     @Volatile private var cached: Schedule? = null
+    @Volatile private var cachedAtMs = 0L
 
-    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+    /**
+     * One load at a time, off the caller's thread, and not cached forever.
+     *
+     * The mutex is the manifest's lesson: two callers both entered the
+     * download, both wrote one temp file, and the second truncated the first
+     * mid-copy. The dispatcher is the same lesson from the other side — this
+     * does blocking network and file I/O, and a suspend function that does
+     * that on whatever thread it was called from is a main-thread stall
+     * waiting for its first careless caller.
+     *
+     * The memory cache expires on the same clock as the file. Held forever it
+     * made the advertised six-hour refresh a cold-start refresh: a box whose
+     * process lives for days would have shown the fixtures it launched with,
+     * and tomorrow's kick-offs would simply be missing.
+     */
     suspend fun load(): Schedule? {
-        cached?.let { return it }
-        refreshIfStale()
-        val fresh = runCatching {
+        cached?.let {
+            if (System.currentTimeMillis() - cachedAtMs < REFRESH_MS) return it
+        }
+        return loadMutex.withLock {
+            cached?.let {
+                if (System.currentTimeMillis() - cachedAtMs < REFRESH_MS) return@withLock it
+            }
+            withContext(BackgroundWork.dispatcher) {
+                refreshIfStale()
+                newest().also {
+                    cached = it
+                    cachedAtMs = System.currentTimeMillis()
+                }
+            }
+        }
+    }
+
+    /**
+     * Whichever copy is NEWER, not whichever is closer to hand.
+     *
+     * The manifest fixed exactly this and wrote down why: a cached download
+     * from before an app update shadowed the bundle that update shipped, for
+     * a full TTL, resurrecting what the new one had dropped. Here it would
+     * pin a box that has lost its network to a schedule from whenever it last
+     * had one, in preference to the fixtures its own APK arrived with.
+     */
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+    private fun newest(): Schedule? {
+        val fromCache = runCatching {
             if (cacheFile.exists()) {
                 cacheFile.inputStream().use { json.decodeFromStream<Schedule>(it) }
             } else null
-        }.getOrNull() ?: runCatching {
+        }.getOrNull()
+        val fromAsset = runCatching {
             context.assets.open(Schedule.ASSET).use { json.decodeFromStream<Schedule>(it) }
         }.getOrNull()
-        cached = fresh
-        return fresh
+        if (fromCache == null) return fromAsset
+        if (fromAsset == null) return fromCache
+        // String comparison, which is what an ISO stamp is for.
+        return if (fromAsset.generated > fromCache.generated) fromAsset else fromCache
     }
 
     private fun refreshIfStale() {
@@ -107,15 +155,22 @@ class ScheduleRepository(
             http.newCall(request).execute().use { resp ->
                 val body = resp.body ?: return
                 if (!resp.isSuccessful) return
-                val tmp = File(cacheFile.parentFile, "${Schedule.ASSET}.tmp")
-                tmp.outputStream().use { out -> body.byteStream().copyTo(out) }
-                // Decoded before it is trusted: a truncated download that
-                // replaced a good cache would take the schedule out for six
-                // hours, and the fixtures are what the Sport tab is FOR.
-                val ok = runCatching {
-                    tmp.inputStream().use { json.decodeFromStream<Schedule>(it) }
-                }.getOrNull()
-                if (ok != null && ok.fixtures.isNotEmpty()) tmp.renameTo(cacheFile) else tmp.delete()
+                // Named for THIS process: the mutex serialises callers inside
+                // one app, and two processes (the app and its own restart)
+                // sharing a cache directory would still collide on one name.
+                val tmp = File(cacheFile.parentFile, "${Schedule.ASSET}.${android.os.Process.myPid()}.tmp")
+                try {
+                    tmp.outputStream().use { out -> body.byteStream().copyTo(out) }
+                    // Decoded before it is trusted: a truncated download that
+                    // replaced a good cache would take the schedule out for six
+                    // hours, and the fixtures are what the Sport tab is FOR.
+                    val ok = runCatching {
+                        tmp.inputStream().use { json.decodeFromStream<Schedule>(it) }
+                    }.getOrNull()
+                    if (ok != null && ok.fixtures.isNotEmpty()) tmp.renameTo(cacheFile)
+                } finally {
+                    tmp.delete()
+                }
             }
         }
     }
