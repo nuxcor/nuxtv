@@ -701,7 +701,27 @@ NAMED_REMOVAL = re.compile(
     #
     # Anchored on the doubled word: a single \bCHU\b would be a three-letter
     # match waiting to catch something unrelated.
-    r'|\bCHU\s*CHU\b',
+    r'|\bCHU\s*CHU\b'
+    # BBC Parliament, 2026-09-03 at the user's request. Both of the panel's
+    # spellings — "UK: BBC PARLIAMENT" (1525676) and the misspelled "UK: BBC
+    # PARLAMENT" (622075) — which are two rows of gavel-to-gavel committee
+    # footage on a shelf the viewer keeps for rolling news.
+    #
+    # These two have a history: on 2026-08-27 they were folded INTO the BBC
+    # News tile on the finding that neither actually carried Parliament, and
+    # 622075 — which probes at 1080, the only unbadged 1080 the tile ever had
+    # — was made its primary. On 2026-09-03 the viewer reported the BBC News
+    # tile playing Parliament, the fold was unwound, and the two feeds became
+    # the separate NEWS rows this now removes. The provider had re-pointed
+    # them; see the memo on why "confirmed by watching" does not keep.
+    #
+    # So the 1080 is real and it is not BBC News, and it goes with them.
+    #
+    # Scoped to BBC. The panel carries four unrelated parliament channels
+    # (DSTV's Zambian, Nigerian and South African services) which a bare
+    # \bPARL rule would take as well; they are already dropped for their
+    # territory, and taking them here would hide that if it ever changed.
+    r'|\bBBC\s+PARLI?AMENT\b',
     re.I)
 
 telemundo_drop, rsn_drop, ca_drop, us_news_drop = [], [], [], []
