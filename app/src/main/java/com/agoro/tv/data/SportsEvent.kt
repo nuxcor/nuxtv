@@ -224,15 +224,17 @@ object SportsParser {
         nowMs: Long,
         leagues: Map<String, List<String>>,
         ambiguous: Set<String> = emptySet(),
+        aliases: Map<String, String> = emptyMap(),
     ): List<SportsEvent> {
         val idx = index(leagues)
         val amb = ambiguous.mapTo(HashSet()) { norm(it) }
+        val ali = normaliseAliases(aliases)
         // Every word any club we carry uses, for the cheap test below.
         val clubWords = idx.flatMapTo(HashSet()) { it.third.split(' ') }
             .filterTo(HashSet()) { it.length >= 3 }
         return slots.mapNotNull { (id, name) ->
             if (!worthParsing(name, clubWords)) null
-            else parseIndexed(id, name, nowMs, idx, amb)
+            else parseIndexed(id, name, nowMs, idx, amb, ali)
         }
     }
 
@@ -285,9 +287,27 @@ object SportsParser {
         nowMs: Long,
         leagues: Map<String, List<String>>,
         ambiguous: Set<String> = emptySet(),
+        aliases: Map<String, String> = emptyMap(),
     ): SportsEvent? = parseIndexed(
         streamId, rawName, nowMs, index(leagues), ambiguous.mapTo(HashSet()) { norm(it) },
+        normaliseAliases(aliases),
     )
+
+    /**
+     * The alias table keyed the way [fullName] looks a hit up.
+     *
+     * "League|Club", normalised on the club half only. Per LEAGUE and not per
+     * club, because the nicknames these exist to canonicalise are the ones
+     * several sports share: a bare "Spurs" -> "Tottenham Hotspur" would have
+     * renamed San Antonio too, which is the same wrong-club fault this file
+     * already fixes on the other side.
+     */
+    private fun normaliseAliases(aliases: Map<String, String>): Map<String, String> =
+        if (aliases.isEmpty()) emptyMap()
+        else aliases.entries.associate { (k, v) ->
+            val league = k.substringBefore('|', "")
+            "$league|${norm(k.substringAfter('|'))}" to v
+        }
 
     private fun parseIndexed(
         streamId: Int,
@@ -295,13 +315,27 @@ object SportsParser {
         nowMs: Long,
         idx: List<Triple<String, String, String>>,
         ambiguous: Set<String>,
+        aliases: Map<String, String>,
     ): SportsEvent? {
         val name = rawName.trim()
         if (name.isEmpty() || name.contains("NO EVENT", ignoreCase = true)) return null
         if (ended.containsMatchIn(name)) return null
         if (otherLeague.containsMatchIn(name)) return null
+        // A slot that names somebody else's competition is out, whatever
+        // nicknames its two sides happen to share with ours. This list already
+        // existed as a guard on [billedLeague] — a check that only ran once the
+        // roster had failed — so "Caribbean Premier League … Antigua And
+        // Barbuda Falcons vs St Kitts And Nevis Patriots" never reached it: the
+        // NFL roster answered first and put a cricket match on screen as an NFL
+        // fixture. The competition a slot names is the strongest thing it says
+        // about itself and it belongs at the top, not in the fallback.
+        if (notOurCompetition.containsMatchIn(name)) return null
 
         val (rawHome, rawAway) = readFixture(name) ?: return null
+        // "Los Angeles FC 2 vs. Sporting Kansas City II" is MLS Next Pro, the
+        // reserve league. Both sides matched their senior club, so the row
+        // announced a first-team fixture that nobody was playing.
+        if (isReserveSide(rawHome) || isReserveSide(rawAway)) return null
         // The roster first, then the slot's own billing.
         //
         // A roster cannot cover this on its own and it was never going to.
@@ -329,7 +363,7 @@ object SportsParser {
         // name a multi-word club. The slot says which competition it is; the
         // roster only ever knew which league a club belongs to.
         val billed = billedLeague(name)
-        val sides = resolveSides(rawHome, rawAway, idx, ambiguous)
+        val sides = resolveSides(rawHome, rawAway, idx, ambiguous, aliases)
             ?.let { if (billed != null) Sides(billed, it.home, it.away) else it }
             ?: billed?.let { Sides(it, billedSide(rawHome), billedSide(rawAway)) }
             ?: return null
@@ -382,11 +416,10 @@ object SportsParser {
      * every press conference the PPV shelves carry.
      */
     internal fun billedLeague(name: String): String? {
-        // Checked over the WHOLE name, not as a lookahead after the
-        // competition. "Caribbean Premier League" put its cricket on the
-        // football shelf because the guard only looked to the RIGHT of
-        // "Premier League", and the disqualifier sits to the left of it.
-        if (notOurCompetition.containsMatchIn(name)) return null
+        // [notOurCompetition] used to be checked here and is not any more: it
+        // now runs at the top of [parseIndexed], over the whole name, before
+        // the roster gets a say. Keeping a second copy would be two places to
+        // hold one list in sync, and the copy here could never fire.
         return billedComps.firstOrNull { it.second.containsMatchIn(name) }?.first
     }
 
@@ -408,6 +441,48 @@ object SportsParser {
     private val notOurCompetition = Regex(
         """(?i)\b(Caribbean|DFA|Dominica|Cricket|Rugby|Netball|Women'?s?|Ladies|Youth|U\d{2}|Reserves?)\b"""
     )
+
+    /**
+     * A side that is a club's second team. MLS Next Pro writes "2", the
+     * European reserve leagues write "II" or "B", and the senior roster
+     * matches all of them.
+     *
+     * The hard part is not the marker, it is everything that LOOKS like one.
+     * readFixture splits on the colon as well as the pipe, so an away side
+     * routinely arrives with a halved timestamp on it, and both shapes the
+     * packs write end in a bare digit:
+     *
+     *     "Luton Town @ Aug 27 2"          <- 2:20 PM, cut at the colon
+     *     "Club B // UK Sun 23 Aug 2"      <- 2:55 pm, same cut
+     *
+     * A trailing-"2" rule threw away every cup tie in the catalogue. Requiring
+     * a LETTER before the marker fixed the first shape and not the second —
+     * "Aug" is letters — so any 2 o'clock fixture in the 44 slots that use the
+     * weekday format was still dropped, and for a reason that had nothing to do
+     * with reserve teams.
+     *
+     * So the word BEFORE the marker decides, and it has to be a club's word:
+     * not a number, and not a month or a weekday. "Los Angeles FC 2" and
+     * "Sporting Kansas City II" pass; a date fragment does not.
+     *
+     * "U21" and "Reserves" are handled upstream — [notOurCompetition] rejects
+     * the whole slot on either — so only the two markers that can reach here
+     * are listed.
+     */
+    private val reserveMarker = Regex("""(?i)^(?:2|II)$""")
+
+    private val dateWord = Regex(
+        """(?i)^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec""" +
+            """|Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*$"""
+    )
+
+    internal fun isReserveSide(raw: String): Boolean {
+        val words = raw.trim().split(runsOfSpace).filter { it.isNotEmpty() }
+        if (words.size < 2) return false
+        if (!reserveMarker.matches(words.last())) return false
+        val before = words[words.size - 2]
+        return !dateWord.matches(before) && before.none { it.isDigit() }
+    }
 
     private val billedComps: List<Pair<String, Regex>> = listOf(
         // The domestic leagues are here as well as in the roster, so a club the
@@ -435,19 +510,87 @@ object SportsParser {
         "UEFA" to Regex("""(?i)^\s*UEFA\b"""),
     )
 
+    /**
+     * How many words stand IN FRONT of the club a side matched.
+     *
+     * The US rosters are NICKNAMES — "Falcons", "Patriots", "Spurs", "Kings" —
+     * and a nickname is a word other sports use too. "Antigua And Barbuda
+     * Falcons vs St Kitts And Nevis Patriots" is a Caribbean Premier League
+     * CRICKET match, and both sides matched the NFL roster on their last word:
+     * the row reached the screen as an NFL fixture wearing the Atlanta Falcons
+     * and New England Patriots badges. That is the whole of "it shows a match
+     * with the wrong logo".
+     *
+     * Leading words only, and that is the whole of making this safe. A side
+     * arrives with whatever readFixture left on its tail — "Chelsea // UK Sat 3
+     * Feb 3", "Cleveland Browns @ Aug 20 4" — so counting every surplus word
+     * threw away ordinary fixtures by the packful. What pads a club's name is
+     * in FRONT of it: a city ("New England Patriots") or somebody else's
+     * country ("St Kitts And Nevis Patriots").
+     *
+     * Only single-word roster entries are held to this. "Manchester United" and
+     * "Inter Miami" say who they are; "Falcons" does not.
+     */
+    private fun leadingSurplus(side: String, club: String): Int {
+        val words = side.split(' ').filter { it.isNotEmpty() }
+        val want = club.split(' ').filter { it.isNotEmpty() }
+        if (want.isEmpty()) return 0
+        for (i in words.indices) {
+            if (i + want.size <= words.size && words.subList(i, i + want.size) == want) return i
+        }
+        return 0
+    }
+
+    /**
+     * The most a bare nickname may be led by and still be that club. Two, which
+     * is every city these packs write — "New England", "Kansas City" — and one
+     * short of the shortest island name that collided with one.
+     */
+    private const val NICKNAME_LEAD = 2
+
+    /** Every roster entry this side names, longest first. */
+    private fun hitsFor(
+        side: String,
+        idx: List<Triple<String, String, String>>,
+    ): List<Triple<String, String, String>> = idx.filter {
+        hasWord(side, it.third) &&
+            (it.third.contains(' ') || leadingSurplus(side, it.third) <= NICKNAME_LEAD)
+    }
+
     private fun resolveSides(
         home: String,
         away: String,
         idx: List<Triple<String, String, String>>,
         ambiguous: Set<String>,
+        aliases: Map<String, String>,
     ): Sides? {
         val h = norm(home)
         val a = norm(away)
-        val hHit = idx.firstOrNull { hasWord(h, it.third) }
-        val aHit = idx.firstOrNull { hasWord(a, it.third) }
+        val hHits = hitsFor(h, idx)
+        val aHits = hitsFor(a, idx)
+        // The league that carries BOTH sides, before the league that carries
+        // the better-spelled one. "Spurs v. Newcastle" is Tottenham against
+        // Newcastle and both are in the Premier League roster — but "Spurs" is
+        // an NBA club too, the index is longest-name-first with no opinion
+        // about which sport a row is, and taking the home side's first hit
+        // filed an English league match under the NBA. A competition that
+        // fields both of these clubs is the competition they are playing in.
+        val shared = hHits.firstOrNull { hit -> aHits.any { it.first == hit.first } }?.first
+        val hHit = shared?.let { l -> hHits.firstOrNull { it.first == l } } ?: hHits.firstOrNull()
+        val aHit = shared?.let { l -> aHits.firstOrNull { it.first == l } } ?: aHits.firstOrNull()
         val hit = hHit ?: aHit ?: return null
         val league = when {
-            hHit != null && aHit != null -> hHit.first
+            hHit != null && aHit != null -> {
+                // Two sides from two SPORTS is not a fixture, it is a nickname
+                // collision, and there is no way to tell which of the two is
+                // the impostor. A cup tie across two of our football leagues is
+                // ordinary and stays; a club playing a basketball team does not
+                // happen.
+                val hs = sportOf(hHit.first)
+                val As = sportOf(aHit.first)
+                if (hs != null && As != null && hs != As) return null
+                hHit.first
+            }
             hit.third in ambiguous -> return null
             hit.second.trim().contains(' ') -> hit.first
             else -> return null
@@ -457,8 +600,8 @@ object SportsParser {
         // — so "Luton Town @ Aug 27 2" reached the row as a club name, and the
         // fold key with it, which stopped the same fixture on two slots from
         // folding into one row.
-        return Sides(league, hHit?.let { fullName(it, idx) } ?: billedSide(home),
-            aHit?.let { fullName(it, idx) } ?: billedSide(away))
+        return Sides(league, hHit?.let { fullName(it, idx, aliases) } ?: billedSide(home),
+            aHit?.let { fullName(it, idx, aliases) } ?: billedSide(away))
     }
 
     /**
@@ -471,8 +614,14 @@ object SportsParser {
     private fun fullName(
         hit: Triple<String, String, String>,
         idx: List<Triple<String, String, String>>,
-    ): String =
-        idx.firstOrNull { it.first == hit.first && hasWord(it.third, hit.third) }?.second ?: hit.second
+        aliases: Map<String, String>,
+    ): String {
+        // The authored table first: it is the only thing that can reach a name
+        // the alias shares no word with. See Sport.clubAlias.
+        aliases["${hit.first}|${hit.third}"]?.let { return it }
+        return idx.firstOrNull { it.first == hit.first && hasWord(it.third, hit.third) }?.second
+            ?: hit.second
+    }
 
     /**
      * "SV WALDHOF MANNHEIM" → "SV Waldhof Mannheim". Only all-caps input is
@@ -583,69 +732,14 @@ object SportsParser {
         .trim('-', '–', ':', '.', ',', '\u2022', '*')
         .trim()
 
-    /**
-     * Which league claims either side. Null means neither is one we carry.
-     *
-     * On WORD BOUNDARIES, never a bare substring. Squashing the name to letters
-     * and asking "does it contain SUNS" says yes to Mamelodi Sundowns, yes to
-     * Wolves inside Erie SeaWolves, and yes to Angers inside Dundee v Rangers.
-     * Every one of those was a real match against the provider's own slots.
-     */
-    internal fun leagueOf(
-        home: String,
-        away: String,
-        leagues: Map<String, List<String>>,
-        ambiguous: Set<String> = emptySet(),
-    ): String? {
-        val h = matchFor(norm(home), leagues)
-        val a = matchFor(norm(away), leagues)
-        val hit = h ?: a ?: return null
-        // Both sides recognised: settled, and the home side names the league.
-        if (h != null && a != null) return h.league
-
-        // Only one side, which is the normal shape of a cup tie: a Pokal or FA
-        // Cup draw pairs a top-flight club with one three divisions down that
-        // no roster will ever carry. Allowed, but only on a FULL club name —
-        // two words or more.
-        //
-        // A single word is not enough to carry a fixture by itself. "The New
-        // Saints v Sabah" is Welsh football and landed under the NFL on
-        // "Saints"; "Chelsea v E. Grand Rapids" is a Michigan high-school game
-        // and landed in the Premier League on "Chelsea", which is also a town
-        // there. Both were real rows on screen. "Bayern Munich" and "Union
-        // Berlin" say who they are; "Saints" does not.
-        if (norm(hit.team) in ambiguous) return null
-        return if (hit.team.trim().contains(' ')) hit.league else null
-    }
-
-    private data class Match(val league: String, val team: String)
-
-    /** [leagueOf] over the flattened index — the same rules, without the scan. */
-    private fun leagueIn(
-        home: String,
-        away: String,
-        idx: List<Triple<String, String, String>>,
-        ambiguous: Set<String>,
-    ): String? {
-        val h = norm(home)
-        val a = norm(away)
-        val hHit = idx.firstOrNull { hasWord(h, it.third) }
-        val aHit = idx.firstOrNull { hasWord(a, it.third) }
-        val hit = hHit ?: aHit ?: return null
-        if (hHit != null && aHit != null) return hHit.first
-        if (hit.third in ambiguous) return null
-        return if (hit.second.trim().contains(' ')) hit.first else null
-    }
-
-    private fun matchFor(side: String, leagues: Map<String, List<String>>): Match? {
-        for ((league, teams) in leagues) {
-            for (team in teams) {
-                val t = norm(team)
-                if (t.length >= 3 && hasWord(side, t)) return Match(league, team)
-            }
-        }
-        return null
-    }
+    // leagueOf / leagueIn / matchFor lived here and are gone. They were the
+    // first-hit rule — the first roster entry whose words appear in a side wins,
+    // with no cap on how much of the side is somebody else's name and no check
+    // that the two sides play the same sport. That is precisely what put a
+    // Caribbean cricket match on screen as an NFL fixture and an English league
+    // match under the NBA; [resolveSides] replaced it. Nothing called them, and
+    // leaving a working copy of a rule this file has just disproved is an
+    // invitation to revive it.
 
     /**
      * The rosters, flattened once, longest name first.
@@ -1002,12 +1096,75 @@ object SportsParser {
      * take a clock from. Only unambiguous markers count: FOOTBALL is deliberately
      * absent because half the world means soccer by it and ESPN means the NFL.
      */
-    private fun sportOf(league: String): String? = when (league) {
+    internal fun sportOf(league: String): String? = when (league) {
         "NFL" -> "gridiron"
         "NBA" -> "basketball"
         "MLS", "Premier League", "La Liga", "Serie A",
-        "Bundesliga", "Ligue 1", "Champions League" -> "soccer"
+        "Bundesliga", "Ligue 1", "Champions League",
+        // The cup and confederation shelves are football too. They were absent
+        // while this only fed [isWrongSport], where a null simply meant "no
+        // opinion" — but [crestFor] reads it as well, and a competition with no
+        // sport can be handed any badge in the index.
+        "Europa League", "Conference League", "UEFA", "Carabao Cup", "FA Cup" -> "soccer"
         else -> null
+    }
+
+    /**
+     * The crest for one side of one fixture, or null for a monogram.
+     *
+     * Scoped by SPORT, because the club names are not unique across them. The
+     * manifest's index is keyed by the roster's spelling and nothing else, and
+     * "Spurs" is San Antonio in the NBA roster and Tottenham in the Premier
+     * League one — so one of the two silently overwrote the other, and whoever
+     * lost wore the wrong badge. "Patriots", "Falcons", "Kings", "Giants" and
+     * "Rangers" are all shared the same way.
+     *
+     * Two keys, in order: "<sport>|<club>", which crest_match.py writes and
+     * which settles the collision outright, and the bare club name, which is
+     * what a manifest built before that does — including the one already on the
+     * box, since this ships in the app and the manifest arrives separately.
+     *
+     * The bare hit is checked against the crest's OWN SOURCE, and that check is
+     * closed rather than open: a klunn91 path names its sport in the folder,
+     * and a folder this app does not carry is refused rather than trusted.
+     * Getting that polarity wrong is not theoretical — the index maps
+     * "Cardinals" and "Giants" to klunn91's **MLB** folder, because the US pool
+     * is built from the whole tree and MLB sorts before NFL, so an NFL fixture
+     * was handed a baseball badge by a guard written to prevent exactly that.
+     *
+     * A row with no crest is a row with a monogram, which is a shape this
+     * screen has always had to draw.
+     */
+    fun crestFor(crests: Map<String, String>, league: String, club: String): String? {
+        val want = sportOf(league)
+        // No "null|Chelsea": a competition with no sport has no scoped key, and
+        // asking for one is a lookup that can only ever miss.
+        if (want != null) crests["$want|$club"]?.let { return it }
+        val url = crests[club] ?: return null
+        if (want == null) return url
+        return if (crestSport(url) == want) url else null
+    }
+
+    /** The folder a klunn91 crest sits in, which is the sport it belongs to. */
+    private val klunnFolder = Regex("""/team-logos/[^/]+/([^/]+)/""")
+
+    /**
+     * What a crest URL says it is, or null when its source says nothing.
+     *
+     * Null is only for sources with no sport in them at all. Every klunn91
+     * path HAS one — it is the folder — so an unrecognised folder answers with
+     * the folder itself, which matches none of the sports this app carries and
+     * is therefore refused. NCAA, MLB, NHL and anything the repository adds
+     * later all land there without this needing to know about them.
+     */
+    private fun crestSport(url: String): String? {
+        if (url.contains("football-logos")) return "soccer"
+        val folder = klunnFolder.find(url)?.groupValues?.get(1) ?: return null
+        return when (folder.uppercase(Locale.ROOT)) {
+            "NFL" -> "gridiron"
+            "NBA" -> "basketball"
+            else -> folder.uppercase(Locale.ROOT)
+        }
     }
 
     private val sportMarkers = listOf(

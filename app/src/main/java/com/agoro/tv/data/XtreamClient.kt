@@ -251,7 +251,7 @@ class XtreamClient(
                 name = obj.str("name")
                     ?.let { ContentClassifier.cleanTitle(it).ifBlank { it } }
                     ?: "Movie $id",
-                poster = obj.str("stream_icon")?.takeIf { it.isNotBlank() },
+                poster = ArtworkUrl.poster(obj.str("stream_icon")),
                 url = "$baseUrl/movie/$userP/$passP/$id.$ext",
                 categoryId = obj.str("category_id"),
                 year = obj.int("year") ?: yearFrom(obj.str("name")),
@@ -274,7 +274,10 @@ class XtreamClient(
                 name = obj.str("name")
                     ?.let { ContentClassifier.cleanTitle(it).ifBlank { it } }
                     ?: "Series $id",
-                poster = obj.str("cover")?.takeIf { it.isNotBlank() },
+                poster = ArtworkUrl.poster(obj.str("cover")),
+                // The wide still, for the hero. The panel carries one for 70%
+                // of the catalogue and nothing was reading it.
+                backdrop = ArtworkUrl.backdrop(obj.str("backdrop_path") ?: obj.arr0("backdrop_path")),
                 categoryId = obj.str("category_id"),
                 year = obj.int("year")
                     ?: yearFrom(obj.str("releaseDate") ?: obj.str("release_date"))
@@ -336,7 +339,7 @@ class XtreamClient(
                 season = obj.int("season") ?: seasonKey ?: 1,
                 episodeNum = obj.int("episode_num") ?: 0,
                 url = "$baseUrl/series/$userP/$passP/$id.$ext",
-                poster = info?.str("movie_image")?.takeIf { it.isNotBlank() },
+                poster = ArtworkUrl.poster(info?.str("movie_image")),
                 durationText = info?.str("duration")?.takeIf { it.isNotBlank() },
                 plot = info?.str("plot")?.takeIf { it.isNotBlank() },
             )
@@ -387,7 +390,11 @@ class XtreamClient(
                 ?: movie.cast,
             director = info.str("director")?.takeIf { it.isNotBlank() } ?: movie.director,
             durationText = info.str("duration")?.takeIf { it.isNotBlank() } ?: movie.durationText,
-            poster = info.str("movie_image")?.takeIf { it.isNotBlank() } ?: movie.poster,
+            // Through ArtworkUrl like every other artwork field. The detail
+            // page reads the same provider metadata the rails do, so without
+            // this a film repaired in its row reverted to the dead host the
+            // moment it was opened.
+            poster = ArtworkUrl.poster(info.str("movie_image")) ?: movie.poster,
             year = movie.year ?: yearFrom(info.str("releasedate") ?: info.str("release_date")),
         )
     }
@@ -403,6 +410,17 @@ private fun JsonObject.str(key: String): String? =
 
 private fun JsonObject.int(key: String): Int? =
     str(key)?.trim()?.toDoubleOrNull()?.toInt()
+
+/**
+ * The first element of an array-valued field.
+ *
+ * Panels ship `backdrop_path` as a LIST — this one does, on 8,159 of 8,598
+ * series — and [str] answers null for it, so a field that is nearly always
+ * present read as nearly always absent.
+ */
+private fun JsonObject.arr0(key: String): String? =
+    (this[key] as? JsonArray)?.firstOrNull()?.let { (it as? JsonPrimitive)?.contentOrNull }
+        ?.takeIf { it.isNotBlank() }
 
 private fun JsonObject.dbl(key: String): Double? =
     str(key)?.trim()?.toDoubleOrNull()?.takeIf { it > 0 }

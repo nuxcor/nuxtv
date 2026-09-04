@@ -2868,7 +2868,7 @@ SPORT_LEAGUES = {
    "Man City","Manchester United","Man United","Man Utd","Newcastle","Nottingham Forest",
    "Sunderland","Tottenham","Spurs","West Ham","Wolves","Wolverhampton"],
  "La Liga": ["Alaves","Athletic Club","Athletic Bilbao","Atletico Madrid","Barcelona",
-   "Celta Vigo","Elche","Espanyol","Getafe","Girona","Levante","Mallorca","Osasuna",
+   "Celta","Celta Vigo","Elche","Espanyol","Getafe","Girona","Levante","Mallorca","Osasuna",
    "Rayo Vallecano","Real Betis","Real Madrid","Real Sociedad","Sevilla","Valencia",
    "Villarreal","Real Oviedo"],
  "Serie A": ["Atalanta","Bologna","Cagliari","Como","Cremonese","Fiorentina","Genoa",
@@ -2899,6 +2899,51 @@ SPORT_LEAGUES = {
 # sides threw the whole competition away.
 SPORT_AMBIGUOUS = ["Giants", "Cardinals", "Jets", "Panthers", "Kings", "Rangers"]
 
+# The spelling a pack uses -> the club's real name, for the pairs no rule can
+# bridge.
+#
+# SPORT_LEAGUES lists aliases beside full names so a fixture is recognised
+# however it is written, and the app then shows the longest roster spelling
+# that CONTAINS the one it matched. That reaches "Ipswich" -> "Ipswich Town"
+# and stops dead wherever the two names share no word: a Peacock slot billed
+# "Spurs v. Newcastle" produced a row called "Spurs" while a STAN slot called
+# the same match "Tottenham Hotspur", so one fixture appeared twice and one of
+# the two wore a name the club has not used on a shirt in a century.
+#
+# Keyed "League|Alias", because the nicknames worth canonicalising are the
+# ones several sports share: a bare "Spurs" would rename San Antonio too.
+# Both sides of every pair must be in SPORT_LEAGUES: the alias so the fixture
+# parses, the canonical so crest_match.py has resolved a badge for it. MLS has
+# no crest source at all, which is why its three entries resolve to nothing and
+# their rows keep the monogram they already had.
+SPORT_CLUB_ALIAS = {
+    "Premier League|Man City": "Manchester City",
+    "Premier League|Man United": "Manchester United",
+    "Premier League|Man Utd": "Manchester United",
+    "Premier League|Spurs": "Tottenham Hotspur",
+    "Premier League|Tottenham": "Tottenham Hotspur",
+    # Derived from the listings, which write "Brighton & Hove Albion" — see
+    # _BILLED_FIXTURE, which used to cut the club in half at the ampersand.
+    "Premier League|Hove Albion": "Brighton",
+    "Premier League|Leeds": "Leeds United",
+    "Premier League|Newcastle": "Newcastle United",
+    "Premier League|Wolverhampton": "Wolves",
+    "Serie A|Internazionale": "Inter Milan",
+    "La Liga|Athletic Bilbao": "Athletic Club",
+    "La Liga|Celta": "Celta Vigo",
+    "Bundesliga|Gladbach": "Borussia Monchengladbach",
+    "Bundesliga|Bayern Munchen": "Bayern Munich",
+    "Bundesliga|Dortmund": "Borussia Dortmund",
+    "Bundesliga|Leverkusen": "Bayer Leverkusen",
+    "Bundesliga|Koln": "Cologne",
+    "Ligue 1|PSG": "Paris Saint-Germain",
+    "MLS|LAFC": "Los Angeles FC",
+    "MLS|DC United": "D.C. United",
+    "MLS|Red Bull New York": "New York Red Bulls",
+    "NBA|Sixers": "76ers",
+    "NBA|Blazers": "Trail Blazers",
+}
+
 # The provider bills the competition in the slot name for the big leagues, so
 # the roster can be read off its own listings instead of authored by hand.
 #
@@ -2919,8 +2964,13 @@ SPORT_BILLED = {
     'Bundesliga': re.compile(r'\bBundesliga\b', re.I),
     'Ligue 1': re.compile(r'\bLigue 1\b', re.I),
 }
+# The ampersand is part of the club, not a boundary. Without it the home group
+# could only start after the "&", so every listing of "Brighton & Hove Albion v
+# Aston Villa" derived a club called "Hove Albion" — which then reached the
+# screen as the fixture's home side. See SPORT_CLUB_ALIAS, which covers the
+# rosters already built from the old pattern.
 _BILLED_FIXTURE = re.compile(
-    r"([A-Z][A-Za-z.'\- ]{2,28}?)\s+(?:vs?\.?|v)\s+([A-Z][A-Za-z.'\- ]{2,28}?)\s{2,}", re.I)
+    r"([A-Z][A-Za-z.'\-& ]{2,28}?)\s+(?:vs?\.?|v)\s+([A-Z][A-Za-z.'\-& ]{2,28}?)\s{2,}", re.I)
 _BILLED_NOISE = re.compile(
     r'^(?:Studio Coverage|Player Camera|Multi Camera|Match Centre)\s*[:]?\s*', re.I)
 
@@ -3258,6 +3308,7 @@ manifest = {
     # These share one shelf per genre; anything else keeps its own shelf.
     "merged_regions": list(SHELF_MERGED_REGIONS),
     "sport": {"leagues": SPORT_LEAGUES, "cue_minutes": SPORT_CUE_MINUTES,
+              "club_alias": SPORT_CLUB_ALIAS,
               "ambiguous": SPORT_AMBIGUOUS, "club_crest": _crest_map},
     # Section-level fold, applied to whatever section a channel resolves to.
     # The per-stream merged_section map cannot cover a channel that no pass

@@ -54,6 +54,22 @@ data class Sport(
      * back to a monogram. A row must never assume a crest exists.
      */
     @SerialName("club_crest") val clubCrest: Map<String, String> = emptyMap(),
+    /**
+     * The spelling a pack uses -> the club's real name, for the ones no rule
+     * can derive.
+     *
+     * [leagues] carries aliases beside full names so a fixture is recognised
+     * however it is written, and SportsParser then shows the roster's LONGEST
+     * spelling that contains the one it matched — which reaches "Ipswich" ->
+     * "Ipswich Town" and stops dead at "Spurs" -> "Tottenham Hotspur". So a
+     * Peacock slot reading "Spurs v. Newcastle" produced a row called "Spurs"
+     * beside a STAN slot calling the same match "Tottenham Hotspur", and the
+     * two never folded: one match, two rows, one of them wearing a name the
+     * club has not used on a shirt in a century.
+     *
+     * Empty by default. A manifest without it behaves exactly as before.
+     */
+    @SerialName("club_alias") val clubAlias: Map<String, String> = emptyMap(),
 )
 
 @Serializable

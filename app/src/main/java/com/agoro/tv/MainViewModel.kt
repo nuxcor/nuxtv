@@ -626,7 +626,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             com.agoro.tv.data.SportsParser.parseAll(
                 bundle.events.mapNotNull { ch -> ch.xtreamId?.let { it to ch.name } },
-                now, leagues, s?.ambiguous.orEmpty().toSet(),
+                now, leagues, s?.ambiguous.orEmpty().toSet(), s?.clubAlias.orEmpty(),
             ).also {
                 sportCacheEvents = bundle.events
                 sportCacheSport = s

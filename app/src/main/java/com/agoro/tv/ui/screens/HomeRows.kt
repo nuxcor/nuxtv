@@ -270,6 +270,13 @@ internal class CatalogIndex(
 internal const val GENRE_MIN_TITLES = 8
 
 /**
+ * How many genre shelves Home carries. Three: enough that the page has
+ * something to browse below the personal rows, few enough that it does not
+ * turn into the Series tab with extra steps.
+ */
+internal const val HOME_GENRE_SHELVES = 3
+
+/**
  * How many titles a "Continue watching" shelf carries. Home's row has always
  * had a limit; the tabs' own shelves were bounded only by however many resume
  * positions existed, which stopped being a bound once a FINISHED episode
@@ -344,6 +351,94 @@ internal fun splitGenres(raw: String?): List<String> =
 
 /** The key two spellings of one genre share; see [splitGenres]. */
 internal fun genreKey(genre: String): String = genre.lowercase()
+
+/**
+ * The rating band a shelf of well-reviewed films is drawn from.
+ *
+ * Both ends matter, and the top one more than the bottom. The panel's ratings
+ * are TMDB's vote average with no vote COUNT beside them, so the head of the
+ * list is not the best films in the catalogue — it is the ones almost nobody
+ * has scored. Counted on this catalogue: 309 titles sit at a flat 10.0 and
+ * they are festival shorts and single-vote obscurities, while 7.8 to 8.5 holds
+ * Pulp Fiction, The Return of the King, GoodFellas, Forrest Gump, Across the
+ * Spider-Verse. A shelf headed "highly rated" that opens on a film nobody has
+ * heard of is worse than no shelf.
+ *
+ * The floor keeps the row from running out into merely-average titles when the
+ * band above it is thin.
+ */
+internal const val ACCLAIM_FLOOR = 7.4
+internal const val ACCLAIM_CEILING = 8.7
+
+/** How many titles a catalogue shelf carries. */
+internal const val SHELF_LENGTH = 24
+
+/**
+ * The films worth a shelf of their own, best first.
+ *
+ * This exists because Home's film row was `movies.take(20)` — the first twenty
+ * titles in the order the provider happened to list them, which is the whole of
+ * "the rows feel random". Nothing about that order means anything: it is the
+ * panel's insertion sequence.
+ *
+ * Ties break on recency rather than on playlist order, so a shelf of equally
+ * rated films leads with the ones that arrived most recently instead of the
+ * ones that were imported first.
+ */
+internal fun acclaimedMovies(
+    movies: List<Movie>,
+    hidden: Set<String> = emptySet(),
+    limit: Int = SHELF_LENGTH,
+): List<Movie> = movies.asSequence()
+    .filter { it.rating != null && it.rating in ACCLAIM_FLOOR..ACCLAIM_CEILING }
+    .filter { it.poster != null }
+    .filterNot { movieHomeKey(it) in hidden }
+    .sortedWith(compareByDescending<Movie> { it.rating }.thenByDescending { it.addedMs ?: 0L })
+    .take(limit)
+    .toList()
+
+/**
+ * A genre's shows, best first.
+ *
+ * A genre shelf is a browsing surface rather than a chart, so unlike
+ * [acclaimedMovies] it does not drop what it cannot rank — everything in the
+ * genre is eligible and the order is what changes. What it will not do is LEAD
+ * with a score nobody gave: series ratings on this panel are coarse, whole and
+ * half points with 244 shows at a flat 10.0, and a shelf that sorts on the raw
+ * number opens on the same unvoted obscurities every time.
+ *
+ * So a rating above the band is treated as no rating at all rather than as the
+ * best one. It sorts with the unrated, at the end, where recency orders it.
+ */
+internal fun genreShelf(
+    shows: List<Series>,
+    hidden: Set<String> = emptySet(),
+    limit: Int = SHELF_LENGTH,
+): List<Series> = shows.asSequence()
+    .filter { it.poster != null }
+    .filterNot { seriesHomeKey(it) in hidden }
+    .sortedWith(
+        compareByDescending<Series> { it.rating?.takeIf { r -> r <= ACCLAIM_CEILING } ?: 0.0 }
+            .thenByDescending { it.addedMs ?: 0L }
+    )
+    .take(limit)
+    .toList()
+
+/**
+ * The genres big enough to lead a Home shelf, biggest first.
+ *
+ * Home shows a fixed few and the browse tab shows them all, so this only has
+ * to answer "which ones". Sorted by how much is behind them, because a shelf
+ * the viewer can scroll for a while is worth more on a home screen than an
+ * alphabetically-first one with nine titles in it.
+ */
+internal fun topGenres(
+    genres: List<String>,
+    byGenre: Map<String, List<Series>>,
+    count: Int = Int.MAX_VALUE,
+): List<String> = genres
+    .sortedWith(compareByDescending<String> { byGenre[genreKey(it)]?.size ?: 0 }.thenBy { it })
+    .take(count)
 
 /**
  * How many years back a release still reads as new: this year and last.
@@ -584,6 +679,18 @@ internal class Catalog(
      */
     val starterMovies: List<Movie>,
     val starterSeries: List<Series>,
+    /**
+     * Home's permanent catalogue shelves — the ones that are there whether or
+     * not anything has been watched.
+     *
+     * Before these, Home after your first film was Continue watching, your
+     * channels and Recently added, and nothing else: every row was a record of
+     * what you had already done. There was nothing to BROWSE, which is what a
+     * home screen is mostly for.
+     */
+    val acclaimedMovies: List<Movie>,
+    /** Heading -> that genre's shows. Ordered; see [topGenres]. */
+    val genreShelves: List<Pair<String, List<Series>>>,
     /** Resumed films, newest first — the Movies tab's Continue watching. */
     val resumedMovies: List<Movie>,
     /** Series id → progress of its most recently watched episode. */
@@ -669,6 +776,25 @@ internal fun buildCatalog(
         recentlyAdded = recentlyAdded,
         starterMovies = starterMovies,
         starterSeries = starterSeries,
+        acclaimedMovies = acclaimedMovies(index.movies, hiddenTitles),
+        // Rank, then build, then KEEP, then cut — in that order. Cutting to
+        // three first and filtering after meant a thin genre deleted its slot
+        // instead of yielding it: [topGenres] ranks on the raw bucket, while
+        // [genreShelf] then drops what has no artwork or has been hidden, so a
+        // third-placed genre with nine shows and three missing posters left Home
+        // with two shelves while a forty-strong genre sat unused behind it.
+        //
+        // A sequence, so the walk stops at the third shelf that stands up rather
+        // than sorting every genre in the catalogue. This runs on every
+        // resume-position write.
+        genreShelves = topGenres(index.seriesGenres, index.seriesByGenre)
+            .asSequence()
+            .map { genre ->
+                genre to genreShelf(index.seriesByGenre[genreKey(genre)].orEmpty(), hiddenTitles)
+            }
+            .filter { it.second.size >= GENRE_MIN_TITLES }
+            .take(HOME_GENRE_SHELVES)
+            .toList(),
         resumedMovies = resumedMovies,
         seriesProgress = seriesProgress,
         resumedSeries = fromOrigins + fromEpisodes + fromFinished,
