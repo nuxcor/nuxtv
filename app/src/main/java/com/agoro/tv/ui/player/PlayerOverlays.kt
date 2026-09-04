@@ -656,14 +656,17 @@ private fun plainLanguage(raw: String): String = when {
  * episode of it.
  *
  * ONE card in two states, because it is one moment. [secondsLeft] null is the
- * peek: the episode is still playing, this is information, and the remote
- * keeps every key it had — OK still opens the controls, because a viewer
- * minutes from the end may well want to go back rather than forward. There
- * is no button in that state, deliberately: a filled pill on a card no key
- * activates is a control that lies. Non-null is the offer — the episode has
- * ended, the count is running, OK takes it and BACK declines — and only then
- * does the pill appear, with the seconds beside it and a track along the
- * card's bottom edge draining to nothing.
+ * peek: the episode is still playing and this is an offer to leave it early —
+ * OK takes the next one, BACK puts the card away. Non-null is the offer at the
+ * end — the episode has finished, the count is running, OK takes it now and
+ * BACK stays on the last frame.
+ *
+ * The pill is in BOTH states, and the label under it names the key. The peek
+ * used to carry neither, on the reasoning that a filled pill on a card no key
+ * activates is a control that lies — which was right, and the wrong half to
+ * fix. A card in the corner where every service puts its next-episode button
+ * IS read as a button; the viewer pressed OK at it and got a transport bar.
+ * Now the key does what the card looks like it does, and the card says so.
  *
  * Still not a menu. There are exactly two answers and the remote has a key
  * for each.
@@ -739,28 +742,31 @@ internal fun UpNextCard(
             }
         }
 
-        if (secondsLeft != null) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
-                verticalAlignment = Alignment.CenterVertically,
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(NuxColors.Primary)
+                    .padding(vertical = 11.dp),
+                contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(NuxColors.Primary)
-                        .padding(vertical = 11.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "▶  Watch now",
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                        ),
-                        color = NuxColors.OnAccent,
-                        maxLines = 1,
-                    )
-                }
+                Text(
+                    // "Watch now" against a finished episode; "Play next"
+                    // against one that is still running, where "now" would be
+                    // asking the viewer what they think they are doing.
+                    text = if (secondsLeft != null) "▶  Watch now" else "▶  Play next",
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = NuxColors.OnAccent,
+                    maxLines = 1,
+                )
+            }
+            if (secondsLeft != null) {
                 Spacer(Modifier.width(14.dp))
                 Text(
                     // Seconds live OUTSIDE the pill. Inside, the number moves
@@ -775,13 +781,19 @@ internal fun UpNextCard(
                     maxLines = 1,
                 )
             }
-            Spacer(Modifier.height(9.dp))
-            Text(
-                text = "OK to start  ·  BACK to stay",
-                style = MaterialTheme.typography.labelSmall,
-                color = NuxColors.OnSurfaceDim,
-                modifier = Modifier.padding(horizontal = 18.dp),
-            )
+        }
+        Spacer(Modifier.height(9.dp))
+        Text(
+            // Both keys, both states — the second one is the important one on
+            // the peek, where the card arrived uninvited and the viewer needs
+            // to know it can be sent away.
+            text = if (secondsLeft != null) "OK to start  ·  BACK to stay"
+            else "OK to play  ·  BACK to hide",
+            style = MaterialTheme.typography.labelSmall,
+            color = NuxColors.OnSurfaceDim,
+            modifier = Modifier.padding(horizontal = 18.dp),
+        )
+        if (secondsLeft != null) {
             Spacer(Modifier.height(10.dp))
             // The same count as the number, drawn rather than read. It drains
             // along the foot of the card, which is the one edge where a
@@ -801,8 +813,8 @@ internal fun UpNextCard(
                         .background(NuxColors.Primary),
                 )
             }
-            Spacer(Modifier.height(14.dp))
         }
+        Spacer(Modifier.height(14.dp))
     }
 }
 

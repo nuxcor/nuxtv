@@ -788,8 +788,10 @@ class PlayerSession internal constructor(
     private fun resetLadder(index: Int) {
         // A new item means the previous offer is answered, whichever way it
         // went — taken, declined, or overtaken by the viewer picking something
-        // else entirely.
+        // else entirely. The peek is answered with it: a viewer who hid the
+        // card on one episode has said nothing about the next one.
         upNextIndex = null
+        upNextPeekDismissed = false
         if (layer == PlayerLayer.UpNext) layer = PlayerLayer.None
         // A scrub belongs to the item it was started on; a new one arriving
         // mid-scrub would otherwise seek the wrong film to a position that
@@ -938,9 +940,26 @@ class PlayerSession internal constructor(
     var upNextIndex by mutableStateOf<Int?>(null)
         private set
 
-    /** Take the queued episode now. */
+    /**
+     * Take the queued episode now — or, pressed on the peek, the one after
+     * this, before this one has ended.
+     */
     fun playUpNext() {
-        val next = upNextIndex ?: return
+        val queued = upNextIndex
+        val next = queued ?: (currentIndex + 1).takeIf {
+            !request.isLive && !request.isCatchup && it < request.items.size
+        } ?: return
+        // From the PEEK the episode has not ended, so nothing has marked it
+        // watched: onItemEnded is the only thing that ever does, and it will
+        // now never run for this item. Saved at its own duration, exactly as
+        // the ending would have — a viewer who moves on during the credits has
+        // finished it, and without this a series left one minute into the next
+        // episode would have recorded NEITHER, which is the whole bug
+        // watchedAt was added to close.
+        if (queued == null && durationMs > 0) {
+            request.items.getOrNull(currentIndex)?.url
+                ?.let { onSaveResume(it, durationMs, durationMs) }
+        }
         upNextIndex = null
         if (layer == PlayerLayer.UpNext) layer = PlayerLayer.None
         // Through the engine's own index jump, so the ladder, the resume
@@ -953,6 +972,26 @@ class PlayerSession internal constructor(
     fun dismissUpNext() {
         upNextIndex = null
         if (layer == PlayerLayer.UpNext) layer = PlayerLayer.None
+    }
+
+    /**
+     * True once BACK has hidden the run-out peek, for the rest of this item.
+     *
+     * The peek binds OK to the next episode while it is on screen, so there
+     * has to be a way to say no to it: without this the card sits over the
+     * closing minutes with the select key pointing away from the episode the
+     * viewer is still watching. Cleared per item by [resetLadder].
+     */
+    var upNextPeekDismissed by mutableStateOf(false)
+        private set
+
+    /**
+     * Hide the peek for the rest of this item, and give OK and BACK back.
+     * The end-of-file offer is untouched — it still counts down when the
+     * episode actually ends.
+     */
+    fun dismissUpNextPeek() {
+        upNextPeekDismissed = true
     }
 
     /**

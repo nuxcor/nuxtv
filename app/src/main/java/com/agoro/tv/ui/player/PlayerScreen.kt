@@ -113,35 +113,34 @@ private const val UP_NEXT_SECONDS = 10
 /**
  * How long before the end of an item the next one announces itself.
  *
- * A FRACTION of the runtime, not a fixed countdown, and a generous one. The
- * card fired at the end of the file before this and the viewer's report was
- * that it arrived roughly five minutes after the credits had started rolling
- * — which is what the end of the file means on this catalogue. These are rips
- * of a broadcast slot: the credits, a trailer for the next episode and a
- * stretch of black or a station card all sit inside the runtime, and the
- * point the picture stops being the episode is minutes before the point the
- * file stops.
+ * A FRACTION of the runtime, not a fixed countdown. The card fired at the end
+ * of the FILE once, and the report was that it arrived roughly five minutes
+ * after the credits had started rolling — which is what the end of the file
+ * means on this catalogue. These are rips of a broadcast slot: the credits, a
+ * trailer for the next episode and a stretch of black or a station card all
+ * sit inside the runtime, and the point the picture stops being the episode is
+ * minutes before the point the file stops.
  *
- * Nothing here can see where that is. There are no chapter or credit markers
- * in this catalogue and no way to derive one, so the choice is between being
- * early and being late, and they do not cost the same. Late is the entire
- * complaint: an offer that arrives after the viewer has already reached for
- * the remote is not an offer. Early costs a small card in a corner over the
- * closing minutes of something they have just watched — and it costs that
- * much only because the peek was built to be harmless: it does not count
- * down, it does not take a key, and it does not cover the picture.
+ * Nothing here can see where that is — no chapter or credit markers, no way to
+ * derive one — so the window is a guess, and the first guess was too generous.
+ * An eighth of the runtime, up to six minutes, put the card on screen while an
+ * hour-long episode was plainly still running: not a run-out, an interruption.
+ * Halved, and capped in minutes rather than in a quarter of an hour — two and
+ * a half at the top, which on these runtimes is about the last 5%, the same
+ * place PlayerPrefs draws its own line between part-watched and finished.
  *
- * So: the last eighth, floored so a short item still gets a run at it, and
- * capped so a feature-length one does not carry the card for a quarter of an
- * hour. On a 54-minute drama this is the last six minutes.
+ * Early no longer costs only a corner card, either. The peek OWNS OK while it
+ * is up ([PlayerKeyAction.PlayUpNext]), so a window that opens too soon takes
+ * the controls key with it for the whole of it. That is what caps this tight,
+ * and it is why BACK hides the card — see [PlayerSession.dismissUpNextPeek].
  *
- * The numbers are a first guess at ONE catalogue's shape and they are meant to
- * be moved. If the card is still late, raise the fraction; if it now sits
+ * The numbers are still a guess at ONE catalogue's shape and they are still
+ * meant to be moved. If the card is late again, raise the cap; if it sits
  * through the last scene, lower it.
  */
-private const val UP_NEXT_PEEK_FRACTION = 0.125
-private const val UP_NEXT_PEEK_MIN_MS = 90_000L
-private const val UP_NEXT_PEEK_MAX_MS = 360_000L
+private const val UP_NEXT_PEEK_FRACTION = 0.05
+private const val UP_NEXT_PEEK_MIN_MS = 60_000L
+private const val UP_NEXT_PEEK_MAX_MS = 150_000L
 
 /** The window for an item of [durationMs]; see [UP_NEXT_PEEK_FRACTION]. */
 private fun upNextPeekMs(durationMs: Long): Long =
@@ -150,11 +149,43 @@ private fun upNextPeekMs(durationMs: Long): Long =
 
 /**
  * Below this, an item is too short to have a run-out worth announcing: the
- * card would be on screen for most of its length. Ten minutes, because the
- * window above is now measured in minutes rather than seconds — at three the
- * floor alone would have covered half of a four-minute clip.
+ * card would be on screen for most of its length, and would hold OK there.
+ * Ten minutes — the floor of the window above is already a tenth of an item
+ * this short, and half of a four-minute clip.
  */
 private const val UP_NEXT_MIN_ITEM_MS = 600_000L
+
+/**
+ * The item the run-out peek is offering, or null when the peek is not up.
+ *
+ * ONE definition, because two things now have to agree about it: the overlay
+ * draws the card from this, and the key map binds OK from it. While the peek
+ * took no keys they could not disagree; the moment it took one, a card on
+ * screen that OK does not answer — or an OK that skips an episode with no card
+ * up — is a bug rather than a drift.
+ *
+ * Deliberately a plain function and not a composable or a remembered state:
+ * it is read from onPreviewKeyEvent, where a snapshot read subscribes to
+ * nothing, and from the overlay's own scope, where it invalidates only that
+ * scope. Hoisted to the top of PlayerScreen it would put [PlayerSession
+ * .positionMs] — which ticks once a second — in the whole screen's recompose
+ * scope, on the box with 2GB of RAM.
+ */
+private fun upNextPeekIndex(session: PlayerSession, inPip: Boolean): Int? {
+    val request = session.request
+    val next = session.currentIndex + 1
+    val peeking = session.upNextIndex == null &&
+        !session.upNextPeekDismissed &&
+        !request.isLive && !request.isCatchup &&
+        session.layer == PlayerLayer.None &&
+        !inPip &&
+        next < request.items.size &&
+        session.durationMs >= UP_NEXT_MIN_ITEM_MS &&
+        session.positionMs > 0 &&
+        session.durationMs - session.positionMs in
+            1_000..upNextPeekMs(session.durationMs)
+    return next.takeIf { peeking }
+}
 
 /**
  * How long a channel has to stay tuned before it becomes the one a cold start
@@ -887,7 +918,15 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             // still one more BACK away, which is the same two presses it
             // would have been; declining first is the one nobody can undo.
             PlayerLayer.UpNext -> session.dismissUpNext()
-            PlayerLayer.Error, PlayerLayer.None -> onExit()
+            // The peek takes OK while it is up, so it has to answer BACK too:
+            // a card that binds the select key and cannot be got rid of is one
+            // the viewer is stuck under for the rest of the episode. Hiding it
+            // hands both keys back — OK opens the controls again, the next
+            // BACK leaves. This declines the heads-up, not the episode: the
+            // offer's own count still runs when the file ends.
+            PlayerLayer.Error, PlayerLayer.None ->
+                if (upNextPeekIndex(session, inPip) != null) session.dismissUpNextPeek()
+                else onExit()
         }
     }
 
@@ -943,6 +982,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     centerLongPressFired = session.centerLongPressFired,
                     digitsPending = session.digitBuffer.isNotEmpty(),
                     playing = session.playing,
+                    upNextPeeking = upNextPeekIndex(session, inPip) != null,
                 )
                 when (val action = result.action) {
                     PlayerKeyAction.CenterArm -> session.centerArmed = true
@@ -961,7 +1001,16 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         session.togglePlayPause()
                         session.poke()
                     }
-                    PlayerKeyAction.PlayUpNext -> session.playUpNext()
+                    PlayerKeyAction.PlayUpNext -> {
+                        // The press that took the episode may have armed
+                        // first: the episode can END between a KeyDown and its
+                        // KeyUp, and the offer takes the release either way.
+                        // Left set, that arm makes the NEXT press of OK look
+                        // like the release of this one.
+                        session.centerArmed = false
+                        session.centerLongPressFired = false
+                        session.playUpNext()
+                    }
                     PlayerKeyAction.LastChannel -> session.jumpTo(session.previousIndex)
                     PlayerKeyAction.ToggleGuide ->
                         // Layers are exclusive, so raising the guide inherently
@@ -1072,24 +1121,15 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         // where every streaming app puts it and where it covers the least —
         // the top right is the status corner and the centre is the picture.
         //
-        // The peek is suppressed while the transport chrome is up. A viewer
-        // who has opened the controls in the last half minute is doing
-        // something with this episode, and the card would sit on the bar they
-        // opened. The countdown is never suppressed: by then the episode is
-        // over and it is the only thing on screen.
+        // The peek is suppressed while the transport chrome is up (it is part
+        // of [upNextPeekIndex]). A viewer who has opened the controls in the
+        // last minutes is doing something with this episode, and the card
+        // would sit on the bar they opened — and would take the OK they are
+        // using to work it. The countdown is never suppressed: by then the
+        // episode is over and it is the only thing on screen.
         run {
             val counting = session.upNextIndex
-            val peekIndex = session.currentIndex + 1
-            val peeking = counting == null &&
-                !request.isLive && !request.isCatchup &&
-                session.layer == PlayerLayer.None &&
-                !inPip &&
-                peekIndex < request.items.size &&
-                session.durationMs >= UP_NEXT_MIN_ITEM_MS &&
-                session.positionMs > 0 &&
-                session.durationMs - session.positionMs in
-                    1_000..upNextPeekMs(session.durationMs)
-            val index = counting ?: peekIndex.takeIf { peeking }
+            val index = counting ?: upNextPeekIndex(session, inPip)
             val next = index?.let { request.items.getOrNull(it) }
             if (next != null) {
                 val secondsLeft = if (counting != null) {

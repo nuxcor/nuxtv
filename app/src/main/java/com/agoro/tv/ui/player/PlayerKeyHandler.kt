@@ -109,6 +109,12 @@ internal fun playerKeyAction(
     digitsPending: Boolean = false,
     /** Whether the engine is playing — a paused live stream must be resumable. */
     playing: Boolean = true,
+    /**
+     * True while the run-out peek is on screen — the corner card that names
+     * the next episode over the closing minutes of this one. It owns OK
+     * exactly as the ended offer does; see [PlayerKeyAction.PlayUpNext].
+     */
+    upNextPeeking: Boolean = false,
 ): PlayerKeyResult {
     // "No overlay" — bare playback or the transport bar. Panels (channel
     // list, guide, tracks, catch-up, options) and the error card own their
@@ -147,7 +153,21 @@ internal fun playerKeyAction(
     // instead arm a long-press that opens the channel options behind it.
     // On the release, so the KeyUp cannot fall through to whatever the new
     // episode's chrome has since focused.
-    if (isCenter && layer == PlayerLayer.UpNext) {
+    //
+    // The PEEK takes it on the same terms. It used to be information only,
+    // with OK left on the controls — but a card that names the next episode,
+    // in the corner every service puts a button in, is read as a button, and
+    // the viewer who presses OK at it is asking for the episode, not for a
+    // transport bar. So the card says which key it is (see UpNextCard) and
+    // answers it. BACK hides the card and hands OK back; the controls are
+    // also still one press of UP, DOWN or INFO away.
+    //
+    // Except on a release that was already ARMED: the card can appear in the
+    // second between a press and its release, and that press was aimed at the
+    // controls, on a screen with no card on it. Skipping an episode is not
+    // something to do on a race — and [centerArmed] is exactly the evidence,
+    // because a press that starts under the card never reaches the arm below.
+    if (isCenter && (layer == PlayerLayer.UpNext || (upNextPeeking && !centerArmed))) {
         return if (isKeyUp) PlayerKeyResult(consumed = true, action = PlayerKeyAction.PlayUpNext)
         else PlayerKeyResult(consumed = true)
     }

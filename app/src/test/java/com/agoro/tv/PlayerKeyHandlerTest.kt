@@ -28,6 +28,7 @@ class PlayerKeyHandlerTest {
         repeatCount: Int = 0,
         digitsPending: Boolean = false,
         playing: Boolean = true,
+        upNextPeeking: Boolean = false,
     ) = playerKeyAction(
         code = code,
         isKeyDown = isKeyDown,
@@ -42,6 +43,7 @@ class PlayerKeyHandlerTest {
         centerLongPressFired = centerLongPressFired,
         digitsPending = digitsPending,
         playing = playing,
+        upNextPeeking = upNextPeeking,
     )
 
     // --- the up-next offer -------------------------------------------------
@@ -73,6 +75,70 @@ class PlayerKeyHandlerTest {
             repeatCount = 3, centerArmed = true,
         )
         assertNull("must not long-press", repeat.action)
+    }
+
+    @Test
+    fun `OK on the run-out peek plays the next episode too`() {
+        // The peek sits on bare playback — layer None — so the flag is the
+        // only thing that tells it apart from ordinary VOD, and it has to be
+        // enough: the card is on screen saying "OK to play".
+        val down = press(
+            KeyEvent.KEYCODE_DPAD_CENTER, layer = PlayerLayer.None,
+            isLive = false, upNextPeeking = true,
+        )
+        assertTrue(down.consumed)
+        assertNull("must not arm a long press behind the card", down.action)
+
+        val up = press(
+            KeyEvent.KEYCODE_DPAD_CENTER, layer = PlayerLayer.None,
+            isLive = false, upNextPeeking = true,
+            isKeyDown = false, isKeyUp = true,
+        )
+        assertEquals(PlayerKeyAction.PlayUpNext, up.action)
+    }
+
+    @Test
+    fun `the peek only owns OK while its card is up`() {
+        // Hidden with BACK, or simply out of its window, and the select key
+        // is the controls again — the peek must not leave OK pointing at the
+        // next episode for the rest of the film.
+        val up = press(
+            KeyEvent.KEYCODE_DPAD_CENTER, layer = PlayerLayer.None,
+            isLive = false, upNextPeeking = false,
+            centerArmed = true, isKeyDown = false, isKeyUp = true,
+        )
+        assertEquals(PlayerKeyAction.ShowControls, up.action)
+    }
+
+    @Test
+    fun `a press that started before the card appeared still opens the controls`() {
+        // The peek can open in the second between a KeyDown and its KeyUp.
+        // That press was aimed at a screen with no card on it, and an episode
+        // skip is not something to do on a race. The arm is the evidence: a
+        // press that starts under the card never reaches it.
+        val up = press(
+            KeyEvent.KEYCODE_DPAD_CENTER, layer = PlayerLayer.None,
+            isLive = false, upNextPeeking = true,
+            centerArmed = true, isKeyDown = false, isKeyUp = true,
+        )
+        assertEquals(PlayerKeyAction.ShowControls, up.action)
+    }
+
+    @Test
+    fun `the peek leaves every other key alone`() {
+        // Only OK is taken. UP still raises the controls on VOD, which is how
+        // a viewer reaches the transport bar while the card is up.
+        val up = press(
+            KeyEvent.KEYCODE_DPAD_UP, layer = PlayerLayer.None,
+            isLive = false, upNextPeeking = true,
+        )
+        assertEquals(PlayerKeyAction.ShowControls, up.action)
+
+        val seek = press(
+            KeyEvent.KEYCODE_DPAD_LEFT, layer = PlayerLayer.None,
+            isLive = false, upNextPeeking = true,
+        )
+        assertEquals(PlayerKeyAction.Seek(-10_000), seek.action)
     }
 
     @Test
