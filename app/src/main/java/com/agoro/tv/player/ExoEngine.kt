@@ -801,7 +801,14 @@ class ExoEngine(
             // clean end of stream, and with the category as its playlist it
             // used to answer that by quietly advancing to the next channel.
             if (live) {
-                listener?.onError("The stream ended unexpectedly", PlaybackFault.TRANSIENT)
+                // Its own fault, not a plain transient one. The ladder treats
+                // the two identically — a provider that drops a socket
+                // mid-programme reaches ExoPlayer as a clean end of stream,
+                // and reconnecting is usually right — but if the whole ladder
+                // fails, "the stream ended" is a different sentence from
+                // "can't play this", and for a fixture that has finished it
+                // is the true one. See [PlaybackFault.ENDED].
+                listener?.onError("the stream ended", PlaybackFault.ENDED)
                 return
             }
             // Announced BEFORE the advance, while the duration still belongs

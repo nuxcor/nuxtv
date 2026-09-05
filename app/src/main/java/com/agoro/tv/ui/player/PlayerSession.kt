@@ -337,6 +337,17 @@ class PlayerSession internal constructor(
     val reconnectPending: Boolean get() = reconnectJob?.isActive == true
 
     var errorMessage: String? by mutableStateOf(null)
+
+    /**
+     * True when the error on screen is a LIVE stream that ended cleanly
+     * rather than one that broke: see [PlaybackFault.ENDED].
+     *
+     * The card reads differently for it — a fixture that has finished is not
+     * a stream this app "can't play" — and the ladder above has already been
+     * climbed by then, so this is only ever the last word on it.
+     */
+    var errorEnded: Boolean by mutableStateOf(false)
+        private set
     var statusMessage: String? by mutableStateOf(null)
     var positionMs: Long by mutableLongStateOf(0L)
     var durationMs: Long by mutableLongStateOf(0L)
@@ -743,6 +754,10 @@ class PlayerSession internal constructor(
                     // was the sentence on screen.
                     reconnectAttempt = 0
                     errorMessage = message
+                    // Every rung was spent on a stream that ended rather than
+                    // broke, which is what a finished fixture looks like from
+                    // here. The card says so and leads with the way out.
+                    errorEnded = fault == PlaybackFault.ENDED
                     layer = PlayerLayer.Error
                 }
             }
@@ -1106,6 +1121,7 @@ class PlayerSession internal constructor(
 
     fun clearError() {
         errorMessage = null
+        errorEnded = false
         if (layer == PlayerLayer.Error) layer = PlayerLayer.None
     }
 
@@ -1124,6 +1140,8 @@ class PlayerSession internal constructor(
         reconnectAttempt = 0
         reconnectJob = null
         errorMessage = reason
+        // A tune that never resolved is not a stream that finished.
+        errorEnded = false
         layer = PlayerLayer.Error
     }
 

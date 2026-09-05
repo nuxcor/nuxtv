@@ -1407,7 +1407,10 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         // run on an empty card. Its scrim fades on its own, under the card:
         // inside the scale-and-fade it made the animated layer screen-sized.
         var lastError by remember { mutableStateOf("") }
-        session.errorMessage?.let { lastError = it }
+        // The shape of the card is held with its words: both are cleared when
+        // the error goes, and the card is still fading out then.
+        var lastEnded by remember { mutableStateOf(false) }
+        session.errorMessage?.let { lastError = it; lastEnded = session.errorEnded }
         val errorUp = session.layer == PlayerLayer.Error && !inPip
         FadingScrim(visible = errorUp)
         AnimatedVisibility(
@@ -1422,6 +1425,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 canRetryTolerant = session.canRetryTolerant,
                 hasNext = request.items.size > 1,
                 isLive = request.isLive,
+                ended = lastEnded,
                 onRetry = { session.retryAfterError() },
                 onRetryTolerant = { session.retryTolerant() },
                 onNext = { session.zap(+1) },
