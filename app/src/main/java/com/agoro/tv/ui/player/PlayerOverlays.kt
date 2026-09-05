@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -701,17 +700,20 @@ internal fun UpNextCard(
             .background(NuxColors.Surface.copy(alpha = 0.97f))
             .border(1.dp, Color.White.copy(alpha = 0.14f), UpNextShape),
     ) {
-        Row(modifier = Modifier.padding(18.dp)) {
+        Row(
+            modifier = Modifier.padding(UpNextPad),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             com.agoro.tv.ui.components.Artwork(
                 imageUrl = artwork,
                 title = heading,
                 modifier = Modifier
-                    .width(172.dp)
+                    .width(UpNextStill)
                     .aspectRatio(16f / 9f)
-                    .clip(RoundedCornerShape(10.dp)),
+                    .clip(PlayerTheme.ChipShape),
                 background = NuxColors.SurfaceVariant,
             )
-            Spacer(Modifier.width(16.dp))
+            Spacer(Modifier.width(UpNextGap))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "UP NEXT",
@@ -743,13 +745,13 @@ internal fun UpNextCard(
         }
 
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = UpNextPad),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(PlayerTheme.PillShape)
                     .background(NuxColors.Primary)
                     .padding(vertical = 11.dp),
                 contentAlignment = Alignment.Center,
@@ -782,7 +784,7 @@ internal fun UpNextCard(
                 )
             }
         }
-        Spacer(Modifier.height(9.dp))
+        Spacer(Modifier.height(8.dp))
         Text(
             // Both keys, both states — the second one is the important one on
             // the peek, where the card arrived uninvited and the viewer needs
@@ -791,19 +793,19 @@ internal fun UpNextCard(
             else "OK to play  ·  BACK to hide",
             style = MaterialTheme.typography.labelSmall,
             color = NuxColors.OnSurfaceDim,
-            modifier = Modifier.padding(horizontal = 18.dp),
+            modifier = Modifier.padding(horizontal = UpNextPad),
         )
         if (secondsLeft != null) {
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             // The same count as the number, drawn rather than read. It drains
             // along the foot of the card, which is the one edge where a
             // moving element cannot land on anything.
             Box(
                 modifier = Modifier
-                    .padding(horizontal = 18.dp)
+                    .padding(horizontal = UpNextPad)
                     .fillMaxWidth()
                     .height(3.dp)
-                    .clip(RoundedCornerShape(2.dp))
+                    .clip(NuxShape.Track)
                     .background(Color.White.copy(alpha = 0.15f)),
             ) {
                 Box(
@@ -814,17 +816,50 @@ internal fun UpNextCard(
                 )
             }
         }
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(12.dp))
     }
 }
 
-/** The card's corner, shared by its shadow, its fill and its hairline. */
-private val UpNextShape = RoundedCornerShape(20.dp)
+/**
+ * The card's corner, shared by its shadow, its fill and its hairline.
+ *
+ * [NuxShape.Dialog], not a radius of its own: this is the player's other
+ * large surface, and the tracks sheet 240 lines up is already drawn on it.
+ */
+private val UpNextShape = NuxShape.Dialog
+
+/** The card's one inset — its row, its pill, its hint and its track. */
+private val UpNextPad = 16.dp
 
 /**
- * Fixed, and wide enough for two lines of a real episode title beside a still
- * big enough to recognise. Measured against the longest titles this catalogue
- * carries rather than chosen: at the 384dp this started from, "It has to do
- * with the search for the marvelous" ran out of room mid-phrase.
+ * The still, and the gap between it and the words.
+ *
+ * The still is the card's adjustable part. It shrank from 172dp because at
+ * that size it was the tallest thing in the row and set the card's height
+ * from a thumbnail rather than from the text — 124dp is still a recognisable
+ * frame, and the words now govern. Both are on the 4dp scale.
  */
-private val UP_NEXT_CARD_WIDTH = 448.dp
+private val UpNextStill = 124.dp
+private val UpNextGap = 12.dp
+
+/**
+ * The measured quantity, and the reason the card is the width it is.
+ *
+ * Two lines of a real episode title have to fit beside the still, and the
+ * longest title this catalogue carries — "It has to do with the search for
+ * the marvelous" — is what set the number: at a narrower column it ran out
+ * of room mid-phrase. 224dp is the room it needs at titleSmall.
+ *
+ * This is stored rather than the card's total width because the total is the
+ * derived thing. When the card came down from 448dp the cost was taken off
+ * the still and the padding, and had the width stayed the literal it was,
+ * the two of them would have quietly eaten 2dp of the room measured here —
+ * which is a whole word at a wrap boundary, not 2dp of slack. Trade the
+ * still and the gap freely; this constant is the one that cannot move
+ * without measuring a title against it again.
+ */
+private val UpNextTextColumn = 224.dp
+
+/** Derived — never tune this directly, tune [UpNextStill]. */
+private val UP_NEXT_CARD_WIDTH =
+    UpNextTextColumn + UpNextStill + UpNextGap + UpNextPad * 2
