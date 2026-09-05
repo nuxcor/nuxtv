@@ -48,6 +48,7 @@ import androidx.tv.material3.Text
 import com.agoro.tv.MainViewModel
 import com.agoro.tv.data.EpgProgram
 import com.agoro.tv.data.LiveChannel
+import com.agoro.tv.player.PlaybackFault
 import com.agoro.tv.player.PlayerEngine
 import com.agoro.tv.player.Track
 import com.agoro.tv.ui.components.focusTrap
@@ -567,13 +568,23 @@ internal fun PlaybackErrorCard(
     hasNext: Boolean,
     /** Names the Next button: a channel on live, an episode in a box set. */
     isLive: Boolean = true,
+    /**
+     * The stream ENDED rather than broke — see [PlaybackFault.ENDED]. Every
+     * rung of the ladder has been spent on a feed that closed cleanly, which
+     * is what a match or a programme reaching its end looks like from inside
+     * the player. The card stops calling that a failure and leads with the
+     * way out; Retry is still there for the feed that dropped mid-programme,
+     * because from here the two are the same event.
+     */
+    ended: Boolean = false,
     onRetry: () -> Unit,
     onRetryTolerant: () -> Unit,
     onNext: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val retryFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { retryFocus.requestFocusRetrying() }
+    // Whichever button leads — Retry, or Back on a stream that ended.
+    val primaryFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { primaryFocus.requestFocusRetrying() }
     Column(
         modifier = Modifier
             .widthIn(max = 640.dp)
@@ -585,22 +596,44 @@ internal fun PlaybackErrorCard(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            text = "Can't play $title",
+            // Not the channel's name: a channel does not finish, its stream
+            // does — and on a fixture slot the name is often the match.
+            text = if (ended) "The stream ended" else "Can't play $title",
             style = MaterialTheme.typography.titleLarge,
             color = NuxColors.OnSurface,
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = plainLanguage(message),
+            // Its own sentence rather than [plainLanguage]'s: this is the one
+            // case where the engine's words ("the stream ended") are the
+            // headline, and the body's job is to say what that USUALLY means
+            // without claiming to know which it was.
+            text = if (ended) {
+                "$title stopped sending. A programme or a fixture that has " +
+                    "finished looks exactly like this — retry if you think it " +
+                    "should still be on."
+            } else plainLanguage(message),
             style = MaterialTheme.typography.bodyMedium,
             color = NuxColors.OnSurfaceDim,
         )
         Spacer(Modifier.height(24.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            androidx.tv.material3.Button(
-                onClick = onRetry,
-                modifier = Modifier.focusRequester(retryFocus),
-            ) { Text("Retry") }
+            // A stream that ended leads with Back, and Back holds the focus:
+            // retrying a fixture that is over is the least likely thing the
+            // viewer wants, and the focused button is the one their OK is
+            // already pointing at.
+            if (ended) {
+                androidx.tv.material3.Button(
+                    onClick = onBack,
+                    modifier = Modifier.focusRequester(primaryFocus),
+                ) { Text("Back") }
+                androidx.tv.material3.OutlinedButton(onClick = onRetry) { Text("Retry") }
+            } else {
+                androidx.tv.material3.Button(
+                    onClick = onRetry,
+                    modifier = Modifier.focusRequester(primaryFocus),
+                ) { Text("Retry") }
+            }
             if (canRetryTolerant) {
                 // Says what it does, not which component does it. The viewer
                 // has no model of demuxers and decoders, but "software" they
@@ -615,7 +648,9 @@ internal fun PlaybackErrorCard(
                     Text(if (isLive) "Next channel" else "Next episode")
                 }
             }
-            androidx.tv.material3.OutlinedButton(onClick = onBack) { Text("Back") }
+            if (!ended) {
+                androidx.tv.material3.OutlinedButton(onClick = onBack) { Text("Back") }
+            }
         }
     }
 }

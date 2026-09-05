@@ -16,6 +16,18 @@ enum class PlaybackFault {
     TRANSIENT,
 
     /**
+     * A LIVE stream that reached a clean end of stream.
+     *
+     * Nothing live legitimately ends, so this is treated as transient and
+     * climbs the same ladder — a provider that closes a socket mid-programme
+     * looks exactly like this, and reconnecting is usually right. What it
+     * carries is the other possibility, for the card at the top of the
+     * ladder: the thing being watched was a match or a show, and it is over.
+     * "Can't play Sky Sports" is the wrong sentence for that.
+     */
+    ENDED,
+
+    /**
      * The provider said no in words a retry cannot change: the login was
      * rejected, or the stream is gone. Live still steps through its other
      * URL forms first — a 404 on `.ts` is often just the wrong form — but
