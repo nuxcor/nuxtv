@@ -11,7 +11,17 @@ import com.agoro.tv.data.PlayableItem
  * by hand. The channel banner is deliberately *not* a layer: it coexists with
  * bare playback and with the controls, on its own timer.
  */
-enum class PlayerLayer { None, Controls, ChannelList, Guide, Tracks, Catchup, Options, Error, UpNext }
+enum class PlayerLayer {
+    None, Controls, ChannelList, Guide, Tracks, Catchup, Options, Error, UpNext,
+
+    /**
+     * The end of the last thing in the playlist: a series finale, a film, a
+     * catch-up recording. The card counts down to leaving the player, because
+     * the alternative — which is what this app used to do — is a frozen last
+     * frame with a pause glyph on it and no way out but BACK.
+     */
+    Finished,
+}
 
 /** What the player should do in response to a key, decided by [playerKeyAction]. */
 internal sealed interface PlayerKeyAction {
@@ -24,6 +34,9 @@ internal sealed interface PlayerKeyAction {
 
     /** Take the queued next episode now, instead of waiting out its count. */
     data object PlayUpNext : PlayerKeyAction
+
+    /** Leave the player now, instead of waiting out the end card's count. */
+    data object LeaveFinished : PlayerKeyAction
     data object LastChannel : PlayerKeyAction
     data object ToggleGuide : PlayerKeyAction
     data object OpenChannelList : PlayerKeyAction
@@ -169,6 +182,16 @@ internal fun playerKeyAction(
     // because a press that starts under the card never reaches the arm below.
     if (isCenter && (layer == PlayerLayer.UpNext || (upNextPeeking && !centerArmed))) {
         return if (isKeyUp) PlayerKeyResult(consumed = true, action = PlayerKeyAction.PlayUpNext)
+        else PlayerKeyResult(consumed = true)
+    }
+
+    // The end card takes OK on the same terms as the offer above: it is the
+    // only thing on the screen, it says which key it is, and the key does it.
+    // Nothing is playing behind it, so there is no chrome worth opening —
+    // arming a long press here would only put the tracks sheet over the
+    // credits of something that has finished.
+    if (isCenter && layer == PlayerLayer.Finished) {
+        return if (isKeyUp) PlayerKeyResult(consumed = true, action = PlayerKeyAction.LeaveFinished)
         else PlayerKeyResult(consumed = true)
     }
 

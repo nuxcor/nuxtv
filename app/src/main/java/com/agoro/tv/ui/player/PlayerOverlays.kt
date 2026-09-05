@@ -687,6 +687,93 @@ internal fun UpNextCard(
     countdownFraction: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
+    PlayerCornerCard(
+        eyebrow = "UP NEXT",
+        heading = heading,
+        meta = meta,
+        artwork = artwork,
+        // "Watch now" against a finished episode; "Play next" against one that
+        // is still running, where "now" would be asking the viewer what they
+        // think they are doing.
+        action = if (secondsLeft != null) "▶  Watch now" else "▶  Play next",
+        // Both keys, both states — the second one is the important one on the
+        // peek, where the card arrived uninvited and the viewer needs to know
+        // it can be sent away.
+        hint = if (secondsLeft != null) "OK to start  ·  BACK to stay"
+        else "OK to play  ·  BACK to hide",
+        secondsLeft = secondsLeft,
+        countdownFraction = countdownFraction,
+        modifier = modifier,
+    )
+}
+
+/**
+ * The end of the playlist, in the same corner and the same shape as the offer
+ * that would have followed it: a series finale, a film, a catch-up recording.
+ *
+ * It exists because the player had no answer for this at all. An ended
+ * ExoPlayer is not playing, not buffering and not tuning — the exact state a
+ * PAUSED one reports — so what a viewer got at the end of a season was the
+ * last frame of the credits under a pause glyph, indefinitely, with nothing
+ * saying the thing had finished and no way on but BACK.
+ *
+ * So it names what finished, and counts down to leaving. OK goes now, BACK
+ * stays on the frame — the same two answers, on the same two keys, as the
+ * up-next offer, because from where the viewer sits it is the same moment
+ * with nothing queued behind it.
+ */
+@Composable
+internal fun FinishedCard(
+    /** What finished — the episode's name, or the film's. */
+    heading: String,
+    /** The address under it: "S3 E10  ·  The Show". */
+    meta: String,
+    /** Its own still or poster, 16:9. Null draws the monogram. */
+    artwork: String?,
+    /** Where OK goes — "Back to the show" for an episode. */
+    action: String,
+    /** Seconds until the player closes itself. */
+    secondsLeft: Int,
+    /** [secondsLeft] as 0..1 of the whole count, for the draining track. */
+    countdownFraction: Float,
+    modifier: Modifier = Modifier,
+) {
+    PlayerCornerCard(
+        eyebrow = "FINISHED",
+        heading = heading,
+        meta = meta,
+        artwork = artwork,
+        action = "↩  $action",
+        // Not "BACK to hide": the card is the only thing on a screen where
+        // nothing is playing, and hiding it leaves the viewer exactly where
+        // this whole card exists to stop them being left.
+        hint = "OK to go back  ·  BACK to stay",
+        secondsLeft = secondsLeft,
+        countdownFraction = countdownFraction,
+        modifier = modifier,
+    )
+}
+
+/**
+ * The card both of the above are: still, eyebrow, name, address, a pill
+ * naming its key, and a count draining along the foot.
+ *
+ * One drawing, because they are one component in two moments — an episode
+ * ending into another, and a show ending into nothing. Two copies of this
+ * would drift the first time either was touched.
+ */
+@Composable
+private fun PlayerCornerCard(
+    eyebrow: String,
+    heading: String,
+    meta: String,
+    artwork: String?,
+    action: String,
+    hint: String,
+    secondsLeft: Int?,
+    countdownFraction: Float,
+    modifier: Modifier = Modifier,
+) {
     Column(
         modifier = modifier
             .width(UP_NEXT_CARD_WIDTH)
@@ -716,7 +803,7 @@ internal fun UpNextCard(
             Spacer(Modifier.width(UpNextGap))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "UP NEXT",
+                    text = eyebrow,
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.6.sp,
@@ -757,10 +844,7 @@ internal fun UpNextCard(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    // "Watch now" against a finished episode; "Play next"
-                    // against one that is still running, where "now" would be
-                    // asking the viewer what they think they are doing.
-                    text = if (secondsLeft != null) "▶  Watch now" else "▶  Play next",
+                    text = action,
                     style = MaterialTheme.typography.labelLarge.copy(
                         fontWeight = FontWeight.Bold,
                     ),
@@ -786,11 +870,7 @@ internal fun UpNextCard(
         }
         Spacer(Modifier.height(8.dp))
         Text(
-            // Both keys, both states — the second one is the important one on
-            // the peek, where the card arrived uninvited and the viewer needs
-            // to know it can be sent away.
-            text = if (secondsLeft != null) "OK to start  ·  BACK to stay"
-            else "OK to play  ·  BACK to hide",
+            text = hint,
             style = MaterialTheme.typography.labelSmall,
             color = NuxColors.OnSurfaceDim,
             modifier = Modifier.padding(horizontal = UpNextPad),

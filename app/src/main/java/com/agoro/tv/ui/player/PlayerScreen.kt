@@ -111,6 +111,16 @@ private const val QUALITY_LEARN_SETTLE_MS = 5_000L
 private const val UP_NEXT_SECONDS = 10
 
 /**
+ * How long the end card sits there before the player closes itself.
+ *
+ * The offer's count, deliberately: from the viewer's side these are the same
+ * moment — something has ended and the screen is about to do something about
+ * it — and two different waits for one gesture is a difference nobody asked
+ * for. BACK stops it, for the viewer who wants the credits.
+ */
+private const val FINISHED_SECONDS = 10
+
+/**
  * How long before the end of an item the next one announces itself.
  *
  * A FRACTION of the runtime, not a fixed countdown. The card fired at the end
@@ -918,6 +928,10 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             // still one more BACK away, which is the same two presses it
             // would have been; declining first is the one nobody can undo.
             PlayerLayer.UpNext -> session.dismissUpNext()
+            // BACK on the end card stops the count and stays on the last
+            // frame — for the credits, the end song, the after-scene. Leaving
+            // is the next press, which is where the count was going anyway.
+            PlayerLayer.Finished -> session.dismissFinished()
             // The peek takes OK while it is up, so it has to answer BACK too:
             // a card that binds the select key and cannot be got rid of is one
             // the viewer is stuck under for the rest of the episode. Hiding it
@@ -934,7 +948,13 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     // focus would be lost — park it on the root so D-pad events keep arriving.
     val rootFocus = remember { FocusRequester() }
     LaunchedEffect(session.layer) {
-        if (session.layer == PlayerLayer.None) {
+        // The two cards count as bare: neither draws a focusable control, and
+        // both can REPLACE the transport bar — an item ends while its chrome
+        // is up and the focused button leaves the composition under a card
+        // whose whole purpose is to answer OK. So they park focus too.
+        if (session.layer == PlayerLayer.None || session.layer == PlayerLayer.UpNext ||
+            session.layer == PlayerLayer.Finished
+        ) {
             // Retried on the Boolean: this runs exactly as a closing overlay's
             // focused control leaves composition, and a refusal here — the
             // one single shot left in the player — was "remote dead on bare
@@ -1010,6 +1030,13 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         session.centerArmed = false
                         session.centerLongPressFired = false
                         session.playUpNext()
+                    }
+                    PlayerKeyAction.LeaveFinished -> {
+                        // The same arm to clear as the offer above: the item
+                        // can end between a KeyDown and its KeyUp.
+                        session.centerArmed = false
+                        session.centerLongPressFired = false
+                        onExit()
                     }
                     PlayerKeyAction.LastChannel -> session.jumpTo(session.previousIndex)
                     PlayerKeyAction.ToggleGuide ->
@@ -1180,6 +1207,55 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             }
         }
 
+        // And the end of the list, in the same corner: nothing is queued and
+        // nothing is playing. The card names what finished and counts down to
+        // closing the player, which is the thing that never happened — the
+        // engine ended, the session did nothing, and the viewer was left on
+        // the last frame of the credits under a pause glyph.
+        //
+        // Not in PiP: the window is a thumbnail with no room for a card and
+        // no keys to answer it, and closing the player out from under someone
+        // who is doing something else is not a thing to do while they cannot
+        // see it. The layer keeps, so the card is waiting when they come back.
+        run {
+            val done = item.takeIf { session.layer == PlayerLayer.Finished && !inPip }
+            if (done != null) {
+                var left by remember(done.url) { mutableIntStateOf(FINISHED_SECONDS) }
+                LaunchedEffect(done.url) {
+                    while (left > 0) {
+                        delay(1_000)
+                        left--
+                    }
+                    onExit()
+                }
+                FinishedCard(
+                    // The episode's own name leads, exactly as it does on the
+                    // offer; a film and a catch-up recording have only their
+                    // title, and lead on that.
+                    heading = done.episodeName ?: done.title,
+                    meta = if (done.episodeName != null) {
+                        listOfNotNull(
+                            done.subtitle?.substringBefore(" • "),
+                            done.title,
+                        ).joinToString("  ·  ")
+                    } else done.subtitle ?: done.title,
+                    artwork = done.artwork,
+                    // Where OK actually lands: the series page for an
+                    // episode, and for anything else the page it was played
+                    // from, which is not worth naming wrongly.
+                    action = if (done.episodeName != null) "Back to the show" else "Back",
+                    secondsLeft = left,
+                    countdownFraction = left.toFloat() / FINISHED_SECONDS,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(
+                            horizontal = Space.gutter,
+                            vertical = Space.gutterVertical,
+                        ),
+                )
+            }
+        }
+
         // Paused with no chrome up: say so, or a dark still frame reads as a
         // hang. Covers the sleep timer's pause too.
         AnimatedVisibility(
@@ -1187,8 +1263,14 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             // state this asks for — not playing, not buffering, not tuning —
             // so the pause glyph was what the viewer got for the whole of a
             // dropped stream's recovery, which is a lie about who stopped it.
+            // And never for something that has ENDED. That state is
+            // identical to a pause from here — this is the glyph that sat on
+            // the last frame of every finale, film and catch-up recording,
+            // saying the viewer had stopped it. See [PlayerSession.ended]; it
+            // stays set after the end card is dismissed, so the frame the
+            // viewer chose to sit on stays clean.
             visible = !session.playing && !session.buffering && !session.tuning &&
-                !reconnecting &&
+                !reconnecting && !session.ended &&
                 session.layer == PlayerLayer.None && session.errorMessage == null && !inPip,
             enter = PlayerMotion.enterFade(PlayerMotion.FastMs),
             exit = PlayerMotion.exitFade(PlayerMotion.FastMs),
