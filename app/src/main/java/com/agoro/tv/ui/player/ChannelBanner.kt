@@ -57,9 +57,6 @@ internal fun ChannelBanner(
     item: PlayableItem?,
     channel: LiveChannel?,
     isLive: Boolean,
-    resolution: Pair<Int, Int>?,
-    hdrFormat: String?,
-    audioFormatLabel: String?,
     showKeyHints: Boolean = false,
     /**
      * True while a zap chain is still running. The logo slot stays, empty,
@@ -202,30 +199,20 @@ internal fun ChannelBanner(
             }
         }
 
-        // --- right: clock + status chips ---------------------------------
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                text = timeFmt.format(Date(nowMs)),
-                style = MaterialTheme.typography.labelLarge,
-                color = NuxColors.OnSurface,
-                maxLines = 1,
-            )
-            Spacer(Modifier.height(6.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                // What is actually being decoded, not what the stream name
-                // advertises — the two disagree more often than not.
-                // Tier only — "HD", not "720p HD". The precise numbers live in
-                // the options sheet for whoever wants them. HDR and the audio
-                // format join it when the stream actually carries them.
-                StreamBadges(resolution, hdrFormat, audioFormatLabel)
-                // No engine-name chip here: which decoder is playing is
-                // diagnostics, not viewing information — it lives in the
-                // options sheet instead.
-            }
-        }
+        // --- right: the clock --------------------------------------------
+        // The stream badges stood under it — what is actually being decoded,
+        // rather than what the stream name advertises. The banner is up on
+        // every zap, though, so on a walk down a category they flickered past
+        // in the corner of every channel; asked for out of the picture, they
+        // now sit at the end of the transport row with the buttons. See
+        // [StreamBadges]. (No engine-name chip here either: which decoder is
+        // playing is diagnostics, and lives in the options sheet.)
+        Text(
+            text = timeFmt.format(Date(nowMs)),
+            style = MaterialTheme.typography.labelLarge,
+            color = NuxColors.OnSurface,
+            maxLines = 1,
+        )
     }
 }
 

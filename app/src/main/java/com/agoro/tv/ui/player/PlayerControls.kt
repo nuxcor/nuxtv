@@ -64,6 +64,9 @@ import com.agoro.tv.ui.theme.NuxShape
  * catch-up, engine and sleep live in the channel options menu now, where they
  * have names. Composes inside the scaffold's bottom column, under the banner,
  * so their stacking is layout rather than a hardcoded lift.
+ *
+ * It also carries the stream's badges now, at the far right of the button row
+ * — see [StreamBadges].
  */
 @Composable
 internal fun PlayerControls(
@@ -73,6 +76,10 @@ internal fun PlayerControls(
     durationMs: Long,
     hasPlaylist: Boolean,
     canPip: Boolean,
+    /** What the decoder reports; drawn at the end of the row. */
+    resolution: Pair<Int, Int>? = null,
+    hdrFormat: String? = null,
+    audioFormatLabel: String? = null,
     onPlayPause: () -> Unit,
     onSeekBy: (Long) -> Unit,
     onPrevious: () -> Unit,
@@ -172,6 +179,11 @@ internal fun PlayerControls(
             if (canPip) {
                 ControlButton(Icons.Default.PictureInPictureAlt, "PiP", onPip, showLabel = labelled)
             }
+            // The badges end the row, at the far edge. VOD's transport block
+            // already pushed the right-hand cluster there with its own weight;
+            // live's buttons all sit left, so live needs one of its own.
+            if (isLive) Spacer(Modifier.weight(1f))
+            StreamBadges(resolution, hdrFormat, audioFormatLabel)
         }
     }
 }
@@ -184,6 +196,19 @@ internal fun PlayerControls(
  * Everything here is absent until it is known, and ordinary SDR stereo says
  * nothing at all. A row of badges that appears on every stream stops carrying
  * information.
+ *
+ * ONE place: the end of the transport row, the way every streaming player
+ * keeps this kind of readout. It used to sit in TWO places that are on screen
+ * without being asked for — the top of the VOD title header and the live
+ * banner's right column, both of which are up on every zap and every poke —
+ * so "HD · DOLBY DIGITAL+" was over the picture far more often than anyone
+ * wanted to know it. In the bar it is there whenever the controls are, which
+ * is exactly when a viewer is asking about the stream.
+ *
+ * Dim, all three, where the tier and the HDR flavour used to be gold. Beside
+ * transparent icon buttons an accented pill reads as the focused one, and
+ * these take no focus at all; quiet is also what stops the eye ending on the
+ * right edge of a bar whose controls are on the left.
  */
 @Composable
 internal fun StreamBadges(
@@ -197,49 +222,42 @@ internal fun StreamBadges(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        tier?.let { com.agoro.tv.ui.components.MetaChip(it, accent = true) }
-        hdrFormat?.let { com.agoro.tv.ui.components.MetaChip(it, accent = true) }
+        tier?.let { com.agoro.tv.ui.components.MetaChip(it) }
+        hdrFormat?.let { com.agoro.tv.ui.components.MetaChip(it) }
         audioFormatLabel?.let { com.agoro.tv.ui.components.MetaChip(it) }
     }
 }
 
-/** The VOD title header — live playback names itself through the banner. */
+/**
+ * The VOD title header — live playback names itself through the banner.
+ *
+ * The title and nothing else. It carried the stream badges under it until the
+ * viewer asked for them out of the picture; they are at the end of the
+ * transport row now, where the buttons are. See [StreamBadges].
+ */
 @Composable
-internal fun VodTitleHeader(
-    title: String,
-    subtitle: String?,
-    resolution: Pair<Int, Int>? = null,
-    hdrFormat: String? = null,
-    audioFormatLabel: String? = null,
-) {
+internal fun VodTitleHeader(title: String, subtitle: String?) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(PlayerTheme.TopGradient)
             .padding(horizontal = 32.dp, vertical = 22.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Column {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+            color = NuxColors.OnSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (!subtitle.isNullOrBlank()) {
             Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-                color = NuxColors.OnSurface,
+                text = subtitle,
+                style = MaterialTheme.typography.labelLarge,
+                color = NuxColors.OnSurfaceDim,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
-            if (!subtitle.isNullOrBlank()) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = NuxColors.OnSurfaceDim,
-                    maxLines = 1,
-                )
-            }
         }
-        // Movies and series had no quality readout anywhere on screen — the
-        // live banner's chip has no VOD counterpart — so a 4K film announced
-        // itself only in the options sheet, two presses away.
-        StreamBadges(resolution, hdrFormat, audioFormatLabel)
     }
 }
 
