@@ -315,6 +315,10 @@ class PlayerPrefs(private val context: Context) {
      * moment the app holds a show and its episode list together.
      */
     suspend fun recordSeriesPlaylist(seriesId: String, episodeUrls: List<String>) {
+        // A show with no episodes is a list that failed to load, not a show
+        // of length zero — and a recorded size of zero would read as "seen
+        // out" and take the show off Continue watching. Nothing to record.
+        if (episodeUrls.isEmpty()) return
         context.playerDataStore.edit { prefs ->
             val existing = prefs[episodeOriginsKey]?.let {
                 runCatching { json.decodeFromString<LinkedHashMap<String, String>>(it) }.getOrNull()
