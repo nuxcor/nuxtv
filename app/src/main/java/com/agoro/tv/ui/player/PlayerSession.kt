@@ -463,20 +463,32 @@ class PlayerSession internal constructor(
         }
 
         override fun onItemEnded(index: Int, durationMs: Long) {
+            // Live never legitimately ends; end of stream there is the
+            // failure ladder's, and the engine has already sent it that way.
+            if (request.isLive) return
             // Saved at its own duration, which is what marks it watched:
             // saveResumePosition clears the position past 95% and records the
-            // completion. Live and catch-up never finish in this sense.
-            if (request.isLive || request.isCatchup) return
-            if (durationMs > 0) {
+            // completion. Catch-up never finishes in this sense — it is one
+            // programme off a channel, not a title in a library.
+            if (!request.isCatchup && durationMs > 0) {
                 request.items.getOrNull(index)?.url?.let { onSaveResume(it, durationMs, durationMs) }
             }
             // And then offer the next one rather than taking it. A duration
             // of zero still gets the offer: the file not reporting its length
             // says nothing about whether there is another episode.
-            if (index < request.items.size - 1) {
+            if (!request.isCatchup && index < request.items.size - 1) {
                 upNextIndex = index + 1
                 layer = PlayerLayer.UpNext
+                return
             }
+            // Nothing behind it: a finale, a film, a catch-up recording. This
+            // is where the player used to do nothing at all — and an ended
+            // player reports exactly what a paused one does, so the viewer
+            // was left on the last frame of the credits with a pause glyph
+            // over it until they thought to press BACK. It says it has
+            // finished, and takes itself off screen.
+            ended = true
+            layer = PlayerLayer.Finished
         }
 
         override fun onPlayingChanged(p: Boolean, b: Boolean) {
@@ -793,6 +805,11 @@ class PlayerSession internal constructor(
         upNextIndex = null
         upNextPeekDismissed = false
         if (layer == PlayerLayer.UpNext) layer = PlayerLayer.None
+        // Something is playing again, so nothing has finished: a catch-up
+        // recording that ended and a channel tuned from the guide behind it
+        // would otherwise carry the end card's state into a live stream.
+        ended = false
+        if (layer == PlayerLayer.Finished) layer = PlayerLayer.None
         // A scrub belongs to the item it was started on; a new one arriving
         // mid-scrub would otherwise seek the wrong film to a position that
         // meant something in the last one.
@@ -972,6 +989,30 @@ class PlayerSession internal constructor(
     fun dismissUpNext() {
         upNextIndex = null
         if (layer == PlayerLayer.UpNext) layer = PlayerLayer.None
+    }
+
+    /**
+     * True once the last item in the playlist has played to its end.
+     *
+     * Read by the chrome as well as the end card: an ended player is not
+     * playing, not buffering and not tuning, which is indistinguishable from
+     * a pause — so without this the pause glyph comes up over the credits and
+     * claims the viewer stopped it. Cleared by [resetLadder] with everything
+     * else that belongs to one item.
+     */
+    var ended by mutableStateOf(false)
+        private set
+
+    /**
+     * Stay on the last frame instead of leaving: BACK on the end card.
+     *
+     * [ended] deliberately stays set. The countdown is what the viewer
+     * declined, not the fact that the thing has finished — and the pause
+     * glyph must not appear on the frame they chose to sit on. The next BACK
+     * leaves the player, which is where it was always going.
+     */
+    fun dismissFinished() {
+        if (layer == PlayerLayer.Finished) layer = PlayerLayer.None
     }
 
     /**

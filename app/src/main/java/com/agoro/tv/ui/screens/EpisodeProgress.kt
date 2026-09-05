@@ -1,6 +1,7 @@
 package com.agoro.tv.ui.screens
 
 import com.agoro.tv.data.Episode
+import com.agoro.tv.data.inSeriesOrder
 
 /**
  * The one episode a series page is about: what the primary button plays,
@@ -48,7 +49,7 @@ internal fun upNext(
     watchedAt: Map<String, Long>,
 ): UpNext? {
     if (episodes.isEmpty()) return null
-    val ordered = episodes.sortedWith(compareBy({ it.season }, { it.episodeNum }))
+    val ordered = episodes.inSeriesOrder()
     val lastWatched = ordered.indexOfLast { it.url in watchedAt }
     // The FURTHEST part-watched episode, not the earliest: a viewer who dipped
     // back into season one and then carried on is still on season four.

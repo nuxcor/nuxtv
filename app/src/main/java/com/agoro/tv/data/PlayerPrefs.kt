@@ -97,6 +97,15 @@ private const val ARTWORK_BATCH = 24
  */
 private const val WATCHED_HISTORY = 2_000
 
+/**
+ * How many shows keep an episode count.
+ *
+ * One small entry per SHOW, not per episode, and read on every catalogue
+ * build — so this is generous where the url-keyed maps have to be careful.
+ * Newest kept, as everywhere else here.
+ */
+private const val SERIES_SIZE_CAP = 500
+
 class PlayerPrefs(private val context: Context) {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -128,6 +137,7 @@ class PlayerPrefs(private val context: Context) {
     private val knownHdrKey = stringPreferencesKey("known_hdr")
     private val liveTsMigratedKey = stringPreferencesKey("live_ts_migrated")
     private val episodeOriginsKey = stringPreferencesKey("episode_origins")
+    private val seriesSizesKey = stringPreferencesKey("series_sizes")
     private val artworkKey = stringPreferencesKey("tmdb_artwork")
     private val resumeLiveChannelKey = stringPreferencesKey("resume_live_channel")
 
@@ -164,6 +174,7 @@ class PlayerPrefs(private val context: Context) {
     private val knownQualitiesSlot = JsonSlot<Map<String, String>>(emptyMap()) { json.decodeFromString(it) }
     private val knownHdrSlot = JsonSlot<Map<String, String>>(emptyMap()) { json.decodeFromString(it) }
     private val episodeOriginsSlot = JsonSlot<Map<String, String>>(emptyMap()) { json.decodeFromString(it) }
+    private val seriesSizesSlot = JsonSlot<Map<String, Int>>(emptyMap()) { json.decodeFromString(it) }
     private val artworkSlot = JsonSlot<Map<String, ArtEntry>>(emptyMap()) { json.decodeFromString(it) }
     private val resumePositionsSlot = JsonSlot<Map<String, Long>>(emptyMap()) { json.decodeFromString(it) }
     private val resumeDurationsSlot = JsonSlot<Map<String, Long>>(emptyMap()) { json.decodeFromString(it) }
@@ -277,13 +288,49 @@ class PlayerPrefs(private val context: Context) {
         episodeOriginsSlot.read(prefs[episodeOriginsKey])
     }.flowOn(Dispatchers.Default)
 
-    suspend fun recordEpisodeOrigins(seriesId: String, episodeUrls: List<String>) {
+    /**
+     * Series id → how many episodes the show had when it was last played.
+     *
+     * The one thing Continue watching could not know: whether a show with a
+     * finished episode has anything LEFT. Episode lists are fetched per show
+     * on its own page, so the row — which is built off two url-keyed maps —
+     * had no count to compare its watch marks against, and a show watched
+     * through to its finale stayed on the shelf forever.
+     *
+     * Written from the playlist the player is handed, which is the whole show
+     * ([recordSeriesPlaylist]). Absent for a show not played since that became
+     * true, and absence means "don't know", never "nothing left": the row
+     * keeps such a show exactly as it always did. A new season re-writes the
+     * count the next time the show is played.
+     */
+    val seriesSizes: Flow<Map<String, Int>> = context.playerDataStore.data.map { prefs ->
+        seriesSizesSlot.read(prefs[seriesSizesKey])
+    }.flowOn(Dispatchers.Default)
+
+    /**
+     * Records the playlist a show was handed to the player as: where each
+     * episode url points, and how many of them there were.
+     *
+     * One edit, because they are one fact written at one moment — the only
+     * moment the app holds a show and its episode list together.
+     */
+    suspend fun recordSeriesPlaylist(seriesId: String, episodeUrls: List<String>) {
         context.playerDataStore.edit { prefs ->
             val existing = prefs[episodeOriginsKey]?.let {
                 runCatching { json.decodeFromString<LinkedHashMap<String, String>>(it) }.getOrNull()
             } ?: LinkedHashMap()
             prefs[episodeOriginsKey] =
                 json.encodeToString(mergeEpisodeOrigins(existing, seriesId, episodeUrls))
+            val sizes = prefs[seriesSizesKey]?.let {
+                runCatching { json.decodeFromString<LinkedHashMap<String, Int>>(it) }.getOrNull()
+            } ?: LinkedHashMap()
+            sizes.remove(seriesId) // re-inserting moves the entry to the newest slot
+            sizes[seriesId] = episodeUrls.size
+            prefs[seriesSizesKey] = json.encodeToString(
+                if (sizes.size > SERIES_SIZE_CAP) {
+                    sizes.entries.drop(sizes.size - SERIES_SIZE_CAP).associate { it.toPair() }
+                } else sizes,
+            )
         }
     }
 
@@ -822,12 +869,19 @@ class PlayerPrefs(private val context: Context) {
 /**
  * Re-inserts every episode url pointing at [seriesId]; insertion order is
  * recency (the resume-positions trick), newest [cap] kept.
+ *
+ * The cap is 2000 rather than the 500 it was because the player is now handed
+ * a whole show at a time, not the season the viewer picked from — so one
+ * long-running series records several hundred urls in a single sitting, and
+ * at the old cap the second such show quietly evicted the first one's. These
+ * are what let a resume position climb back to its Series card; losing them
+ * drops a part-watched show out of Continue watching altogether.
  */
 internal fun mergeEpisodeOrigins(
     existing: Map<String, String>,
     seriesId: String,
     episodeUrls: List<String>,
-    cap: Int = 500,
+    cap: Int = 2000,
 ): Map<String, String> {
     val map = LinkedHashMap(existing)
     for (url in episodeUrls) {

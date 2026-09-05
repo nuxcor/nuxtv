@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -366,7 +367,7 @@ fun SeriesDetailScreen(
     val resumePositions by vm.resumePositions.collectAsState()
     val resumeProgress by vm.resumeProgress.collectAsState()
     val watchedAt by vm.watchedAt.collectAsState()
-    var menuEpisode by remember { mutableStateOf<Pair<Episode, Int>?>(null) }
+    var menuEpisode by remember { mutableStateOf<Episode?>(null) }
     // The row the menu was opened on keeps a requester so focus can come back
     // to it. This was the one ContextMenu in the app without the return: left
     // to Compose, a dismissed menu reseats focus on the nearest node — here
@@ -443,12 +444,11 @@ fun SeriesDetailScreen(
         listState.animateScrollToItem(0)
     }
 
+    // The whole show goes to the player, not the season the row came from:
+    // the playlist is what the up-next offer walks, and a season-sized one
+    // ended the series at every season boundary. See MainViewModel.playEpisodes.
     fun playFrom(episode: Episode, startOver: Boolean) {
-        val list = eps.orEmpty().filter { it.season == episode.season }
-        vm.playEpisodes(
-            series, list, list.indexOf(episode).coerceAtLeast(0),
-            startOver = startOver,
-        )
+        vm.playEpisodes(series, eps.orEmpty(), episode, startOver = startOver)
         onPlay()
     }
 
@@ -524,7 +524,7 @@ fun SeriesDetailScreen(
                             onSelect = { selectedSeason = it },
                         )
                     }
-                    itemsIndexed(seasonEpisodes, key = { _, e -> e.id }) { index, episode ->
+                    items(seasonEpisodes, key = { it.id }) { episode ->
                         val watchedTo = resumePositions[episode.url] ?: 0L
                         val seen = episode.url in watchedAt
                         EpisodeRow(
@@ -551,10 +551,7 @@ fun SeriesDetailScreen(
                             modifier = if (episode.id == menuOriginId) {
                                 Modifier.focusRequester(menuOriginFocus)
                             } else Modifier,
-                            onClick = {
-                                vm.playEpisodes(series, seasonEpisodes, index)
-                                onPlay()
-                            },
+                            onClick = { playFrom(episode, startOver = false) },
                             // Reachable for anything with a place to forget —
                             // part-watched or finished. Before, a finished
                             // episode had no menu because it had no position,
@@ -562,7 +559,7 @@ fun SeriesDetailScreen(
                             onLongClick = if (watchedTo > 0 || seen) {
                                 {
                                     menuOriginId = episode.id
-                                    menuEpisode = episode to index
+                                    menuEpisode = episode
                                 }
                             } else null,
                         )
@@ -571,23 +568,17 @@ fun SeriesDetailScreen(
             }
         }
 
-        menuEpisode?.let { (episode, index) ->
+        menuEpisode?.let { episode ->
             val partWatched = (resumePositions[episode.url] ?: 0L) > 0L
             ContextMenu(
                 title = EpisodeTitle.numbered(episode.title, episode.episodeNum),
                 actions = buildList {
                     if (partWatched) {
-                        add(
-                            MenuAction("Resume") {
-                                vm.playEpisodes(series, seasonEpisodes, index)
-                                onPlay()
-                            }
-                        )
+                        add(MenuAction("Resume") { playFrom(episode, startOver = false) })
                     }
                     add(
                         MenuAction(if (partWatched) "Start over" else "Play") {
-                            vm.playEpisodes(series, seasonEpisodes, index, startOver = true)
-                            onPlay()
+                            playFrom(episode, startOver = true)
                         }
                     )
                     // The way out of a wrong mark — an episode left running

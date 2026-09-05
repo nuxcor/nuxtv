@@ -63,6 +63,32 @@ class PlayerKeyHandlerTest {
         assertEquals(PlayerKeyAction.PlayUpNext, up.action)
     }
 
+    // --- the end card ------------------------------------------------------
+
+    @Test
+    fun `OK on the end card leaves the player, on the release`() {
+        val down = press(KeyEvent.KEYCODE_DPAD_CENTER, layer = PlayerLayer.Finished)
+        assertTrue(down.consumed)
+        assertNull(down.action)
+
+        val up = press(
+            KeyEvent.KEYCODE_DPAD_CENTER, layer = PlayerLayer.Finished,
+            isKeyDown = false, isKeyUp = true,
+        )
+        assertEquals(PlayerKeyAction.LeaveFinished, up.action)
+    }
+
+    @Test
+    fun `the end card never arms a long press behind itself`() {
+        // Nothing is playing: the tracks sheet a hold would open would be
+        // over the credits of something that has already finished.
+        val repeat = press(
+            KeyEvent.KEYCODE_DPAD_CENTER, layer = PlayerLayer.Finished,
+            repeatCount = 3, centerArmed = true,
+        )
+        assertNull("must not long-press", repeat.action)
+    }
+
     @Test
     fun `the offer takes OK before the arm and hold machinery sees it`() {
         // A viewer reaching for OK to start the next episode must not instead

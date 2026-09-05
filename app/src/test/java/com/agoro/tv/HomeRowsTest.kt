@@ -46,11 +46,12 @@ class HomeRowsTest {
         resumePositions: Map<String, Long>,
         resumeProgress: Map<String, Float>,
         watchedAt: Map<String, Long> = emptyMap(),
+        seriesSizes: Map<String, Int> = emptyMap(),
     ): List<ContinueCard> {
         val index = buildCatalogIndex(ContentBundle(movies = movies, series = series)) { false }
         return buildContinueWatching(
             index.movieByUrl, index.seriesById, episodeOrigins, resumePositions, resumeProgress,
-            watchedAt = watchedAt,
+            watchedAt = watchedAt, seriesSizes = seriesSizes,
         )
     }
 
@@ -132,6 +133,85 @@ class HomeRowsTest {
             watchedAt = mapOf("http://x/a" to 1_000L, "http://x/b" to 9_000L),
         )
         assertEquals(listOf("new", "old"), row.map { (it as ContinueCard.SeriesCard).series.id })
+    }
+
+    @Test
+    fun `a show watched through to its last episode leaves continue watching`() {
+        // The complaint the end card only half answered: the series is DONE
+        // and the row was still offering to carry it on.
+        val row = buildContinueWatching(
+            movies = emptyList(),
+            series = listOf(series("s1")),
+            episodeOrigins = mapOf("http://x/ep1" to "s1", "http://x/ep2" to "s1"),
+            resumePositions = emptyMap(),
+            resumeProgress = emptyMap(),
+            watchedAt = mapOf("http://x/ep1" to 5_000L, "http://x/ep2" to 6_000L),
+            seriesSizes = mapOf("s1" to 2),
+        )
+        assertTrue(row.isEmpty())
+    }
+
+    @Test
+    fun `a show with an episode still to watch stays`() {
+        val row = buildContinueWatching(
+            movies = emptyList(),
+            series = listOf(series("s1")),
+            episodeOrigins = mapOf("http://x/ep1" to "s1", "http://x/ep2" to "s1"),
+            resumePositions = emptyMap(),
+            resumeProgress = emptyMap(),
+            watchedAt = mapOf("http://x/ep1" to 5_000L),
+            seriesSizes = mapOf("s1" to 3),
+        )
+        assertEquals(listOf("s1"), row.map { (it as ContinueCard.SeriesCard).series.id })
+    }
+
+    @Test
+    fun `a show with no recorded size is kept, not guessed at`() {
+        // Everything watched before this release has origins and marks but no
+        // count. Absence must read as "don't know" — dropping such a show
+        // would empty the row for viewers who had done nothing wrong.
+        val row = buildContinueWatching(
+            movies = emptyList(),
+            series = listOf(series("s1")),
+            episodeOrigins = mapOf("http://x/ep1" to "s1"),
+            resumePositions = emptyMap(),
+            resumeProgress = emptyMap(),
+            watchedAt = mapOf("http://x/ep1" to 5_000L),
+            seriesSizes = emptyMap(),
+        )
+        assertEquals(1, row.size)
+    }
+
+    @Test
+    fun `a part-watched episode keeps a seen-out show on the row`() {
+        // Every episode finished, and then one started again: the viewer is
+        // in the middle of something, which is what the row is for.
+        val row = buildContinueWatching(
+            movies = emptyList(),
+            series = listOf(series("s1")),
+            episodeOrigins = mapOf("http://x/ep1" to "s1"),
+            resumePositions = mapOf("http://x/ep1" to 60_000L),
+            resumeProgress = mapOf("http://x/ep1" to 0.3f),
+            watchedAt = mapOf("http://x/ep1" to 5_000L),
+            seriesSizes = mapOf("s1" to 1),
+        )
+        assertEquals(1, row.size)
+        assertEquals(0.3f, row.first().progress)
+    }
+
+    @Test
+    fun `the shows shelf drops a show watched through as well`() {
+        val index = buildCatalogIndex(ContentBundle(series = listOf(series("s1")))) { false }
+        val catalog = buildCatalog(
+            index,
+            resumePositions = emptyMap(),
+            resumeProgress = emptyMap(),
+            episodeOrigins = mapOf("http://x/ep1" to "s1"),
+            hiddenTitles = emptySet(),
+            watchedAt = mapOf("http://x/ep1" to 5_000L),
+            seriesSizes = mapOf("s1" to 1),
+        )
+        assertTrue(catalog.resumedSeries.isEmpty())
     }
 
     @Test

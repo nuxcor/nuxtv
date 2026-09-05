@@ -52,6 +52,11 @@ internal fun buildContinueWatching(
      * refusing to let anything go.
      */
     watchedAt: Map<String, Long> = emptyMap(),
+    /**
+     * Series id → its episode count when last played; see [newestFinishBySeries].
+     * What takes a show OFF the row once it has been watched through.
+     */
+    seriesSizes: Map<String, Int> = emptyMap(),
     limit: Int = 20,
 ): List<ContinueCard> {
     val seenSeries = HashSet<String>()
@@ -79,7 +84,7 @@ internal fun buildContinueWatching(
         // viewer is in the middle of. Which episode comes next is the series
         // page's answer — the episode list is fetched per show and is not
         // known here.
-        for ((seriesId, _) in newestFinishBySeries(watchedAt, episodeOrigins)) {
+        for ((seriesId, _) in newestFinishBySeries(watchedAt, episodeOrigins, seriesSizes)) {
             if (size >= limit) break
             if (seriesId in seenSeries) continue
             val show = seriesById[seriesId] ?: continue
@@ -90,22 +95,52 @@ internal fun buildContinueWatching(
 }
 
 /**
- * Series id → when its most recently finished episode finished, newest first.
+ * Series id → when its most recently finished episode finished, newest first —
+ * excluding the shows there is nothing left to watch of.
  *
  * Both shelves that surface a finished show — Home's Continue watching row and
  * the Shows tab's own — need exactly this, and had it written out twice. A
  * recency cutoff or a cap would have been added to one of them.
+ *
+ * The exclusion is the second half of the same defect the end card fixed. A
+ * show earns its place here by having had an episode FINISHED, which is also
+ * what a viewer does to the last episode of the last season — so a show
+ * watched through to its end sat at the head of Continue watching forever,
+ * offering to carry on something with nothing left to carry on with. Netflix
+ * drops a title from the row on its last episode; so does this.
+ *
+ * [seriesSizes] is what makes that knowable off the series page, where the
+ * episode list is: it holds how many episodes each show had when the player
+ * was last handed it. A show with no entry is one not played since that began
+ * being recorded, and it is KEPT — absence means "don't know", never "nothing
+ * left". Watch marks outnumbering the recorded size (a season removed by the
+ * provider, a re-run) counts as seen out too, which is why this compares on
+ * `>=` rather than equality.
  */
 internal fun newestFinishBySeries(
     watchedAt: Map<String, Long>,
     episodeOrigins: Map<String, String>,
-): List<Pair<String, Long>> =
-    watchedAt.asSequence()
-        .mapNotNull { (url, at) -> episodeOrigins[url]?.let { it to at } }
-        .groupingBy { it.first }
-        .fold(0L) { newest, (_, at) -> maxOf(newest, at) }
-        .toList()
+    seriesSizes: Map<String, Int> = emptyMap(),
+): List<Pair<String, Long>> {
+    if (watchedAt.isEmpty()) return emptyList()
+    // How many episodes of each show have been finished, and when the most
+    // recent of them was. One pass over a map already in memory.
+    val finished = HashMap<String, Int>()
+    val newest = HashMap<String, Long>()
+    for ((url, at) in watchedAt) {
+        val seriesId = episodeOrigins[url] ?: continue
+        finished[seriesId] = (finished[seriesId] ?: 0) + 1
+        newest[seriesId] = maxOf(newest[seriesId] ?: 0L, at)
+    }
+    return newest.asSequence()
+        .filter { (seriesId, _) ->
+            val size = seriesSizes[seriesId] ?: return@filter true
+            (finished[seriesId] ?: 0) < size
+        }
+        .map { it.key to it.value }
         .sortedByDescending { it.second }
+        .toList()
+}
 
 /** One card in a plain catalogue row — Recently added, and the day-one shelves. */
 internal sealed interface CatalogCard {
@@ -754,11 +789,13 @@ internal fun buildCatalog(
     hiddenTitles: Set<String>,
     /** Episode url → when it finished; see [buildContinueWatching]. */
     watchedAt: Map<String, Long> = emptyMap(),
+    /** Series id → its episode count when last played; see [newestFinishBySeries]. */
+    seriesSizes: Map<String, Int> = emptyMap(),
     starterLength: Int = STARTER_ROW_LENGTH,
 ): Catalog {
     val continueWatching = buildContinueWatching(
         index.movieByUrl, index.seriesById, episodeOrigins, resumePositions, resumeProgress,
-        watchedAt = watchedAt,
+        watchedAt = watchedAt, seriesSizes = seriesSizes,
     )
     // Resume positions run oldest-first; both resumed lists read newest-first,
     // like Home's shelf — not playlist order.
@@ -792,7 +829,7 @@ internal fun buildCatalog(
     // viewer who has finished an episode of 150 shows got a 150-card
     // "Continue watching" shelf — which is a library, not a shortcut.
     val listed = (fromOrigins + fromEpisodes).mapTo(HashSet()) { it.id }
-    val fromFinished = newestFinishBySeries(watchedAt, episodeOrigins)
+    val fromFinished = newestFinishBySeries(watchedAt, episodeOrigins, seriesSizes)
         .asSequence()
         .mapNotNull { (seriesId, _) -> seriesId.takeIf { it !in listed }?.let { index.seriesById[it] } }
         .take((CONTINUE_SHELF_LIMIT - listed.size).coerceAtLeast(0))

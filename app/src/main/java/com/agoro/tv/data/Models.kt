@@ -165,6 +165,17 @@ data class Episode(
     val plot: String? = null,
 )
 
+/**
+ * The show's running order: season, then episode number.
+ *
+ * Never the provider's order. A panel that lists a season's episodes out of
+ * order, or interleaves specials, would otherwise decide what "the next one"
+ * means — and since the player's playlist IS this list, that would be the
+ * order a binge plays in.
+ */
+fun List<Episode>.inSeriesOrder(): List<Episode> =
+    sortedWith(compareBy({ it.season }, { it.episodeNum }))
+
 @Serializable
 data class Series(
     val id: String,

@@ -1,6 +1,7 @@
 package com.agoro.tv
 
 import com.agoro.tv.data.Episode
+import com.agoro.tv.data.inSeriesOrder
 import com.agoro.tv.ui.screens.upNext
 import com.agoro.tv.ui.screens.upNextLabel
 import org.junit.Assert.assertEquals
@@ -148,5 +149,23 @@ class EpisodeProgressTest {
         val up = upNext(show, emptyMap(), mapOf("http://x/other" to 1_000L))!!
         assertEquals(ep(1, 1).url, up.episode.url)
         assertTrue(up.fresh)
+    }
+
+    @Test
+    fun `the show's running order is season then episode, whatever the provider sent`() {
+        // The order the player's playlist is built in, so this decides what a
+        // binge plays next — not the order the panel happened to list.
+        val jumbled = listOf(ep(2, 2), ep(1, 3), ep(2, 1), ep(1, 1), ep(1, 2))
+        assertEquals(
+            show.map { it.url },
+            jumbled.inSeriesOrder().map { it.url },
+        )
+    }
+
+    @Test
+    fun `episode 10 sorts after episode 9, not between 1 and 2`() {
+        // Numbers, not strings: the whole point of ordering on episodeNum.
+        val ordered = listOf(ep(1, 10), ep(1, 9), ep(1, 1)).inSeriesOrder()
+        assertEquals(listOf(1, 9, 10), ordered.map { it.episodeNum })
     }
 }

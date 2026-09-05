@@ -22,6 +22,7 @@ import com.agoro.tv.data.PlaybackRequest
 import com.agoro.tv.data.PlayerPrefs
 import com.agoro.tv.data.PlaylistSource
 import com.agoro.tv.data.indexAnswering
+import com.agoro.tv.data.inSeriesOrder
 import com.agoro.tv.data.Series
 import com.agoro.tv.recording.RecordingScheduler
 import com.agoro.tv.ui.screens.foldMovieVariants
@@ -238,6 +239,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * see [PlayerPrefs.watchedAt].
      */
     val watchedAt: StateFlow<Map<String, Long>> = playerPrefs.watchedAt
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    /**
+     * Series id → how many episodes it had when last played; what tells
+     * Continue watching a show has been seen out. See [PlayerPrefs.seriesSizes].
+     */
+    val seriesSizes: StateFlow<Map<String, Int>> = playerPrefs.seriesSizes
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     /** Episode stream URL → series id, Continue Watching's climb back to the series. */
@@ -573,19 +581,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
             .let { index ->
                 // combine tops out at five typed sources, and the catalogue
-                // now wants six: the two episode maps are paired first
+                // wants seven: the three episode maps are grouped first
                 // because they are read together — an origin says which show
-                // an episode belongs to, a watch mark says it finished.
+                // an episode belongs to, a watch mark says it finished, and
+                // the show's size says whether that was the last of them.
                 val episodeState = kotlinx.coroutines.flow.combine(
-                    episodeOrigins, watchedAt,
-                ) { origins, watched -> origins to watched }
+                    episodeOrigins, watchedAt, seriesSizes,
+                ) { origins, watched, sizes -> Triple(origins, watched, sizes) }
                 kotlinx.coroutines.flow.combine(
                     index, resumePositions, resumeProgress, episodeState, hiddenTitles,
                 ) { idx, positions, progress, episodes, hidden ->
-                    val (origins, watched) = episodes
+                    val (origins, watched, sizes) = episodes
                     idx?.let {
                         com.agoro.tv.ui.screens.buildCatalog(
-                            it, positions, progress, origins, hidden, watchedAt = watched,
+                            it, positions, progress, origins, hidden,
+                            watchedAt = watched, seriesSizes = sizes,
                         )
                     }
                 }
@@ -1691,20 +1701,37 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    /**
+     * Hands the player a show — all of it, in running order — starting on
+     * [start].
+     *
+     * The whole series, not the season the viewer picked from. The playlist
+     * is what the up-next offer walks, so a season-sized one made every
+     * season boundary look like the end of the show: the last episode of a
+     * season ended, nothing was queued behind it, and the player sat on the
+     * final frame. Handed the series whole, the offer crosses the boundary by
+     * itself and only the actual finale reaches the end of the list.
+     */
     fun playEpisodes(
         series: Series,
         episodes: List<Episode>,
-        startIndex: Int,
+        start: Episode,
         startOver: Boolean = false,
     ) {
+        // The provider's order is not the show's; see [inSeriesOrder]. Done
+        // here, once, rather than at each call site: the index below has to
+        // point into the SAME list the player is given, and computing the two
+        // apart is how they drift.
+        val ordered = episodes.inSeriesOrder()
+        val startIndex = ordered.indexOfFirst { it.url == start.url }.coerceAtLeast(0)
         // Episode URLs don't encode their series; remember the link now — the
         // only moment both sides are known — so a resume position saved later
         // can climb back to its Series card.
         viewModelScope.launch {
-            playerPrefs.recordEpisodeOrigins(series.id, episodes.map { it.url })
+            playerPrefs.recordSeriesPlaylist(series.id, ordered.map { it.url })
         }
         playback = PlaybackRequest(
-            items = episodes.map {
+            items = ordered.map {
                 PlayableItem(
                     url = it.url,
                     title = series.name,
@@ -1719,7 +1746,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     artwork = it.poster ?: series.poster,
                 )
             },
-            startIndex = startIndex.coerceIn(0, (episodes.size - 1).coerceAtLeast(0)),
+            startIndex = startIndex.coerceIn(0, (ordered.size - 1).coerceAtLeast(0)),
             isLive = false,
             ignoreResume = startOver,
         )
