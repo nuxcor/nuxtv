@@ -1220,9 +1220,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
             VodTitleHeader(
                 title = item?.title.orEmpty(),
                 subtitle = item?.subtitle,
-                resolution = session.videoSize,
-                hdrFormat = session.hdrType?.label,
-                audioFormatLabel = session.audioFormatLabel,
             )
         }
 
@@ -1252,9 +1249,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     item = item,
                     channel = channel,
                     isLive = request.isLive,
-                    resolution = session.videoSize,
-                    hdrFormat = session.hdrType?.label,
-                    audioFormatLabel = session.audioFormatLabel,
                     // Only while the controls are down: with them open the
                     // viewer has already found the thing the hint points at.
                     showKeyHints = request.isLive && hintsVersionSeen < KEY_HINTS_VERSION &&
@@ -1275,6 +1269,11 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     durationMs = session.durationMs,
                     hasPlaylist = request.items.size > 1,
                     canPip = pipSupported,
+                    // What the decoder made of the stream, at the end of the
+                    // button row — the one place it is drawn now.
+                    resolution = session.videoSize,
+                    hdrFormat = session.hdrType?.label,
+                    audioFormatLabel = session.audioFormatLabel,
                     onPlayPause = { session.togglePlayPause(); session.poke() },
                     onSeekBy = { delta -> engine.seekTo(engine.positionMs + delta); session.poke() },
                     onPrevious = { engine.previous(); session.poke() },
